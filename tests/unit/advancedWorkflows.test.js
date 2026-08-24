@@ -483,6 +483,11 @@ describe('advancedWorkflows tests', () => {
       // the syncthing monitor's first-run mount-safety is assumed complete for the
       // election tests; a dedicated test below covers the not-complete skip
       globalState.syncthingAppsFirstRun = false;
+      // the election reads the busy lists and the receive-only cache off the
+      // real module now - state left by a prior test must not leak into this one
+      globalState.receiveOnlySyncthingAppsCache.clear();
+      globalState.backupInProgress.forEach((a) => globalState.finishBackup(a));
+      globalState.restoreInProgress.forEach((a) => globalState.finishRestore(a));
 
       // Setup stubs
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -549,18 +554,12 @@ describe('advancedWorkflows tests', () => {
 
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      const backupInProgress = [];
-      const restoreInProgress = [];
       const https = require('https');
 
       await advancedWorkflows.masterSlaveApps(
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -572,18 +571,12 @@ describe('advancedWorkflows tests', () => {
 
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      const backupInProgress = [];
-      const restoreInProgress = [];
       const https = require('https');
 
       await advancedWorkflows.masterSlaveApps(
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -599,9 +592,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        new Map(),
-        [],
-        [],
         require('https'),
       );
 
@@ -609,6 +599,10 @@ describe('advancedWorkflows tests', () => {
       expect(installedApps.called).to.be.false;
     });
 
+    // The busy claim goes through the real primitive and the election reads the
+    // busy list off globalState itself - these two tests cover the WIRING, not a
+    // parameter. The old parameter-based version stayed green while the guard was
+    // dead in production (the boot capture went stale behind it).
     it('should skip apps in backup progress', async () => {
       const appName = 'testapp';
       const installedApps = sinon.stub().resolves({
@@ -622,29 +616,60 @@ describe('advancedWorkflows tests', () => {
         ],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      const backupInProgress = [appName];
-      const restoreInProgress = [];
       const https = require('https');
 
       // Mock FDM to return no errors
       serviceHelperStub.resolves({ data: [] });
 
-      // Execute - should skip processing this app due to backup
-      await advancedWorkflows.masterSlaveApps(
-        globalState,
-        installedApps,
-        listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
-        https,
-      );
+      expect(globalState.tryStartBackup(appName)).to.equal(true);
+      try {
+        await advancedWorkflows.masterSlaveApps(
+          globalState,
+          installedApps,
+          listRunningApps,
+          https,
+        );
 
-      // Function should have been called to get installed apps
-      expect(installedApps.called).to.be.true;
-      // But FDM should not be queried since app is skipped
-      expect(serviceHelperStub.called).to.be.false;
+        // Function should have been called to get installed apps
+        expect(installedApps.called).to.be.true;
+        // But FDM should not be queried since app is skipped
+        expect(serviceHelperStub.called).to.be.false;
+      } finally {
+        globalState.finishBackup(appName);
+      }
+    });
+
+    it('should skip apps in restore progress', async () => {
+      const appName = 'testapp';
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 3,
+            containerData: 'g:/data',
+          },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const https = require('https');
+
+      serviceHelperStub.resolves({ data: [] });
+
+      expect(globalState.tryStartRestore(appName)).to.equal(true);
+      try {
+        await advancedWorkflows.masterSlaveApps(
+          globalState,
+          installedApps,
+          listRunningApps,
+          https,
+        );
+
+        expect(installedApps.called).to.be.true;
+        expect(serviceHelperStub.called).to.be.false;
+      } finally {
+        globalState.finishRestore(appName);
+      }
     });
 
     // Shared fixture for the recovery tests below: a v3 g: app with this node in
@@ -667,7 +692,12 @@ describe('advancedWorkflows tests', () => {
         data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      if (!receiveOnlyCache.has(appId)) receiveOnlyCache.set(appId, { restarted: true });
+      // Entries land in the real globalState cache - the election reads it off
+      // the module, not off a parameter. The entry OBJECTS are shared between
+      // the test's own map and the global one, so a test that inspects (or
+      // mutates) its map afterwards still meets production's in-place writes.
+      receiveOnlyCache.forEach((value, key) => globalState.receiveOnlySyncthingAppsCache.set(key, value));
+      if (!globalState.receiveOnlySyncthingAppsCache.has(appId)) globalState.receiveOnlySyncthingAppsCache.set(appId, { restarted: true });
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       // Election order is runningSince ascending, with ip only as a tiebreak. Give
       // explicit, distinct timestamps so this node's index rests on the primary key
@@ -703,7 +733,7 @@ describe('advancedWorkflows tests', () => {
         delayCalls = 0;
         globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
-          globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
+          globalState, installedApps, listRunningApps, require('https'),
         );
       };
     };
@@ -1623,10 +1653,8 @@ describe('advancedWorkflows tests', () => {
         ],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map([
-        [`flux${first}`, { restarted: true }],
-        [`flux${second}`, { restarted: true }],
-      ]);
+      globalState.receiveOnlySyncthingAppsCache.set(`flux${first}`, { restarted: true });
+      globalState.receiveOnlySyncthingAppsCache.set(`flux${second}`, { restarted: true });
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       // This node is index 0 for both, so the second app is startable the moment
       // it is reached - which makes "was it reached?" unambiguous.
@@ -1656,7 +1684,7 @@ describe('advancedWorkflows tests', () => {
         delayCalls = 0;
         globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
-          globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
+          globalState, installedApps, listRunningApps, require('https'),
         );
       };
 
@@ -1700,11 +1728,7 @@ describe('advancedWorkflows tests', () => {
         data: [],
       });
 
-      const receiveOnlyCache = new Map();
-      receiveOnlyCache.set('zel_masterslaveapp', { restarted: true });
-
-      const backupInProgress = [];
-      const restoreInProgress = [];
+      globalState.receiveOnlySyncthingAppsCache.set('zel_masterslaveapp', { restarted: true });
       const https = require('https');
 
       // Mock FDM responses (no IP)
@@ -1743,9 +1767,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -1772,11 +1793,7 @@ describe('advancedWorkflows tests', () => {
         data: [],
       });
 
-      const receiveOnlyCache = new Map();
-      receiveOnlyCache.set('zel_masterslaveapp', { restarted: true });
-
-      const backupInProgress = [];
-      const restoreInProgress = [];
+      globalState.receiveOnlySyncthingAppsCache.set('zel_masterslaveapp', { restarted: true });
       const https = require('https');
 
       // Mock FDM responses (no IP)
@@ -1814,9 +1831,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -1858,7 +1872,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM reports the primary is another node
@@ -1870,9 +1883,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 
@@ -1913,7 +1923,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM reports the primary is another node
@@ -1924,9 +1933,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 
@@ -1969,7 +1975,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM returns a bare IP (current production behavior - no FDM change required).
@@ -1981,9 +1986,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 
@@ -2022,7 +2024,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM primary is a different node, returned as a bare IP (production format).
@@ -2034,9 +2035,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 

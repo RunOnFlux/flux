@@ -4054,17 +4054,19 @@ const SILENCE_REASONS = Object.freeze({
 });
 
 /**
- * Manages syncthing master/slave application coordination using FDM services
- * @param {object} globalState - Global state object containing masterSlaveAppsRunning, etc.
+ * Manages syncthing master/slave application coordination using FDM services.
+ * State (the busy lists, the receive-only cache) is read off globalStateParam at
+ * the point of each decision, never taken as separate parameters: the getters
+ * hand out snapshots, so any list captured at call time is a photograph of that
+ * moment - and this function is invoked once at boot and re-invokes itself for
+ * the life of the process.
+ * @param {object} globalStateParam - Global state module (busy lists, receive-only cache, run flags)
  * @param {Function} installedApps - Function to get installed apps
  * @param {Function} listRunningApps - Function to get running apps
- * @param {Map} receiveOnlySyncthingAppsCache - Cache for receive-only syncthing apps
- * @param {Array} backupInProgress - Array of apps with backup in progress
- * @param {Array} restoreInProgress - Array of apps with restore in progress
  * @param {object} https - HTTPS module
  * @returns {Promise<void>}
  */
-async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
+async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, https) {
   try {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
@@ -4184,10 +4186,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       let identifier;
       let needsToBeChecked = false;
       let appId;
-      const backupSkip = backupInProgressParam.some((backupItem) => installedApp.name === backupItem);
-      const restoreSkip = restoreInProgressParam.some((backupItem) => installedApp.name === backupItem);
+      const backupSkip = globalStateParam.backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = globalStateParam.restoreInProgress.some((backupItem) => installedApp.name === backupItem);
       if (backupSkip || restoreSkip) {
         log.info(`masterSlaveApps: Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
+        fluxEventBus.count('masterSlave:decision', installedApp.name, 'skippedBusy');
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -4257,7 +4260,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {
                 // Check if app is ready (syncthing data is synced) before allowing it to become primary
-                let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+                let isReady = globalStateParam.receiveOnlySyncthingAppsCache.has(appId) && globalStateParam.receiveOnlySyncthingAppsCache.get(appId).restarted;
 
                 // Fallback: If not in cache or not ready, check if syncthing folder is already in sendreceive mode
                 // This handles the case where folder is synced but cache was cleared/lost
@@ -4573,7 +4576,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     log.info(`masterSlaveApps: holding the scheduled start of app:${installedApp.name} index: ${index} - a lower-index node could not be ruled out`);
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier)
-                  && receiveOnlySyncthingAppsCache.get(appId)?.designatedLeader) {
+                  && globalStateParam.receiveOnlySyncthingAppsCache.get(appId)?.designatedLeader) {
                   // The state machine's confirmed designated leader is the only
                   // instance that can seed a newborn app: at genesis every other
                   // instance is receiveonly with nothing to sync from, so serving
@@ -4613,7 +4616,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     // already-syncing branch and never reaches the election again.
                     // Spent here, so it cannot take this node out of the stagger on
                     // later primary losses.
-                    const seedCache = receiveOnlySyncthingAppsCache.get(appId);
+                    const seedCache = globalStateParam.receiveOnlySyncthingAppsCache.get(appId);
                     if (seedCache) seedCache.designatedLeader = false;
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
@@ -4643,7 +4646,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 log.info(`masterSlaveApps: requesting stop of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
               } else if (ipsMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
                 // Check if app is ready (syncthing data is synced) before starting
-                let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+                let isReady = globalStateParam.receiveOnlySyncthingAppsCache.has(appId) && globalStateParam.receiveOnlySyncthingAppsCache.get(appId).restarted;
 
                 // Fallback: If not in cache or not ready, check if syncthing folder is already in sendreceive mode
                 if (!isReady) {
@@ -4688,7 +4691,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     globalStateParam.masterSlaveAppsRunning = false;
     fluxEventBus.count('masterSlave:cycles');
     await serviceHelper.delay(config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
-    masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
+    masterSlaveApps(globalStateParam, installedApps, listRunningApps, https);
   }
 }
 
