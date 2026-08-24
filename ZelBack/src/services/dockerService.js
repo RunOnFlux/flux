@@ -236,43 +236,6 @@ async function dockerContainerStats(idOrName) {
 }
 
 /**
- * Take stats from docker container and follow progress of the stream.
- * @param {string} repoTag Docker Hub repo/image tag.
- * @param {object} res Response.
- * @param {function} callback Callback.
- */
-async function dockerContainerStatsStream(idOrName, req, res, callback) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  dockerContainer.stats(idOrName, (err, mystream) => {
-    function onFinished(error, output) {
-      if (error) {
-        callback(err);
-      } else {
-        callback(null, output);
-      }
-      mystream.destroy();
-    }
-    function onProgress(event) {
-      if (res) {
-        res.write(serviceHelper.ensureString(event));
-        if (res.flush) res.flush();
-      }
-      log.info(event);
-    }
-    if (err) {
-      callback(err);
-    } else {
-      docker.modem.followProgress(mystream, onFinished, onProgress);
-    }
-    req.on('close', () => {
-      mystream.destroy();
-    });
-  });
-}
-
-/**
  * Returns changes on a container’s filesystem.
  *
  * @param {string} idOrName
@@ -1725,34 +1688,6 @@ async function dockerNetworkState(networkName) {
 }
 
 /**
- * Pauses app's docker.
- *
- * @param {string} idOrName
- * @returns {string} message
- */
-async function appDockerPause(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  await dockerContainer.pause();
-  return `Flux App ${idOrName} successfully paused.`;
-}
-
-/**
- * Unpauses app's docker.
- *
- * @param {string} idOrName
- * @returns {string} message
- */
-async function appDockerUnpause(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  await dockerContainer.unpause();
-  return `Flux App ${idOrName} successfully unpaused.`;
-}
-
-/**
  * Returns app's docker's active processes.
  *
  * @param {string} idOrName
@@ -2290,14 +2225,12 @@ module.exports = {
   archiveNames,
   tagImage,
   appDockerKill,
-  appDockerPause,
   appDockerRemove,
   appDockerForceRemove,
   appDockerRestart,
   appDockerStart,
   appDockerStop,
   appDockerTop,
-  appDockerUnpause,
   createFluxAppDockerNetwork,
   createFluxDockerNetwork,
   dockerContainerChanges,
@@ -2307,7 +2240,6 @@ module.exports = {
   dockerContainerLogsPolling,
   dockerContainerLogsStream,
   dockerContainerStats,
-  dockerContainerStatsStream,
   dockerCreateNetwork,
   dockerGetEvents,
   dockerGetUsage,

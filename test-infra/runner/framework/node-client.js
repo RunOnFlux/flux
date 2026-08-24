@@ -143,6 +143,7 @@ export function nodeClient(nodeNum) {
   }
 
   let eventSource = null;
+  let streamGapError = null;
   const eventBuffer = [];
   const emitter = new EventEmitter();
   emitter.on('error', () => {});
@@ -164,8 +165,24 @@ export function nodeClient(nodeNum) {
         emitter.emit('error', err);
       };
 
+      // The node fell behind its ring while this client was disconnected, so
+      // some events are gone for good. Every parked wait fails here, naming the
+      // cause - otherwise each one runs out its own budget waiting for an event
+      // that already came and went, and reports as a product bug.
+      eventSource.addEventListener('stream:gap', (e) => {
+        let dropped = 'an unknown number of';
+        try { ({ dropped } = JSON.parse(e.data)); } catch { /* keep the default */ }
+        streamGapError = new Error(
+          `node ${ip} dropped ${dropped} events while this client was disconnected - `
+          + 'any wait for one of them can never be satisfied',
+        );
+        emitter.emit('streamGap', streamGapError);
+      });
+
       for (const name of [
         'block:processed',
+        'masterSlave:started',
+        'stream:gap',
         'boot:settled',
         'confirmation:changed',
         'daemon:polled',
@@ -239,6 +256,7 @@ export function nodeClient(nodeNum) {
       eventSource = null;
     }
     eventBuffer.length = 0;
+    streamGapError = null;
     const names = emitter.eventNames().filter((n) => n !== 'error');
     for (const name of names) emitter.removeAllListeners(name);
   }
@@ -248,6 +266,9 @@ export function nodeClient(nodeNum) {
     // arrive, so fail now instead of spending this wait's whole budget proving it.
     const dead = infraDeathError();
     if (dead) return Promise.reject(dead);
+    // Same reasoning: the event may already have been dropped, so waiting for it
+    // proves nothing.
+    if (streamGapError) return Promise.reject(streamGapError);
 
     const found = eventBuffer.find((e) => e.event === name && e.id > afterId && predicate(e.data));
     if (found) return Promise.resolve(found);
@@ -275,12 +296,29 @@ export function nodeClient(nodeNum) {
       function cleanup() {
         clearTimeout(timer);
         emitter.removeListener(name, handler);
+        emitter.removeListener('streamGap', onDeath);
         offInfraDeath(onDeath);
       }
 
       emitter.on(name, handler);
+      emitter.on('streamGap', onDeath);
       onInfraDeath(onDeath);
     });
+  }
+
+  // Cadence, read on demand rather than streamed - see the rule at the top of
+  // ZelBack/src/services/utils/fluxEventBus.js.
+  async function getTestCounters() {
+    const res = await get('/flux/testcounters');
+    return res.status === 'success' ? res.data : {};
+  }
+
+  // Times a loop has been observed taking a given decision about a component.
+  // Absent counters read as 0, so a caller can difference two reads without
+  // caring whether the loop has run yet.
+  async function getDecisionCount(counterName, identifier, decision) {
+    const counters = await getTestCounters();
+    return counters?.[counterName]?.[identifier]?.[decision] || 0;
   }
 
   function getLastEventId() {
@@ -302,6 +340,8 @@ export function nodeClient(nodeNum) {
     connectEventStream,
     disconnectEventStream,
     waitForEvent,
+    getTestCounters,
+    getDecisionCount,
     getLastEventId,
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),

@@ -416,6 +416,7 @@ module.exports = {
     hashSyncIntervalMs: 1800000,
     peerNotifyIntervalMs: 3600000,
     cpuCheckIntervalMs: 900000,
+    statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,
     imageComplianceIntervalMs: 3600000,
     forceRemovalIntervalMs: 7200000,
@@ -477,6 +478,7 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000, // masterSlave (g:) FDM election cycle
+    masterSlaveStaggerMs: 180000, // per-place wait before an instance may take an empty g: primary
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

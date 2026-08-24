@@ -17,8 +17,8 @@ const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
-const messageHelper = require('./services/messageHelper');
 const { rejectQueryParameters, requireBootSettled } = require('./services/utils/routeGuards');
+const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -55,24 +55,6 @@ const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
-
-function isLocal(req, res, next) {
-  const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
-  if (remote === 'localhost' || remote === '127.0.0.1' || remote === '::ffff:127.0.0.1' || remote === '::1') return next();
-  return res.status(401).send('Access denied');
-}
-
-function requireHttps(req, res, next) {
-  if (!req.secure) {
-    const errMessage = messageHelper.createErrorMessage(
-      'HTTPS required for ArcaneOS authentication endpoints',
-      'ForbiddenProtocol',
-      403,
-    );
-    return res.status(403).json(errMessage);
-  }
-  return next();
-}
 
 const cache = apicache.middleware;
 // caching a transient 503 would pin "unavailable" for the cache window after
@@ -1226,19 +1208,31 @@ module.exports = (app) => {
   app.get('/apps/requestmessage/:hash', (req, res) => {
     messageVerifier.requestAppMessageAPI(req, res);
   });
-  app.get('/apps/appstart/:appname?/:global?', requireBootSettled, (req, res) => {
+  // alwaysRespond BEFORE requireBootSettled, on all eight app-control routes.
+  //
+  // Not for the reason it looks like. A 503 from the boot gate cannot collapse
+  // into a bodiless 304 whichever way round these go: express's req.fresh
+  // returns false unless the status is 2xx or 304, so a conditional request can
+  // never turn a 503 into one, whatever ETag it carries. Verified across
+  // bootSettled x order x six request shapes.
+  //
+  // The real reason is smaller: reversed, the 503 goes out with no Cache-Control
+  // header at all instead of no-store, because alwaysRespond never runs. Worth
+  // keeping, and worth writing down - two middlewares in an order with no stated
+  // reason is an invitation to swap them.
+  app.get('/apps/appstart/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appStart(req, res);
   });
-  app.get('/apps/appstop/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/appstop/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appStop(req, res);
   });
-  app.get('/apps/apprestart/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/apprestart/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appRestart(req, res);
   });
-  app.get('/apps/apppause/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/apppause/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appPause(req, res);
   });
-  app.get('/apps/appunpause/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/appunpause/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appUnpause(req, res);
   });
   app.get('/apps/apptop/:appname?', (req, res) => {
@@ -1257,10 +1251,7 @@ module.exports = (app) => {
     appInspector.appStats(req, res);
   });
   app.get('/apps/appmonitor/:appname?/:range?', (req, res) => {
-    monitoringOrchestrator.appMonitor(req, res);
-  });
-  app.get('/apps/appmonitorstream/:appname?', (req, res) => {
-    appInspector.appMonitorStream(req, res);
+    appInspector.appMonitorAPI(req, res);
   });
   app.get('/apps/appchanges/:appname?', (req, res) => {
     appInspector.appChanges(req, res);
@@ -1268,7 +1259,7 @@ module.exports = (app) => {
   app.post('/apps/appexec', (req, res) => {
     appInspector.appExec(req, res);
   });
-  app.get('/apps/appremove/:appname?/:force?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/appremove/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appUninstaller.removeAppLocallyApi(req, res);
   });
   app.get('/apps/installapplocally/:appname?', requireBootSettled, (req, res) => {
@@ -1289,20 +1280,28 @@ module.exports = (app) => {
   app.get('/apps/reindexglobalappslocation', (req, res) => {
     registryManager.reindexGlobalAppsLocationAPI(req, res);
   });
-  app.get('/apps/redeploy/:appname?/:force?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     advancedWorkflows.redeployAPI(req, res);
   });
-  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', requireBootSettled, (req, res) => {
+  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', alwaysRespond, requireBootSettled, (req, res) => {
     advancedWorkflows.redeployComponentAPI(req, res);
   });
   app.get('/apps/reconstructhashes', (req, res) => {
     registryManager.reconstructAppMessagesHashCollectionAPI(req, res);
   });
-  app.get('/apps/startmonitoring/:appname?', (req, res) => {
+  // alwaysRespond, like the other retired routes: the body is byte-identical on
+  // every call, so express fingerprints it with a strong ETag and any caller that
+  // revalidates gets an empty 304 from the second call on. Explaining why the
+  // endpoint stopped working is the only job these routes have left, and a repeat
+  // caller could never read the explanation.
+  app.get('/apps/startmonitoring/:appname?', alwaysRespond, (req, res) => {
     monitoringOrchestrator.startAppMonitoringAPI(req, res);
   });
-  app.get('/apps/stopmonitoring/:appname?/:deletedata?', (req, res) => {
+  app.get('/apps/stopmonitoring/:appname?/:deletedata?', alwaysRespond, (req, res) => {
     monitoringOrchestrator.stopAppMonitoringAPI(req, res);
+  });
+  app.get('/apps/appmonitorstream/:appname?', alwaysRespond, (req, res) => {
+    monitoringOrchestrator.appMonitorStreamAPI(req, res);
   });
 
   app.get('/syncthing/metrics', cache('10 seconds'), (req, res) => {
@@ -1642,5 +1641,11 @@ module.exports = (app) => {
 
   app.get('/flux/eventstream', (req, res) => {
     fluxEventBus.sseHandler(req, res);
+  });
+
+  // Cadence, read rather than streamed - see the rule at the top of
+  // fluxEventBus.js. 404s in production, like the stream above.
+  app.get('/flux/testcounters', (req, res) => {
+    fluxEventBus.countersHandler(req, res);
   });
 };

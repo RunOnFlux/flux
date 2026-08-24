@@ -531,111 +531,103 @@ describe('appController tests', () => {
     });
   });
 
-  describe('appPause tests', () => {
+  // Pause and unpause were removed: docker reports a paused container as running, so
+  // the reconciler and load balancer keep treating it as healthy while it is frozen.
+  // The routes answer with an error so a caller is not told the container stopped.
+  describe('deprecated pause control', () => {
     beforeEach(() => {
-      sinon.stub(dockerService, 'appDockerPause').resolves('Flux App TestApp successfully paused.');
+      verificationHelperStub.resolves(true);
     });
 
-    it('should pause app and return success message', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'TestApp',
-        version: 3,
-      });
-
-      const req = {
-        params: { appname: 'TestApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
+    it('should refuse to pause and name the replacement', async () => {
+      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake(param => param) };
 
       await appController.appPause(req, res);
 
       const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledOnce(dockerService.appDockerPause);
+
+      expect(result.status).to.equal('error');
+      expect(result.data.name).to.equal('Deprecated');
+      expect(result.data.message).to.include('appstop');
+      // The in-band contract: wire status 200, outcome as `code` in the body -
+      // the one field a caller switches on.
+      expect(result.data.code).to.equal(410);
     });
 
-    it('should pause all components for version 4+ apps', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'ComposedApp',
-        version: 4,
-        compose: [
-          { name: 'Component1' },
-          { name: 'Component2' },
-        ],
-      });
+    it('should refuse to unpause', async () => {
+      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake(param => param) };
 
-      const req = {
-        params: { appname: 'ComposedApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
+      await appController.appUnpause(req, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.code).to.equal(410);
+    });
+
+    it('should still refuse an unauthorized caller before saying anything else', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake(param => param) };
 
       await appController.appPause(req, res);
 
       const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledTwice(dockerService.appDockerPause);
-    });
-  });
 
-  describe('appUnpause tests', () => {
-    beforeEach(() => {
-      sinon.stub(dockerService, 'appDockerUnpause').resolves('Flux App TestApp successfully unpaused.');
+      expect(result.status).to.equal('error');
+      // Asserted by identity, not by negation: `not.equal('Deprecated')` is
+      // satisfied by any other error name, including one from an unrelated throw
+      // that never reached the privilege check at all.
+      expect(result.data.name).to.equal('Unauthorized');
     });
 
-    it('should unpause app and return success message', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'TestApp',
-        version: 3,
+    // Express's default extended query parser turns ?appname=a&appname=b into an
+    // ARRAY and ?appname[x]=1 into an object. Neither has .split, and the split
+    // runs ahead of verifyPrivilege because the app name is what the privilege is
+    // scoped to - so this was reachable unauthenticated from the open internet.
+    // Unguarded, the rejection was dropped and res was never written: the socket
+    // stayed open with nothing left to answer it.
+    [
+      ['an array', ['a', 'b']],
+      ['an object', { x: '1' }],
+      ['a number', 7],
+    ].forEach(([shape, appname]) => {
+      it(`answers when the app name arrives as ${shape}, instead of hanging the socket`, async () => {
+        const req = { params: {}, query: { appname }, headers: {} };
+        const res = { json: sinon.fake(param => param) };
+
+        await appController.appPause(req, res);
+
+        sinon.assert.calledOnce(res.json);
+        const result = res.json.firstCall.args[0];
+        expect(result.status).to.equal('error');
+        // Named, not merely answered. Without the shape check the split still
+        // throws and the catch still answers - but with a raw TypeError about
+        // `.split`, which says nothing to the caller and tells them the request
+        // was rejected for a reason internal to us rather than for the name they
+        // sent.
+        expect(result.data.message).to.include('Invalid Flux App name');
       });
 
-      const req = {
-        params: { appname: 'TestApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
+      it(`answers appunpause too when the app name arrives as ${shape}`, async () => {
+        const req = { params: {}, query: { appname }, headers: {} };
+        const res = { json: sinon.fake(param => param) };
 
-      await appController.appUnpause(req, res);
+        await appController.appUnpause(req, res);
 
-      const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledOnce(dockerService.appDockerUnpause);
+        sinon.assert.calledOnce(res.json);
+        expect(res.json.firstCall.args[0].data.message).to.include('Invalid Flux App name');
+      });
     });
 
-    it('should unpause all components for version 4+ apps', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'ComposedApp',
-        version: 4,
-        compose: [
-          { name: 'Component1' },
-          { name: 'Component2' },
-        ],
-      });
+    it('does not consult the privilege check with a name it could not parse', async () => {
+      const req = { params: {}, query: { appname: ['a', 'b'] }, headers: {} };
+      const res = { json: sinon.fake(param => param) };
 
-      const req = {
-        params: { appname: 'ComposedApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
+      await appController.appPause(req, res);
 
-      await appController.appUnpause(req, res);
-
-      const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledTwice(dockerService.appDockerUnpause);
+      sinon.assert.notCalled(verificationHelperStub);
     });
   });
 

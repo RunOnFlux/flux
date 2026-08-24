@@ -381,6 +381,9 @@ CloudUI/
 
 # compiled test-app fixture binary (built via test-infra/test-app/build.sh)
 test-infra/test-app/test-app
+# and the source hash it is keyed on, so a rebuild is skipped only when the
+# binary really was built from the test-app.c currently checked out
+test-infra/test-app/test-app.sha256
 
 # per-node logs written by the integration harness on test failure
 test-infra/runner/test-logs/

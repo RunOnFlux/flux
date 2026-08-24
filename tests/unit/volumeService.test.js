@@ -559,4 +559,86 @@ describe('volumeService tests', () => {
       ).to.be.rejectedWith('Component reference mount requires full app specifications');
     });
   });
+
+  describe('clearAppVolumeData tests', () => {
+    const FIND_ARGS = ['-mindepth', '1', '-maxdepth', '1', '-exec', 'rm', '-rf', '{}', '+'];
+
+    beforeEach(() => {
+      dockerServiceStub.getAppIdentifier.returns('fluxdb_MyApp');
+    });
+
+    it('empties the app data directory as root, in one command', async () => {
+      await volumeService.clearAppVolumeData('db_MyApp');
+
+      sinon.assert.calledOnce(serviceHelperStub.runCommand);
+      const [cmd, opts] = serviceHelperStub.runCommand.firstCall.args;
+      // Root for the LISTING as well as the delete. Enumerating host-side runs as
+      // the FluxOS user, and an image that chmods its data dir 700 (postgres does)
+      // makes that fail - which the caller correctly reads as a failed wipe and
+      // then retries forever, so the component never starts again.
+      expect(opts.runAsRoot).to.equal(true);
+      expect(cmd).to.equal('find');
+      // The path is load-bearing: the app ROOT holds the mount structure, and
+      // wiping that instead of appdata destroys the volume rather than its
+      // contents. -mindepth 1 empties the directory without removing it.
+      expect(opts.params).to.deep.equal([`${APPS_FOLDER}fluxdb_MyApp/appdata`, ...FIND_ARGS]);
+    });
+
+    // THE CONTRACT. serviceHelper.runCommand never rejects - it resolves
+    // { error, stdout, stderr } - so a caller that reads it as though it threw
+    // ignores every failure. This logged "Deleted data for app X" when the wipe
+    // had failed, and appReconciler's catch, which holds dataDesired at 'clear'
+    // so a start cannot proceed onto un-wiped data, was unreachable.
+    it('rejects when the wipe failed, rather than reporting success', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: new Error('exit 1'), stdout: '', stderr: "rm: cannot remove '/x': Device or resource busy",
+      });
+      // the directory exists - the failure was real
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: null, stdout: '', stderr: '' });
+
+      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith('Failed to delete data');
+
+      expect(
+        logStub.info.getCalls().some((call) => String(call.args[0]).includes('Deleted data')),
+        'reported the data deleted when the wipe failed',
+      ).to.equal(false);
+    });
+
+    // Nothing to clear is not a failed clear: an app whose volume was never
+    // populated must not hold the reconciler on a retry forever. The stderr is
+    // deliberately NOT the English message: find renders strerror in the node's
+    // locale, so the classification must come from `test -d`'s exit status and
+    // never from the words.
+    it('returns quietly when there is no app data directory, whatever language find speaks', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: new Error('exit 1'),
+        stdout: '',
+        stderr: "find: '/test/apps/folder/fluxdb_MyApp/appdata': Aucun fichier ou dossier de ce type",
+      });
+      // the directory does not exist - there was nothing to clear
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: new Error('exit 1'), stdout: '', stderr: '' });
+
+      await volumeService.clearAppVolumeData('db_MyApp');
+
+      expect(
+        logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
+      ).to.equal(true);
+      // The classifier runs as root, like the wipe: an unprivileged check paired
+      // with a root action fails on a data dir the image chmods to 700.
+      const [cmd, opts] = serviceHelperStub.runCommand.secondCall.args;
+      expect(cmd).to.equal('test');
+      expect(opts.runAsRoot).to.equal(true);
+      expect(opts.params).to.deep.equal(['-d', `${APPS_FOLDER}fluxdb_MyApp/appdata`]);
+    });
+
+    it('reports what the wipe actually said, so a failure can be diagnosed', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: new Error('exit 1'), stdout: '', stderr: 'rm: cannot remove: Read-only file system',
+      });
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: null, stdout: '', stderr: '' });
+
+      await expect(volumeService.clearAppVolumeData('db_MyApp'))
+        .to.be.rejectedWith(/Read-only file system/);
+    });
+  });
 });

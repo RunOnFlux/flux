@@ -78,7 +78,7 @@ async function bootAndPeer(env, nodeIndices) {
   ));
   await advanceBlock();
   for (const client of clients) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery(nodeIndices);
   await clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);

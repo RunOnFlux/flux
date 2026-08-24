@@ -54,6 +54,7 @@ describe('appReconciler tests', () => {
         ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
         // the heal will not destroy a container whose volume it cannot verify
         verifyAppVolumeMount: sinon.stub().resolves(true),
+        clearAppVolumeData: sinon.stub().resolves(),
       },
       appsRuntimeState: {
         isOperatorStopped: sinon.stub().resolves(false),
@@ -74,7 +75,6 @@ describe('appReconciler tests', () => {
       containerHealthMonitor: { recreateMissingContainers: sinon.stub().resolves() },
       appUninstaller: { removeAppLocally: sinon.stub().resolves() },
       appTamperingDetectionService: { recordEvent: sinon.stub().resolves(), isNetworkMissingError: () => false },
-      dockerOperations: { appDeleteDataInMountPoint: sinon.stub().resolves() },
       serviceHelper: { delay: sinon.stub().resolves() },
     };
 
@@ -90,7 +90,6 @@ describe('appReconciler tests', () => {
       './containerHealthMonitor': stubs.containerHealthMonitor,
       '../appLifecycle/appUninstaller': stubs.appUninstaller,
       '../appTamperingDetectionService': stubs.appTamperingDetectionService,
-      '../appManagement/dockerOperations': stubs.dockerOperations,
       '../serviceHelper': stubs.serviceHelper,
       '../utils/appConstants': { localAppsInformation: 'zelappsinformation' },
     });
@@ -172,6 +171,116 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    // Docker reports a PAUSED container as Running: true. Reading that as running
+    // is how a frozen container became invisible: the reconciler saw a healthy
+    // app, the sampler skipped it, and FDM kept routing to something that would
+    // never answer. It also disagreed with appStartupManager, which enumerates
+    // boot candidates from the LISTING's State - where paused is not 'running' -
+    // so boot handed the container over as needing a start and this said it was
+    // already up, every boot.
+    //
+    // Paused is not startable: docker refuses with "cannot start a paused
+    // container", and appDockerUnpause went with the rest of pause. Stopping it
+    // is what makes it reconcilable - docker stop leaves a paused container
+    // exited, and from there every normal branch applies.
+    it('stops a paused container so it can be reconciled at all', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
+      // NOT started here: docker cannot start a paused container. The stop makes
+      // it exited and the next pass starts it on the normal path.
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // Handled ahead of the desired-state branch, so it is correct in both
+    // directions. A paused container the operator has stopped must end up
+    // genuinely stopped, not left frozen because 'stop' had nothing to do.
+    it('stops a paused container the operator has stopped, rather than leaving it frozen', async () => {
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
+    });
+
+    // A paused container is LIVE: its processes are frozen but the volume is
+    // still mounted and held. The wipe path stops a running container first
+    // because "an rm -rf under a live container corrupts it", and that is just as
+    // true here - which is why the paused normalisation has to run ahead of the
+    // wipe rather than merely ahead of the run decision.
+    it('does not wipe app data out from under a paused container', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      appReconciler.requestStopAndClearData('www_App', 'test wipe');
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(
+        stubs.volumeService.clearAppVolumeData.called,
+        'wiped the volume while the container was still holding it',
+      ).to.equal(false);
+      expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
+    });
+
+    // Stopping it is only half the job - it has to come back. The stop makes the
+    // container exited, and the pass that follows starts it on the normal path,
+    // with the backoff pacing and the burst reapplication appDockerStart owns.
+    it('starts the container on the pass after it was unpaused', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+
+      // what the stop above left behind
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: false, Paused: false, Status: 'exited', ExitCode: 0,
+        },
+      });
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+    });
+
+    it('does not treat a paused container as a healthy running one', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      // STOP specifically, and never start: a reconciler that reads paused as
+      // not-running issues docker start, which docker refuses on a paused
+      // container - so the assertion must not accept start as "took action".
+      expect(
+        stubs.dockerService.appDockerStop.calledWith('www_App'),
+        'the reconciler did not stop the paused container',
+      ).to.equal(true);
+      expect(
+        stubs.dockerService.appDockerStart.called,
+        'the reconciler tried to START a paused container - docker refuses that',
+      ).to.equal(false);
+    });
+
     it('starts a stopped plain component that should run (default always policy)', async () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.appsRuntimeState.recordRestart.calledOnceWith('www_App')).to.be.true;
@@ -188,7 +297,7 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
       const deferredLoud = stubs.log.error.getCalls().some((c) => /data volume not mounted/.test(c.args[0]));
       expect(deferredLoud, 'should log the volume defer loudly').to.equal(true);
     });
@@ -204,7 +313,27 @@ describe('appReconciler tests', () => {
         await new Promise((resolve) => { setTimeout(resolve, 50); });
         expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
         expect(stubs.dockerService.appDockerStart.called).to.be.false;
-        expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+        expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
+      } finally {
+        appReconciler.clearControllerDesired('www_App');
+      }
+    });
+
+    // The volume-unavailable branch runs BEFORE the paused normalisation and
+    // returns, so it must honor the stop for a paused container itself: paused
+    // reports running=false, and reading only `running` here skips the stop
+    // and leaves a frozen container over the missing volume, with nothing left
+    // to release it. docker stop works on a paused container.
+    it('honors a pending stop for a PAUSED container when the volume cannot be mounted', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Paused: true, Status: 'paused', ExitCode: 0 } });
+      try {
+        appReconciler.setControllerDesired('www_App', 'stopped', 'mount safety block: unmounted_with_content');
+        // setControllerDesired enqueues its own reconcile; wait for it to land
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+        expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
       } finally {
         appReconciler.clearControllerDesired('www_App');
       }
@@ -231,8 +360,8 @@ describe('appReconciler tests', () => {
       appReconciler.requestStopAndClearData('www_App', 'test wipe');
       // requestStopAndClearData enqueues its own reconcile; wait for it to land
       await new Promise((resolve) => { setTimeout(resolve, 50); });
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
-      sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.dockerOperations.appDeleteDataInMountPoint);
+      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
+      sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.volumeService.clearAppVolumeData);
     });
 
     // An operator stopping an app says nothing about whether its local data can
@@ -246,7 +375,7 @@ describe('appReconciler tests', () => {
       // requestStopAndClearData enqueues its own reconcile; wait for it to land
       await new Promise((resolve) => { setTimeout(resolve, 50); });
 
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
+      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
     });
 
     // removal is the one case where nothing about the component is worth acting
@@ -256,7 +385,7 @@ describe('appReconciler tests', () => {
       appReconciler.forgetDesiredState('www_App');
       await new Promise((resolve) => { setTimeout(resolve, 50); });
 
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
     });
 
     it('ensures mount paths exist (recreating any syncthing-cleaned source) before starting', async () => {
@@ -607,15 +736,15 @@ describe('appReconciler tests', () => {
   // flight, which makes start-into-wipe structurally impossible.
   describe('data-clear (sync-layer wipe via the reconciler)', () => {
     // requestStopAndClearData is wired with the flux-prefixed docker name (the form
-    // the syncthing flow uses); the reconciler keys state by the bare component id
-    // and re-prefixes for the on-disk wipe path.
+    // the syncthing flow uses); the reconciler keys state by the bare component id,
+    // and the volume layer prefixes it again for the on-disk wipe path.
     it('wipes local appdata (prefixed path) and does not start, on a clear request', async () => {
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
       stubs.globalState.bootContainerStateSettled = true;
       await appReconciler.reconcile('db_App');
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnceWith('fluxdb_App')).to.be.true;
+      expect(stubs.volumeService.clearAppVolumeData.calledOnceWith('db_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
@@ -629,7 +758,7 @@ describe('appReconciler tests', () => {
       appReconciler.setControllerDesired('fluxdb_App', 'running', 'contrived contradiction');
       stubs.globalState.bootContainerStateSettled = true;
       await appReconciler.reconcile('db_App');
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.true;
+      expect(stubs.volumeService.clearAppVolumeData.called).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
@@ -641,7 +770,7 @@ describe('appReconciler tests', () => {
       stubs.globalState.bootContainerStateSettled = true;
       await appReconciler.reconcile('db_App');
       expect(stubs.dockerService.appDockerStop.calledWith('db_App')).to.be.true;
-      sinon.assert.callOrder(stubs.dockerService.appDockerStop, stubs.dockerOperations.appDeleteDataInMountPoint);
+      sinon.assert.callOrder(stubs.dockerService.appDockerStop, stubs.volumeService.clearAppVolumeData);
     });
 
     it('is one-shot: wipes first, then the next reconcile starts once the verdict is running', async () => {
@@ -654,12 +783,12 @@ describe('appReconciler tests', () => {
       stubs.globalState.bootContainerStateSettled = true;
 
       await appReconciler.reconcile('db_App'); // clear wins -> wipes, no start
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
+      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
 
       await appReconciler.reconcile('db_App'); // flag cleared -> now starts
       expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true; // no second wipe
+      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true; // no second wipe
     });
 
     it('keys the clear per-component (clearing one app does not wipe another)', async () => {
@@ -669,7 +798,7 @@ describe('appReconciler tests', () => {
       stubs.globalState.bootContainerStateSettled = true;
       localSpec = { name: 'Other', version: 4, compose: [{ name: 'web', containerData: 'r:/data' }] };
       await appReconciler.reconcile('web_Other');
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
       expect(stubs.dockerService.appDockerStart.calledOnceWith('web_Other')).to.be.true;
     });
 
@@ -679,17 +808,17 @@ describe('appReconciler tests', () => {
     it('schedules its own retry when the wipe fails (not the hourly sweep)', async () => {
       const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.dockerOperations.appDeleteDataInMountPoint.rejects(new Error('mount busy'));
+      stubs.volumeService.clearAppVolumeData.rejects(new Error('mount busy'));
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
       stubs.globalState.bootContainerStateSettled = true;
 
       await appReconciler.reconcile('db_App'); // must not throw
 
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.callCount).to.equal(1);
+      expect(stubs.volumeService.clearAppVolumeData.callCount).to.equal(1);
       clock.tick(6000); // past the near-term retry (MANAGED_RETRY_MS)
       await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.callCount).to.equal(2);
+      expect(stubs.volumeService.clearAppVolumeData.callCount).to.equal(2);
       clock.restore();
     });
 
@@ -698,7 +827,7 @@ describe('appReconciler tests', () => {
     // on un-wiped data, even when the controller already says running.
     it('keeps the clear pending on a failed wipe — never starts on un-wiped data', async () => {
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.dockerOperations.appDeleteDataInMountPoint.rejects(new Error('mount busy'));
+      stubs.volumeService.clearAppVolumeData.rejects(new Error('mount busy'));
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
       appReconciler.setControllerDesired('fluxdb_App', 'running', 'contrived contradiction');
@@ -706,9 +835,9 @@ describe('appReconciler tests', () => {
 
       await appReconciler.reconcile('db_App'); // first attempt: wipe throws, caught
 
-      stubs.dockerOperations.appDeleteDataInMountPoint.resetHistory();
+      stubs.volumeService.clearAppVolumeData.resetHistory();
       await appReconciler.reconcile('db_App'); // flag still 'clear' -> re-wipes, no start
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.true;
+      expect(stubs.volumeService.clearAppVolumeData.called).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
   });

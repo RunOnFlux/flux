@@ -103,6 +103,7 @@ module.exports = {
     hashSyncIntervalMs: 30000,
     peerNotifyIntervalMs: 30000,
     cpuCheckIntervalMs: 30000,
+    statsSampleIntervalMs: 2000,
     portRestoreIntervalMs: 30000,
     imageComplianceIntervalMs: 60000,
     forceRemovalIntervalMs: 120000,

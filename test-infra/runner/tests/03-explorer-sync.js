@@ -14,7 +14,7 @@ describe('Boot: explorer sync', function () {
     env = await createTestEnv({ hookCtx: this, nodes: 2 });
     await waitForDaemonReady(env.clients[0]);
     await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > env.initialHeight, 50000);
   });
 
   after(async function () {
@@ -26,7 +26,10 @@ describe('Boot: explorer sync', function () {
     it('should have explorer height above seeded value', async function () {
       const db = dbClient(1);
       const height = await db.explorerHeight();
-      expect(height).to.be.greaterThan(2100000);
+      // the seeded value IS the chain start (seedMongo writes it as
+      // generalScannedHeight), so this compares against it rather than a literal
+      // that silently widened into a 100,000-block tolerance when the start rose
+      expect(height).to.be.greaterThan(env.initialHeight);
     });
 
     it('should have explorer tracking daemon height', async function () {
@@ -48,7 +51,7 @@ describe('Boot: explorer sync', function () {
       this.timeout(120000);
       await waitForDaemonReady(env.clients[1]);
       await advanceBlock();
-      await waitForBlockProcessed(env.clients[1], (d) => d.height > 2100000, 50000);
+      await waitForBlockProcessed(env.clients[1], (d) => d.height > env.initialHeight, 50000);
     });
 
     it('should have similar explorer height on node 1 and node 2', async function () {

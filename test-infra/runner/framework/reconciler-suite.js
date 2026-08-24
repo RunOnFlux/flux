@@ -40,7 +40,31 @@ export async function seedSyncScopedData(env, name, index) {
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
 // can resolve it).
+// A seeded app must still be alive on the chain the fleet is about to run. This
+// is the funnel every global seed passes through, and it is the only place that
+// holds BOTH the app and the env, so it is where the two are checked against
+// each other rather than trusted to have been built consistently.
+//
+// Getting this wrong is silent and expensive: the spawner drops an expired app
+// from every candidate list (so spawner suites spin their whole budget and time
+// out rather than failing), and expireGlobalApplications deletes it outright on
+// any node that restarts. That is a harness fault that presents as a product
+// one, in the most expensive possible shape.
+function assertAliveOnThisChain(env, app) {
+  const seededAt = app.permanentMessage.height;
+  const expiresAt = seededAt + (app.spec.expire ?? 22000);
+  if (expiresAt <= env.initialHeight) {
+    throw new Error(
+      `seeded app ${app.spec.name} expires at block ${expiresAt}, at or below this suite's `
+      + `chain start (${env.initialHeight}) - it is already expired before the fleet processes `
+      + 'its first block. Seed relative to the chain rather than to a literal: '
+      + 'buildSeedableApp({ env, ... }).',
+    );
+  }
+}
+
 async function seedGlobalSpec(env, app, indices) {
+  assertAliveOnThisChain(env, app);
   await Promise.all(indices.map(async (i) => {
     const dc = dbClient(i + 1);
     await dc.seedGlobalAppSpec(app.spec);
@@ -158,7 +182,7 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   ));
   await advanceBlock();
   for (const client of nodes) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
   // Peering is a property of the fleet, not a literal. The ring's two halves are
@@ -222,15 +246,10 @@ export async function waitForLocationTable(node, { domains, timeout = 90000 } = 
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
 // node's DB and wait until it installs on some node; resolves that node index.
 export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedGlobalAppSpec(app.spec);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedPermanentMessage(app.permanentMessage);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  // Through the guarded funnel, never inlined: seedGlobalSpec is the one place
+  // that checks the app is alive on this suite's chain, and a seed that skips
+  // it fails twenty minutes later as a spawner timeout instead of now.
+  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
   return Promise.any(env.clients.map(async (c, i) => {
     await waitForAppInstalled(c, app.spec.name, timeout);
     return i;
@@ -241,15 +260,8 @@ export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
 // install it; resolves the sorted list of those node indices. Used by the
 // multi-node gates (g: election needs >= 2 holders).
 export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 } = {}) {
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedGlobalAppSpec(app.spec);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedPermanentMessage(app.permanentMessage);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  // Through the guarded funnel, never inlined - same contract as seedAndInstall.
+  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
   const installed = [];
   await Promise.all(env.clients.map(async (c, i) => {
     try {

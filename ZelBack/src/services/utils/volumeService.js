@@ -388,6 +388,69 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   }
 }
 
+/**
+ * Delete everything an app holds in its volume, leaving the volume itself mounted
+ * @param {string} identifier - Component identifier
+ * @returns {Promise<void>}
+ */
+async function clearAppVolumeData(identifier) {
+  const appId = dockerService.getAppIdentifier(identifier);
+  const appDataPath = path.join(appsFolder, appId, 'appdata');
+
+  // Enumerated AND deleted as root, in one command.
+  //
+  // Listing the directory host-side runs as the FluxOS user while the rm runs
+  // under sudo, and that asymmetry is fatal for exactly the apps g: mode exists
+  // to serve: a hardening image chmods its data dir (postgres does `chmod 700
+  // $PGDATA`, and for a component mounting /var/lib/postgresql/data that dir IS
+  // this appdata), so readdir fails EACCES. The caller treats that as a failed
+  // wipe - correctly - and holds dataDesired at 'clear' with a paced retry, so
+  // the component would never start again. Refusing to wipe is the right answer
+  // to a wipe that failed; it is the wrong answer to one that could have
+  // succeeded as root.
+  //
+  // find, not a shell glob: `rm -rf <dir>/*` was the old shape and hits E2BIG on
+  // a large directory, misses dotfiles, and needs a shell. -mindepth 1 empties
+  // the directory without removing it - the mount structure has to stay - and
+  // -exec ... + batches, so this is one process rather than the concurrent,
+  // uncapped rm-per-entry it replaces.
+  const wipe = await serviceHelper.runCommand('find', {
+    runAsRoot: true,
+    params: [appDataPath, '-mindepth', '1', '-maxdepth', '1', '-exec', 'rm', '-rf', '{}', '+'],
+  });
+
+  if (wipe.error) {
+    // Nothing to clear is not a failed clear: an app whose volume was never
+    // populated must not hold the reconciler on a retry forever.
+    //
+    // Classified by exit code, never by find's message: that text is strerror
+    // output, rendered in the node's locale (sudo keeps LANG/LC_* through
+    // env_keep), so matching the English words works only on English nodes -
+    // anywhere else a missing directory reads as a failed wipe and the
+    // reconciler retries it every 5s forever. `test -d` answers with its exit
+    // status alone. As root, like the wipe: an unprivileged check paired with
+    // a root action fails on a data dir the image chmods to 700.
+    //
+    // And classified AFTER the wipe rather than checked before it: check-first
+    // races toward "falsely clean" when the directory appears inside the
+    // window, where this order races toward a throw - and the next pass wipes
+    // whatever arrived.
+    const probe = await serviceHelper.runCommand('test', {
+      runAsRoot: true,
+      logError: false,
+      params: ['-d', appDataPath],
+    });
+    if (probe.error) {
+      log.info(`No data to delete for app ${appId}`);
+      return;
+    }
+    throw new Error(`Failed to delete data for app ${appId}: ${wipe.stderr || wipe.error.message || wipe.error}`);
+  }
+
+  log.info(`Deleted data for app ${appId}`);
+}
+
+
 module.exports = {
   verifyAppVolumeMount,
   ensureMountPathsExist,
@@ -396,4 +459,5 @@ module.exports = {
   getVolumeFilePath,
   getComponentAppIdsFromVolumeFiles,
   ensureAppVolumeMounted,
+  clearAppVolumeData,
 };

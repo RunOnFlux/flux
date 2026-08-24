@@ -18,6 +18,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const {
   DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch, ipsMatch,
 } = require('../utils/socketAddressUtils');
+const fluxEventBus = require('../utils/fluxEventBus');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 // eslint-disable-next-line no-unused-vars
@@ -2086,6 +2087,11 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
   // in the finally - from a successful start the controllerDesired below carries
   // the claim, and a failed one must stop claiming.
   appReconciler.claimStarting(appname);
+  // A fact - this node has decided to become primary and is committing to it.
+  // The cadence around this decision is a counter, not an event: see the rule at
+  // the top of fluxEventBus.js.
+  fluxEventBus.publish('masterSlave:started', { identifier: appname });
+  fluxEventBus.count('masterSlave:decision', appname, 'started');
   try {
     log.info(`Preparing masterSlave primary ${appname}: fixing permissions before start`);
 
@@ -3518,6 +3524,29 @@ const PeerComponent = Object.freeze({
 // budget buys nothing and costs availability.
 const PEER_PROBE_TIMEOUT_MS = 10 * 1000;
 
+/**
+ * How long an instance waits per place in the queue before it may take a primary
+ * FDM is reporting as empty.
+ *
+ * The stagger serialises the candidates so they do not all start against the same
+ * volume at once, and its length is set by how long FDM takes to register a node
+ * that HAS started - measured at ~110s in production. A place is worth more than
+ * that or the wait does not cover what it exists to cover.
+ *
+ * Read from config on every call, and per place rather than as a total, because
+ * the only consumer that overrides it is a test: at three minutes a place, every
+ * staggered-start path costs minutes of wall clock to reach, which is why none of
+ * them has rig coverage. A suite exercising one compresses it in its own
+ * configOverrides - not in the shared harness config, which would re-time every
+ * existing g: election suite for the benefit of the one that needs it.
+ *
+ * @param {number} places how far down the election order, 0 for no wait
+ * @returns {number} milliseconds
+ */
+function staggerMs(places) {
+  return places * (config.fluxapps.masterSlaveStaggerMs ?? 3 * 60 * 1000);
+}
+
 // Why a silent peer was left alone, in the words an operator reading the log
 // needs: each one is a different thing to go and look at.
 const SILENCE_REASONS = Object.freeze({
@@ -3683,6 +3712,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // operator explicitly stopped this g: component; don't elect or act on it
         // eslint-disable-next-line no-await-in-loop
         if (await appsRuntimeState.isOperatorStopped(identifier)) {
+          // Outside the once-guard below on purpose: the log line reports the
+          // state change, the counter reports every pass that honoured it, which
+          // is what a test asserting "the election kept skipping it" needs.
+          fluxEventBus.count('masterSlave:decision', identifier, 'operatorStopped');
           if (!operatorStoppedNoted.has(identifier)) {
             operatorStoppedNoted.add(identifier);
             log.info(`masterSlaveApps: ${identifier} is operator-stopped - excluded from primary election until it is started`);
@@ -3857,10 +3890,26 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const held = heldResponse?.data?.data;
                     if (Array.isArray(held)) {
                       if (held.includes(appId)) {
+                        fluxEventBus.count('masterSlave:decision', identifier, 'heldOnPeer');
                         log.info(`masterSlaveApps: component:${identifier} is held on peer node (${label}) at ${ipToCheck}, will not start`);
                         return PeerComponent.RUNNING;
                       }
                       return PeerComponent.NOT_RUNNING;
+                    }
+
+                    // The peer HAS the endpoint and it failed. FluxOS answers
+                    // errors in band, so this arrives as a 200 carrying an error
+                    // object rather than a list - indistinguishable from a peer
+                    // too old for the route by shape alone, which is why it is
+                    // separated here.
+                    // Falling through would answer from the container list a
+                    // question the peer has just said it cannot answer, and that
+                    // list cannot see the durable stop lock at all: a primary its
+                    // owner stopped to work on reads as free, and this node
+                    // elects itself over them. Alive and unreadable is UNKNOWN.
+                    if (heldResponse?.data?.status === 'error') {
+                      log.info(`masterSlaveApps: peer node (${label}) at ${ipToCheck} could not answer what it holds for app:${installedApp.name} - alive, and cannot be ruled out, will not start`);
+                      return PeerComponent.UNKNOWN;
                     }
 
                     const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout: PEER_PROBE_TIMEOUT_MS, cancelToken: source.token });
@@ -3897,8 +3946,28 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 };
 
                 const checkPeersRunning = async (scope) => {
-                  const limit = scope === 'all' ? runningAppList.length : index;
-                  if (limit <= 0) return PeerComponent.NOT_RUNNING; // not found, or no lower nodes to check
+                  // A lower-only scope with nobody in it is not an answer. At index 0
+                  // there is no node ahead to ask, and index -1 - this node absent
+                  // from the location list - has none either, so the walk below asks
+                  // NOBODY and the caller reads that as clear.
+                  //
+                  // That is the same blind start the index-0 branch takes scope 'all'
+                  // to avoid, reached from the staggered paths instead. It is not
+                  // unreachable there: the stagger is booked at index >= 2, index is
+                  // re-derived from the location list every pass, and the instances
+                  // ahead can age out of that list before the booked turn arrives -
+                  // leaving a node at index 0 holding a schedule. FDM's registration
+                  // lags a node actually starting (~110s in production), so through
+                  // that whole window it reports no primary while an instance is live,
+                  // and starting on "nobody is ahead of me" puts a second writer on
+                  // the shared volume.
+                  //
+                  // Escalate rather than answer: a start is never issued without some
+                  // peer having been asked. An empty 'all' is a real answer - there is
+                  // genuinely no one to ask - and falls through below.
+                  const effectiveScope = scope === 'lower' && index <= 0 ? 'all' : scope;
+                  const limit = effectiveScope === 'all' ? runningAppList.length : index;
+                  if (limit <= 0) return PeerComponent.NOT_RUNNING; // nobody to ask at all
 
                   const peers = [];
                   for (let i = 0; i < limit; i += 1) {
@@ -3965,12 +4034,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (previousMasterIndex >= 0) {
                       log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
                       if (index > previousMasterIndex) {
-                        timetoStartApp += (index - 1) * 3 * 60 * 1000;
+                        timetoStartApp += staggerMs(index - 1);
                       } else {
-                        timetoStartApp += index * 3 * 60 * 1000;
+                        timetoStartApp += staggerMs(index);
                       }
                     } else {
-                      timetoStartApp += index * 3 * 60 * 1000;
+                      timetoStartApp += staggerMs(index);
                     }
                     if (timetoStartApp <= Date.now()) {
                       // Time to start, but check if lower-index nodes are running
@@ -4051,7 +4120,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
                   // Non-primary node with no history - schedule start based on index
-                  const timetoStartApp = Date.now() + (index * 3 * 60 * 1000);
+                  const timetoStartApp = Date.now() + staggerMs(index);
                   log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
                   timeTostartNewMasterApp.set(identifier, timetoStartApp);
                 } else {
@@ -4060,6 +4129,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
               }
             } else {
+              // This pass read a primary off FDM. Counted rather than published:
+              // it is the loop's cadence, not an event - see the rule at the top
+              // of fluxEventBus.js.
+              fluxEventBus.count('masterSlave:decision', identifier, 'primaryObserved');
               mastersRunningGSyncthingApps.set(identifier, ip);
               if (timeTostartNewMasterApp.has(identifier)) {
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
@@ -4115,6 +4188,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   } finally {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = false;
+    fluxEventBus.count('masterSlave:cycles');
     await serviceHelper.delay(config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
     masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
   }

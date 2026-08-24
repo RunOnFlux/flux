@@ -110,6 +110,35 @@ async function isOperatorStopped(identifier) {
 }
 
 /**
+ * Every component identifier on this node the operator has deliberately stopped.
+ *
+ * One query rather than isOperatorStopped per component. The caller is the
+ * held-components answer, served on an unauthenticated route a peer reads
+ * mid-election, so a findOne apiece would scale its cost with the number of
+ * components installed here.
+ *
+ * Throws where getState swallows, and the difference is the point. getState's
+ * callers ask about one component and act on this node: a read failure there
+ * reads as "no lock", the reconciler leaves the container alone anyway, and the
+ * next pass asks again. This answer LEAVES the node - an empty list tells a peer
+ * nothing is held here, and the peer acts on that by starting a second writer on
+ * the shared volume. There is no safe way to report a lock set we could not
+ * read, so the caller has to fail rather than answer.
+ *
+ * @returns {Promise<string[]>} bare component identifiers, unprefixed
+ */
+async function operatorStoppedIdentifiers() {
+  const database = collection();
+  const docs = await dbHelper.findInDatabase(
+    database,
+    appsRuntimeState,
+    { operatorStopped: true },
+    { projection: { _id: 0, identifier: 1 } },
+  );
+  return docs.map((doc) => doc.identifier).filter(Boolean);
+}
+
+/**
  * Appends a restart attempt (wall-clock) and trims the history to the ladder
  * length so a perpetually crashing container never grows the array unbounded.
  *
@@ -356,6 +385,7 @@ module.exports = {
   getState,
   setOperatorStopped,
   isOperatorStopped,
+  operatorStoppedIdentifiers,
   recordRestart,
   restartWaitMs,
   setNetworkHealRemoval,

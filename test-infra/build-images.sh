@@ -31,12 +31,13 @@ mapfile -t STUBS < <(
 )
 
 build_fluxos() {
-  # the app binary the fixtures need; gitignored, so it survives branch
-  # switches and is easy to forget after a clean
-  if [ -f test-infra/test-app/build.sh ]; then
-    echo "==> test-app binary"
-    bash test-infra/test-app/build.sh
-  fi
+  # The app binary the fixtures need; gitignored, so it survives branch switches
+  # and is easy to forget after a clean. Not guarded on the script existing: it
+  # is present on every lineage, and a guard there would let this produce a
+  # complete image set with no binary in it - which surfaces as eight suites
+  # failing twenty minutes later, looking like product bugs.
+  echo "==> test-app binary"
+  bash test-infra/test-app/build.sh
   echo "==> flux-e2e-fluxos-01:${TAG}"
   docker build -f test-infra/Dockerfile.fluxos -t "flux-e2e-fluxos-01:${TAG}" .
 }

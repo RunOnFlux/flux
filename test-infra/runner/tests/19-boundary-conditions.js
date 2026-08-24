@@ -8,7 +8,7 @@ import {
   waitForBootSettledAndLogged, waitForDosChanged,
 } from '../framework/wait.js';
 import {
-  advanceBlock, advanceBlocks, startTicker, stopTicker,
+  advanceBlock, advanceBlocks, startTicker, stopTicker, getState,
 } from '../framework/daemon-control.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
@@ -137,8 +137,15 @@ describe('Boundary: block timer', function () {
   it('should NOT transition to READY at 249 blocks (just under threshold)', async function () {
     this.timeout(120000);
     // before hook advanced 1 block to enter SYNCING — that block counts toward the threshold
+    //
+    // The target is read off the chain, not written down. A literal encodes both
+    // the chain start AND how many blocks the before hook advanced; when the
+    // start moved it became a height the node was already past, so this wait
+    // returned on the FIRST processed block and the assertion below passed
+    // without the 248 blocks having been processed at all.
+    const tipBefore = (await getState()).currentHeight;
     await advanceBlocks(248);
-    await waitForBlockProcessed(env.clients[0], (d) => d.height >= 2100249, 30000);
+    await waitForBlockProcessed(env.clients[0], (d) => d.height >= tipBefore + 248, 30000);
     const stateEvents = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged' && e.data.to === 'READY');
     expect(stateEvents.length, 'should not be READY at 249 blocks').to.equal(0);

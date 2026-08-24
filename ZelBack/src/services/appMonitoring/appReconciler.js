@@ -4,7 +4,6 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const dbHelper = require('../dbHelper');
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
-const dockerOperations = require('../appManagement/dockerOperations');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const globalState = require('../utils/globalState');
@@ -304,7 +303,19 @@ async function dockerActual(identifier) {
     return {
       reachable: true,
       exists: true,
-      running: !!(info.State && info.State.Running),
+      // A PAUSED container reports Running: true - docker freezes the processes
+      // and leaves the record saying they are up. Reading that as running is how
+      // a frozen container became invisible to everything: this function said
+      // "healthy, nothing to do", the sampler skipped it so its charts flatlined
+      // with no explanation, and FDM went on routing traffic to something that
+      // would never answer.
+      //
+      // It also put this function at odds with appStartupManager, which
+      // enumerates boot candidates from the LISTING's State (where paused is not
+      // 'running'). Boot handed the container over saying it needed starting and
+      // this said it was already up - every boot, forever. The two now agree.
+      running: !!(info.State && info.State.Running) && !info.State.Paused,
+      paused: !!(info.State && info.State.Paused),
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
       finishedAt,
       // classified from THIS inspect so the running-branch network check needs no
@@ -375,7 +386,7 @@ async function recreateMissing(identifier) {
   await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   try {
     await containerHealthMonitor.recreateMissingContainers(identifier);
-    appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
+    appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
     notifyContainerStarted(identifier);
@@ -422,7 +433,7 @@ async function recreateForNetworkHeal(identifier) {
     // fallocates + mke2fs). We removed a live container whose data was intact, so a
     // recreate that cannot verify the volume must fail and be retried - never wipe it.
     await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true });
-    appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
+    appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });
     notifyContainerStarted(identifier);
@@ -626,7 +637,7 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
   // Stop the per-minute stats monitor before removing the container (mirrors the
   // uninstaller). Otherwise its interval runs against a gone container, leaking and
   // error-spamming. The recreate re-establishes it via startAppMonitoring.
-  appInspector.stopAppMonitoring(identifier, true, globalState.appsMonitored);
+  appInspector.stopAppMonitoring(identifier, true);
   try {
     // v=false: Flux data lives on bind mounts; the recreate reuses them via a soft
     // install (enforced: recreateForNetworkHeal passes softOnly).
@@ -636,7 +647,7 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
     // container we did NOT manage to remove is not left unmonitored. The heal flag
     // stays set on purpose - the remove may have partially succeeded, and a stale
     // flag only keeps us on the recreate path (never the uninstall one).
-    appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
+    appInspector.startAppMonitoring(identifier);
     log.error(`appReconciler - failed to remove detached ${identifier}: ${err.message}; will retry`);
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
@@ -698,10 +709,16 @@ async function reconcile(rawIdentifier) {
     // container running over a missing volume with the mount-safety hold
     // unenforceable - the incident's app kept running through the gutted
     // window exactly this way. Honor a pending stop; defer everything else.
+    //
+    // Paused counts: dockerActual reports a paused container as not running,
+    // and this branch returns before the paused normalisation below is ever
+    // reached - skipping the stop here would leave a frozen container over the
+    // missing volume with nothing left to release it. docker stop works on a
+    // paused container.
     if (controllerDesired.get(identifier) === 'stopped') {
       try {
         const actualNow = await dockerActual(identifier);
-        if (actualNow.reachable && !actualNow.indeterminate && actualNow.running) {
+        if (actualNow.reachable && !actualNow.indeterminate && (actualNow.running || actualNow.paused)) {
           log.info(`appReconciler - ${identifier} data volume unavailable but a stop is desired; stopping the container`);
           await dockerService.appDockerStop(identifier);
           fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'controllerDesired' });
@@ -745,6 +762,43 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
+  // NORMALISE A PAUSED CONTAINER BEFORE DECIDING ANYTHING ELSE.
+  //
+  // Paused is a state nothing downstream can act on. It is not startable -
+  // docker refuses with "cannot start a paused container, try unpause instead" -
+  // and appDockerUnpause was retired with the rest of pause, so no primitive
+  // remains that releases one directly. Left alone it is invisible and permanent.
+  //
+  // Stopping it converts an unrecognised state into a known one: docker stop
+  // works on a paused container and leaves it exited. From there this function
+  // needs no special case at all - the branches below start it on the normal path
+  // (with the backoff pacing, the mount-path recreation, the controller re-read
+  // and the CFS burst reapplication that appDockerStart owns), or leave it
+  // stopped if that is what is wanted. Handled ahead of the desired-state branch
+  // deliberately, so it is correct in both directions rather than only when the
+  // component is meant to be running.
+  //
+  // Nothing can create a paused container from here on - pause is retired - so
+  // this exists for the ones that already are, and for those a node that has not
+  // upgraded yet can still make during the rollout. A daemon or host restart
+  // clears them too (they come back exited), but a FluxOS restart does not, and
+  // that is the one an upgrade performs.
+  if (actual.paused) {
+    log.warn(`appReconciler - ${identifier} is paused, which nothing can act on; stopping it so it can be reconciled normally`);
+    try {
+      await dockerService.appDockerStop(identifier);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'unpaused' });
+    } catch (err) {
+      log.error(`appReconciler - failed to stop the paused ${identifier}: ${err.message}; retrying. No FluxOS primitive releases a paused container - manual remedy on the node: docker unpause ${dockerService.getAppIdentifier(identifier)}`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    // The container is exited now, so what was sampled at entry is stale in the
+    // one field the branches below read. Re-enqueue rather than reason from it.
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+
   // The heal state says "this container is absent because I removed it". The moment
   // the container exists and is not detached, that is stale - whatever its run state,
   // and whatever the desired state below turns out to be. Clearing here (rather than
@@ -770,7 +824,7 @@ async function reconcile(rawIdentifier) {
         fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'dataClear' });
       }
       await serviceHelper.delay(DATA_CLEAR_SETTLE_MS);
-      await dockerOperations.appDeleteDataInMountPoint(dockerService.getAppIdentifier(identifier));
+      await volumeService.clearAppVolumeData(identifier);
     } catch (err) {
       // A failed stop/wipe is the only actuation path here that would otherwise drop
       // to the hourly sweep (~1h down). Leave dataDesired 'clear' - so the retried
@@ -901,7 +955,7 @@ async function reconcile(rawIdentifier) {
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
-  appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
+  appInspector.startAppMonitoring(identifier);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
   notifyContainerStarted(identifier);

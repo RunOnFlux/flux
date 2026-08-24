@@ -1,8 +1,13 @@
 // Pre-seed explorer scanned height for all 16 nodes so the explorer
 // starts near the daemon tip instead of scanning from block 694000.
 // Mounted into /docker-entrypoint-initdb.d/ — runs once on first boot.
-
-const INITIAL_HEIGHT = 2100000;
+//
+// A FIRST-BOOT DEFAULT ONLY. seedMongo upserts the run's own height over this on
+// every run, including a suite that asked for a different one, so this value only
+// covers the window before the first seed. Kept in step with
+// runner/framework/chain-start.cjs, which is where the number is decided; this
+// file runs under mongosh and cannot require it.
+const INITIAL_HEIGHT = 2200000;
 const NODE_COUNT = 16;
 
 for (let i = 1; i <= NODE_COUNT; i++) {

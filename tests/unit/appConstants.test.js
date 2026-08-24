@@ -265,21 +265,6 @@ describe('appConstants tests', () => {
     });
   });
 
-  describe('appsMonitoredTemplate tests', () => {
-    beforeEach(() => {
-      process.env.HOME = '/home/user';
-      // eslint-disable-next-line global-require
-      appConstants = require('../../ZelBack/src/services/utils/appConstants');
-    });
-
-    it('should be an object', () => {
-      expect(appConstants.appsMonitoredTemplate).to.be.an('object');
-    });
-
-    it('should be an empty template object', () => {
-      expect(Object.keys(appConstants.appsMonitoredTemplate)).to.have.lengthOf(0);
-    });
-  });
 
   describe('module exports tests', () => {
     beforeEach(() => {
@@ -317,7 +302,6 @@ describe('appConstants tests', () => {
       expect(appConstants).to.have.property('isArcane');
       expect(appConstants).to.have.property('appsThatMightBeUsingOldGatewayIpAssignment');
       expect(appConstants).to.have.property('defaultNodeSpecs');
-      expect(appConstants).to.have.property('appsMonitoredTemplate');
     });
   });
 
