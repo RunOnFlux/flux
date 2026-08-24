@@ -316,13 +316,13 @@ async function downloadAppsFolder(req, res) {
         return;
       }
       let folderpath;
-      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
-      if (appVolumePath.length > 0) {
+      const { mounts } = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (mounts.length > 0) {
         // Use appid level to access appdata and all other mount points
         // Sanitize folder path to prevent directory traversal attacks
-        folderpath = sanitizePath(folder, appVolumePath[0].mount);
+        folderpath = sanitizePath(folder, mounts[0].mount);
         // Verify real path after symlink resolution to prevent symlink escape attacks
-        await verifyRealPath(folderpath, appVolumePath[0].mount);
+        await verifyRealPath(folderpath, mounts[0].mount);
       } else {
         throw new Error('Application volume not found');
       }
@@ -391,13 +391,13 @@ async function downloadAppsFile(req, res) {
         return;
       }
       let filepath;
-      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
-      if (appVolumePath.length > 0) {
+      const { mounts } = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (mounts.length > 0) {
         // Use appid level to access appdata and all other mount points
         // Sanitize file path to prevent directory traversal attacks
-        filepath = sanitizePath(file, appVolumePath[0].mount);
+        filepath = sanitizePath(file, mounts[0].mount);
         // Verify real path after symlink resolution to prevent symlink escape attacks
-        await verifyRealPath(filepath, appVolumePath[0].mount);
+        await verifyRealPath(filepath, mounts[0].mount);
       } else {
         throw new Error('Application volume not found');
       }

@@ -2448,16 +2448,19 @@ async function appendBackupTask(req, res) {
       for (const component of backup) {
         if (component.backup) {
           // eslint-disable-next-line no-await-in-loop
-          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
-          const targetPath = `${componentPath[0].mount}/appdata`;
-          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
+          const { error: mountError, mounts } = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          if (mountError || !mounts.length) {
+            throw new Error(`Refused: ${component.component} volume is not mounted, so it cannot be archived`);
+          }
+          const targetPath = `${mounts[0].mount}/appdata`;
+          const tarGzPath = `${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
-          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+          const existStatus = await IOUtils.checkFileExists(`${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           if (existStatus === true) {
             // eslint-disable-next-line no-await-in-loop
             await sendChunk(res, `Removing exists backup archive for ${component.component.toLowerCase()}...\n`);
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            await IOUtils.removeFile(`${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           }
           // eslint-disable-next-line no-await-in-loop
           await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
@@ -2465,7 +2468,7 @@ async function appendBackupTask(req, res) {
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus.status === false) {
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            await IOUtils.removeFile(`${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
             throw new Error(`Error: Failed to create backup archive for ${component.component.toLowerCase()}, ${tarStatus.error}`);
           }
         }
@@ -2686,13 +2689,16 @@ async function appendRestoreTask(req, res) {
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
       // eslint-disable-next-line no-await-in-loop
-      const volume = await IOUtils.getVolumeInfo(appname, target.name, 'B', 0, 'mount');
-      if (!volume) {
+      const { error: mountError, mounts } = await IOUtils.getVolumeInfo(appname, target.name, 'B', 0, 'mount');
+      if (mountError) {
+        throw new Error(`Refused: ${target.name} mount could not be read, so its data cannot be replaced safely`);
+      }
+      if (!mounts.length) {
         throw new Error(`Refused: ${target.name} volume is not mounted`);
       }
-      target.mount = volume[0].mount;
-      target.appDataPath = `${volume[0].mount}/appdata`;
-      target.archivePath = `${volume[0].mount}/backup/${type}/backup_${target.name.toLowerCase()}.tar.gz`;
+      target.mount = mounts[0].mount;
+      target.appDataPath = `${mounts[0].mount}/appdata`;
+      target.archivePath = `${mounts[0].mount}/backup/${type}/backup_${target.name.toLowerCase()}.tar.gz`;
     }
 
     if (type === 'remote') {
@@ -2753,13 +2759,16 @@ async function appendRestoreTask(req, res) {
       // taken before the download over-states the room by the size of the
       // archive itself - and every FluxDrive restore is a remote one.
       // eslint-disable-next-line no-await-in-loop
-      const volume = await IOUtils.getVolumeInfo(appname, target.name, 'B', 0, 'available');
-      if (!volume) {
+      const { error: mountError, mounts } = await IOUtils.getVolumeInfo(appname, target.name, 'B', 0, 'available');
+      if (mountError) {
+        throw new Error(`Refused: ${target.name} mount could not be read, so its data cannot be replaced safely`);
+      }
+      if (!mounts.length) {
         throw new Error(`Refused: ${target.name} volume is not mounted`);
       }
       // eslint-disable-next-line no-await-in-loop
       const appDataBytes = await IOUtils.getDirectorySizeBytes(target.appDataPath);
-      const room = volume[0].available + (appDataBytes ?? 0);
+      const room = mounts[0].available + (appDataBytes ?? 0);
       if (archive.bytes > room) {
         const needed = IOUtils.convertFileSize(archive.bytes, 'GB', 2);
         const have = IOUtils.convertFileSize(room, 'GB', 2);

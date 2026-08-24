@@ -252,13 +252,12 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @returns {Promise<Array|false|null>} - Array of objects containing volume information
- *          for the specified component; false when no matching mount is found (df only
- *          reports MOUNTED filesystems, so false covers an unmounted volume as well as an
- *          unknown one); null when the mount table itself could not be read. Callers must
- *          treat both as "this component's data is not reachable", never as "empty" -
- *          existing callers test falsiness or `.length`, which false satisfies and null
- *          would throw on, so the two must not be merged without touching them.
+ * @returns {Promise<{error: Error|null, mounts: object[]}>} - `mounts` is the
+ *          matching mount info (empty when the volume is not mounted - df only
+ *          reports mounted filesystems), and `error` is set only when the mount
+ *          table itself could not be read. An empty `mounts` with no `error` is
+ *          an answer ("not mounted"); an `error` is a failure to answer, which a
+ *          destructive caller must refuse on rather than read as "not mounted".
  */
 async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
@@ -274,7 +273,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
     // A path the KERNEL reports as a mountpoint, selected by the request - never
     // a path built from it. The worst a hostile appname can do is match nothing.
     const matched = mounts.filter((mount) => path.basename(mount.target) === identifier);
-    if (!matched.length) return false;
+    if (!matched.length) return { error: null, mounts: [] };
 
     const divisor = {
       b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3,
@@ -290,7 +289,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
     };
 
     const allowedFields = fields ? String(fields).split(',') : null;
-    return matched.map((mount) => {
+    const mountsInfo = matched.map((mount) => {
       const full = {
         filesystem: mount.source,
         size: toUnit(mount.sizeBytes),
@@ -303,9 +302,10 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
         ? Object.fromEntries(Object.entries(full).filter(([key]) => allowedFields.includes(key)))
         : full;
     }).filter((entry) => Object.keys(entry).length > 0);
+    return { error: null, mounts: mountsInfo };
   } catch (error) {
     log.error(error);
-    return null;
+    return { error, mounts: [] };
   }
 }
 

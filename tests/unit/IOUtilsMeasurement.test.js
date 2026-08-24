@@ -116,4 +116,49 @@ describe('IOUtils streamed measurement', () => {
       expect(await IOUtils.getDirectorySizeBytes('/mnt/appdata/myapp')).to.equal(null);
     });
   });
+
+  describe('getVolumeInfo return contract', () => {
+    // { error, mounts }: an empty mounts is an answer ("not mounted"), an error
+    // is a failure to answer. Callers must not read [0].mount off either, and a
+    // destructive caller must refuse on error rather than treat it as "absent".
+    const loadWithMounts = (listMountedFilesystems) => proxyquire('../../ZelBack/src/services/IOUtils', {
+      './deviceHelper': { listMountedFilesystems },
+    });
+
+    it('reports the matching mount with error null', async () => {
+      const IOUtils = loadWithMounts(sinon.stub().resolves([{
+        target: '/mnt/appdata/fluxcomp_app',
+        source: '/dev/loop0',
+        sizeBytes: 1000,
+        usedBytes: 400,
+        availableBytes: 600,
+        usePercent: 40,
+      }]));
+
+      const { error, mounts } = await IOUtils.getVolumeInfo('app', 'comp', 'B', 0, 'mount');
+
+      expect(error).to.equal(null);
+      expect(mounts).to.have.lengthOf(1);
+      expect(mounts[0].mount).to.equal('/mnt/appdata/fluxcomp_app');
+    });
+
+    it('reports an empty mounts, not an error, when nothing matches', async () => {
+      const IOUtils = loadWithMounts(sinon.stub().resolves([{ target: '/mnt/appdata/fluxother_thing' }]));
+
+      const { error, mounts } = await IOUtils.getVolumeInfo('app', 'comp', 'B', 0, 'mount');
+
+      expect(error).to.equal(null);
+      expect(mounts).to.deep.equal([]);
+    });
+
+    it('reports the error, with empty mounts, when the mount table cannot be read', async () => {
+      const boom = new Error('cannot list filesystems');
+      const IOUtils = loadWithMounts(sinon.stub().rejects(boom));
+
+      const { error, mounts } = await IOUtils.getVolumeInfo('app', 'comp', 'B', 0, 'mount');
+
+      expect(error).to.equal(boom);
+      expect(mounts).to.deep.equal([]);
+    });
+  });
 });

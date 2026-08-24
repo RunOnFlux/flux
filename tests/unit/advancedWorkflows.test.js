@@ -2764,7 +2764,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(IOUtils, 'createTarGz').resolves({ status: true });
       sinon.stub(IOUtils, 'checkFileExists').resolves(false);
       sinon.stub(IOUtils, 'removeFile').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount: '/mnt/appdata/flux-apps/fluxpalworld_x' }]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount: '/mnt/appdata/flux-apps/fluxpalworld_x' }] });
       sinon.stub(log, 'info');
       sinon.stub(log, 'warn');
       sinon.stub(log, 'error');
@@ -3043,7 +3043,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(localAddr);
       sinon.stub(appController, 'executeAppGlobalCommand').resolves();
       sinon.stub(appReconciler, 'setControllerDesired');
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount, available: 100 * 1024 * 1024 * 1024 }]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount, available: 100 * 1024 * 1024 * 1024 }] });
       sinon.stub(IOUtils, 'removeDirectory').resolves(true);
       sinon.stub(IOUtils, 'downloadFileFromUrl').resolves(true);
       sinon.stub(IOUtils, 'getRemoteFileSize').resolves(4096);
@@ -3171,7 +3171,7 @@ describe('advancedWorkflows tests', () => {
       });
 
       it('refuses when the archive cannot fit in the room clearing appdata frees', async () => {
-        IOUtils.getVolumeInfo.resolves([{ mount, available: 2 * 1024 * 1024 * 1024 }]);
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [{ mount, available: 2 * 1024 * 1024 * 1024 }] });
         IOUtils.getDirectorySizeBytes.resolves(1 * 1024 * 1024 * 1024);
         IOUtils.inspectTarGz.resolves({ status: true, entries: 10, bytes: 30 * 1024 * 1024 * 1024 });
 
@@ -3195,17 +3195,31 @@ describe('advancedWorkflows tests', () => {
       });
 
       it('refuses when the volume is not mounted rather than failing on undefined', async () => {
-        // df only reports mounted filesystems, so this is the shape an unmounted
-        // volume takes. Asserting the message matters: reading [0].mount off it
-        // also ends the restore, but as a TypeError with nothing said about why
+        // df only reports mounted filesystems, so an empty mounts array is the
+        // shape an unmounted volume takes. Asserting the message matters:
+        // reading [0].mount off it also ends the restore, but as a TypeError.
         const res = makeRes();
-        IOUtils.getVolumeInfo.resolves(null);
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [] });
 
         const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
 
         expect(result).to.equal(false);
         sinon.assert.notCalled(IOUtils.untarFile);
         sinon.assert.calledWithMatch(res.write, /volume is not mounted/);
+      });
+
+      it('refuses distinctly when the mount table cannot be read, not as "not mounted"', async () => {
+        // A failure to read the mount table is not a verdict that the volume is
+        // absent - restore is destructive, so it refuses on the unknown rather
+        // than clearing data it could not confirm the location of.
+        const res = makeRes();
+        IOUtils.getVolumeInfo.resolves({ error: new Error('cannot read mounts'), mounts: [] });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.calledWithMatch(res.write, /could not be read/);
       });
     });
 
