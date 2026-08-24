@@ -2786,6 +2786,21 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
+    it('refuses cleanly when the app has no specification, not with a TypeError', async () => {
+      // The restore guards this; the backup read the spec and handed it straight
+      // to syncedComponentsOfApp, which threw on null deep in the flow instead of
+      // saying what was wrong.
+      registryManager.getApplicationGlobalSpecifications.resolves(null);
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said).to.include('no specifications found');
+      sinon.assert.notCalled(dockerService.appDockerStop);
+    });
+
     it('refuses when syncthing cannot be reached, and does not call that "never synced"', async () => {
       // A daemon that is down or restarting says nothing about the data. The
       // refusal is still right - an archive of an unverified copy looks fine and

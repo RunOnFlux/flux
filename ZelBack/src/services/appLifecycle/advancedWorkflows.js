@@ -2365,6 +2365,9 @@ async function appendBackupTask(req, res) {
       // eslint-disable-next-line global-require
       const registryManager = require('../appDatabase/registryManager');
       const appDetails = await registryManager.getApplicationGlobalSpecifications(appname);
+      if (!appDetails) {
+        throw new Error(`Refused: no specifications found for ${appname}`);
+      }
       const requested = new Set(backup.filter((item) => item.backup).map((item) => item.component));
       const allSyncedComponents = syncedComponentsOfApp(appDetails, appname);
       const syncedComponents = allSyncedComponents.filter((comp) => requested.has(comp.componentName));
