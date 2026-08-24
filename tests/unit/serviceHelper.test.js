@@ -599,8 +599,18 @@ describe('serviceHelper tests', () => {
       });
     }
 
+    // The kill for a root child goes through runCommand (which prefixes sudo
+    // and wraps execFile in a catch), so it reaches the shared execFile stub
+    // rather than spawn - a naked spawn here could emit an unhandled 'error'
+    // and take the process down under the very fork pressure that triggers it.
+    const killCalls = () => runCmdStub.getCalls().filter(
+      (c) => c.args[0] === 'sudo' && Array.isArray(c.args[1]) && c.args[1][0] === 'kill',
+    );
+
     beforeEach(() => {
       clock = sinon.useFakeTimers();
+      runCmdStub.resetHistory();
+      runCmdStub.resolves({ stdout: '', stderr: '' });
     });
 
     afterEach(() => {
@@ -608,11 +618,11 @@ describe('serviceHelper tests', () => {
       sinon.restore();
     });
 
-    it('kills a stalled root command through sudo, the way it was started', async () => {
+    it('kills a stalled root command through the wrapped command runner, not a naked spawn', async () => {
       // The child IS root, and on a legacy node FluxOS is not - the kernel
       // refuses the plain signal, the "was stopped" verdict becomes a lie and
-      // the root tar runs on as an orphan. sudo delivers the signal as root
-      // on both platforms and relays it to the command.
+      // the root tar runs on as an orphan. The kill is delivered as root via
+      // runCommand, whose spawn failures cannot escape as an unhandled event.
       const child = fakeChild(4242);
       const spawnStub = sinon.stub().returns(child);
       const helper = loadWithSpawn(spawnStub);
@@ -620,8 +630,29 @@ describe('serviceHelper tests', () => {
       const pending = helper.runStreamingCommand('tar', { runAsRoot: true, params: ['-tzf', '/x'], idleTimeout: 5000 });
       clock.tick(5001);
 
-      sinon.assert.calledWithExactly(spawnStub, 'sudo', ['kill', '-TERM', '4242']);
+      const calls = killCalls();
+      expect(calls.length).to.equal(1);
+      expect(calls[0].args[1]).to.deep.equal(['kill', '-TERM', '4242']);
       sinon.assert.notCalled(child.kill);
+      // spawn ran once, for the child itself; the kill is not a second spawn
+      sinon.assert.calledOnce(spawnStub);
+
+      child.emit('close', 143);
+      const res = await pending;
+      expect(res.error.message).to.include('no output');
+    });
+
+    it('a kill that cannot even spawn does not take the run down', async () => {
+      // EAGAIN/ENOMEM under fork pressure is exactly the state that made the
+      // command idle out. runCommand resolves an error rather than throwing an
+      // unhandled 'error' event, so the run still settles on the child's close.
+      const child = fakeChild(4246);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+      runCmdStub.rejects(new Error('spawn EAGAIN'));
+
+      const pending = helper.runStreamingCommand('tar', { runAsRoot: true, params: ['-tzf', '/x'], idleTimeout: 5000 });
+      clock.tick(5001);
 
       child.emit('close', 143);
       const res = await pending;
@@ -637,7 +668,7 @@ describe('serviceHelper tests', () => {
       clock.tick(5001);
 
       sinon.assert.calledOnce(child.kill);
-      sinon.assert.calledOnce(spawnStub);
+      expect(killCalls().length).to.equal(0);
 
       child.emit('close', 143);
       await pending;
@@ -661,7 +692,7 @@ describe('serviceHelper tests', () => {
 
       const res = await pending;
       expect(res.error.message).to.include('consumer exploded');
-      sinon.assert.calledWithExactly(spawnStub, 'sudo', ['kill', '-TERM', '4245']);
+      expect(killCalls().length).to.equal(1);
     });
 
     it('does not re-arm the timer once it has killed', async () => {
@@ -676,8 +707,9 @@ describe('serviceHelper tests', () => {
       child.stdout.emit('data', 'still going\n');
       clock.tick(5001);
 
-      sinon.assert.calledWithExactly(spawnStub, 'sudo', ['kill', '-TERM', '4244']);
-      expect(spawnStub.getCalls().filter((c) => c.args[0] === 'sudo' && c.args[1][0] === 'kill').length).to.equal(1);
+      const calls = killCalls();
+      expect(calls.length).to.equal(1);
+      expect(calls[0].args[1]).to.deep.equal(['kill', '-TERM', '4244']);
 
       child.emit('close', 143);
       await pending;
