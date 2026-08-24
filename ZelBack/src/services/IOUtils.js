@@ -252,11 +252,13 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @returns {Promise<Array|null>} - Array of objects containing volume information for the
- *          specified component, or null when no matching mount is found. df only reports
- *          MOUNTED filesystems, so null is the answer for an unmounted volume as well as an
- *          unknown one - callers must treat it as "this component's data is not reachable",
- *          never as "empty".
+ * @returns {Promise<Array|false|null>} - Array of objects containing volume information
+ *          for the specified component; false when no matching mount is found (df only
+ *          reports MOUNTED filesystems, so false covers an unmounted volume as well as an
+ *          unknown one); null when the mount table itself could not be read. Callers must
+ *          treat both as "this component's data is not reachable", never as "empty" -
+ *          existing callers test falsiness or `.length`, which false satisfies and null
+ *          would throw on, so the two must not be merged without touching them.
  */
 async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
