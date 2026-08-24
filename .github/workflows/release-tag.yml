@@ -140,60 +140,18 @@ jobs:
           gh release create "v${VERSION}" --title "FluxOS v${VERSION}" --generate-notes --verify-tag
           echo "released v${VERSION}"
 
-      # nodejs.yml annotates provenance rows when a tag push triggers it -- but pushes made with
-      # GITHUB_TOKEN do not trigger workflows, and the tag above is one. So the annotation happens
-      # here, same record, same rule: rows are only ever created or given their missing tag.
-      - name: Record the tag on the provenance row
+      # The tag above was pushed with GITHUB_TOKEN, which triggers no workflows -- so the signer
+      # would only pick it up on its next run's ls-remote delta. This dispatch makes the
+      # annotation immediate; the signer resolves the tag against its own view of this repository
+      # and annotates the provenance row itself. Nothing here writes to fluxhashes.
+      - name: Request the tag annotation
         if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
         env:
-          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
-          TAG_NAME: v${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.FLUXHASHES_DISPATCH_TOKEN }}
         run: |
-          git clone --quiet "https://x-access-token:${API_TOKEN_GITHUB}@github.com/RunOnFlux/fluxhashes.git" fluxhashes
-          cd fluxhashes
-          git config user.email runonfluxbot@gmail.com
-          git config user.name runonfluxbot
-
-          for attempt in 1 2 3; do
-            git fetch --quiet origin master
-            git reset --quiet --hard origin/master
-
-            node -e '
-              const fs = require("fs");
-              const FILE = "src/hashes/provenance.json";
-              const hash = process.env.NEW_HASH;
-              const record = fs.existsSync(FILE)
-                ? JSON.parse(fs.readFileSync(FILE, "utf8"))
-                : { hashes: {} };
-              if (!record.hashes) record.hashes = {};
-              const row = record.hashes[hash];
-              if (!row) {
-                record.hashes[hash] = {
-                  published: new Date().toISOString().slice(0, 10),
-                  commit: process.env.GITHUB_SHA,
-                  branch: null,
-                  tag: process.env.TAG_NAME,
-                };
-              } else if (!row.tag) {
-                row.tag = process.env.TAG_NAME;
-              }
-              fs.writeFileSync(FILE, `${JSON.stringify(record, null, 2)}\n`);
-            '
-
-            git add src/hashes/provenance.json
-            if git diff --cached --quiet -- src/hashes/provenance.json; then
-              echo "provenance already carries the tag"
-              exit 0
-            fi
-
-            git commit --quiet -m "Tag ${TAG_NAME} on ${NEW_HASH}" -- src/hashes/provenance.json
-
-            if git push --quiet; then
-              echo "provenance row tagged ${TAG_NAME}"
-              exit 0
-            fi
-            echo "push raced with another publish, retrying"
-          done
-
-          echo "could not record the tag after 3 attempts"
-          exit 1
+          gh api -X POST repos/RunOnFlux/fluxhashes/actions/workflows/sign-hashlist.yml/dispatches \
+            -f ref=master \
+            -f "inputs[commit]=${GITHUB_SHA}" \
+            -f "inputs[ref]=v${{ steps.version.outputs.version }}" \
+            -f "inputs[ref_type]=tag" \
+            -f "inputs[claimed_hash]=${NEW_HASH}"
