@@ -9,6 +9,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
 const globalState = require('../utils/globalState');
+const fluxEventBus = require('../utils/fluxEventBus');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const {
@@ -818,6 +819,17 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     const foldersToWrite = busyFolderIds.size
       ? newFoldersConfiguration.filter((folder) => !busyFolderIds.has(folder.id))
       : newFoldersConfiguration;
+    const heldForBusy = busyFolderIds.size
+      ? newFoldersConfiguration.filter((folder) => busyFolderIds.has(folder.id)).map((folder) => folder.id)
+      : [];
+
+    // Inert in production; the harness waits on it to know a pass reached the
+    // folder write and to read what it wrote versus what it held for a live
+    // backup or restore.
+    fluxEventBus.publish('syncthing:passComplete', {
+      wrote: foldersToWrite.map((folder) => folder.id),
+      heldForBusy,
+    });
 
     if (foldersToWrite.length > 0) {
       messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', foldersToWrite));

@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, restartDockerd, execInContainer } from '../framework/container.js';
-import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
+import { setSynced, resetSyncState, getPauseWrites } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -79,5 +79,40 @@ describe('backup leases the whole app against the reconciler', function () {
 
     // lease released: the level-based contract converges the app back to running
     await waitFor(async () => isUp(client, appName), { timeout: 120000, interval: 3000, label: 'app running again after backup released the lease' });
+  });
+
+  it('a monitor pass during the backup does not un-pause the folder it is holding', async function () {
+    this.timeout(300000);
+    const client = env.clients[0];
+    const auth = await authenticate(client.url, appOwnerKey());
+    const nodeIp = subnet.nodeIp(0);
+
+    const afterId = client.getLastEventId();
+    // the unresolved promise is the lease window; the backup pauses the folder
+    // inside it, and the app is held in backupInProgress for the whole run
+    const backupDone = client.appendBackupTask(appName, [appName], auth.zelidauth);
+
+    // the backup takes its hold - proves the window is real before we assert on it
+    await waitFor(async () => (await getPauseWrites(nodeIp)).some((w) => w.id === app.folder && w.paused === true), {
+      timeout: 120000, interval: 1000, label: 'backup paused the folder',
+    });
+
+    // a real monitor pass runs inside the window (the event proves it ran, so the
+    // assertion below is not vacuously green on a pass that never happened), and
+    // its write set must not carry the held folder - un-pausing it mid-backup is
+    // the propagated-deletion incident this whole change exists to prevent
+    const pass = await client.waitForEvent('syncthing:passComplete', () => true, 120000, { afterId });
+    expect(pass.data.wrote, 'the monitor pass must not write the folder a backup is holding')
+      .to.not.include(app.folder);
+
+    // and nothing un-paused it: the only pause writes for this folder in the
+    // window are the backup's own, and no paused:false lands before the backup
+    // itself resumes on release
+    const pausesDuringHold = (await getPauseWrites(nodeIp)).filter((w) => w.id === app.folder);
+    expect(pausesDuringHold.every((w) => w.paused === true), 'no un-pause of the held folder before release').to.equal(true);
+
+    const body = await backupDone;
+    expect(body).to.not.match(/Unauthorized/i);
+    await waitFor(async () => isUp(client, appName), { timeout: 120000, interval: 3000, label: 'app running again after the hold released' });
   });
 });

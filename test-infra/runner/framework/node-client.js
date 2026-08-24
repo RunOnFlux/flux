@@ -211,6 +211,7 @@ export function nodeClient(nodeNum) {
         'syncthing:eventsResync',
         'syncthing:holderRetained',
         'syncthing:holderExcluded',
+        'syncthing:passComplete',
         'spawner:blocked',
         'spawner:deferred',
         'spawner:installFailed',
