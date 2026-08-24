@@ -58,6 +58,15 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # TLS connection, so whoever could serve a bad tarball could serve a matching
 # hash beside it. The key is vendored rather than fetched so that it is pinned
 # in git and reviewed, not trusted on first use at build time.
+#
+# The checksum line is read from gpg's verified output, never from the file as
+# downloaded. The same key signs every release's checksum list, so a valid
+# signature alone does not prove the list is THIS release's - a substituted
+# list from another release, with our filename appended outside the signed
+# block, would pass a raw-file grep on the strength of a signature that never
+# covered the appended line. --decrypt emits only the signed text, so appended
+# text does not exist to be matched, and a list that does not name our tarball
+# yields no line at all, which sha256sum -c refuses.
 ARG SYNCTHING_VERSION=v2.0.15
 # The key that must have signed the checksums. Pinned here as well as vendored
 # so that swapping the key file alone does not silently change who is trusted.
@@ -88,7 +97,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && gpg --batch --quiet --import /tmp/syncthing-release-key.asc \
     && gpg --batch --status-fd=1 --verify /tmp/sha256sum.txt.asc 2>/dev/null \
          | grep -q "^\[GNUPG:\] VALIDSIG ${SYNCTHING_RELEASE_FPR} " \
-    && (cd /tmp && grep " ${tarball}\$" sha256sum.txt.asc | sha256sum -c -) \
+    && (cd /tmp && gpg --batch --decrypt sha256sum.txt.asc 2>/dev/null | grep " ${tarball}\$" | sha256sum -c -) \
     && tar -xzf "/tmp/${tarball}" -C /tmp \
     && install -m 0755 "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}/syncthing" /usr/local/bin/syncthing \
     && rm -rf "/tmp/${tarball}" /tmp/sha256sum.txt.asc /tmp/syncthing-release-key.asc \
