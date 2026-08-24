@@ -569,6 +569,13 @@ async function monitorSyncthingPackage() {
 
         if (upToDate) return false;
 
+        // After the up-to-date return - a current node is not handed a keyring
+        // and a source it will never read - and BEFORE the sources rewrite: the
+        // rewrite fails on a node with no source file at all, and its failure
+        // must not stand between that node and the file being created, or the
+        // node warns once a day forever and never upgrades.
+        await addSyncthingRepository();
+
         // The sources changed at version 2.0.0 from stable, to stable-v2
         const hasNewSources = serviceHelper.minVersionSatisfy(
           currentSyncthingVersion,
@@ -584,10 +591,9 @@ async function monitorSyncthingPackage() {
         }
       }
 
-      // Here, rather than before the version check: a node whose syncthing is
-      // already current has nothing to install, and writing it a keyring and an
-      // apt source it will never read is work it did not ask for. Only a node
-      // that is about to install needs somewhere to install from.
+      // The uninstalled case: nothing on the system, so there is no version to
+      // judge and nothing to rewrite - the source is simply ensured before the
+      // install.
       await addSyncthingRepository();
 
       const upgraded = await ensurePackageVersion(

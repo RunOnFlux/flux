@@ -337,6 +337,42 @@ describe('system Services tests', () => {
       sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
 
+    it('creates the missing apt source before the sources update can give up', async () => {
+      // The node this exists for: syncthing 1.x installed and no
+      // /etc/apt/sources.list.d/syncthing.list at all - a key fetch failed in
+      // some earlier pass, or syncthing came from Ubuntu's archive. The
+      // sources rewrite cannot read a file that does not exist, and its
+      // failure must not stand between this node and the file being created:
+      // that ordering leaves the node warning once a day, forever.
+      const now = 1713858779721;
+      const statsVersion = '2.2.2';
+
+      sinon.stub(axios, 'get').callsFake(async (url) => {
+        if (url.includes('stats.runonflux.io')) {
+          return { data: { status: 'success', data: { syncthing: statsVersion } } };
+        }
+        return { data: Buffer.from('fake-keyring') };
+      });
+
+      const cmdRunner = sinon.fake((cmd) => {
+        if (cmd === 'dpkg-query') return { error: null, stdout: "'1.19.2|install ok installed'" };
+        if (cmd === 'cat') return { error: null, stdout: '' };
+        return { error: null, stdout: '' };
+      });
+      runCmdStub.callsFake(cmdRunner);
+
+      statStub.withArgs('/etc/apt/sources.list.d/syncthing.list').rejects(new Error('ENOENT'));
+      statStub.resolves({ mtimeMs: now });
+      sinon.stub(fs, 'access').resolves();
+      const writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+
+      sinon.useFakeTimers({ now });
+
+      await systemService.monitorSyncthingPackage();
+
+      sinon.assert.calledWith(writeFileStub, '/etc/apt/sources.list.d/syncthing.list', sinon.match('stable-v2'));
+    });
+
     it('should not call upgradeSyncthing if on correct version', async () => {
       const now = 1713858779721;
 
