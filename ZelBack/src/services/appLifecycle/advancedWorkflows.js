@@ -1941,10 +1941,15 @@ async function setSyncthingFolderPaused(folderId, paused) {
       log.info(`setSyncthingFolderPaused - ${folderId} paused=${paused}`);
       return 'held';
     }
-    // 4xx: syncthing has no such folder. Nothing is replicating it, so there is
-    // nothing to hold still and the caller may proceed - which is NOT true of
-    // any other failure, where the folder may be live and unheld.
-    if (response.data?.code === 'ERR_BAD_REQUEST') {
+    // Only a bare 404 proves syncthing replied and holds no such folder, so
+    // nothing is replicating it and the caller may proceed. The axios code
+    // cannot carry that distinction - ERR_BAD_REQUEST spans every 4xx, so a
+    // 403 from a stale api key reads the same as absence - and any other
+    // answer leaves the folder possibly live and unheld, which the caller
+    // must refuse on.
+    const message = response.data?.message || '';
+    const httpStatus = Number((/status code (\d{3})/.exec(message) || [])[1]);
+    if (httpStatus === 404) {
       log.info(`setSyncthingFolderPaused - ${folderId} is unknown to syncthing; nothing to hold still`);
       return 'absent';
     }

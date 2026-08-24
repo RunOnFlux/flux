@@ -2867,6 +2867,49 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
     });
 
+    it('refuses when the pause is denied, instead of reading denial as absence', async () => {
+      // ERR_BAD_REQUEST spans every 4xx, so the axios code cannot tell a 404
+      // (no such folder - nothing to hold) from a 403 (a stale api key - the
+      // folder may be live and unheld). Only the HTTP status separates them,
+      // and anything but a bare 404 must refuse: proceeding clears appdata
+      // under a live sendreceive folder and the deletions reach every peer.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      syncthingService.adjustConfigFolders.resolves({
+        status: 'error',
+        data: { message: 'Request failed with status code 403', name: 'AxiosError', code: 'ERR_BAD_REQUEST' },
+      });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said).to.include('could not be held still');
+    });
+
+    it('reads a bare 404 as the folder being absent, and proceeds', async () => {
+      // syncthing replied: it holds no such folder, so nothing is replicating
+      // the directory and there is nothing to hold still.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      syncthingService.adjustConfigFolders.resolves({
+        status: 'error',
+        data: { message: 'Request failed with status code 404', name: 'AxiosError', code: 'ERR_BAD_REQUEST' },
+      });
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+    });
+
     it('resolves the folder id per COMPONENT, not from the app name', async () => {
       // folder ids are docker app identifiers, so a composed app's folder is
       // flux<component>_<app>. Addressing it as flux<app> matches nothing, and
