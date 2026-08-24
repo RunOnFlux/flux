@@ -406,6 +406,45 @@ describe('geolocationService tests', () => {
       expect(geolocationService.getStaticIpState()).to.equal('STATIC');
     });
 
+    it('backfills the state from a record written before the state machine existed', async () => {
+      // An upgraded node restores staticIp: true with no staticIpState at all.
+      // The state must agree with the boolean: a node that restores as
+      // not-static fails checkAppStaticIpRequirements, whose redeploy-path
+      // callers remove the app when it throws. The backfilled STATIC is a
+      // carried prior the first refresh pass replaces.
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: true,
+        dataCenter: false,
+        lastIpChangeDate: null,
+        ipFirstSeenAt: null,
+      });
+      geolocationService = reload();
+
+      await geolocationService.getNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+      expect(geolocationService.isStaticIP()).to.equal(true);
+    });
+
+    it('an old record without the grant restores as UNKNOWN, not DYNAMIC', async () => {
+      // staticIp: false on an old record cannot tell "checked and dynamic"
+      // from "never checked", so it restores as the state that says so.
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: false,
+        dataCenter: false,
+        lastIpChangeDate: null,
+        ipFirstSeenAt: null,
+      });
+      geolocationService = reload();
+
+      await geolocationService.getNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+      expect(geolocationService.isStaticIP()).to.equal(false);
+    });
+
     it('restores the observation record at boot, where nothing else has', async () => {
       // The test above calls getNodeGeolocation() first. serviceManager does
       // not: it calls setNodeGeolocation() directly, with nothing having read
