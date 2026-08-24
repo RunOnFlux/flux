@@ -1046,6 +1046,55 @@ describe('syncthingMonitor tests', () => {
     });
   });
 
+  describe('holds a busy app out of the config write', () => {
+    const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
+
+    function writesAFolder() {
+      mockState.backupInProgress = [];
+      mockState.restoreInProgress = [];
+      syncthingMonitorHelpersMock.buildDeviceConfiguration.callsFake(async () => []);
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.folderNeedsUpdate.returns(true);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+    }
+
+    it('does not un-pause a folder whose app went busy after its turn in the loop', async () => {
+      // The loop skips an app already busy, but one that STARTS a backup mid-pass
+      // was processed as free and its folder - which the pass writes with
+      // paused:false - is in the batch. The write re-reads the busy set and holds
+      // that folder back, so the pass never un-pauses the hold the backup just took.
+      writesAFolder();
+      // becomes busy DURING processing, after the loop-skip already let it through
+      syncthingMonitorHelpersMock.buildDeviceConfiguration.callsFake(async () => {
+        mockState.backupInProgress.push('testapp');
+        return [];
+      });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'put', sinon.match.array);
+    });
+
+    it('writes the folder normally when its app is not busy', async () => {
+      // The control: the guard drops a busy app's folder and nothing else.
+      writesAFolder();
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const put = syncthingServiceMock.adjustConfigFolders.getCalls()
+        .find((c) => c.args[0] === 'put' && Array.isArray(c.args[1]));
+      expect(put, 'the folder is written when the app is free').to.not.equal(undefined);
+      expect(put.args[1].map((f) => f.id)).to.include('testapp');
+    });
+  });
+
   describe('ignore-policy convergence', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
 

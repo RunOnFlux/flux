@@ -793,8 +793,34 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     if (devicesConfiguration.length > 0) {
       messageHelper.dataOrThrow(await syncthingService.adjustConfigDevices('put', devicesConfiguration));
     }
-    if (newFoldersConfiguration.length > 0) {
-      messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', newFoldersConfiguration));
+    // The config this pass computed sets paused:false on every folder it writes,
+    // and only a live backup or restore ever sets paused:true - so writing a
+    // busy app's folder here would un-pause the hold it took to protect its data
+    // mid-operation. The per-app skip above catches apps already busy when their
+    // turn came; an app that became busy DURING the pass was processed as free
+    // and its folder is in the batch. So the busy set is read again at the write
+    // - the guard belongs at the action it guards - and those folders are held
+    // back. The op holds its claim from a synchronous test-and-set before it
+    // pauses anything, so a folder read as free here is one whose pause has not
+    // happened yet; the op's own pause is the later write and wins. The monitor
+    // only ever DROPS work for a busy app, never waits on it, so it cannot block
+    // an operation. A folder a crashed op left paused holds no claim and is
+    // un-paused normally - the self-heal is untouched.
+    const busyAppNames = new Set([...state.backupInProgress, ...state.restoreInProgress]);
+    const busyFolderIds = new Set();
+    if (busyAppNames.size) {
+      for (const installedApp of appsInstalled.data) {
+        if (busyAppNames.has(installedApp.name)) {
+          appComponents(installedApp).forEach(({ appId }) => busyFolderIds.add(appId));
+        }
+      }
+    }
+    const foldersToWrite = busyFolderIds.size
+      ? newFoldersConfiguration.filter((folder) => !busyFolderIds.has(folder.id))
+      : newFoldersConfiguration;
+
+    if (foldersToWrite.length > 0) {
+      messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', foldersToWrite));
       // The published set was built from the folder list this pass opened with, so
       // a promotion applied on this line is absent from it until the next pass
       // reads syncthing again - and findPeerBlockingPromotion asks a peer for
@@ -803,7 +829,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // the collision that check exists to catch. Reconciled here instead, in both
       // directions, so the answer is true from the moment it became true.
       // eslint-disable-next-line no-restricted-syntax
-      for (const folder of newFoldersConfiguration) {
+      for (const folder of foldersToWrite) {
         if (folder.type === 'sendreceive') globalState.promotedFolderIds.add(folder.id);
         else globalState.promotedFolderIds.delete(folder.id);
       }
