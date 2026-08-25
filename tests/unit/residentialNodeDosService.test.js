@@ -667,6 +667,86 @@ describe('residentialNodeDosService tests', () => {
     });
   });
 
+  describe('what /flux/info reports: dosStaging', () => {
+    it('reports nothing on a node that is not being enforced', async () => {
+      geolocationServiceStub.getNetworkClassification.returns({ classification: CLASSIFICATION.DATACENTER });
+      installedApps = [{ name: 'someapp' }];
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.getDosStaging()).to.equal(null);
+    });
+
+    it('reports HOLD from the first enforced evaluation, before anything is deleted', async () => {
+      // The stage worth reporting. It lasts a whole settling window, nothing has
+      // been deleted in it, and the operator can still put the node right and
+      // lose nothing - and without it a held node looks exactly like one that
+      // has simply not been given any work.
+      installedApps = [{ name: 'someapp' }];
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.getDosStaging()).to.equal('HOLD');
+      expect(service.isEvacuating()).to.equal(false);
+    });
+
+    it('reports EVACUATE once the window is served', async () => {
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.getDosStaging()).to.equal('EVACUATE');
+    });
+
+    it('does not go backwards when a tick cannot decide', async () => {
+      // THE REASON THIS IS NOT DERIVED FROM `evacuating`. That flag is a per-tick
+      // permission for the give-up pass and any tick that cannot read something
+      // turns it off - correctly. Reporting it as a STAGE would show the node
+      // retreating through a staging it never retreated through, on a tick where
+      // nothing about the node changed at all.
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+      await service.enforceResidentialPolicy(deps);
+      expect(service.getDosStaging()).to.equal('EVACUATE');
+
+      benchmarkServiceStub.getBenchmarks.resolves({ status: 'error' });
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isEvacuating(), 'the drain stops, which is correct').to.equal(false);
+      expect(service.getDosStaging(), 'but the node has not moved back a stage').to.equal('EVACUATE');
+    });
+
+    it('does not go backwards when the settling marker cannot be written', async () => {
+      // The other way a tick gives up, and it reaches FURTHER than an unreadable
+      // benchmark does - past the point where the window figure is read. The
+      // stage still must not move: the node has not retreated anywhere, this
+      // node simply could not write its own note.
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+      await service.enforceResidentialPolicy(deps);
+      expect(service.getDosStaging()).to.equal('EVACUATE');
+
+      dbHelperStub.findOneAndUpdateInDatabase.rejects(new Error('marker write failed'));
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isEvacuating(), 'the drain stops, which is correct').to.equal(false);
+      expect(service.getDosStaging(), 'but the node has not moved back a stage').to.equal('EVACUATE');
+    });
+
+    it('reports nothing again once the node stops being enforced', async () => {
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+      await service.enforceResidentialPolicy(deps);
+      expect(service.getDosStaging()).to.equal('EVACUATE');
+
+      geolocationServiceStub.getNetworkClassification.returns({ classification: CLASSIFICATION.DATACENTER });
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.getDosStaging()).to.equal(null);
+    });
+  });
+
   describe('pacing: mayEvacuateApp', () => {
     // Junior first, so the senior LOCAL sits at position 1 - the pacing tests
     // below are about the interval and the observation window, and they only
