@@ -221,7 +221,9 @@ function getFdmIndex(appName) {
  * @param {string} appName - Application name
  * @param {Object} axiosOptions - Axios request options
  * @returns {Promise<{ip: string|null, fdmOk: boolean}>} The master IP (FDM returns a bare IP;
- *   compare it with ipsMatch, which ignores the port) and success status
+ *   compare it with ipsMatch, which ignores the port), and whether any region answered.
+ *   A null ip with fdmOk true is FDM saying this app has no primary yet; fdmOk false is
+ *   no region having said anything. The election acts on those two facts differently.
  */
 async function getMasterIpFromFdm(appName, axiosOptions) {
   const fdmIndex = getFdmIndex(appName);
@@ -231,6 +233,12 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
     { name: 'ASIA', baseUrl: `http://fdm-sg-1-${fdmIndex}.runonflux.io:16130` },
   ];
 
+  // A region has answered when it gave a verdict about this app: a success body,
+  // or a 404 saying FDM holds no record of it. A 503 is FDM reporting itself as
+  // not ready to answer, and a body that is not success is not a verdict either -
+  // neither one tells us whether a primary exists, so neither may pass for one.
+  let answered = false;
+
   for (const region of fdmRegions) {
     try {
       const url = `${region.baseUrl}/appips/${appName}`;
@@ -238,6 +246,7 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
       const response = await serviceHelper.axiosGet(url, axiosOptions);
 
       if (response.data && response.data.status === 'success' && response.data.data) {
+        answered = true;
         const { ips } = response.data.data;
         if (ips && ips.length > 0) {
           const ip = extractIp(ips[0]);
@@ -249,6 +258,10 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
       log.debug(`getMasterIpFromFdm: No IPs returned from ${region.name} FDM for app ${appName}`);
     } catch (error) {
       if (error.response && error.response.status === 404) {
+        // FDM holds no record of the app. That is an answer, and it is the answer a
+        // g: app gets before its first primary is ever elected - standing down on it
+        // would leave a newly deployed app waiting for a primary FDM cannot name.
+        answered = true;
         log.debug(`getMasterIpFromFdm: App ${appName} not found in ${region.name} FDM`);
       } else if (error.response && error.response.status === 503) {
         log.debug(`getMasterIpFromFdm: ${region.name} FDM service starting up for app ${appName}`);
@@ -259,8 +272,9 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
     }
   }
 
-  // All regions failed or returned no IPs
-  return { ip: null, fdmOk: true };
+  // No region named a primary. Whether that is because they said there is none
+  // or because none of them answered is the distinction fdmOk carries.
+  return { ip: null, fdmOk: answered };
 }
 
 /**
@@ -2645,10 +2659,10 @@ async function appendRestoreTask(req, res) {
     // block a restore, the same way it does not block an election.
     //
     // The answer decides two things: whether to refuse here, and whether this
-    // task may start the elected components at the end. Silence is not consent -
-    // masterSlaveApps skips primary selection outright when every region fails,
-    // and starting a writer on that same silence is what turns "we do not know
-    // who the primary is" into two of them on one volume.
+    // task may start the elected components at the end. Silence is not consent:
+    // "FDM named no primary" and "FDM gave no answer" both arrive as a null ip, and
+    // starting a writer on the second is what turns "we do not know who the primary
+    // is" into two of them on one volume. fdmOk is what tells them apart.
     let primaryConfirmedLocal = false;
     if (!force && targets.some((target) => target.syncMode === 'elected')) {
       const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();

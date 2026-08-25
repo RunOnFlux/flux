@@ -472,6 +472,13 @@ describe('advancedWorkflows tests', () => {
     let axiosGetStub;
     let recursionCounter;
 
+    // What FDM sends when it IS answering and this app simply has no primary
+    // yet: a success body carrying an empty ips array. test-infra/fdm-stub
+    // returns exactly this, and it is a different fact from FDM not answering
+    // at all - that arrives as a rejection and stands the election down.
+    // A factory, not a shared literal, so no test can leak a mutation forward.
+    const fdmNoPrimary = () => ({ data: { status: 'success', data: { ips: [] } } });
+
     beforeEach(() => {
       recursionCounter = 0;
       globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -619,7 +626,7 @@ describe('advancedWorkflows tests', () => {
       const https = require('https');
 
       // Mock FDM to return no errors
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       expect(globalState.tryStartBackup(appName)).to.equal(true);
       try {
@@ -654,7 +661,7 @@ describe('advancedWorkflows tests', () => {
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
       const https = require('https');
 
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       expect(globalState.tryStartRestore(appName)).to.equal(true);
       try {
@@ -767,6 +774,102 @@ describe('advancedWorkflows tests', () => {
       .map((call) => String(call.args[0]))
       .filter((msg) => msg.includes(needle));
 
+    // FDM has three answers, not two: it names a primary, it says this app has
+    // none yet, or it does not answer at all. The first two arrive alike as a
+    // null ip and only fdmOk separates the third from them. Reading silence as
+    // "no primary yet" is how a node that has lost FDM entirely walks into
+    // promoting itself onto a volume whose primary it simply cannot see.
+    describe('the three answers FDM can give', () => {
+      // No response object at all - a refused connection or a timeout, which is
+      // what an FDM outage looks like from the node.
+      const fdmUnreachable = () => new Error('connect ECONNREFUSED 10.0.0.1:16130');
+      const fdmHttpError = (status) => Object.assign(
+        new Error(`Request failed with status code ${status}`),
+        { response: { status } },
+      );
+
+      it('stands down when no region answers, instead of reading silence as "no primary"', async () => {
+        const appName = 'fdmsilentapp';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        sinon.stub(log, 'error');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.rejects(fdmUnreachable());
+        axiosGetStub.resetBehavior();
+        // No peer holds it either, so nothing else in the pass is keeping this
+        // node down - a stand-down here can only be the unanswered FDM.
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(serviceHelperStub.callCount).to.equal(3); // every region tried first
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(1);
+        // the two readings that must never be conflated, and the act that follows
+        expect(linesMatching(logInfo, 'has currently no primary set')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('does not take a 503 for an answer - FDM reporting itself as starting up has named nothing', async () => {
+        const appName = 'fdm503app';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.rejects(fdmHttpError(503));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('treats a 404 from every region as an answer, so an app FDM holds no record of still elects', async () => {
+        // The first primary of a newly deployed g: app is chosen while FDM has
+        // never heard of the app. Standing down on a 404 would leave it without a
+        // primary for as long as FDM had no row for it - a deadlock, not a guard.
+        const appName = 'fdm404app';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.rejects(fdmHttpError(404));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'has currently no primary set')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
+      it('needs only one region to answer, so losing two of the three does not stand the election down', async () => {
+        // fdmOk asks whether ANY region gave a verdict. Requiring all three would
+        // stand every g: app down on the routine failure of a single region.
+        const appName = 'fdmpartialapp';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        sinon.stub(log, 'error');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.onCall(0).rejects(fdmUnreachable());
+        serviceHelperStub.onCall(1).rejects(fdmUnreachable());
+        serviceHelperStub.onCall(2).resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(serviceHelperStub.callCount).to.equal(3);
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'has currently no primary set')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+    });
+
     it('announces the exclusion once when a g: component is operator-stopped, not every cycle', async () => {
       const appName = 'opstoppedapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
@@ -791,7 +894,7 @@ describe('advancedWorkflows tests', () => {
       const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped');
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       operatorStopped.resetBehavior();
       operatorStopped.resolves(true);
@@ -837,7 +940,7 @@ describe('advancedWorkflows tests', () => {
       // no-history start and the previous-primary branch. Without the eviction it
       // logs "conditions not met" forever and the app never returns.
       serviceHelperStub.resetBehavior();
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       await runPass();
 
       expect(linesMatching(logInfo, 'cleared this node\'s own stale primary record')).to.have.lengthOf(1);
@@ -850,7 +953,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
+      serviceHelperStub.resolves(fdmNoPrimary()); // FDM: no primary registered yet
 
       // the peer IS running it - FDM simply has not caught up yet
       axiosGetStub.resetBehavior();
@@ -867,7 +970,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // peer answers, and is NOT running the component
       axiosGetStub.resetBehavior();
@@ -893,7 +996,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [] }));
 
@@ -918,7 +1021,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // holds the component, runs no containers at all
       axiosGetStub.resetBehavior();
@@ -938,7 +1041,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: null, running: [{ Names: [`/flux${appName}`] }] }));
@@ -978,7 +1081,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       axiosGetStub.resetBehavior();
       // 404 to heldcomponents, and an empty container list - which is exactly what
@@ -1005,7 +1108,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake((url) => (url.includes('/apps/heldcomponents')
@@ -1030,7 +1133,7 @@ describe('advancedWorkflows tests', () => {
       const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [] })); // nobody holds it - we start
 
@@ -1063,7 +1166,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       axiosGetStub.resetBehavior();
       // answered the OLD way, so the whole-name comparison is what is under test
@@ -1090,7 +1193,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
+      serviceHelperStub.resolves(fdmNoPrimary()); // FDM: no primary registered yet
 
       // Order: .90 (00:01), .91 (00:02), this node (00:02:30), .92 (00:03). Only
       // .92 - the peer above us, invisible to a lower-index probe - is running it.
@@ -1121,7 +1224,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.resolves({ data: { data: [] } }); // no peer is running it
 
@@ -1144,7 +1247,7 @@ describe('advancedWorkflows tests', () => {
       const runPass = electionFixture(appName, [
         '192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127',
       ]);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // Hold every probe open and release them only once all have been issued.
       // Probing one peer at a time cannot get past the first: its await never
@@ -1178,7 +1281,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // the peer answers nothing at all (the axios default), but its sync connection
       // to this node is open
       peerSyncthingSays('192.168.1.90:16127', 'valid');
@@ -1198,7 +1301,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // no device cached for the peer, and the peer answers nothing
 
       await runPass();
@@ -1215,7 +1318,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       peerSyncthingSays('192.168.1.90:16127', 'unknown');
 
       await runPass();
@@ -1235,7 +1338,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // nothing cached, but this node's syncthing still has the device configured
       // under the name the monitor gave it, and reports the connection closed
       syncthingDevicesStub.resolves({
@@ -1259,7 +1362,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       peerSyncthingSays('192.168.1.90:16127', 'unknown');
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       fluxCommunication.peerResponsiveness.returns({ responding: 1, total: 8 });
@@ -1278,7 +1381,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.rejects(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
       peerSyncthingSays('192.168.1.90:16127', 'unknown');
@@ -1301,7 +1404,7 @@ describe('advancedWorkflows tests', () => {
         appName,
         ['192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127'],
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.92')
         ? Promise.reject(new Error('peer unreachable'))
@@ -1327,7 +1430,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127'],
         { selfRunningSince: '2026-01-01T00:02:00.000Z' },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // Only Date is faked: the schedule is compared against Date.now(), and faking
       // the timer functions as well would take the probe's own cancel timers with it.
       const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
@@ -1390,7 +1493,7 @@ describe('advancedWorkflows tests', () => {
 
       // Pass 2: the primary is gone from FDM. The previous-primary branch probes it,
       // finds it free, and books this node's turn one place back.
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [] }));
       await runPass();
@@ -1427,7 +1530,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127'],
         { selfRunningSince: '2026-01-01T00:02:00.000Z' },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
 
       axiosGetStub.resetBehavior();
@@ -1462,7 +1565,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:01:30.000Z' },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
 
       // Ordered by runningSince: .90 (00:01) is index 0, this node (00:01:30) is
@@ -1509,7 +1612,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:03:00.000Z' },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
 
       // Pass 1: this node is index 2 and books its stagger.
@@ -1555,7 +1658,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127'],
         { selfRunningSince: '2026-01-01T00:02:00.000Z' },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [] }));
       const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
@@ -1592,7 +1695,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // both peers silent, and this node has no view of either
 
       await runPass();
@@ -1623,7 +1726,7 @@ describe('advancedWorkflows tests', () => {
       // Cycle 2: FDM reports no primary and the peer has gone silent - but its
       // syncthing connection to this node is still open, so it is restarting.
       serviceHelperStub.resetBehavior();
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.rejects(new Error('previous primary unreachable'));
       peerSyncthingSays('192.168.1.90:16127', 'valid');
@@ -1698,7 +1801,7 @@ describe('advancedWorkflows tests', () => {
       // Cycle 2: FDM reports no primary for either. The peer answers, and holds the
       // FIRST component only - so app one is settled and app two is free.
       serviceHelperStub.resetBehavior();
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [`flux${first}`] }));
 
@@ -1732,7 +1835,7 @@ describe('advancedWorkflows tests', () => {
       const https = require('https');
 
       // Mock FDM responses (no IP)
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // Mock node IP
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
@@ -1797,7 +1900,7 @@ describe('advancedWorkflows tests', () => {
       const https = require('https');
 
       // Mock FDM responses (no IP)
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // Mock node IP - this node is at index 1 (second in list)
       fluxNetworkHelperStub.resolves('192.168.1.10:16127');
