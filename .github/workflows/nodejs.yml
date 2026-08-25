@@ -11,10 +11,14 @@ jobs:
   # Publication is a request, not a write: the fluxhashes signer fetches this commit itself,
   # derives the tree hash from the bytes it fetched, and publishes list, signed document and
   # provenance in one commit. The credential can start, cancel and re-run workflows on fluxhashes
-  # and delete their logs -- availability, never content: it cannot write to the repository, and a
-  # hash value cannot enter the list through it. NEW_HASH rides along as a tripwire the signer
-  # checks against its own computation -- a mismatch is a red signing run, never a listed value.
-  # Forks publish nothing.
+  # and delete their logs; it cannot write to the repository, and it sends pointers rather than hash
+  # values. That bounds what the credential does, but it does not make the list unreachable through
+  # it: a fork network shares one object store, so a dispatched commit may be any commit ever pushed
+  # to this repository or to a public fork of it, and the signer derives what it is pointed at. The
+  # credential is held by whoever can land a workflow change on any branch here, who can already get
+  # a hash listed by pushing -- the same trust boundary, not a defence against it.
+  # NEW_HASH rides along as a tripwire the signer checks against its own computation -- a mismatch
+  # is a red signing run, never a listed value. Forks publish nothing.
   #
   # Its own job, deliberately: the hash describes a checkout nothing else has touched, and a
   # publication failure (fluxhashes unavailable, token expired) stays a red publish job instead of
