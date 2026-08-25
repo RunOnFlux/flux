@@ -31,7 +31,18 @@ jobs:
       - uses: actions/checkout@v7
       - name: Check Hash
         run: |
+          set -eo pipefail
           newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+          # d41d8... is the md5 of an empty stream, which the pipeline yields whenever nothing was
+          # hashed: ZelBack absent (pipefail catches that) or present holding no regular files
+          # (find exits 0 and emits nothing, which pipefail cannot see). It is a well-formed hash
+          # meaning "a node whose ZelBack holds no files is genuine FluxOS". The signer refuses to
+          # list it, but a claim it cannot match aborts the signing run rather than this one --
+          # so fail here, in the repository that produced it.
+          if [ "$newhash" = d41d8cd98f00b204e9800998ecf8427e ]; then
+            echo 'nothing was hashed -- this checkout has no ZelBack files'
+            exit 1
+          fi
           echo $newhash
           echo NEW_HASH=$newhash >> $GITHUB_ENV
       # The credential is a GitHub App scoped to fluxhashes with Actions permission only: the
