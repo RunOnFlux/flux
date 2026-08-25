@@ -1148,7 +1148,7 @@ async function manageFolderSyncState(params) {
     // Ensure cache entry exists so health monitor can track this folder
     const existingCache = receiveOnlySyncthingAppsCache.get(appId);
     const cache = existingCache || { restarted: true };
-    return { syncthingFolder, cache, skipUpdate: true };
+    return { syncthingFolder, cache };
   }
 
   // First run scenario

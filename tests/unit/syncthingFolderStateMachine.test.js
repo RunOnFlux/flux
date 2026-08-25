@@ -416,15 +416,33 @@ describe('syncthingFolderStateMachine tests', () => {
       };
     });
 
-    it('should skip update when folder already syncing', async () => {
+    it('asks a stopped r: container to run and keeps the cache entry when the folder is already syncing', async () => {
+      // The folder config comes back untouched on this path, so the two side
+      // effects are the whole of what it does: an r: container that has stopped
+      // is asked to run again, and the entry the health monitor tracks the
+      // folder by survives the pass rather than being reset to a fresh one.
+      mockParams.syncFolder = { type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache = new Map([['test-app', { restarted: true, marker: 'kept' }]]);
+      dockerServiceMock.dockerContainerInspect.resolves({
+        State: { Running: false },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+      expect(result.cache).to.deep.equal({ restarted: true, marker: 'kept' });
+      expect(result.syncthingFolder).to.equal(mockParams.syncthingFolder);
+    });
+
+    it('leaves an already-running container alone when the folder is already syncing', async () => {
       mockParams.syncFolder = { type: 'sendreceive' };
       dockerServiceMock.dockerContainerInspect.resolves({
         State: { Running: true },
       });
 
-      const result = await stateMachine.manageFolderSyncState(mockParams);
+      await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(result.skipUpdate).to.be.true;
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
     it('should handle first run with no sync folder', async () => {
