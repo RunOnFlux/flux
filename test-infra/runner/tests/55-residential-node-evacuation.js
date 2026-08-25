@@ -6,7 +6,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, allocateAppPort } from '../framework/seed-helper.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
-  advanceBlock, advanceBlocks, startTicker, stopTicker, setSystemSecure, clearSystemSecure,
+  advanceBlock, advanceBlocks, driveUntil, startTicker, stopTicker, setSystemSecure, clearSystemSecure,
 } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
@@ -145,64 +145,6 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp', po
   return app;
 }
 
-/**
- * Drive the chain until a condition holds, at a stated RATE, up to a stated
- * deadline.
- *
- * Two reasons this drives rather than letting the ticker free-run:
- *
- * The ticker produces blocks on the same period the explorer polls on, so the
- * node learns about them in bursts and processes a burst back to back - and only
- * the last block of a burst is still the chain tip. FluxOS runs its app
- * maintenance, the give-up pass included, only for a block that was the tip and
- * only on every fourth block, so whether the pass runs at all comes down to
- * which parity the race settles on.
- *
- * And the waits here are WALL-CLOCK. A node's queue ticket is real time, so a
- * budget counted in blocks means nothing: the deadline is therefore in
- * milliseconds. The chain's actual rate is not this function's to set - a block
- * is not processed until the node's next explorer poll, so
- * `explorerPollIntervalMs` is the floor, and that floor is what fixes how long a
- * give-up pass takes in wall-clock, which is what the queue step has to outlast.
- * Changing one without the other is what quietly deletes the ordering these
- * tests exist to check.
- *
- * THE RATE IS THE NODE'S POLL, not something faster. A block is not processed
- * until the next explorer poll, so driving four blocks per poll produces four
- * times the work for the same pass cadence: a height only counts when it lands
- * as the tip, tips arrive one per poll, and the give-up pass therefore comes
- * every `removeFluxAppsPeriod x 4` polls whatever rate this drives at. The
- * extra blocks are pure load - and this suite drives for the length of a
- * departure, which is now minutes rather than seconds. At 200ms it drove about
- * a thousand blocks per wait, held a runner slot for the full 1800s wall clock,
- * and starved the box: two unrelated suites ran 3-4x slower in the same gate
- * and hit that wall themselves.
- *
- * @param {number} [opts.timeoutMs] How long to keep driving before giving up.
- * @param {number} [opts.blockIntervalMs] Minimum wall-clock between blocks.
- * @returns {Promise<number>} Blocks driven.
- */
-async function driveUntil(env, nodeIndex, condition, { timeoutMs = DEPARTURE_WAIT_MS, blockIntervalMs = SHARED_POLL_MS } = {}) {
-  const node = env.clients[nodeIndex - 1];
-  const deadline = Date.now() + timeoutMs;
-  let blocks = 0;
-  while (Date.now() < deadline) {
-    // eslint-disable-next-line no-await-in-loop
-    if (await condition()) return blocks;
-    const startedAt = Date.now();
-    const afterId = node.getLastEventId();
-    // eslint-disable-next-line no-await-in-loop
-    await advanceBlock();
-    // eslint-disable-next-line no-await-in-loop
-    await node.waitForEvent('block:processed', () => true, 60000, { afterId });
-    blocks += 1;
-    const spent = Date.now() - startedAt;
-    // eslint-disable-next-line no-await-in-loop
-    if (spent < blockIntervalMs) await new Promise((resolve) => { setTimeout(resolve, blockIntervalMs - spent); });
-  }
-  if (await condition()) return blocks;
-  throw new Error(`condition not reached in ${timeoutMs}ms (${blocks} blocks driven)`);
-}
 
 /**
  * When this node stopped holding an app, by its own account. Returns the epoch
@@ -613,7 +555,7 @@ describe('Residential node evacuation', function () {
     // Only the removal needs blocks. DOS is applied by the residential tick on
     // its own residentialCheckIntervalMs timer, so it arrives with the chain
     // stopped - which is also why it cannot be driven for.
-    await driveUntil(env, TARGET, async () => {
+    await driveUntil(env.clients[TARGET - 1], async () => {
       const buffer = env.clients[TARGET - 1].getEventBuffer();
       return buffer.some((e) => e.event === 'app:removed' && e.data?.name === 'residentapp');
     }, { timeoutMs: DEPARTURE_WAIT_MS });
@@ -740,7 +682,7 @@ describe('Residential node evacuation', function () {
     const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'worldapp',
       (d) => d.safe === false, 300000).then((v) => { safetyVerdict = v; return v; });
     refused.catch(() => {});
-    await driveUntil(env, TARGET, async () => safetyVerdict !== null,
+    await driveUntil(env.clients[TARGET - 1], async () => safetyVerdict !== null,
       { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
@@ -768,10 +710,10 @@ describe('Residential node evacuation', function () {
     await setPeerHasData({ folder: 'fluxworldapp_worldapp' });
 
     await stopTicker();
-    await driveUntil(env, TARGET, async () => {
+    await driveUntil(env.clients[TARGET - 1], async () => {
       const current = await env.clients[TARGET - 1].get('/apps/installedapps');
       return !current.data.map((a) => a.name).includes('worldapp');
-    });
+    }, { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
     await whenGone(env, TARGET, 'worldapp', 120000);
@@ -877,7 +819,7 @@ describe('Residential node evacuation', function () {
     // the moment one node leaves means the other never gets a pass in which to
     // refuse, and the wait times out on a suite that stopped the clock itself.
     await stopTicker();
-    await driveUntil(env, TARGET, async () => refusal !== null,
+    await driveUntil(env.clients[TARGET - 1], async () => refusal !== null,
       { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
@@ -925,7 +867,7 @@ describe('Residential node evacuation', function () {
     const wentFirst = (e) => e.event === 'app:removed' && seeded.includes(e.data?.name);
 
     await stopTicker();
-    await driveUntil(env, TARGET, async () => client.getEventBuffer().some(wentFirst),
+    await driveUntil(env.clients[TARGET - 1], async () => client.getEventBuffer().some(wentFirst),
       { timeoutMs: DEPARTURE_WAIT_MS });
     const gone = client.getEventBuffer().filter(wentFirst).pop();
     const remaining = gone.data.name === 'firstout' ? 'secondout' : 'firstout';
@@ -941,7 +883,7 @@ describe('Residential node evacuation', function () {
       && /its turn is in/.test(e.data?.detail || '')
       && e.id > gone.id;
 
-    await driveUntil(env, TARGET, async () => client.getEventBuffer().some(turnRestarted),
+    await driveUntil(env.clients[TARGET - 1], async () => client.getEventBuffer().some(turnRestarted),
       { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
@@ -988,7 +930,7 @@ describe('Residential node evacuation', function () {
     stoodDown.catch(() => {});
 
     await stopTicker();
-    await driveUntil(env, TARGET, async () => standDownVerdict !== null,
+    await driveUntil(env.clients[TARGET - 1], async () => standDownVerdict !== null,
       { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
@@ -1125,7 +1067,7 @@ describe('Residential node evacuation', function () {
       // shortening it means compressing masterSlaveIntervalMs further, which
       // has its own couplings to check first.
       await stopTicker();
-      await driveUntil(env, TARGET, async () => unknownRefusal !== null,
+      await driveUntil(env.clients[TARGET - 1], async () => unknownRefusal !== null,
       { timeoutMs: DEPARTURE_WAIT_MS });
       await startTicker();
 

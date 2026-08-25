@@ -10,7 +10,7 @@ import {
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { setSynced, setPeerHasData, resetSyncState } from '../framework/syncthing-control.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
-import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
+import { driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
 import { waitFor, waitForGiveUpConsidered } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -53,35 +53,6 @@ async function runningComponents(env, nodeIndex) {
   const list = res?.status === 'success' ? res.data : null;
   if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res)?.slice(0, 200)}`);
   return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
-}
-
-// Drive the chain until a condition holds, ONE BLOCK AT A TIME, waiting for the
-// node to process each before sending the next.
-//
-// A height only counts when it lands as the TIP, and tips arrive one per
-// explorer poll - so pushing a burst leaves most of it stale on arrival and the
-// give-up pass runs once, or not at all. This test used to advance 24 blocks in
-// a single call and then assert that nothing had happened; on the fleet that
-// produced exactly one give-up pass across five nodes, and the assertion held
-// because nothing had been asked, not because anything had declined.
-//
-// Suite 55 carries the same shape and the full reasoning for it, including the
-// gate it cost. Worth folding into the framework when a third suite wants it.
-async function driveUntil(node, condition, { timeoutMs, label }) {
-  const deadline = Date.now() + timeoutMs;
-  let blocks = 0;
-  while (Date.now() < deadline) {
-    // eslint-disable-next-line no-await-in-loop
-    if (await condition()) return blocks;
-    const afterId = node.getLastEventId();
-    // eslint-disable-next-line no-await-in-loop
-    await advanceBlock();
-    // eslint-disable-next-line no-await-in-loop
-    await node.waitForEvent('block:processed', () => true, 60000, { afterId });
-    blocks += 1;
-  }
-  if (await condition()) return blocks;
-  throw new Error(`${label}: not reached in ${timeoutMs}ms (${blocks} blocks driven)`);
 }
 
 const subnet = getSubnetConfig();
