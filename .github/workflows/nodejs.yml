@@ -109,8 +109,11 @@ jobs:
           CI: true
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
+      # Only development publishes the docs. Without the ref condition every branch build races for
+      # fluxjsdocs master, so the published JSDocs are whichever branch happened to build last --
+      # an unmerged feature branch as often as not.
       - name: Mint the docs token
-        if: github.repository == 'RunOnFlux/flux'
+        if: github.repository == 'RunOnFlux/flux' && github.ref == 'refs/heads/development'
         id: docs-token
         uses: actions/create-github-app-token@v1
         with:
@@ -119,7 +122,7 @@ jobs:
           owner: RunOnFlux
           repositories: fluxjsdocs
       - name: Push docs to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
-        if: github.repository == 'RunOnFlux/flux'
+        if: github.repository == 'RunOnFlux/flux' && github.ref == 'refs/heads/development'
         uses: cpina/github-action-push-to-another-repository@main
         env:
           API_TOKEN_GITHUB: ${{ steps.docs-token.outputs.token }}
