@@ -1,4 +1,5 @@
 import { getSubnetConfig } from './subnet-config.js';
+import { loadSharedConfig } from './coupled-knobs.js';
 
 const CONTROL = process.env.DAEMON_CONTROL || `http://${getSubnetConfig().daemon}:18232`;
 
@@ -46,6 +47,78 @@ export async function advanceBlocks(count) {
     // eslint-disable-next-line no-await-in-loop
     await advanceBlock();
   }
+}
+
+/**
+ * Drive the chain until a condition holds, at a stated RATE, up to a stated
+ * deadline.
+ *
+ * Two reasons to drive rather than let the ticker free-run:
+ *
+ * The ticker produces blocks on the same period the explorer polls on, so the
+ * node learns about them in bursts and processes a burst back to back - and only
+ * the last block of a burst is still the chain tip. FluxOS runs its app
+ * maintenance, the give-up pass included, only for a block that was the tip and
+ * only on every Nth block, so whether the pass runs at all comes down to which
+ * parity the race settles on. Suite 96 asserted that nothing had happened after
+ * a 24-block burst and was right for the wrong reason: the pass had run once
+ * across five nodes, so there was nothing for the assertion to have caught.
+ *
+ * And these waits are WALL-CLOCK. A node's queue ticket is real time, so a
+ * budget counted in blocks means nothing: the deadline is therefore in
+ * milliseconds. The chain's actual rate is not this function's to set - a block
+ * is not processed until the node's next explorer poll, so
+ * `explorerPollIntervalMs` is the floor, and that floor is what fixes how long a
+ * give-up pass takes in wall-clock, which is what the queue step has to outlast.
+ * Changing one without the other is what quietly deletes the ordering those
+ * tests exist to check.
+ *
+ * THE RATE IS THE NODE'S POLL, not something faster. Driving four blocks per
+ * poll produces four times the work for the same pass cadence: a height only
+ * counts when it lands as the tip, tips arrive one per poll, and the pass comes
+ * every `removeFluxAppsPeriod x N` polls whatever rate this drives at. The extra
+ * blocks are pure load. At 200ms one suite drove about a thousand blocks per
+ * wait, held a runner slot for the full 1800s wall clock and starved the box:
+ * two unrelated suites ran 3-4x slower in the same gate and hit that wall
+ * themselves.
+ *
+ * @param {object} node The node client to pace against - the one whose
+ *   `block:processed` decides when the next block may be sent. A CLIENT, not an
+ *   index: the two suites that grew this independently disagreed about whether
+ *   the index was 0- or 1-based, which is not a mistake worth leaving available.
+ * @param {Function} condition Async predicate; driving stops when it holds.
+ * @param {object} opts
+ * @param {number} opts.timeoutMs How long to keep driving before giving up.
+ * @param {number} [opts.blockIntervalMs] Minimum wall-clock between blocks.
+ * @param {string} [opts.label] What the caller was waiting for, for the error.
+ * @returns {Promise<number>} Blocks driven.
+ */
+export async function driveUntil(node, condition, { timeoutMs, blockIntervalMs, label } = {}) {
+  if (!Number.isFinite(timeoutMs)) {
+    // No default. The deadline is wall-clock and every caller's is derived from
+    // something different - a departure cycle, an election cycle - so a shared
+    // default would be one suite's number silently applied to another's wait.
+    throw new Error('driveUntil: timeoutMs is required');
+  }
+  const interval = blockIntervalMs ?? loadSharedConfig().fluxapps.explorerPollIntervalMs;
+  const deadline = Date.now() + timeoutMs;
+  let blocks = 0;
+  while (Date.now() < deadline) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await condition()) return blocks;
+    const startedAt = Date.now();
+    const afterId = node.getLastEventId();
+    // eslint-disable-next-line no-await-in-loop
+    await advanceBlock();
+    // eslint-disable-next-line no-await-in-loop
+    await node.waitForEvent('block:processed', () => true, 60000, { afterId });
+    blocks += 1;
+    const spent = Date.now() - startedAt;
+    // eslint-disable-next-line no-await-in-loop
+    if (spent < interval) await new Promise((resolve) => { setTimeout(resolve, interval - spent); });
+  }
+  if (await condition()) return blocks;
+  throw new Error(`${label ? `${label}: ` : ''}condition not reached in ${timeoutMs}ms (${blocks} blocks driven)`);
 }
 
 export async function setHeight(height) {
