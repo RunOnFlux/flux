@@ -151,46 +151,6 @@ describe('a restore does not reach the other instances data', function () {
     expect(await readMarker(standby, appName)).to.equal('node-1-world');
   });
 
-  // The restore ends by starting the app, and a bare app name fans out to every
-  // component - so on a node the election did not choose, a forced restore would
-  // start the elected container here while the primary runs elsewhere. The
-  // folders go back to sendreceive a few lines before that start, so it would be
-  // writing into live replicated storage immediately: the two-writers case the
-  // backup path has always refused to create.
-  //
-  // force is what makes this reachable without breaking anything else - it skips
-  // the FDM check entirely, and it means "I accept the risk to this data", not
-  // "start a second writer". FDM being unreachable reaches the same place.
-  it('does not start the elected container on a node the election did not choose', async function () {
-    this.timeout(180000);
-    const standby = env.clients[1];
-    await stageArchive(standby, appName);
-
-    expect(
-      await containerRunning(standby, appName),
-      'the standby must be down before the restore, or a stopped container after it proves nothing',
-    ).to.equal(false);
-
-    const body = await standby.appendRestoreTask(
-      appName, [{ component: appName, restore: true }], 'local', auth.zelidauth, { force: true },
-    );
-
-    expect(body, 'force must get past the refusal, or the start is never reached').to.not.match(/Refused/i);
-
-    // The start is the last thing the restore does, so the window to be wrong is
-    // after it returns. Held open rather than sampled once.
-    const deadline = Date.now() + 20000;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(
-        await containerRunning(standby, appName),
-        'the election owns this container, and it is not the primary here',
-      ).to.equal(false);
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => { setTimeout(r, 2000); });
-    }
-  });
-
   it('does not clear appdata for an archive it cannot read', async function () {
     this.timeout(180000);
     // the ordering the incident inverted: this archive is unreadable, and the
@@ -239,5 +199,74 @@ describe('a restore does not reach the other instances data', function () {
     expect(await pathExists(peer, appDir(appName)), 'peer app directory').to.equal(true);
     expect(await readMarker(peer, appName)).to.equal('node-1-world');
     expect(await containerId(peer, appName)).to.equal(peerContainerBefore);
+  });
+
+
+  // Its own app on the shared fleet, rather than the one every test above uses.
+  // A forced restore CLEARS the node it runs on, and those tests assert the
+  // standby's copy is exactly what the fixture wrote there - sharing an app would
+  // make this test's placement load-bearing, and nothing enforces placement. The
+  // fleet is the expensive part and stays shared; a second app is cheap.
+  describe('a restore on a node the election did not choose', () => {
+    const ownName = `e2eelect${ts}`;
+    const ownIdentifier = `${ownName}_${ownName}`;
+    const ownFolder = appId(ownName);
+
+    before(async function () {
+      this.timeout(420000);
+      await pushImage(ownName, 'v1');
+      const app = await buildSeedableSyncthingApp({ name: ownName, mode: 'g' });
+      const afters = [0, 1].map((i) => env.clients[i].getLastEventId());
+      await installOnNodes(env, app, [0, 1]);
+      await Promise.all([0, 1].map(async (i, k) => {
+        await waitForReconcileActuated(env.clients[i], ownIdentifier, 'dataCleared', 60000, { afterId: afters[k] });
+        await seedSyncScopedData(env, ownName, i);
+      }));
+      await Promise.all([0, 1].map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: ownFolder })));
+      // node 0 holds it, so node 1 is a standby the election has stopped - which
+      // is the state a restore must not undo
+      await electMaster(ownName, env.clients[0].ip);
+      await waitForReconcilerDesiredChanged(env.clients[0], ownIdentifier, 'running', 90000);
+    });
+
+    // The restore ends by starting the app, and a bare app name fans out to every
+    // component - so on a node the election did not choose it would start the
+    // elected container while the primary runs elsewhere. The folders go back to
+    // sendreceive a few lines before that start, so it would be writing into live
+    // replicated storage at once: the two-writers case the backup path has always
+    // refused to create.
+    //
+    // force is what makes this reachable without breaking anything else - it
+    // skips the FDM check, and it means "I accept the risk to this data", not
+    // "start a second writer". An unreachable FDM arrives at the same place.
+    it('does not start the elected container', async function () {
+      this.timeout(180000);
+      const standby = env.clients[1];
+      await stageArchive(standby, ownName);
+
+      expect(
+        await containerRunning(standby, ownName),
+        'the standby must be down before the restore, or a stopped container after it proves nothing',
+      ).to.equal(false);
+
+      const body = await standby.appendRestoreTask(
+        ownName, [{ component: ownName, restore: true }], 'local', auth.zelidauth, { force: true },
+      );
+
+      expect(body, 'force must get past the refusal, or the start is never reached').to.not.match(/Refused/i);
+
+      // The start is the last thing the restore does, so the window to be wrong
+      // is after it returns. Held open rather than sampled once.
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(
+          await containerRunning(standby, ownName),
+          'the election owns this container, and it is not the primary here',
+        ).to.equal(false);
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => { setTimeout(r, 2000); });
+      }
+    });
   });
 });
