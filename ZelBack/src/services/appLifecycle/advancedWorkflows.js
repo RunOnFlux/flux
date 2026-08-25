@@ -2360,6 +2360,9 @@ async function appendBackupTask(req, res) {
     if (!appname || !backup) {
       throw new Error('appname and backup parameters are mandatory');
     }
+    if (!Array.isArray(backup)) {
+      throw new Error('backup must be a list of components');
+    }
     const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
     if (hasTrueBackup === false) {
       throw new Error('No backup jobs...');

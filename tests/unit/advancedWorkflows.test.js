@@ -2901,6 +2901,24 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.notCalled(dockerService.appDockerStop);
     });
 
+    it('refuses a backup that is not a list of components, not with a TypeError', async () => {
+      // The UI always sends an array. A caller that sends the single component it
+      // wants as a bare value reached .some() and had the interpreter's own
+      // wording relayed down the progress stream as the refusal.
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(
+        { body: { appname, backup: 'palworld' }, headers: {} }, res,
+      );
+
+      expect(result).to.equal(false);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said).to.include('backup must be a list of components');
+      expect(said, 'the refusal is stated, not relayed from the interpreter').to.not.include('is not a function');
+      // and it lands ahead of the claim, so the app is not left leased
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
     it('refuses when syncthing cannot be reached, and does not call that "never synced"', async () => {
       // A daemon that is down or restarting says nothing about the data. The
       // refusal is still right - an archive of an unverified copy looks fine and
@@ -3202,6 +3220,19 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.notCalled(IOUtils.untarFile);
         sinon.assert.notCalled(IOUtils.removeDirectory);
         sinon.assert.notCalled(dockerService.appDockerStop);
+      });
+
+      it('refuses a restore that is not a list of components, not with a TypeError', async () => {
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ restore: 'palworld' }), res);
+
+        expect(result).to.equal(false);
+        const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+        expect(said).to.include('restore must be a list of components');
+        expect(said, 'the refusal is stated, not relayed from the interpreter').to.not.include('is not a function');
+        sinon.assert.notCalled(IOUtils.untarFile);
+        expect(globalState.restoreInProgress).to.not.include(appname);
       });
 
       it('refuses a component the app does not have', async () => {
