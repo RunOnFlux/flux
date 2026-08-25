@@ -61,6 +61,29 @@ const MAX_CONFIRMATION_GAP_MS = CHECK_INTERVAL_MS * 2;
 // the replacement is itself the most junior and does not want to leave.
 const QUEUE_BASE_MS = config.fluxapps.residentialQueueBaseMs;
 const QUEUE_STEP_MS = config.fluxapps.residentialQueueStepMs;
+// The ticket is served against an UNINTERRUPTED observation - the wait means
+// nothing if it can be accumulated across periods this node was not watching -
+// and this is what counts as the interruption. A gap longer than one queue step
+// means at least one whole give-up pass went by without this node evaluating
+// the app, so the observation starts again rather than carrying over.
+//
+// It is what stops the departure interval leaking into the queue. A node inside
+// its interval returns ABOVE the accounting below, so it records nothing for
+// the whole block; the first pass after the block clears sees one six-hour gap
+// and every ticket starts again. Without that, position separates the FIRST
+// departure and nothing after it: every ticket matures untouched during the
+// block, and the node is instantly ready for all of them the moment it clears.
+// Two nodes whose blocks expire in the same pass then hand back the same app
+// together, which is the defect the step was widened to 40 minutes to close -
+// reached by the other door.
+//
+// Derived from the step rather than written as its own number, because the step
+// is ALREADY required to outlast the pass: that inequality is asserted against
+// production's config in the unit tests and re-derived per fleet by
+// test-infra's coupled knobs. A literal here would be a third place that has to
+// be kept in step with the block time, and the last hand-written number in this
+// neighbourhood inverted the property it was meant to enforce.
+const MAX_TICKET_GAP_MS = QUEUE_STEP_MS;
 // Minimum gap between this node's departures. The give-up-an-app pass runs every
 // 11 blocks (~22 min), which unpaced would empty the busiest node in the fleet in
 // about four hours; there is no deadline here and slower is strictly safer.
@@ -74,23 +97,35 @@ let started = false;
 let stopping = false;
 let ourDosActive = false;
 let inconclusiveStreak = 0;
-// appName -> epoch ms at which we first saw the app at full strength. Process
-// lifetime only: losing it costs a queue wait, never a premature removal.
-const wholeSince = new Map();
+// appName -> { since, lastSeenAt } on the MONOTONIC clock, for an app this node
+// has seen at full strength on every pass since `since`. Process lifetime only:
+// losing it costs a queue wait, never a premature removal.
+//
+// Two fields rather than one, because the ticket is an uninterrupted observation
+// and not an elapsed time. `since` is what the wait is measured from;
+// `lastSeenAt` is the only way an interruption can be detected at all - without
+// it a node that stopped looking, or one that was not allowed to act, goes on
+// accruing credit for time it never spent watching.
+const wholeObservation = new Map();
 // Whether the settling window has elapsed and departures may begin.
 let evacuating = false;
 // The network verdict behind the most recent isResidential(), carried into the
 // decision event so a consumer can tell the three nulls apart.
 let lastVerdict = { classification: null, source: null };
-// Paces departures, and PERSISTED in the settle marker rather than held for the
-// process lifetime. At 0 the gate below reads `now - 0`, about 1.7e12 ms, so it
-// is open on the first call after every process start: a node restarting on a
-// cron, crash-looping, or taking the ~4h auto-update shed an app every queue
-// wait instead of every departure interval, and the busiest node in the fleet
-// finished in hours rather than the three days the cadence is set for. Same
-// reasoning as the settling clock - a counter a restart resets makes restarting
-// the way to go faster.
-let lastEvacuationAt = 0;
+// Paces departures, on the MONOTONIC clock, and PERSISTED in the settle marker
+// rather than held for the process lifetime. Same reasoning as the settling
+// clock - a counter a restart resets makes restarting the way to go faster: a
+// node restarting on a cron, crash-looping, or taking the ~4h auto-update shed
+// an app every queue wait instead of every departure interval, and the busiest
+// node in the fleet finished in hours rather than the three days the cadence is
+// set for.
+//
+// `null`, not 0, for "no departure recorded". The gate used to read `now - 0`
+// and get about 1.7e12 ms, which is open by arithmetic - but 0 on the monotonic
+// clock is the start of THIS process, so the same expression would hold the
+// gate SHUT on a freshly booted node for the first six hours. The state is
+// named rather than encoded in a magic origin.
+let lastEvacuationAt = null;
 
 // Whether this node yet knows what it is running. Starts false and is only
 // raised by the orchestrator's own signal - the same one appSpawner waits on.
@@ -100,6 +135,22 @@ let lastEvacuationAt = 0;
 let nodeReady = false;
 appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => { nodeReady = true; });
 appSyncEvents.on(SYNC_EVENTS.READINESS_LOST, () => { nodeReady = false; });
+
+/**
+ * Milliseconds on the monotonic clock. Every elapsed-time decision the queue
+ * ticket makes reads this rather than the wall clock, so an NTP step cannot
+ * mature a ticket against time this node never spent watching. The backward
+ * step matters too, and more here than in most places: this runs on a box its
+ * own operator administers, and the operator has an incentive to stall the
+ * drain.
+ *
+ * Only values that must survive a restart stay on the wall clock, because a
+ * monotonic reading means nothing to the next process.
+ * @returns {number} Milliseconds since an arbitrary fixed origin.
+ */
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
 
 /**
  * True when the current sticky DOS message was set by this service.
@@ -246,9 +297,19 @@ async function noteVerdictConfirmed(now) {
   const observedMs = numberOrNull(marker && marker.observedMs) ?? 0;
   // Restored here rather than at boot: this is the pass that reads the marker,
   // and it runs before any departure can be considered.
+  //
+  // CONVERTED, not read. The marker holds wall-clock ms and the gate runs on the
+  // monotonic clock, so what survives a restart is how long AGO the last
+  // departure was, not the instant it happened. A marker stamped in the future -
+  // the clock moved back between processes - would otherwise restore an origin
+  // ahead of now and hold the gate shut; it is floored at no elapsed time
+  // instead, which is the same answer as a departure that just happened.
   const persistedEvacuation = numberOrNull(marker && marker.lastEvacuationAt);
-  if (persistedEvacuation && persistedEvacuation > lastEvacuationAt) {
-    lastEvacuationAt = persistedEvacuation;
+  if (persistedEvacuation) {
+    const restored = monotonicMs() - Math.max(0, now - persistedEvacuation);
+    if (lastEvacuationAt === null || restored > lastEvacuationAt) {
+      lastEvacuationAt = restored;
+    }
   }
   const credited = previousConfirmedAt ? creditForGap(now - previousConfirmedAt) : 0;
   const totalObservedMs = observedMs + credited;
@@ -361,18 +422,42 @@ function isEvacuating() {
  * @param {string} appName Global app name.
  * @param {object[]} locations Instance locations for the app.
  * @param {string} localSocketAddr This node's socket address.
- * @param {number} [now] Epoch ms, injectable for tests.
+ * @param {number} minInstances How many instances this app is meant to have.
+ *   Passed in rather than derived here, so the pacing half of the decision and
+ *   the SURPLUS half are ranked by one number instead of two. It is the LOCAL
+ *   record's count; appEvacuationSafety re-derives from the global spec, which
+ *   is the authority at the moment of removal. They can differ while an owner's
+ *   instance-count change propagates, and either way round is safe: too low
+ *   here lets a ticket run that the safety gate then refuses as short, which
+ *   restarts the observation, and too high only makes the turn wait longer.
+ * @param {number} [now] Monotonic ms, injectable for tests.
  * @returns {{ok: boolean, reason: string}}
  */
-function mayEvacuateApp(appName, locations, localSocketAddr, now = Date.now()) {
+function mayEvacuateApp(appName, locations, localSocketAddr, minInstances, now = monotonicMs()) {
   if (!evacuating) return { ok: false, reason: 'node is not evacuating' };
-  if (now - lastEvacuationAt < EVACUATION_INTERVAL_MS) {
+  if (lastEvacuationAt !== null && now - lastEvacuationAt < EVACUATION_INTERVAL_MS) {
     const wait = Math.round((EVACUATION_INTERVAL_MS - (now - lastEvacuationAt)) / 60000);
     return { ok: false, reason: `next departure in ${wait}m` };
   }
-  if (!wholeSince.has(appName)) wholeSince.set(appName, now);
+
+  // Everything below is the ticket, and it sits BELOW the interval gate on
+  // purpose: a blocked node records nothing, so its own block reads as one long
+  // gap and the ticket starts again. See MAX_TICKET_GAP_MS.
+  const previous = wholeObservation.get(appName);
+  const gap = previous ? now - previous.lastSeenAt : Infinity;
+  // Strength is tested HERE, where the clock is stamped, rather than left to
+  // the safety gate. The wait is "seen at full strength for base + position x
+  // step"; a clock that starts on the first ASK measures something else, and an
+  // app short of its count is one the spawner is part way through replacing.
+  // Time spent watching that is not time spent watching it whole.
+  const whole = locations.length >= minInstances;
+  const since = (!whole || gap > MAX_TICKET_GAP_MS) ? now : previous.since;
+  wholeObservation.set(appName, { since, lastSeenAt: now });
+  if (!whole) {
+    return { ok: false, reason: `app is short (${locations.length}/${minInstances}); its turn starts again` };
+  }
   const wait = queueDelayMs(locations, localSocketAddr);
-  const observed = now - wholeSince.get(appName);
+  const observed = now - since;
   if (observed < wait) {
     return { ok: false, reason: `its turn is in ${Math.round((wait - observed) / 60000)}m` };
   }
@@ -384,13 +469,17 @@ function mayEvacuateApp(appName, locations, localSocketAddr, now = Date.now()) {
  * @param {string} appName Global app name.
  * @param {number} [now] Epoch ms, injectable for tests.
  */
-function noteEvacuated(appName, now = Date.now()) {
+function noteEvacuated(appName, now = monotonicMs()) {
   lastEvacuationAt = now;
-  wholeSince.delete(appName);
+  wholeObservation.delete(appName);
   // Written through to the marker, so a restart does not re-open the gate. Best
   // effort: the in-memory value already paces this process, and the persisted
   // one only has to survive into the next.
-  persistLastEvacuationAt(now).catch(() => {});
+  //
+  // The WALL clock is what gets written. The next process cannot read this
+  // one's monotonic origin, so the only thing worth recording is an instant it
+  // can convert back into "how long ago".
+  persistLastEvacuationAt(Date.now()).catch(() => {});
   log.info(`residentialNodeDos - ${appName} handed back; next departure no sooner than ${EVACUATION_INTERVAL_MS / 3600000}h`);
 }
 
@@ -423,7 +512,7 @@ async function persistLastEvacuationAt(now) {
  * @param {string} appName Global app name.
  */
 function forgetAppObservation(appName) {
-  wholeSince.delete(appName);
+  wholeObservation.delete(appName);
 }
 
 /**
@@ -538,7 +627,7 @@ async function enforceResidentialPolicy(deps) {
     releaseOurDos(`residential=${residential}, arcaneOs=${arcane}`);
     await clearSettleMarker();
     evacuating = false;
-    wholeSince.clear();
+    wholeObservation.clear();
     return true;
   }
 
@@ -666,7 +755,7 @@ function stop() {
   // previous run and skip the read-back that decides whether the slot is ours.
   ourDosActive = false;
   evacuating = false;
-  wholeSince.clear();
+  wholeObservation.clear();
   if (timerHandle) {
     clearTimeout(timerHandle);
     timerHandle = null;
@@ -699,5 +788,6 @@ module.exports = {
   SETTLE_MS,
   QUEUE_BASE_MS,
   QUEUE_STEP_MS,
+  MAX_TICKET_GAP_MS,
   EVACUATION_INTERVAL_MS,
 };

@@ -19,7 +19,7 @@ import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { derivedQueueStepMs, loadSharedConfig } from '../framework/coupled-knobs.js';
+import { derivedQueueStepMs, derivedEvacuationIntervalMs, loadSharedConfig } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
@@ -28,6 +28,22 @@ const subnet = getSubnetConfig();
 // signal available is what the ip-api stub serves - 198.18.x.x has no reverse
 // DNS and the stub tiers are not asymmetric enough to count - so `mobile` is the
 // positive signal and every contradiction is turned off.
+// The pacing this fleet runs on, derived once so the two knobs cannot drift
+// apart - the departure interval is a function OF the queue step, and writing
+// either as a literal is what broke this suite before. test-env asserts both
+// relationships on every node of every fleet before boot.
+const RESIDENTIAL_PACING = (() => {
+  const fleet = {
+    removeFluxAppsPeriod: 4,
+    explorerPollIntervalMs: loadSharedConfig().fluxapps.explorerPollIntervalMs,
+  };
+  const residentialQueueStepMs = derivedQueueStepMs(fleet);
+  return {
+    residentialQueueStepMs,
+    residentialEvacuationIntervalMs: derivedEvacuationIntervalMs({ ...fleet, residentialQueueStepMs }),
+  };
+})();
+
 const RESIDENTIAL_GEO = {
   hosting: false,
   proxy: false,
@@ -303,7 +319,6 @@ describe('Residential node evacuation', function () {
           // being asserted, and the ordering - hold first, deletes nothing, and
           // only later gives an app up - is the property under test.
           residentialSettleMs: 600000,
-          residentialEvacuationIntervalMs: 4000,
           residentialQueueBaseMs: 1000,
           // Position in the instance order sets a wait of base + position*step,
           // and the step is what stops two holders of the same app leaving
@@ -322,10 +337,21 @@ describe('Residential node evacuation', function () {
           //
           // coupled-knobs.js carries the derivation and test-env asserts the
           // resulting ratio against production's on every fleet boot.
-          residentialQueueStepMs: derivedQueueStepMs({
-            removeFluxAppsPeriod: 4,
-            explorerPollIntervalMs: loadSharedConfig().fluxapps.explorerPollIntervalMs,
-          }),
+          residentialQueueStepMs: RESIDENTIAL_PACING.residentialQueueStepMs,
+          // DERIVED too, and for a reason the 4000ms literal here could not
+          // survive. A node inside its departure interval records nothing
+          // against its queue tickets, so the block is what restarts them - and
+          // that only works if the block outlasts the gap a ticket tolerates,
+          // which IS the step. At 4000ms against a ~29s step the block stopped
+          // reading as a gap: every ticket carried across it, every app was
+          // instantly ready the moment the interval cleared, and two holders
+          // whose blocks expired in the same pass handed back the same app
+          // together. Production holds 6h against 40min and never meets it.
+          //
+          // It costs the suite real time - one departure per interval, and the
+          // interval is now tens of seconds rather than four. That is the price
+          // of the suite being able to see the property at all.
+          residentialEvacuationIntervalMs: RESIDENTIAL_PACING.residentialEvacuationIntervalMs,
         },
       },
     });
@@ -783,6 +809,78 @@ describe('Residential node evacuation', function () {
 
     const verdict = await refusedForBeingShort;
     expect(verdict.data.detail).to.contain('below its instance count');
+  });
+
+  it('serves a fresh queue turn after a departure, not one that matured during it', async function () {
+    this.timeout(900000);
+
+    // The ticket is the only thing separating two holders of one app, and it
+    // separates them only while it is still binding. A node inside its
+    // departure interval cannot act on anything, so time passing there is not
+    // evidence about any app it holds - but the ticket used to keep maturing
+    // through the block anyway, and the node came out of it instantly ready for
+    // everything at once. Two holders whose blocks expire in the same pass -
+    // and the pass is fired from a block height, so the whole fleet runs it
+    // together - then hand back the same app in the same pass, both read it at
+    // full strength, and both delete.
+    //
+    // Written as ONE node's second departure rather than two nodes colliding:
+    // the collision needs both blocks to expire on the same pass, which is a
+    // coincidence to arrange and a tautology to assert. What actually fixes it
+    // is that a departure restarts the queue, and that is directly observable.
+    await returnToService(env, TARGET);
+    await returnToService(env, SECOND_TARGET);
+
+    await seedApp(env, 'firstout', { instances: 5 });
+    await seedApp(env, 'secondout', { instances: 5 });
+    await advanceBlocks(3);
+    await waitFor(async () => {
+      const first = await dbClient(2).getAppLocations('firstout');
+      const second = await dbClient(2).getAppLocations('secondout');
+      return first.length >= 5 && second.length >= 5;
+    }, { timeout: 300000, label: 'both apps reach their instance count across the fleet' });
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts' });
+    await elapseSettleWindow(TARGET);
+
+    const client = env.clients[TARGET - 1];
+    const seeded = ['firstout', 'secondout'];
+    const wentFirst = (e) => e.event === 'app:removed' && seeded.includes(e.data?.name);
+
+    // Longer than driveUntil's default. This test pays a full queue turn, then
+    // a whole departure interval, then a second full turn - and at five
+    // instances the turn is base + position x step with position up to four.
+    const TURNS_AND_A_BLOCK_MS = 480000;
+    await stopTicker();
+    await driveUntil(env, TARGET, async () => client.getEventBuffer().some(wentFirst),
+      { timeoutMs: TURNS_AND_A_BLOCK_MS });
+    const gone = client.getEventBuffer().filter(wentFirst).pop();
+    const remaining = gone.data.name === 'firstout' ? 'secondout' : 'firstout';
+
+    // Through the block every pass refuses with 'next departure in'. The first
+    // time it says 'its turn is in' AFTER that departure, the block has cleared
+    // and the ticket has started over - which is the claim. On the accounting
+    // this replaces the ticket had matured inside the block, so the same pass
+    // removed the second app instead and this never arrives.
+    const turnRestarted = (e) => e.event === 'giveUp:considered'
+      && e.data?.appName === remaining
+      && e.data?.giveUp === false
+      && /its turn is in/.test(e.data?.detail || '')
+      && e.id > gone.id;
+
+    await driveUntil(env, TARGET, async () => client.getEventBuffer().some(turnRestarted),
+      { timeoutMs: TURNS_AND_A_BLOCK_MS });
+    await startTicker();
+
+    // One stream, monotonic ids: the second app was still waiting its turn on a
+    // pass that came after the first one left, rather than leaving with it.
+    const verdict = client.getEventBuffer().filter(turnRestarted).pop();
+    expect(verdict, `${remaining} never served a fresh turn after the departure`).to.not.be.undefined;
+    expect(client.getEventBuffer().some(
+      (e) => e.event === 'app:removed' && e.data?.name === remaining && e.id < verdict.id,
+    ), `${remaining} left during the departure interval instead of serving a turn`).to.equal(false);
   });
 
   it('stands down as the elected primary rather than handing the app back from under itself', async function () {

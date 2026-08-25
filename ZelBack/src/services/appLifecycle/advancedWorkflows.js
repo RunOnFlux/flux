@@ -3573,7 +3573,7 @@ function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr) {
   }
 
   if (residentialNodeDosService.isEvacuating()) {
-    const verdict = residentialNodeDosService.mayEvacuateApp(installedApp.name, runningAppList, localSocketAddr);
+    const verdict = residentialNodeDosService.mayEvacuateApp(installedApp.name, runningAppList, localSocketAddr, minInstances);
     if (verdict.ok) {
       return {
         giveUp: true,
