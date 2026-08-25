@@ -4113,10 +4113,10 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
   });
 
   describe('reasonToGiveUpApp', () => {
-    it('names SURPLUS when this node holds the junior of too many instances', () => {
+    it('names SURPLUS when this node holds the junior of too many instances', async () => {
       // Three running against an instance count of two, and this node started
       // last, so it is the one that stands aside.
-      const decision = advancedWorkflows.reasonToGiveUpApp(
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
         { name: 'a', instances: 2 },
         locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
         LOCAL,
@@ -4126,8 +4126,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       expect(decision.reason).to.equal('SURPLUS');
     });
 
-    it('does not name SURPLUS when this node holds a senior instance', () => {
-      const decision = advancedWorkflows.reasonToGiveUpApp(
+    it('does not name SURPLUS when this node holds a senior instance', async () => {
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
         { name: 'a', instances: 2 },
         locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'),
         LOCAL,
@@ -4136,8 +4136,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       expect(decision.giveUp).to.equal(false);
     });
 
-    it('names nothing when the app is at its instance count and the node is not evacuating', () => {
-      const decision = advancedWorkflows.reasonToGiveUpApp(
+    it('names nothing when the app is at its instance count and the node is not evacuating', async () => {
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
         { name: 'a', instances: 2 },
         locations(LOCAL, '5.6.7.8:16127'),
         LOCAL,
@@ -4147,10 +4147,10 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       expect(decision.reason).to.equal('NONE');
     });
 
-    it('names EVACUATION when the node is evacuating and this app\'s turn has come', () => {
+    it('names EVACUATION when the node is evacuating and this app\'s turn has come', async () => {
       residentialNodeDosService.isEvacuating.returns(true);
 
-      const decision = advancedWorkflows.reasonToGiveUpApp(
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
         { name: 'a', instances: 2 },
         locations(LOCAL, '5.6.7.8:16127'),
         LOCAL,
@@ -4160,11 +4160,11 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       expect(decision.reason).to.equal('EVACUATION');
     });
 
-    it('defers to the pacing when the app\'s turn has not come', () => {
+    it('defers to the pacing when the app\'s turn has not come', async () => {
       residentialNodeDosService.isEvacuating.returns(true);
       residentialNodeDosService.mayEvacuateApp.returns({ ok: false, reason: 'its turn is in 20m' });
 
-      const decision = advancedWorkflows.reasonToGiveUpApp(
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
         { name: 'a', instances: 2 },
         locations(LOCAL, '5.6.7.8:16127'),
         LOCAL,
@@ -4172,6 +4172,127 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
 
       expect(decision.giveUp).to.equal(false);
       expect(decision.detail).to.contain('20m');
+    });
+
+    // A g: app: one component runs on a single node at a time and writes to the
+    // volume. `w_a` is what the election keys on and what the container is named.
+    const withWriter = { name: 'a', instances: 2, version: 8, compose: [{ name: 'w', containerData: 'g:/data' }] };
+    const writerAppId = require('../../ZelBack/src/services/dockerService').getAppIdentifier('w_a');
+
+    // The peer probe. A status IS an answer - the peer is alive and merely
+    // cannot say - so it reads as "cannot be ruled out", never as clearance.
+    const newestSays = ({ held = null, status = null }) => sinon.stub(axios, 'get').callsFake((url) => {
+      if (status) return Promise.reject(Object.assign(new Error(`status ${status}`), { response: { status } }));
+      if (url.includes('/apps/heldcomponents')) return Promise.resolve({ data: { data: held } });
+      return Promise.resolve({ data: { data: [] } });
+    });
+
+    it('leaves the newest copy alone when it is the one writing', async () => {
+      // "The newest stands aside" stands in for "the least valuable copy stands
+      // aside". The writer is the most valuable copy there is, so the stand-in
+      // is backwards here and the node stays.
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.detail).to.contain('w_a');
+    });
+
+    it('still trims the newest copy when it is not the one writing', async () => {
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('SURPLUS');
+    });
+
+    it('trims the second-newest once the newest confirms it holds the writer', async () => {
+      newestSays({ held: [writerAppId] });
+
+      // LOCAL is second of three here: 9.9.9.9 started last.
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.detail).to.contain('w_a');
+    });
+
+    it('does not trim the second-newest when the newest cannot be ruled out', async () => {
+      // THE ONE THAT MATTERS. Every node ranks the same shared order, but "who
+      // is writing" is each node's own reading, and FDM lags it. A second node
+      // acting on anything less than a positive confirmation is how two copies
+      // leave at once. Alive-and-cannot-say must read as "do nothing".
+      newestSays({ status: 500 });
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+    });
+
+    it('does not trim the second-newest when the newest says it is not writing', async () => {
+      // Then the newest is an ordinary surplus copy and trims itself. Two nodes
+      // acting on that same fact is exactly what must not happen.
+      newestSays({ held: [] });
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+    });
+
+    it('asks no peer anything for an app with no writer', async () => {
+      // Nothing to protect and nothing to ask. LOCAL is SECOND-newest here, so
+      // this sits exactly where the probe would fire if the rule stopped
+      // requiring a writer - a position-0 node would never reach that branch
+      // and the test would pass with the guard deleted.
+      const probe = sinon.stub(axios, 'get').rejects(new Error('no peer should be probed'));
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2, version: 8, compose: [{ name: 'w', containerData: '/data' }] },
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      sinon.assert.notCalled(probe);
+    });
+
+    it('asks no peer anything when there is no surplus', async () => {
+      const probe = sinon.stub(axios, 'get').rejects(new Error('no peer should be probed'));
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.reason).to.equal('NONE');
+      sinon.assert.notCalled(probe);
     });
   });
 
