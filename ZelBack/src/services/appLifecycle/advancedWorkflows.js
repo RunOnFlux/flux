@@ -3579,6 +3579,11 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
   const residentialNodeDosService = require('../residentialNodeDosService');
   const minInstances = installedApp.instances || config.fluxapps.minimumInstances;
 
+  // A surplus this node declined to act on, carried out of the block so the
+  // decision can be reported without returning here - a node that is also
+  // evacuating must still reach the evacuation gate below.
+  let surplusDeclined = null;
+
   if (runningAppList.length > minInstances) {
     // junior end first: the newest instance stands aside, ties broken
     // by the shared ordering so every node names the same surplus
@@ -3638,6 +3643,17 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
           detail: `${detail.replace('this node is the newest', `the newest copy holds ${writer}, so this node trims`)}`,
         };
       }
+      // DECLINING IS A DECISION, and it is reported as one. The newest copy's
+      // own refusal already reports SURPLUS with giveUp false; this one fell
+      // through to NONE - which is what the pass reports when the app has no
+      // surplus at all. So "there is a surplus and I will not act on a guess"
+      // and "there is nothing here to trim" reached the event stream
+      // identically, and the single observation that would catch this rule
+      // failing open was not available to anything watching it.
+      surplusDeclined = {
+        code: 'WRITER_UNCONFIRMED',
+        detail: `${detail} but the newest copy could not be confirmed to hold ${writer} (${newestState}); nothing is trimmed`,
+      };
     }
   }
 
@@ -3655,6 +3671,11 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     };
   }
 
+  if (surplusDeclined) {
+    return {
+      giveUp: false, reason: 'SURPLUS', code: surplusDeclined.code, detail: surplusDeclined.detail,
+    };
+  }
   return { giveUp: false, reason: 'NONE', detail: '' };
 }
 
