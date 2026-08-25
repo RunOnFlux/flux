@@ -172,6 +172,13 @@ async function setAppOperatorStopped(appname, appSpecs, stopped, { awaitPass = f
   const ids = (!appname.includes('_') && appSpecs && appSpecs.version > 3)
     ? appSpecs.compose.map((c) => `${c.name}_${appSpecs.name}`)
     : [appname];
+  // Components come up in compose order and go down in the reverse of it, so a
+  // dependency outlives what writes to it: the database stops after the server it
+  // serves, not before it. awaitPass holds each component's pass open before the
+  // next id is touched, so this order is the order the containers move in.
+  // Reversed on the mapped ids, which is a fresh array - never on the spec, whose
+  // compose array is shared with whatever the caller fetched it from.
+  if (stopped) ids.reverse();
   let allActuated = true;
   // eslint-disable-next-line no-restricted-syntax
   for (const id of ids) {

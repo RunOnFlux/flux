@@ -168,6 +168,10 @@ describe('appController tests', () => {
       // half-started is the failure this covers.
       sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'Component1_ComposedApp', false);
       sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'Component2_ComposedApp', false);
+      // Forward, and pinned: a start is the direction a stop is the reverse OF, so
+      // reversing both would satisfy the stop test and still be wrong here.
+      expect(appsRuntimeState.setOperatorStopped.firstCall.args[0]).to.equal('Component1_ComposedApp');
+      expect(appsRuntimeState.setOperatorStopped.secondCall.args[0]).to.equal('Component2_ComposedApp');
     });
 
     it('should report the election, not a start, for a component held by its decider', async () => {
@@ -303,6 +307,11 @@ describe('appController tests', () => {
       // half-stopped is the failure this covers.
       sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'Component1_ComposedApp', true);
       sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'Component2_ComposedApp', true);
+      // And in reverse, which is the half calledWith cannot see - it holds whether
+      // the components are addressed forwards or backwards. The call index is the
+      // only thing that pins the order this test is named for.
+      expect(appsRuntimeState.setOperatorStopped.firstCall.args[0]).to.equal('Component2_ComposedApp');
+      expect(appsRuntimeState.setOperatorStopped.secondCall.args[0]).to.equal('Component1_ComposedApp');
     });
 
     it('should handle component stop', async () => {
@@ -733,6 +742,10 @@ describe('appController tests', () => {
       // is the failure this covers.
       sinon.assert.calledWith(setOperatorStopped, 'Component1_ComposedApp', true, { force: true });
       sinon.assert.calledWith(setOperatorStopped, 'Component2_ComposedApp', true, { force: true });
+      // A kill goes down in the same reverse order as a stop - it is the same
+      // shutdown, without the drain.
+      expect(setOperatorStopped.firstCall.args[0]).to.equal('Component2_ComposedApp');
+      expect(setOperatorStopped.secondCall.args[0]).to.equal('Component1_ComposedApp');
     });
 
     it('reports pending rather than killed when docker cannot be reached', async () => {
