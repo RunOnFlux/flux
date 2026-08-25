@@ -144,23 +144,33 @@ describe('a surplus copy that is also the writer', function () {
     // The stub becomes the fourth holder - four against an instance count of
     // three - and it is backdated a day, so it is the most SENIOR holder and can
     // never be the one the rule picks.
-    held = env.stubPeerClients.get(STUB_INDEX).holdApp(appName, {
+    // THE PRECONDITION, established rather than raced. Everything this peer
+    // says goes over sockets the fleet opens to it, so announcing before anyone
+    // has dialled in is talking to an empty set - and that failure surfaces
+    // minutes later as the fleet apparently ignoring a holder, which is where
+    // this suite lost a run.
+    const stub = env.stubPeerClients.get(STUB_INDEX);
+    await waitFor(async () => (await stub.connectedNodes()) > 0,
+      { timeout: 120000, interval: 2000, label: 'the fleet has connected to the stub peer' });
+
+    held = stub.holdApp(appName, {
       hash: app.hash,
       runningSince: Date.now() - 24 * 60 * 60 * 1000,
     });
+    // Throws if it reached nobody, naming the send rather than leaving the wait
+    // below to time out against something that was never said.
     await held.started;
 
-    // The count is carried out of the wait so a timeout says what it SAW. "The
-    // stub is not counted" and "the fleet lost a holder" are different faults
-    // with the same symptom, and a bare timeout distinguishes neither - it took
-    // a re-run to find out which one had happened.
+    // The count is carried out so a timeout reports what it SAW. "The stub is
+    // not counted" and "the fleet lost a holder" are different faults with one
+    // symptom, and a bare deadline separates neither.
     let holders = 0;
     await waitFor(async () => {
       const res = await env.clients[0].getAppLocations(appName);
       holders = Array.isArray(res.data) ? res.data.length : -1;
       return holders >= 4;
     }, {
-      timeout: 180000,
+      timeout: 120000,
       interval: 2000,
       label: 'the stub is counted as a fourth holder',
     }).catch((error) => {

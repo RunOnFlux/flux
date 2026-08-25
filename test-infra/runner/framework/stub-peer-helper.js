@@ -121,6 +121,17 @@ export function stubPeerClient(ip) {
       });
     },
 
+    // How many fleet nodes hold an open connection to this peer RIGHT NOW.
+    //
+    // Everything this stub says is said over those sockets, so this is the
+    // precondition for any of it mattering. A suite that broadcasts before the
+    // fleet has dialled in is talking to an empty set, and the failure surfaces
+    // minutes later as whatever it was waiting for never happening.
+    async connectedNodes() {
+      const stats = await this.getStats();
+      return stats.connectedNodes ?? 0;
+    },
+
     // Announce this peer is RUNNING an app, the way any holder announces it.
     //
     // The harness had no way to say this. A stub could claim an app it was about
@@ -159,14 +170,25 @@ export function stubPeerClient(ip) {
     // Returns a stop function. Call it in `after`, or the interval outlives the
     // fleet it was talking to.
     holdApp(name, { hash, runningSince = Date.now(), everyMs = 20000, ...rest } = {}) {
-      // The FIRST announcement is not swallowed. A caller awaits `started` and
-      // then waits for the fleet to count this peer as a holder; if that first
-      // send failed, the caller otherwise sits out its whole timeout watching
-      // for something that was never sent, and reports it as the fleet failing
-      // to notice rather than as this failing to speak. Later re-announcements
-      // are best-effort - by then the holder is established and a dropped
-      // keep-alive is recovered by the next one.
-      const announce = () => this.runApp(name, { hash, runningSince, ...rest });
+      // /broadcast reports how many nodes it actually reached, and a peer with
+      // no open sockets reaches NONE - it serialises, signs, sends to an empty
+      // set and answers 200. A caller that ignores that awaits an outcome the
+      // fleet was never told about, times out, and reports the fleet as having
+      // failed to notice something nobody said.
+      //
+      // So the first announcement is checked, not merely unswallowed. Later
+      // keep-alives stay best-effort: by then the holder is established, and a
+      // dropped one is recovered by the next.
+      const announce = async () => {
+        const result = await this.runApp(name, { hash, runningSince, ...rest });
+        if (!result || !result.sent) {
+          throw new Error(
+            `stub peer announced ${name} to nobody (sent=${result?.sent ?? 'unknown'}, `
+            + `connected=${result?.connected ?? 'unknown'}) - it has no open connections to broadcast over`,
+          );
+        }
+        return result;
+      };
       const timer = setInterval(() => { announce().catch(() => {}); }, everyMs);
       return { started: announce(), stop: () => clearInterval(timer) };
     },
