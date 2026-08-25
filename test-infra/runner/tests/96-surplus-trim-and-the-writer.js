@@ -127,16 +127,24 @@ describe('a surplus copy that is also the writer', function () {
     // safety gate refuses every removal and this suite measures the gate rather
     // than the rule.
     //
-    // PER HOLDER, not the '*' wildcard. placeGAppInOrder's cold start writes a
-    // per-IP zero for each holder - that is HOW it forces a cold start - and the
-    // stub keys peer completion by `ip|folder`, so a specific key shadows the
-    // wildcard. Setting '*' to 100 left both holders' own entries reading
-    // "completion=0 remoteState=unknown", the fleet went on believing no peer
-    // held the data, and the safety gate refused every trim with NO_SYNCED_PEER.
-    // The rule under test had already decided correctly by then; the fixture had
-    // simply never given it a peer to point at.
-    await setSynced({ folder });
-    await Promise.all(HOLDERS.map((index) => setPeerHasData({ ip: ipOfIndex(index), folder })));
+    // PER HOLDER ON BOTH KEYS, never the '*' wildcard. placeGAppInOrder's cold
+    // start writes a per-IP zero for each holder on BOTH the folder's own sync
+    // state and its peer completion - that is HOW it forces a cold start - and
+    // the stub reads `${ip}|${folder}` and only falls back to `*|${folder}`, so
+    // a specific key shadows the wildcard on either one.
+    //
+    // This suite has now paid for that twice, one key each time. Setting only
+    // '*' completion to 100 left every holder's own entry reading "completion=0
+    // remoteState=unknown", so the safety gate refused every trim with
+    // NO_SYNCED_PEER. Fixing that alone left every holder's own SYNC STATE at
+    // 0/0, so masterSlaveApps would not start the writer at all - "registered as
+    // primary on FDM but not ready yet (syncthing not synced)", every cycle -
+    // and the positive control timed out against a node behaving correctly.
+    // Both keys are written together here so neither can be fixed alone again.
+    await Promise.all(HOLDERS.map((index) => Promise.all([
+      setSynced({ ip: ipOfIndex(index), folder }),
+      setPeerHasData({ ip: ipOfIndex(index), folder }),
+    ])));
 
     await waitFor(async () => (await env.clients[0].getAppLocations(appName)).data?.length >= 3,
       { timeout: 300000, interval: 2000, label: 'three holders announce the app' });
