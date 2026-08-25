@@ -4246,6 +4246,31 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       );
 
       expect(decision.giveUp).to.equal(false);
+      // AND IT SAYS SO. Declining is a decision, and it used to be reported as
+      // NONE - the same thing the pass reports for an app with no surplus at
+      // all. The one observation that would catch this rule failing open then
+      // read identically to a quiet pass over a healthy app.
+      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.code).to.equal('WRITER_UNCONFIRMED');
+    });
+
+    it('reports NONE rather than a declined surplus when there is no surplus', async () => {
+      // The contrast that gives the assertion above its meaning. Same node, same
+      // app, one fewer holder: there is nothing to trim, so there is nothing
+      // declined either, and no peer is asked.
+      const probe = sinon.stub(axios, 'get').rejects(new Error('no peer should be probed'));
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.reason).to.equal('NONE');
+      expect(decision.code).to.equal(undefined);
+      sinon.assert.notCalled(probe);
     });
 
     it('does not trim the second-newest when the newest says it is not writing', async () => {
