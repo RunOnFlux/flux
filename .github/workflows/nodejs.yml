@@ -136,15 +136,31 @@ jobs:
           private-key: ${{ secrets.FLUXJSDOCS_APP_KEY }}
           owner: RunOnFlux
           repositories: fluxjsdocs
-      - name: Push docs to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
+      # Git directly, rather than a third-party action. The action this replaces was referenced by
+      # a personal repository's default branch, so every build ran whatever happened to be on it at
+      # that moment -- and was handed a token that can write to fluxjsdocs. Nothing outside Flux
+      # touches the credential now. fluxjsdocs is public, so the clone is anonymous and the token
+      # authenticates only the push, which also keeps it out of the clone's stored config.
+      - name: Push docs to fluxjsdocs # Publishes ZelBack/src/services so JSDocs builds separately.
         if: github.repository == 'RunOnFlux/flux' && github.ref == 'refs/heads/development'
-        uses: cpina/github-action-push-to-another-repository@main
         env:
-          API_TOKEN_GITHUB: ${{ steps.docs-token.outputs.token }}
-        with:
-          source-directory: "ZelBack/src/services"
-          destination-github-username: "RunOnFlux"
-          destination-repository-name: "fluxjsdocs"
-          user-email: runonfluxbot@gmail.com
-          target-branch: master
-          target-directory: services/
+          GH_TOKEN: ${{ steps.docs-token.outputs.token }}
+        run: |
+          set -eo pipefail
+          CLONE=$(mktemp -d)
+          git clone --quiet --depth 1 --single-branch --branch master \
+            https://github.com/RunOnFlux/fluxjsdocs.git "$CLONE"
+          # Replace rather than merge, so a file deleted here disappears there too.
+          rm -rf "$CLONE/services"
+          mkdir -p "$CLONE/services"
+          cp -a ZelBack/src/services/. "$CLONE/services/"
+          git -C "$CLONE" config user.email runonfluxbot@gmail.com
+          git -C "$CLONE" config user.name runonfluxbot
+          git -C "$CLONE" add -A services
+          if git -C "$CLONE" diff --cached --quiet; then
+            echo 'docs unchanged, nothing to push'
+            exit 0
+          fi
+          git -C "$CLONE" commit --quiet -m "Update from https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          git -C "$CLONE" push --quiet \
+            "https://x-access-token:${GH_TOKEN}@github.com/RunOnFlux/fluxjsdocs.git" master
