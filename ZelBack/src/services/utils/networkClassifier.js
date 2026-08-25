@@ -32,8 +32,9 @@
 // and uses evidenceAgainst only to DECLINE a published RESIDENTIAL. Of those
 // same 1,569, exactly one carries a published residential verdict -
 // 213.44.137.57 - and the veto covers it, so none is enforced against. One
-// ledger-level error in 1,569, zero enforced. See
-// fluxModels/investigations/PR1784_RESIDENTIAL_DOS_BLAST_RADIUS.md §4 and §9.
+// ledger-level error in 1,569, zero enforced. Measured against the published
+// artifact read through this branch's own ipLocationStore, over every fleet host
+// carrying an ip-api record.
 //
 // Signals are limited to what a node can determine about itself: the PTR record
 // for its own address, the ip-api response geolocationService already fetches,
