@@ -378,8 +378,21 @@ function isManagedElsewhere(identifier) {
   return false;
 }
 
+/**
+ * What this component should be doing, why, and - when the answer is an operator
+ * stop - whether that operator asked for a hard kill.
+ *
+ * The lock and the force flag are fields of one document, so they come from one
+ * read. The stop branch used to re-read the same document for the flag alone,
+ * and getState returns null for a read failure exactly as it does for "no
+ * record" - so a second read that failed turned "kill now" into a drain. One
+ * read is a window that cannot open, and one round-trip fewer on every stop.
+ *
+ * @returns {Promise<{desired: boolean|null, reason: string, force: boolean}>}
+ */
 async function effectiveDesiredRunning(identifier, spec, exitCode) {
-  if (await appsRuntimeState.isOperatorStopped(identifier)) return { desired: false, reason: 'operatorStopped' };
+  const operatorStop = await appsRuntimeState.operatorStopState(identifier);
+  if (operatorStop.stopped) return { desired: false, reason: 'operatorStopped', force: operatorStop.force };
   if (spec.isG || spec.isR) {
     const cd = controllerDesired.get(identifier) ?? null;
     // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
@@ -387,11 +400,12 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
     // the FluxOS process). Take no action - leave the container as-is until the
     // masterSlave/syncthing decider re-derives intent. Treating "unset" as "stop"
     // here would bounce every running syncthing app on every FluxOS restart.
-    if (cd === null) return { desired: null, reason: 'awaitingController' };
-    if (cd !== 'running') return { desired: false, reason: 'controllerDesired' };
+    if (cd === null) return { desired: null, reason: 'awaitingController', force: false };
+    if (cd !== 'running') return { desired: false, reason: 'controllerDesired', force: false };
   }
   const desired = policyAllowsRun(getRestartPolicy(spec), exitCode);
-  return { desired, reason: desired ? 'running' : 'policy' };
+  // Only an operator asks for a hard kill; every other stop reason is a drain.
+  return { desired, reason: desired ? 'running' : 'policy', force: false };
 }
 
 /**
@@ -407,13 +421,13 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
  * is held when nothing has decided anything.
  *
  * @param {string} rawIdentifier
- * @returns {Promise<{desired: boolean|null, reason: string}>}
+ * @returns {Promise<{desired: boolean|null, reason: string, force: boolean}>}
  */
 async function desiredRunState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   const spec = await getLocalComponentSpec(identifier);
-  if (!spec) return { desired: false, reason: 'notInstalled' };
-  if (spec.invalidSpec) return { desired: false, reason: 'invalidSpec' };
+  if (!spec) return { desired: false, reason: 'notInstalled', force: false };
+  if (spec.invalidSpec) return { desired: false, reason: 'invalidSpec', force: false };
   const actual = await dockerActual(identifier);
   return effectiveDesiredRunning(identifier, spec, actual.exitCode);
 }
@@ -891,7 +905,7 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
-  const { desired, reason } = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
+  const { desired, reason, force } = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
 
   // null = no controller opinion yet for a g:/r: component: neither start nor stop,
   // leave the container in its current state until the decider speaks.
@@ -900,10 +914,10 @@ async function reconcile(rawIdentifier) {
   if (!desired) {
     if (actual.running) {
       // A hard kill skips the graceful shutdown window, and only an operator asks
-      // for one - every other stop reason is a graceful stop, so the durable flag
-      // is read only where one could have been set.
-      const stopState = reason === 'operatorStopped' ? await appsRuntimeState.getState(identifier) : null;
-      const forceKill = Boolean(stopState && stopState.operatorStopForce);
+      // for one - every other stop reason is a drain. The flag arrives with the
+      // decision that read it, from the same document and the same read as the
+      // lock itself, so there is no second read here to disagree with the first.
+      const forceKill = force === true;
       log.info(`appReconciler - ${identifier} desired stopped, ${forceKill ? 'killing' : 'stopping'}`);
       if (forceKill) {
         await dockerService.appDockerKill(identifier);

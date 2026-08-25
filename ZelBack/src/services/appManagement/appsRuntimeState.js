@@ -171,6 +171,27 @@ async function isOperatorStopped(identifier) {
 }
 
 /**
+ * The operator's stop lock and the mode they asked for, from ONE read.
+ *
+ * They are two fields of one document, and a caller needing both must not ask
+ * twice: getState returns null for a read failure exactly as it does for "no
+ * record", so a second read that failed reported no force flag and turned the
+ * operator's "kill now" into a drain they did not ask for. Answering both from a
+ * single read is a window that cannot open - and one round-trip fewer on every
+ * stop the reconciler performs.
+ *
+ * @param {string} identifier
+ * @returns {Promise<{stopped: boolean, force: boolean}>}
+ */
+async function operatorStopState(identifier) {
+  const state = await getState(identifier);
+  return {
+    stopped: state?.operatorStopped === true,
+    force: state?.operatorStopForce === true,
+  };
+}
+
+/**
  * Every component identifier on this node the operator has deliberately stopped.
  *
  * One query rather than isOperatorStopped per component. The caller is the
@@ -492,6 +513,7 @@ module.exports = {
   getState,
   setOperatorStopped,
   isOperatorStopped,
+  operatorStopState,
   operatorStoppedIdentifiers,
   recordRestart,
   requestRestart,
