@@ -65,41 +65,6 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  describe('addToRestoreProgress and removeFromRestoreProgress tests', () => {
-    beforeEach(() => {
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.restoreInProgress = [];
-    });
-
-    it('should add app to restore progress', () => {
-      advancedWorkflows.addToRestoreProgress('TestApp');
-
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      expect(globalState.restoreInProgress).to.include('TestApp');
-    });
-
-    it('should remove app from restore progress', () => {
-      advancedWorkflows.addToRestoreProgress('TestApp');
-      advancedWorkflows.removeFromRestoreProgress('TestApp');
-
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      expect(globalState.restoreInProgress).to.not.include('TestApp');
-    });
-
-    it('should not duplicate apps in restore progress', () => {
-      advancedWorkflows.addToRestoreProgress('TestApp');
-      advancedWorkflows.addToRestoreProgress('TestApp');
-
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      const count = globalState.restoreInProgress.filter((app) => app === 'TestApp').length;
-      expect(count).to.equal(1);
-    });
-  });
-
   describe('redeployComponentAPI tests', () => {
     let req;
     let res;
@@ -169,8 +134,8 @@ describe('advancedWorkflows tests', () => {
       req.params.appname = 'myapp';
       req.params.component = 'frontend';
 
-      // Use the proper method to add to restore progress
-      advancedWorkflows.addToRestoreProgress('myapp');
+      // the claim's own primitive - the list is a frozen snapshot to reads
+      globalState.tryStartRestore('myapp');
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
 
@@ -182,7 +147,7 @@ describe('advancedWorkflows tests', () => {
       expect(response.data.message).to.include('Restore is running');
 
       // Clean up
-      advancedWorkflows.removeFromRestoreProgress('myapp');
+      globalState.finishRestore('myapp');
     });
 
     it('should return unauthorized error if not authorized', async () => {

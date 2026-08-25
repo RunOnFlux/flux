@@ -3174,22 +3174,6 @@ function getRemovalInProgress() {
 }
 
 /**
- * Add app to restore progress
- * @param {string} appname - App name
- */
-function addToRestoreProgress(appname) {
-  globalState.tryStartRestore(appname);
-}
-
-/**
- * Remove app from restore progress
- * @param {string} appname - App name
- */
-function removeFromRestoreProgress(appname) {
-  globalState.finishRestore(appname);
-}
-
-/**
  * Reset removal progress state
  */
 function removalInProgressReset() {
@@ -4760,8 +4744,6 @@ module.exports = {
   setRemovalInProgress,
   getInstallationInProgress,
   getRemovalInProgress,
-  addToRestoreProgress,
-  removeFromRestoreProgress,
   removalInProgressReset,
   setRemovalInProgressToTrue,
   installationInProgressReset,
