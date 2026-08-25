@@ -2639,12 +2639,21 @@ async function appendRestoreTask(req, res) {
     // still overwriting it: it reports success and is quietly undone. Only a
     // positive answer disqualifies this node - an unreachable FDM must not
     // block a restore, the same way it does not block an election.
+    //
+    // The answer is kept rather than only used to refuse: it also decides
+    // whether this task may start the elected components again at the end.
+    // Silence is not consent - masterSlaveApps skips primary selection outright
+    // when every region fails, and a restore that starts a writer on that same
+    // silence is what turns "we do not know who the primary is" into two of them
+    // on one volume.
+    let primaryConfirmedLocal = false;
     if (!force && targets.some((target) => target.syncMode === 'elected')) {
       const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
       const { ip: primaryIp, fdmOk } = await getMasterIpFromFdm(appname, { timeout: 10000 });
       if (fdmOk && primaryIp && !ipsMatch(primaryIp, localSocketAddr)) {
         throw new Error(`Refused: restore on ${primaryIp}, it holds the live copy`);
       }
+      primaryConfirmedLocal = Boolean(fdmOk && primaryIp && ipsMatch(primaryIp, localSocketAddr));
     }
 
     // Hold the data still by pausing the folders being replaced. Deleting them
@@ -2815,7 +2824,22 @@ async function appendRestoreTask(req, res) {
 
     await serviceHelper.delay(1 * 5 * 1000);
     await sendChunk(res, 'Starting application...\n');
-    await appDockerStart(appname);
+    // A bare app name fans out to every component, elected ones included - and
+    // the stop above fanned out the same way, so a g: component that was never
+    // a target of this restore has been stopped and would be started here too.
+    // It is started only where FDM confirmed this node is the primary. Where it
+    // did not - unreachable, or force skipped the check - the component is left
+    // to the election, which is what starts it on every other node anyway. The
+    // folders went back to sendreceive a few lines above, so a container started
+    // here writes into live replicated storage immediately.
+    const componentsToStart = componentsOfApp(appDetails).filter(
+      (comp) => primaryConfirmedLocal || syncModeOfComponent(comp.containerData) !== 'elected',
+    );
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of componentsToStart) {
+      // eslint-disable-next-line no-await-in-loop
+      await appDockerStart(component.name === 'null' ? appname : `${component.name}_${appname}`);
+    }
 
     // Only the copy this task downloaded is ours to remove. An uploaded or
     // local archive is the owner's restore point, and restoring from it must

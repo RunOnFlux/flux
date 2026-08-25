@@ -387,11 +387,13 @@ export function nodeClient(nodeNum) {
       });
       return res.text();
     },
-    appendRestoreTask: async (appname, restore, type, zelidauth) => {
+    appendRestoreTask: async (appname, restore, type, zelidauth, { force = false } = {}) => {
       const res = await fetch(`${url}/apps/appendrestoretask`, {
         method: 'POST',
         headers: { zelidauth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appname, restore, type }),
+        // force is API-only by design - the UI cannot send it - so a suite is the
+        // only place its behaviour can be exercised at all.
+        body: JSON.stringify({ appname, restore, type, ...(force ? { force: true } : {}) }),
       });
       return res.text();
     },

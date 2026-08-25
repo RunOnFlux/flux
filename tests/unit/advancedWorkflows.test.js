@@ -3665,6 +3665,67 @@ describe('advancedWorkflows tests', () => {
 
         sinon.assert.notCalled(serviceHelper.axiosGet);
       });
+
+      // A bare app name fans out to every component on the way down AND on the
+      // way back up, so this task can start an elected component the election
+      // placed elsewhere - and the folders are back in sendreceive by then, so it
+      // writes into live replicated storage at once. It may start one only where
+      // FDM said the primary is here.
+      it('starts the elected component when FDM confirms this node is the primary', async () => {
+        // the default stub answers with this node's own address
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
+
+      it('leaves the elected component to the election when FDM cannot be reached', async () => {
+        serviceHelper.axiosGet.rejects(new Error('ECONNREFUSED'));
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result, 'the restore itself still runs - silence must not block one').to.equal(true);
+        sinon.assert.called(IOUtils.untarFile);
+        sinon.assert.neverCalledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
+
+      it('leaves the elected component to the election when force skipped the check', async () => {
+        fdmNames('9.9.9.9:16127');
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ force: true }), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.neverCalledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
+
+      // The collateral case, and the one that needs no FDM failure at all: an
+      // elected component that is not a target of this restore is stopped by the
+      // fan-out anyway. Nothing consults FDM, because no TARGET is elected - so
+      // the primary is unknown and that component is not this task's to start.
+      // The rest of the app still comes back, or this test would pass on a
+      // restore that started nothing.
+      it('does not start an elected component that was never part of the restore', async () => {
+        const twoComponents = {
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'palworld', containerData: 'g:/palworld/Pal/Saved' },
+            { name: 'sidecar', containerData: '/data' },
+          ],
+        };
+        registryManager.getApplicationGlobalSpecifications.resolves(twoComponents);
+        registryManager.getApplicationSpecifications.resolves(twoComponents);
+        const req = restoreReq();
+        req.body.restore = [
+          { component: 'palworld', restore: false, url: '' },
+          { component: 'sidecar', restore: true, url: 'https://example.invalid/backup_sidecar.tar.gz' },
+        ];
+
+        const result = await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.calledWith(dockerService.appDockerStart, `sidecar_${appname}`);
+        sinon.assert.neverCalledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
     });
 
     it('restores a legacy app, which addresses its single volume as null', async () => {

@@ -47,6 +47,11 @@ async function pathExists(client, path) {
   return r.stdout.trim() === 'yes';
 }
 
+async function containerRunning(client, name) {
+  const r = await execInContainer(client.container, `docker inspect -f '{{.State.Running}}' ${appId(name)} 2>/dev/null || echo false`);
+  return r.stdout.trim() === 'true';
+}
+
 async function readMarker(client, name) {
   const r = await execInContainer(client.container, `cat ${appDir(name)}/appdata/marker.txt 2>/dev/null || echo missing`);
   return r.stdout.trim();
@@ -144,6 +149,46 @@ describe('a restore does not reach the other instances data', function () {
     expect(body).to.match(/Refused/i);
     expect(await listAppdata(standby, appName)).to.equal(before);
     expect(await readMarker(standby, appName)).to.equal('node-1-world');
+  });
+
+  // The restore ends by starting the app, and a bare app name fans out to every
+  // component - so on a node the election did not choose, a forced restore would
+  // start the elected container here while the primary runs elsewhere. The
+  // folders go back to sendreceive a few lines before that start, so it would be
+  // writing into live replicated storage immediately: the two-writers case the
+  // backup path has always refused to create.
+  //
+  // force is what makes this reachable without breaking anything else - it skips
+  // the FDM check entirely, and it means "I accept the risk to this data", not
+  // "start a second writer". FDM being unreachable reaches the same place.
+  it('does not start the elected container on a node the election did not choose', async function () {
+    this.timeout(180000);
+    const standby = env.clients[1];
+    await stageArchive(standby, appName);
+
+    expect(
+      await containerRunning(standby, appName),
+      'the standby must be down before the restore, or a stopped container after it proves nothing',
+    ).to.equal(false);
+
+    const body = await standby.appendRestoreTask(
+      appName, [{ component: appName, restore: true }], 'local', auth.zelidauth, { force: true },
+    );
+
+    expect(body, 'force must get past the refusal, or the start is never reached').to.not.match(/Refused/i);
+
+    // The start is the last thing the restore does, so the window to be wrong is
+    // after it returns. Held open rather than sampled once.
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(
+        await containerRunning(standby, appName),
+        'the election owns this container, and it is not the primary here',
+      ).to.equal(false);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => { setTimeout(r, 2000); });
+    }
   });
 
   it('does not clear appdata for an archive it cannot read', async function () {
