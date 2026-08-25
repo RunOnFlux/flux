@@ -148,11 +148,22 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp', po
  * Changing one without the other is what quietly deletes the ordering these
  * tests exist to check.
  *
+ * THE RATE IS THE NODE'S POLL, not something faster. A block is not processed
+ * until the next explorer poll, so driving four blocks per poll produces four
+ * times the work for the same pass cadence: a height only counts when it lands
+ * as the tip, tips arrive one per poll, and the give-up pass therefore comes
+ * every `removeFluxAppsPeriod x 4` polls whatever rate this drives at. The
+ * extra blocks are pure load - and this suite drives for the length of a
+ * departure, which is now minutes rather than seconds. At 200ms it drove about
+ * a thousand blocks per wait, held a runner slot for the full 1800s wall clock,
+ * and starved the box: two unrelated suites ran 3-4x slower in the same gate
+ * and hit that wall themselves.
+ *
  * @param {number} [opts.timeoutMs] How long to keep driving before giving up.
  * @param {number} [opts.blockIntervalMs] Minimum wall-clock between blocks.
  * @returns {Promise<number>} Blocks driven.
  */
-async function driveUntil(env, nodeIndex, condition, { timeoutMs = 240000, blockIntervalMs = 200 } = {}) {
+async function driveUntil(env, nodeIndex, condition, { timeoutMs = DEPARTURE_WAIT_MS, blockIntervalMs = SHARED_POLL_MS } = {}) {
   const node = env.clients[nodeIndex - 1];
   const deadline = Date.now() + timeoutMs;
   let blocks = 0;
