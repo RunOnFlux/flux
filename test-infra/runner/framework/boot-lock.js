@@ -109,10 +109,18 @@ export async function acquireBootLock(fleet) {
   heldTicket = ticket;
   heldFleet = fleetShape(fleet);
   const startedAt = process.hrtime.bigint();
-  let aheadOnArrival = null;
+  let aheadOnArrival; // undefined until the first queue read; null = position unknown
   for (;;) {
     const queue = bootQueue();
-    if (aheadOnArrival === null) aheadOnArrival = Math.max(0, queue.indexOf(ticket));
+    if (aheadOnArrival === undefined) {
+      // Same -1 the wait error below refuses to conflate. A ticket that is not in
+      // the queue has no position, and reporting one as 0 reads as "arrived to an
+      // empty queue" - the most misleading value available, because bootQueue()
+      // returns [] exactly when the directory cannot be read, which is the
+      // defeated-semaphore case this lock exists to make visible.
+      const arrivalPosition = queue.indexOf(ticket);
+      aheadOnArrival = arrivalPosition < 0 ? null : arrivalPosition;
+    }
     const waitedMs = Number((process.hrtime.bigint() - startedAt) / 1000000n);
     // Arrival order still decides service; the width only changes how many of the
     // front of the queue are being served at once. A ticket that is NOT in the
@@ -126,7 +134,7 @@ export async function acquireBootLock(fleet) {
     const position = queue.indexOf(ticket);
     if (position >= 0 && position < BOOT_LOCK_WIDTH) {
       heldSince = process.hrtime.bigint();
-      report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival} width=${BOOT_LOCK_WIDTH} ${heldFleet} pid=${process.pid}`);
+      report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival ?? 'unknown'} width=${BOOT_LOCK_WIDTH} ${heldFleet} pid=${process.pid}`);
       return;
     }
     if (waitedMs > BOOT_LOCK_MAX_WAIT_MS) {

@@ -287,7 +287,6 @@ async function recordRestart(identifier, crashed = true) {
  * @param {string} identifier
  * @param {number|null} lastFinishedAtMs - docker State.FinishedAt of the
  *        stopped container (ms epoch), when the caller has inspect data
- * @param {boolean} crashed - Docker reported a fault (non-zero exit or OOM kill)
  * @returns {Promise<number>}
  */
 async function restartWaitMs(identifier, lastFinishedAtMs = null) {
