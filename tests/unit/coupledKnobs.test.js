@@ -99,6 +99,35 @@ describe('coupled harness knobs track production', () => {
     })).to.not.throw();
   });
 
+  it('sizes a suite\'s departure wait from the pacing, not by hand', () => {
+    // Suite 55 waited four minutes for a departure. That was written against a
+    // four-second interval; the interval is now tens of seconds and a departure
+    // is an interval PLUS a full queue ticket served again, so the typed number
+    // quietly stopped covering one and the suite timed out on a node that was
+    // working correctly.
+    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833, residentialQueueBaseMs: 1000 };
+    const step = knobs.derivedQueueStepMs(fleet);
+    const withStep = { ...fleet, residentialQueueStepMs: step };
+    const interval = knobs.derivedEvacuationIntervalMs(withStep);
+    const fluxapps = { ...withStep, residentialEvacuationIntervalMs: interval };
+
+    // The worst position on a five-instance app is four steps behind the front.
+    expect(knobs.departureCycleMs(fluxapps, 5)).to.equal(interval + 1000 + (4 * step));
+    // And it must exceed what driveUntil used to default to, which is the whole
+    // reason the waits are derived now.
+    expect(knobs.departureCycleMs(fluxapps, 5)).to.be.above(120000);
+  });
+
+  it('grows a departure wait with the instance count', () => {
+    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833, residentialQueueBaseMs: 1000 };
+    const step = knobs.derivedQueueStepMs(fleet);
+    const fluxapps = { ...fleet, residentialQueueStepMs: step };
+
+    expect(knobs.departureCycleMs(fluxapps, 5) - knobs.departureCycleMs(fluxapps, 4)).to.equal(step);
+    // A single-instance app has no position to wait behind.
+    expect(knobs.departureCycleMs(fluxapps, 1)).to.equal(knobs.departureCycleMs(fluxapps, 0));
+  });
+
   it('moves the derived step when the poll moves', () => {
     // The whole failure in one assertion: a literal does not do this.
     const slow = knobs.derivedQueueStepMs({ removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 });

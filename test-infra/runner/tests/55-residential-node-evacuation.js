@@ -19,7 +19,9 @@ import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { derivedQueueStepMs, derivedEvacuationIntervalMs, loadSharedConfig } from '../framework/coupled-knobs.js';
+import {
+  derivedQueueStepMs, derivedEvacuationIntervalMs, departureCycleMs, loadSharedConfig,
+} from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
@@ -32,17 +34,27 @@ const subnet = getSubnetConfig();
 // apart - the departure interval is a function OF the queue step, and writing
 // either as a literal is what broke this suite before. test-env asserts both
 // relationships on every node of every fleet before boot.
+const SHARED_POLL_MS = loadSharedConfig().fluxapps.explorerPollIntervalMs;
 const RESIDENTIAL_PACING = (() => {
   const fleet = {
     removeFluxAppsPeriod: 4,
-    explorerPollIntervalMs: loadSharedConfig().fluxapps.explorerPollIntervalMs,
+    explorerPollIntervalMs: SHARED_POLL_MS,
   };
   const residentialQueueStepMs = derivedQueueStepMs(fleet);
-  return {
-    residentialQueueStepMs,
-    residentialEvacuationIntervalMs: derivedEvacuationIntervalMs({ ...fleet, residentialQueueStepMs }),
-  };
+  const residentialEvacuationIntervalMs = derivedEvacuationIntervalMs({ ...fleet, residentialQueueStepMs });
+  return { residentialQueueStepMs, residentialEvacuationIntervalMs };
 })();
+
+// EVERY WAIT THAT HAS TO CONTAIN A DEPARTURE IS DERIVED, not typed. A departure
+// is the departure interval plus a full queue ticket served again from scratch,
+// and this suite's apps run at five instances - so it is far longer than the
+// four minutes driveUntil defaults to, which was written when the interval was
+// four seconds. Two cycles' worth: several of these waits contain a departure
+// AND the pass on which another holder reacts to it.
+const DEPARTURE_WAIT_MS = 2 * departureCycleMs(
+  { ...RESIDENTIAL_PACING, removeFluxAppsPeriod: 4, explorerPollIntervalMs: SHARED_POLL_MS, residentialQueueBaseMs: 1000 },
+  5,
+);
 
 const RESIDENTIAL_GEO = {
   hosting: false,
@@ -575,7 +587,7 @@ describe('Residential node evacuation', function () {
     await driveUntil(env, TARGET, async () => {
       const buffer = env.clients[TARGET - 1].getEventBuffer();
       return buffer.some((e) => e.event === 'app:removed' && e.data?.name === 'residentapp');
-    });
+    }, { timeoutMs: DEPARTURE_WAIT_MS });
 
     const [removedEvent, dosEvent] = await Promise.all([removal, dosLanded]);
 
@@ -699,7 +711,8 @@ describe('Residential node evacuation', function () {
     const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'worldapp',
       (d) => d.safe === false, 300000).then((v) => { safetyVerdict = v; return v; });
     refused.catch(() => {});
-    await driveUntil(env, TARGET, async () => safetyVerdict !== null);
+    await driveUntil(env, TARGET, async () => safetyVerdict !== null,
+      { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
     // The pass reports on every app it holds, every pass, so this proves the
@@ -816,10 +829,17 @@ describe('Residential node evacuation', function () {
     await Promise.all([TARGET, SECOND_TARGET].map((node) => elapseSettleWindow(node)));
 
     // Whichever goes first, the other must be refused while the app is short.
+    //
+    // Read from the PACING decision, not the safety gate. The strength test sits
+    // in the queue ticket now - an app short of its count accrues nothing
+    // towards its turn - so a short app is refused before the pass ever consults
+    // appEvacuationSafety, and the safety event this used to wait on is never
+    // published. The refusal itself is unchanged, and it carries the same name
+    // for the same fact one layer up.
     let refusal = null;
-    const refusedForBeingShort = Promise.race([TARGET, SECOND_TARGET].map((node) => waitForGiveUpSafety(
+    const refusedForBeingShort = Promise.race([TARGET, SECOND_TARGET].map((node) => waitForGiveUpConsidered(
       env.clients[node - 1], 'sharedapp',
-      (d) => d.safe === false && /below its instance count/.test(d.detail), 600000,
+      (d) => d.giveUp === false && d.code === 'BELOW_INSTANCE_COUNT', 600000,
     ))).then((v) => { refusal = v; return v; });
     refusedForBeingShort.catch(() => {});
 
@@ -828,10 +848,12 @@ describe('Residential node evacuation', function () {
     // the moment one node leaves means the other never gets a pass in which to
     // refuse, and the wait times out on a suite that stopped the clock itself.
     await stopTicker();
-    await driveUntil(env, TARGET, async () => refusal !== null);
+    await driveUntil(env, TARGET, async () => refusal !== null,
+      { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
     const verdict = await refusedForBeingShort;
+    expect(verdict.data.code).to.equal('BELOW_INSTANCE_COUNT');
     expect(verdict.data.detail).to.contain('below its instance count');
   });
 
@@ -873,13 +895,9 @@ describe('Residential node evacuation', function () {
     const seeded = ['firstout', 'secondout'];
     const wentFirst = (e) => e.event === 'app:removed' && seeded.includes(e.data?.name);
 
-    // Longer than driveUntil's default. This test pays a full queue turn, then
-    // a whole departure interval, then a second full turn - and at five
-    // instances the turn is base + position x step with position up to four.
-    const TURNS_AND_A_BLOCK_MS = 480000;
     await stopTicker();
     await driveUntil(env, TARGET, async () => client.getEventBuffer().some(wentFirst),
-      { timeoutMs: TURNS_AND_A_BLOCK_MS });
+      { timeoutMs: DEPARTURE_WAIT_MS });
     const gone = client.getEventBuffer().filter(wentFirst).pop();
     const remaining = gone.data.name === 'firstout' ? 'secondout' : 'firstout';
 
@@ -895,7 +913,7 @@ describe('Residential node evacuation', function () {
       && e.id > gone.id;
 
     await driveUntil(env, TARGET, async () => client.getEventBuffer().some(turnRestarted),
-      { timeoutMs: TURNS_AND_A_BLOCK_MS });
+      { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
     // One stream, monotonic ids: the second app was still waiting its turn on a
@@ -941,7 +959,8 @@ describe('Residential node evacuation', function () {
     stoodDown.catch(() => {});
 
     await stopTicker();
-    await driveUntil(env, TARGET, async () => standDownVerdict !== null);
+    await driveUntil(env, TARGET, async () => standDownVerdict !== null,
+      { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
     const verdict = await stoodDown;
@@ -1077,7 +1096,8 @@ describe('Residential node evacuation', function () {
       // shortening it means compressing masterSlaveIntervalMs further, which
       // has its own couplings to check first.
       await stopTicker();
-      await driveUntil(env, TARGET, async () => unknownRefusal !== null);
+      await driveUntil(env, TARGET, async () => unknownRefusal !== null,
+      { timeoutMs: DEPARTURE_WAIT_MS });
       await startTicker();
 
       const verdict = await refused;

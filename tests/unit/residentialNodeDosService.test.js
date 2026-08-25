@@ -667,6 +667,31 @@ describe('residentialNodeDosService tests', () => {
     });
   });
 
+  describe('the ticket tolerance the harness models', () => {
+    it('is the same multiple of the step that coupled-knobs derives from', async () => {
+      // Two files have to agree on this or the harness builds fleets the product
+      // does not behave like: coupled-knobs sizes the departure interval to
+      // outlast the tolerance, and sizes it from ITS OWN idea of what the
+      // tolerance is. If that drifts below the real one, a departure stops
+      // reading as a gap and the serialisation this paces silently stops
+      // existing - green, and testing nothing.
+      // eslint-disable-next-line import/extensions
+      const knobs = await import('../../test-infra/runner/framework/coupled-knobs.js');
+
+      expect(service.MAX_TICKET_GAP_MS).to.equal(service.QUEUE_STEP_MS * knobs.TICKET_GAP_STEPS);
+    });
+
+    it('outlasts more than one give-up pass, so a late pass cannot trip it', async () => {
+      // eslint-disable-next-line import/extensions
+      const knobs = await import('../../test-infra/runner/framework/coupled-knobs.js');
+      const passesPerStep = knobs.productionQueueRatio();
+
+      // One step is 1.82 passes. The tolerance has to mean a pass was MISSED
+      // rather than merely slow, so it has to clear two passes with room.
+      expect(passesPerStep * knobs.TICKET_GAP_STEPS).to.be.above(3);
+    });
+  });
+
   describe('what /flux/info reports: dosStaging', () => {
     it('reports nothing on a node that is not being enforced', async () => {
       geolocationServiceStub.getNetworkClassification.returns({ classification: CLASSIFICATION.DATACENTER });
@@ -867,7 +892,13 @@ describe('residentialNodeDosService tests', () => {
       const during = walk('someapp', short, now, now + wait + 1);
 
       expect(during.ok).to.equal(false);
-      expect(during.reason).to.contain('short');
+      // The CODE, not the prose. A caller has to tell "waiting its turn" from
+      // "the app is short" - the first is this working, the second is a node
+      // that wants to leave and cannot - and it must not have to match a
+      // sentence to do it. Deliberately the name appEvacuationSafety uses for
+      // the same fact, because it is the same fact asked one layer earlier.
+      expect(during.code).to.equal('BELOW_INSTANCE_COUNT');
+      expect(during.reason).to.contain('below its instance count');
 
       // And the turn runs from the moment it is whole, not from the first ask.
       const result = service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + wait + 2);
@@ -883,12 +914,38 @@ describe('residentialNodeDosService tests', () => {
       expect(walk('someapp', locations, now, now + wait + 1).ok).to.equal(true);
 
       service.forgetAppObservation('someapp');
-      // The same elapsed time with one missed pass inside it is not the same
-      // observation, and does not buy the turn.
       service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
+      // An interruption longer than the tolerance. Expressed against the
+      // tolerance and measured from where watching RESUMED, rather than against
+      // the original stamp: the two are independent knobs, and an arithmetic
+      // that assumes one outlasts the other silently stops testing anything the
+      // moment either moves.
       const resumed = now + service.MAX_TICKET_GAP_MS + 1;
 
-      expect(walk('someapp', locations, resumed, now + wait + 1).ok).to.equal(false);
+      // The turn starts again from `resumed`, so time already served is gone.
+      expect(walk('someapp', locations, resumed, resumed + wait - 1).ok).to.equal(false);
+      // ...and a full turn from there does mature.
+      expect(walk('someapp', locations, resumed + wait - 1, resumed + wait + 1).ok).to.equal(true);
+    });
+
+    it('is not restarted by an ordinary pass running late', () => {
+      // The tolerance is TWO steps because one is 1.82 passes, so at one step a
+      // single slow pass restarts the ticket. Production hardly notices; the
+      // harness compresses the same ratio to seconds, where a late pass is
+      // ordinary - and on chud the countdown ran 2m, 1m, 0m and jumped back to
+      // 2m, three times over, never maturing.
+      const now = Date.now();
+      const wait = WAIT();
+      const lateButNotMissed = service.QUEUE_STEP_MS + 1000;
+
+      expect(lateButNotMissed, 'a late pass must be inside the tolerance')
+        .to.be.below(service.MAX_TICKET_GAP_MS);
+
+      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
+      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + lateButNotMissed);
+
+      expect(service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + wait + 1).ok)
+        .to.equal(true);
     });
   });
 

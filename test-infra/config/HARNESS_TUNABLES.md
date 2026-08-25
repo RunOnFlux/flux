@@ -25,19 +25,35 @@ wrong. Under throws.
 | property | harness pair | production ratio | how the harness gets it |
 |---|---|---:|---|
 | two holders of one app cannot mature on the same give-up pass | `residentialQueueStepMs` : `removeFluxAppsPeriod` x 4 x `explorerPollIntervalMs` | 1.82 | `derivedQueueStepMs(fluxapps)` - never a literal |
-| a departure restarts the other holders' queue tickets | `residentialEvacuationIntervalMs` : `residentialQueueStepMs` | 9.0 | `derivedEvacuationIntervalMs(fluxapps)` - never a literal |
+| a departure restarts the other holders' queue tickets | `residentialEvacuationIntervalMs` : `residentialQueueStepMs` x `TICKET_GAP_STEPS` | 4.5 | `derivedEvacuationIntervalMs(fluxapps)` - never a literal |
+| a suite's wait covers a whole departure | `driveUntil` timeout : interval + base + position x step | - | `departureCycleMs(fluxapps, instances)` - never a literal |
 
 The second pair is bounded by what it must OUTLIVE rather than by production's
 ratio, the same way the sigterm window is bounded by a node boot. A node inside
 its departure interval records nothing against its queue tickets, so the block is
 what restarts them - and it only reads as a restart if it is longer than the gap
-a ticket tolerates, which IS the step. Production holds 6h against 40min and
-clears it by 9x; the harness needs only step + one pass, and the rule demands
-that rather than the ratio nobody reasoned about. Below it, tickets carry
-straight across the block, every app is instantly ready the moment the interval
-clears, and the suite goes green on a queue that stopped separating anything
-after the first departure - the same defect a too-short step causes, through the
-other door.
+a ticket tolerates. Production holds 6h against an 80min tolerance; the harness
+needs only that tolerance plus one pass. Below it, tickets carry straight across
+the block, every app is instantly ready the moment the interval clears, and the
+suite goes green on a queue that stopped separating anything after the first
+departure - the same defect a too-short step causes, through the other door.
+
+**The tolerance is TWO steps, and that factor is the whole lesson.** One step is
+1.82 passes, so at one step a single LATE pass restarts a ticket. Production
+hardly notices - 40 minutes of lateness on a 22-minute pass is an incident in its
+own right - but the harness compresses the same ratio to about 30 seconds, where
+six fleets booting at once make a late pass ordinary. On chud the countdown ran
+2m, 1m, 0m and jumped back to 2m, three times over, never matured, and two suites
+timed out on nodes that were behaving correctly. **Absolute jitter does not
+compress with the clocks**, so a ratio that is comfortable at production scale is
+not automatically comfortable here. `TICKET_GAP_STEPS` carries the factor, and a
+unit test pins it to the product constant it models.
+
+The third pair is the same mistake one layer out. Suite 55's waits were four
+minutes, written when the interval was four seconds; a departure is now an
+interval PLUS a full ticket served again from scratch, and the typed number
+quietly stopped covering one. A wait is as coupled to the pacing as the step is
+to the pass.
 
 A block costs more than its poll; `BLOCK_COST_OVERHEAD` carries the difference
 and is calibrated against a measurement, not chosen (model 15994ms against 15900ms

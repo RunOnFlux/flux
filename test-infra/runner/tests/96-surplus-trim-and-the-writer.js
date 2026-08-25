@@ -7,6 +7,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   bootAndPeer, placeGAppInOrder, electionOrder, installedInstanceIndices,
 } from '../framework/reconciler-suite.js';
+import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { setSynced, setPeerHasData, resetSyncState } from '../framework/syncthing-control.js';
 import { electMaster, setFdmOutage, resetFdm } from '../framework/fdm-control.js';
 import { advanceBlocks, startTicker, stopTicker } from '../framework/daemon-control.js';
@@ -59,24 +60,17 @@ const REAL_NODES = 5;
 const STUB_INDEX = REAL_NODES; // one past the real ones
 
 // TWO ORDERINGS DECIDE THIS FIXTURE, and the whole point is to make them
-// coincide on one node.
+// coincide on one node: the writer has to BE the newest copy, because the newest
+// copy is the one the surplus rule picks.
 //
-// The syncthing seed - the holder that gets the writable folder at a cold start
-// and therefore RUNS the g: component - is the LOWEST IP among the holders. The
-// instance order the surplus rule ranks is runningSince, which records the order
-// the holders were placed. So placing the seed LAST makes it both the writer and
-// the newest copy, which is exactly the collision this suite exists for.
-//
-// Electing a master does NOT do this. FDM only reports who the primary is; it
-// cannot move a running container, and the election correctly refuses to start a
-// second writer while a peer is running one. An earlier version of this suite
-// tried to elect the newest holder into the role and sat waiting three minutes
-// for a component that was never going to start there.
+// Placing the seed LAST is what does that - it carries the latest runningSince,
+// so it is both the writer and the copy that would be trimmed. Why the seed is
+// the writer, and why no amount of electing moves it, is g-app-placement.js's
+// to explain; this suite says which shape it needs and lets that module work
+// out the order.
 const HOLDERS = [0, 1, 2];
-const SEED_INDEX = 0;                   // lowest IP of the three holders
-// Derived, not written out: "the seed goes last" is the rule, and a hand-listed
-// order silently stops meaning that the moment HOLDERS changes.
-const PLACEMENT_ORDER = [...HOLDERS.filter((i) => i !== SEED_INDEX), SEED_INDEX];
+const SEED_INDEX = syncthingSeedIndex(HOLDERS);
+const PLACEMENT_ORDER = placementOrderWithSeedAt(HOLDERS, HOLDERS.length - 1);
 
 describe('a surplus copy that is also the writer', function () {
   let env;
