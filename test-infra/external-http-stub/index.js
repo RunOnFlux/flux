@@ -803,7 +803,29 @@ function startResolver() {
     upstream.send(query, 53, '127.0.0.11');
   });
 
-  server.bind(53, () => console.log('External HTTP stub resolver on port 53'));
+  // A dgram socket with no 'error' listener turns any failure into an uncaught
+  // exception. The failure that actually happens is the bind - port 53 already
+  // held, usually by the previous run's container on its way out - and without a
+  // listener the stub dies on a stack trace that mentions neither DNS nor the
+  // port, while every node in the fleet silently fails to resolve anything. That
+  // reads as a fleet-wide product fault and is nothing of the kind.
+  //
+  // Fatal on purpose: a resolver that never bound is not a resolver, and the run
+  // should say so at startup rather than eighty suites later. Errors after the
+  // bind cost one query and are logged, which this handler covers for free.
+  let bound = false;
+  server.on('error', (error) => {
+    if (!bound) {
+      console.error(`External HTTP stub resolver could not bind to 53: ${error.message}`);
+      process.exit(1);
+    }
+    console.error(`External HTTP stub resolver socket error: ${error.message}`);
+  });
+
+  server.bind(53, () => {
+    bound = true;
+    console.log('External HTTP stub resolver on port 53');
+  });
 }
 
 startResolver();
