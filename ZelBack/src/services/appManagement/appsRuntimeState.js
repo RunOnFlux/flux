@@ -142,15 +142,20 @@ async function requestRestart(identifier) {
  * Marks a restart generation as actuated, so the pass that follows the bounce
  * does not bounce it again.
  *
+ * Throws, unlike the recorders either side of it, because this write is not
+ * history - it is the only thing that stops the next pass bouncing the container
+ * again. Swallowed, a failure here read as "recorded" and the pass that followed
+ * found the request still outstanding: on a node whose reads work and whose
+ * writes do not, that restarted the app every POST_START_VERIFY_MS forever, on
+ * the one path deliberately exempt from the backoff ladder. Losing an exit code
+ * (recordExit) costs a log line; losing this one costs the app.
+ *
  * @param {string} identifier
  * @param {number} generation
+ * @throws when the write fails
  */
 async function recordRestartGeneration(identifier, generation) {
-  try {
-    await setFields(identifier, { actuatedRestartGeneration: generation });
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to record restart generation for ${identifier}: ${err.message}`);
-  }
+  await setFields(identifier, { actuatedRestartGeneration: generation });
 }
 
 /**

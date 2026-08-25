@@ -522,6 +522,22 @@ describe('appsRuntimeState tests', () => {
       expect(thrown).to.be.an('error');
     });
 
+    // recordRestartGeneration reads like a recorder and sits among others that
+    // swallow, but it is not history: it is the only thing that stops the next
+    // pass bouncing the container again. Swallowed, a failed write read as
+    // "recorded", and a node whose reads work while its writes do not restarted
+    // the app every verify interval for as long as that lasted - on the one path
+    // deliberately exempt from the backoff ladder.
+    it('surfaces a failed restart-generation write rather than reporting it recorded', async () => {
+      updateStub.rejects(new Error('not enough disk space'));
+
+      let thrown = null;
+      await retryState.recordRestartGeneration('www_App', 5).catch((e) => { thrown = e; });
+
+      expect(thrown, 'the caller has to be able to tell the record did not land').to.be.an('error');
+      expect(thrown.message).to.match(/disk space/);
+    });
+
     it('propagates a lock-write failure to the caller (API must not report success)', async () => {
       // The stop lock is the contract that the reconciler will not restart the
       // app. Swallowing the write failure makes the API report success while the

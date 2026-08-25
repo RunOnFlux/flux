@@ -259,6 +259,50 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerRestart.called, 'a stopped container is started, never restarted').to.be.false;
     });
 
+    // The generation write is the only thing that stops the next pass bouncing the
+    // container again, so it surfaces rather than being swallowed - swallowed, a
+    // node whose reads work and whose writes do not restarted the app every verify
+    // interval forever, on the one path exempt from the backoff ladder. It is
+    // written LAST for the same reason: the bounce already happened, so a failed
+    // record must not also cost the bookkeeping a successful restart is owed.
+    it('a failed generation write keeps the bounce its bookkeeping, and fails the pass', async () => {
+      const onStarted = sinon.stub();
+      appReconciler.setOnContainerStarted(onStarted);
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 3, actuatedRestartGeneration: 2 });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.appsRuntimeState.recordRestartGeneration.rejects(new Error('not enough disk space'));
+
+      let thrown = null;
+      await appReconciler.reconcile('www_App').catch((e) => { thrown = e; });
+
+      expect(
+        stubs.dockerService.appDockerRestart.calledOnceWith('www_App'),
+        'the bounce must have happened, or the assertions below prove nothing',
+      ).to.be.true;
+      expect(
+        onStarted.calledOnceWith('www_App'),
+        'the notification is owed to a restart that happened - it is the record that failed, not the restart',
+      ).to.be.true;
+      expect(
+        thrown,
+        'the pass must fail, so the retry paces and bounds it instead of looping every verify interval',
+      ).to.be.an('error');
+    });
+
+    it('a failed generation write on the start path keeps the start notified, and fails the pass', async () => {
+      const onStarted = sinon.stub();
+      appReconciler.setOnContainerStarted(onStarted);
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 4, actuatedRestartGeneration: 1 });
+      stubs.appsRuntimeState.recordRestartGeneration.rejects(new Error('not enough disk space'));
+
+      let thrown = null;
+      await appReconciler.reconcile('www_App').catch((e) => { thrown = e; }); // stopped -> start
+
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+      expect(onStarted.calledOnceWith('www_App')).to.be.true;
+      expect(thrown).to.be.an('error');
+    });
+
     it('leaves an operator-stopped container alone if already stopped', async () => {
       stubs.appsRuntimeState.isOperatorStopped.resolves(true);
       await appReconciler.reconcile('www_App'); // inspect default: stopped

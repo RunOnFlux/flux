@@ -950,11 +950,17 @@ async function reconcile(rawIdentifier) {
           scheduleRetry(identifier, MANAGED_RETRY_MS);
           return;
         }
-        await appsRuntimeState.recordRestartGeneration(identifier, desiredGeneration);
         fluxEventBus.publish('reconciler:actuated', { identifier, action: 'restarted', reason: 'operatorRequested' });
         notifyContainerStarted(identifier);
         // A restart is a start, so it can come up on a stale endpoint the same way.
         scheduleRetry(identifier, POST_START_VERIFY_MS);
+        // Last, because it throws. The bounce above already happened, so a write
+        // failure must not also cost the event, the peer notification and the
+        // attachment check a successful restart is owed - it is the record that
+        // failed, not the restart. The throw reaches the pass-level retry, which
+        // paces it and gives up, rather than the swallow that bounced the
+        // container every POST_START_VERIFY_MS for as long as writes failed.
+        await appsRuntimeState.recordRestartGeneration(identifier, desiredGeneration);
         return;
       }
       // The container is where it should be; monitoring may not be. A stop turns
@@ -1076,9 +1082,7 @@ async function reconcile(rawIdentifier) {
   // would bounce a container the operator has just watched come up.
   const startedState = await appsRuntimeState.getState(identifier);
   const pendingGeneration = (startedState && startedState.restartGeneration) || 0;
-  if (pendingGeneration > ((startedState && startedState.actuatedRestartGeneration) || 0)) {
-    await appsRuntimeState.recordRestartGeneration(identifier, pendingGeneration);
-  }
+  const satisfiesRestart = pendingGeneration > ((startedState && startedState.actuatedRestartGeneration) || 0);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
   notifyContainerStarted(identifier);
@@ -1087,6 +1091,11 @@ async function reconcile(rawIdentifier) {
   // BEFORE this start, so verify the new one shortly - otherwise a detached-at-boot
   // container waits for the hourly sweep.
   scheduleRetry(identifier, POST_START_VERIFY_MS);
+  // Last, because it throws - the start above already happened, and the record
+  // failing must not cost the bookkeeping that start is owed.
+  if (satisfiesRestart) {
+    await appsRuntimeState.recordRestartGeneration(identifier, pendingGeneration);
+  }
 }
 
 // --- workqueue (per-key single-flight, boot-gated) -----------------------
