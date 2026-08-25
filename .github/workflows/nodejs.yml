@@ -50,7 +50,7 @@ jobs:
       # anywhere and nothing to renew.
       - name: Mint the dispatch token
         id: dispatch-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.FLUXHASHES_APP_ID }}
           private-key: ${{ secrets.FLUXHASHES_APP_KEY }}
@@ -130,7 +130,7 @@ jobs:
       - name: Mint the docs token
         if: github.repository == 'RunOnFlux/flux' && github.ref == 'refs/heads/development'
         id: docs-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.FLUXJSDOCS_APP_ID }}
           private-key: ${{ secrets.FLUXJSDOCS_APP_KEY }}
