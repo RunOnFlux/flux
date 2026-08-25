@@ -71,6 +71,7 @@ const STUB_INDEX = REAL_NODES; // one past the real ones
 const HOLDERS = [0, 1, 2];
 const SEED_INDEX = syncthingSeedIndex(HOLDERS);
 const PLACEMENT_ORDER = placementOrderWithSeedAt(HOLDERS, HOLDERS.length - 1);
+const ipOfIndex = (index) => subnet.nodeIp(index + 1);
 
 describe('a surplus copy that is also the writer', function () {
   let env;
@@ -82,7 +83,6 @@ describe('a surplus copy that is also the writer', function () {
   let order;
   dumpLogsOnFailure(() => env);
 
-  const ipOf = (nodeIndex) => subnet.nodeIp(nodeIndex + 1);
   const holderAt = async (position) => {
     const res = await env.clients[0].getAppLocations(appName);
     // An unreadable answer must not read as an empty order: ranking nothing and
@@ -126,8 +126,17 @@ describe('a surplus copy that is also the writer', function () {
     // Every holder's folder complete and a connected peer holding it, or the
     // safety gate refuses every removal and this suite measures the gate rather
     // than the rule.
+    //
+    // PER HOLDER, not the '*' wildcard. placeGAppInOrder's cold start writes a
+    // per-IP zero for each holder - that is HOW it forces a cold start - and the
+    // stub keys peer completion by `ip|folder`, so a specific key shadows the
+    // wildcard. Setting '*' to 100 left both holders' own entries reading
+    // "completion=0 remoteState=unknown", the fleet went on believing no peer
+    // held the data, and the safety gate refused every trim with NO_SYNCED_PEER.
+    // The rule under test had already decided correctly by then; the fixture had
+    // simply never given it a peer to point at.
     await setSynced({ folder });
-    await setPeerHasData({ folder });
+    await Promise.all(HOLDERS.map((index) => setPeerHasData({ ip: ipOfIndex(index), folder })));
 
     await waitFor(async () => (await env.clients[0].getAppLocations(appName)).data?.length >= 3,
       { timeout: 300000, interval: 2000, label: 'three holders announce the app' });
@@ -164,8 +173,8 @@ describe('a surplus copy that is also the writer', function () {
     const nextNewest = await holderAt(1);
     const newestIp = newest.ip.split(':')[0];
     const nextIp = nextNewest.ip.split(':')[0];
-    const newestIndex = order.find((i) => ipOf(i) === newestIp);
-    const nextIndex = order.find((i) => ipOf(i) === nextIp);
+    const newestIndex = order.find((i) => ipOfIndex(i) === newestIp);
+    const nextIndex = order.find((i) => ipOfIndex(i) === nextIp);
     expect(newestIndex, 'the newest holder is a real node').to.not.equal(undefined);
     expect(nextIndex, 'the second-newest holder is a real node').to.not.equal(undefined);
 
