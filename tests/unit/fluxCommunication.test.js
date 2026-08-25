@@ -14,7 +14,6 @@ const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunica
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const nodeConfirmationService = require('../../ZelBack/src/services/nodeConfirmationService');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
-const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -436,68 +435,6 @@ describe('fluxCommunication tests', () => {
     }).timeout(5000);
   });
 
-  describe('handleAppInstallingMessage tests', () => {
-    let publishSpy;
-
-    before(requireMongo);
-
-    beforeEach(async () => {
-      peerManager.reset();
-      await dbHelper.initiateDB();
-      publishSpy = sinon.stub(fluxEventBus, 'publish');
-      sinon.stub(messageStore, 'storeSignedAppInstallingBroadcast');
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 0 } });
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    const installingMessage = (version, extra = {}) => ({
-      data: {
-        type: 'fluxappinstalling',
-        version,
-        name: 'myApp',
-        ip: '127.0.0.5',
-        broadcastedAt: Date.now(),
-        ...extra,
-      },
-      timestamp: Date.now(),
-    });
-
-    it('announces a claim as not withdrawn', async () => {
-      sinon.stub(messageStore, 'storeAppInstallingMessage').resolves(true);
-
-      await fluxCommunication.handleAppInstallingMessage(installingMessage(1), '127.0.0.5', '16127');
-
-      sinon.assert.calledWith(publishSpy, 'network:appinstalling', {
-        ip: '127.0.0.5', name: 'myApp', withdrawn: false,
-      });
-    });
-
-    it('announces a withdrawal as withdrawn', async () => {
-      // A version 2 message gives the claim up, and arrives through this same
-      // handler - so a consumer that cannot tell them apart reads a node
-      // standing aside as a node taking the app on.
-      sinon.stub(messageStore, 'storeAppInstallingMessage').resolves(true);
-
-      await fluxCommunication.handleAppInstallingMessage(
-        installingMessage(2, { withdrawn: true }), '127.0.0.5', '16127',
-      );
-
-      sinon.assert.calledWith(publishSpy, 'network:appinstalling', {
-        ip: '127.0.0.5', name: 'myApp', withdrawn: true,
-      });
-    });
-
-    it('announces nothing when the message was not stored', async () => {
-      sinon.stub(messageStore, 'storeAppInstallingMessage').resolves(false);
-
-      await fluxCommunication.handleAppInstallingMessage(installingMessage(1), '127.0.0.5', '16127');
-
-      sinon.assert.neverCalledWith(publishSpy, 'network:appinstalling');
-    });
-  });
 
   describe('connectedPeers tests', () => {
     const generateResponse = () => {

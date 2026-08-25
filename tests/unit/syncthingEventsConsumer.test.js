@@ -21,13 +21,8 @@ const syncthingServiceMock = {
   getEvents: sinon.stub(),
 };
 
-const fluxEventBusMock = {
-  publish: sinon.stub(),
-};
-
 const consumer = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingEventsConsumer', {
   '../syncthingService': syncthingServiceMock,
-  '../utils/fluxEventBus': fluxEventBusMock,
 });
 
 // park the long-poll until the request is aborted (a real long-poll holds until
@@ -66,7 +61,6 @@ describe('syncthingEventsConsumer tests', () => {
     // inter-poll waits are cancellable controller.sleep calls - stub instant so
     // the suite never waits out pacing/backoff in real time
     sleepStub = sinon.stub(FluxController.prototype, 'sleep').resolves();
-    fluxEventBusMock.publish.reset();
     onFolderActivity = sinon.stub();
     onResync = sinon.stub();
   });
@@ -132,7 +126,6 @@ describe('syncthingEventsConsumer tests', () => {
     await new Promise((resolve) => { setImmediate(() => { setImmediate(() => { setImmediate(resolve); }); }); });
 
     sinon.assert.calledOnce(onResync);
-    sinon.assert.calledWith(fluxEventBusMock.publish, 'syncthing:eventsResync', sinon.match.object);
     // since continues from the new stream's last id
     const thirdCallQuery = syncthingServiceMock.getEvents.thirdCall.args[0].query;
     expect(thirdCallQuery.since).to.equal(1);
@@ -176,7 +169,6 @@ describe('syncthingEventsConsumer tests', () => {
     expect(recoveryQuery.since).to.equal(0);
     // exactly one resync, announced once the stream is healthy again
     sinon.assert.calledOnce(onResync);
-    sinon.assert.calledOnceWithExactly(fluxEventBusMock.publish, 'syncthing:eventsResync', sinon.match.object);
   });
 
   it('retries with a backoff delay when the events endpoint fails (degrades to the poll, never breaks)', async () => {
@@ -205,7 +197,6 @@ describe('syncthingEventsConsumer tests', () => {
 
     const record = consumer.getFolderErrors('fluxcomp_app1');
     expect(record.errors).to.deep.equal(errors);
-    sinon.assert.calledWith(fluxEventBusMock.publish, 'syncthing:folderErrors', sinon.match({ folder: 'fluxcomp_app1' }));
   });
 
   it('paces itself when the events endpoint returns empty instantly (never hot-loops)', async () => {

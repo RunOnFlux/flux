@@ -1098,7 +1098,6 @@ describe('appInstaller tests', () => {
         lockHeldWhenBroadcasting = globalStateStub.installationInProgress;
         return Promise.resolve();
       });
-      const fluxEventBusStub = { publish: sinon.stub(), subscribe: sinon.stub() };
       const dbHelperStubSuccess = {
         databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
         findInDatabase: sinon.stub().resolves([]),
@@ -1170,7 +1169,6 @@ describe('appInstaller tests', () => {
         '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
         '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
         '../utils/globalState': globalStateStub,
-        '../utils/fluxEventBus': fluxEventBusStub,
         '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),

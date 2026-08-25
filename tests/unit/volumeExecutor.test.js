@@ -46,7 +46,6 @@ describe('volumeExecutor tests', () => {
 
   let configStub;
   let nodeFsStub;
-  let fluxEventBusStub;
   let fluxNetworkHelperStub;
   let networkStateStub;
 
@@ -172,7 +171,6 @@ describe('volumeExecutor tests', () => {
     // that tests it, against real tars.
     // Not the real bus: what these assert is what the module SAYS happened, and
     // a shared emitter would carry it between tests.
-    fluxEventBusStub = { publish: sinon.stub() };
 
     // This node's own address, so a peer draw cannot come back as itself.
     fluxNetworkHelperStub = { getLocalSocketAddress: sinon.stub().resolves('198.18.0.1:16127') };
@@ -203,7 +201,6 @@ describe('volumeExecutor tests', () => {
         info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
       },
       '../utils/appConstants': appConstantsStub,
-      '../utils/fluxEventBus': fluxEventBusStub,
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       './volumeSession': volumeSession,
     });
@@ -845,29 +842,6 @@ describe('volumeExecutor tests', () => {
       ).to.equal('198.18.0.1:16127');
     });
 
-    it('reports peers asked and registry attempts as different things', async () => {
-      // One key on one event meant two things: peers contacted on one branch,
-      // registry attempts on the other. Anything summing it was adding
-      // different denominators, and the peers asked first were invisible
-      // whenever the registry won - which is most of the time.
-      pulled = false;
-      networkStateStub.getRandomSocketAddress.onCall(0).resolves('198.18.0.5:16127');
-      networkStateStub.getRandomSocketAddress.onCall(1).resolves('198.18.0.6:16127');
-      networkStateStub.getRandomSocketAddress.resolves(null);
-      serviceHelperStub.axiosGet.rejects(new Error('404'));
-
-      const published = [];
-      fluxEventBusStub.publish.callsFake((name, payload) => published.push({ name, payload }));
-
-      // One cycle: two peers asked and refused, then the registry answers.
-      const vol = await openSession();
-      await volumeExecutor.run(vol, ['true']);
-
-      const acquired = published.filter((e) => e.name === 'fileoperation:imageAcquired').pop();
-      expect(acquired.payload.source).to.equal('registry');
-      expect(acquired.payload.attempts, 'registry attempts were not reported').to.equal(1);
-      expect(acquired.payload.asked, 'the peers asked first were invisible').to.equal(2);
-    });
 
     it('does not let a caller inherit a refusal from sources it was allowed', async () => {
       // A caller allowed the registry, arriving while the prefetch's peers-only
