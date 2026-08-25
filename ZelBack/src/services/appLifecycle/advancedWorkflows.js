@@ -1791,13 +1791,17 @@ async function redeployAPI(req, res) {
 }
 
 /**
- * Helper function to send chunk of data to response stream with delay
+ * Write one progress line to the response stream.
+ *
+ * The flush is what makes the line arrive: Express's compression middleware
+ * buffers small res.write calls to build compressible chunks, so a progress
+ * stream without it sits in that buffer instead of reaching the caller.
+ *
  * @param {object} res - Response object
  * @param {string} chunk - Data chunk to send
  * @returns {Promise<void>}
  */
 async function sendChunk(res, chunk) {
-  await serviceHelper.delay(3000);
   res.write(`${chunk}\n`);
   if (res.flush) res.flush();
 }
@@ -2640,12 +2644,11 @@ async function appendRestoreTask(req, res) {
     // positive answer disqualifies this node - an unreachable FDM must not
     // block a restore, the same way it does not block an election.
     //
-    // The answer is kept rather than only used to refuse: it also decides
-    // whether this task may start the elected components again at the end.
-    // Silence is not consent - masterSlaveApps skips primary selection outright
-    // when every region fails, and a restore that starts a writer on that same
-    // silence is what turns "we do not know who the primary is" into two of them
-    // on one volume.
+    // The answer decides two things: whether to refuse here, and whether this
+    // task may start the elected components at the end. Silence is not consent -
+    // masterSlaveApps skips primary selection outright when every region fails,
+    // and starting a writer on that same silence is what turns "we do not know
+    // who the primary is" into two of them on one volume.
     let primaryConfirmedLocal = false;
     if (!force && targets.some((target) => target.syncMode === 'elected')) {
       const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
@@ -2824,14 +2827,13 @@ async function appendRestoreTask(req, res) {
 
     await serviceHelper.delay(1 * 5 * 1000);
     await sendChunk(res, 'Starting application...\n');
-    // A bare app name fans out to every component, elected ones included - and
-    // the stop above fanned out the same way, so a g: component that was never
-    // a target of this restore has been stopped and would be started here too.
-    // It is started only where FDM confirmed this node is the primary. Where it
-    // did not - unreachable, or force skipped the check - the component is left
-    // to the election, which is what starts it on every other node anyway. The
-    // folders went back to sendreceive a few lines above, so a container started
-    // here writes into live replicated storage immediately.
+    // A bare app name fans out to every component, and the stop above fans out
+    // the same way - so this covers a g: component that is no target of this
+    // restore at all. An elected component is started only where FDM confirmed
+    // this node holds the primary; unconfirmed - FDM unreachable, or force
+    // skipping the check - it belongs to the election, which is what starts it
+    // on every other node anyway. The folders are back in sendreceive by here,
+    // so a container started now writes into live replicated storage at once.
     const componentsToStart = componentsOfApp(appDetails).filter(
       (comp) => primaryConfirmedLocal || syncModeOfComponent(comp.containerData) !== 'elected',
     );

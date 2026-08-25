@@ -2728,8 +2728,7 @@ describe('advancedWorkflows tests', () => {
 
     beforeEach(() => {
       globalState.backupInProgress = [];
-      // sendChunk paces its progress messages by 3s and the flow sleeps between
-      // phases; neither is what these tests are about
+      // the flow sleeps between phases; that is not what these tests are about
       // eslint-disable-next-line global-require
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       sinon.stub(serviceHelper, 'delay').resolves();
