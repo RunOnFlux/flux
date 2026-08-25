@@ -1,4 +1,4 @@
-// Talking to a stub's control API, with the failure legible.
+// Talking to a stub's control API or a node's own API, with the failure legible.
 //
 // `fetch` reports every transport failure as the same three words - "TypeError:
 // fetch failed" - and puts the part that identifies it (ECONNREFUSED, socket
@@ -9,6 +9,11 @@
 //
 // That cost this suite three ten-minute runs. So every control call goes through
 // here, and a failure names the method, the URL and the cause.
+//
+// The node clients go through it too. They were left on bare `fetch` when this
+// was written, and a gate found the gap the same way: a suite that passes twice
+// on an idle box loses a wait to one unattributable `fetch failed` under load,
+// and the report names neither which node nor why.
 
 /**
  * fetch, with the failure identifying itself.
