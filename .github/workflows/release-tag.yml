@@ -27,7 +27,7 @@ jobs:
   tag:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
 
@@ -157,7 +157,7 @@ jobs:
       - name: Mint the dispatch token
         if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
         id: dispatch-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.FLUXHASHES_APP_ID }}
           private-key: ${{ secrets.FLUXHASHES_APP_KEY }}

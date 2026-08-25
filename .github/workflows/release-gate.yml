@@ -30,7 +30,7 @@ jobs:
     steps:
       # The default pull_request checkout is the merge preview -- the tree master will actually
       # hold after the merge -- which is the thing worth judging, not the PR head alone.
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Version moves forward
         run: |
