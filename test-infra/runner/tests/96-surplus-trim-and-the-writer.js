@@ -9,9 +9,9 @@ import {
 } from '../framework/reconciler-suite.js';
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { setSynced, setPeerHasData, resetSyncState } from '../framework/syncthing-control.js';
-import { electMaster, setFdmOutage, resetFdm } from '../framework/fdm-control.js';
-import { advanceBlocks, startTicker, stopTicker } from '../framework/daemon-control.js';
-import { waitFor } from '../framework/wait.js';
+import { electMaster, resetFdm } from '../framework/fdm-control.js';
+import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
+import { waitFor, waitForGiveUpConsidered } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Trimming a surplus copy, when the surplus copy is the one WRITING.
@@ -53,6 +53,35 @@ async function runningComponents(env, nodeIndex) {
   const list = res?.status === 'success' ? res.data : null;
   if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res)?.slice(0, 200)}`);
   return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
+}
+
+// Drive the chain until a condition holds, ONE BLOCK AT A TIME, waiting for the
+// node to process each before sending the next.
+//
+// A height only counts when it lands as the TIP, and tips arrive one per
+// explorer poll - so pushing a burst leaves most of it stale on arrival and the
+// give-up pass runs once, or not at all. This test used to advance 24 blocks in
+// a single call and then assert that nothing had happened; on the fleet that
+// produced exactly one give-up pass across five nodes, and the assertion held
+// because nothing had been asked, not because anything had declined.
+//
+// Suite 55 carries the same shape and the full reasoning for it, including the
+// gate it cost. Worth folding into the framework when a third suite wants it.
+async function driveUntil(node, condition, { timeoutMs, label }) {
+  const deadline = Date.now() + timeoutMs;
+  let blocks = 0;
+  while (Date.now() < deadline) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await condition()) return blocks;
+    const afterId = node.getLastEventId();
+    // eslint-disable-next-line no-await-in-loop
+    await advanceBlock();
+    // eslint-disable-next-line no-await-in-loop
+    await node.waitForEvent('block:processed', () => true, 60000, { afterId });
+    blocks += 1;
+  }
+  if (await condition()) return blocks;
+  throw new Error(`${label}: not reached in ${timeoutMs}ms (${blocks} blocks driven)`);
 }
 
 const subnet = getSubnetConfig();
@@ -190,18 +219,23 @@ describe('a surplus copy that is also the writer', function () {
     this.timeout(120000);
     held?.stop();
     await startTicker().catch(() => {});
-    // Explicitly, not via resetFdm: the FDM stub is shared infrastructure and an
-    // outage left on leaks into whatever suite runs next. Whether /reset clears
-    // that flag is the stub's business, and this suite should not depend on it.
-    await setFdmOutage(false).catch(() => {});
     await resetFdm().catch(() => {});
     await resetSyncState().catch(() => {});
     if (env) await env.teardown();
   });
 
-  it('leaves the writer in place and trims the next copy instead', async function () {
-    this.timeout(900000);
-
+  // The shape both tests rest on: which node is the newest copy, which sits
+  // behind it, and the writer actually running on the newest.
+  //
+  // Established from a TEST rather than from before(), on purpose. A hook
+  // failure writes no per-container logs, and this is precisely the step whose
+  // failure needs them - it is where four earlier runs of this suite died, each
+  // time on the fixture rather than on the rule. Memoised, so the second test
+  // inherits the shape instead of re-deriving it and quietly disagreeing with
+  // the first about which node it is talking about.
+  let shape = null;
+  const establishShape = async () => {
+    if (shape) return shape;
     const newest = await holderAt(0);
     const nextNewest = await holderAt(1);
     const newestIp = newest.ip.split(':')[0];
@@ -213,7 +247,7 @@ describe('a surplus copy that is also the writer', function () {
 
     // A CONTROL ON THE FIXTURE, not on the code. Everything below rests on the
     // seed and the newest copy being the same node; if the seed rule ever moves,
-    // this says so in one line rather than leaving the wait three lines down to
+    // this says so in one line rather than leaving a wait three lines down to
     // time out after three minutes looking like a product fault.
     expect(newestIndex, 'the fixture must land the writer on the newest copy')
       .to.equal(SEED_INDEX);
@@ -228,12 +262,99 @@ describe('a surplus copy that is also the writer', function () {
     await waitFor(async () => (await runningComponents(env, newestIndex)).includes(folder),
       { timeout: 180000, interval: 3000, label: 'the newest copy is running the writer' });
 
-    await stopTicker();
+    shape = { newestIndex, nextIndex };
+    return shape;
+  };
+
+  it('trims nothing while it cannot confirm the newest copy is the writer', async function () {
+    this.timeout(900000);
+    const { newestIndex, nextIndex } = await establishShape();
+
+    // The second-newest may act ONLY on a POSITIVE confirmation that the newest
+    // is running the writer. Every node ranks the same shared order, but "who is
+    // writing" is each node's own reading - so a node acting on anything weaker
+    // is how two copies leave at once, which is the one outcome this design has
+    // to make impossible.
+    //
+    // CONFIRMATION IS A DIRECT PROBE OF THE PEER'S OWN API, not an FDM lookup,
+    // so the only way to take it away is to stop this node being able to read
+    // that peer. An FDM outage does not do it, and this test used to try: it
+    // leaves peerComponentState answering perfectly well, because that function
+    // never asks FDM anything.
+    //
+    // The newest copy goes on running the writer throughout, which is the whole
+    // point - if the rule ever trimmed on silence, the node doing it would be
+    // removing a copy while the writer was up and healthy.
+    //
+    // THE SURPLUS MUST STILL BE HERE, which is why this runs before the test
+    // that trims. After that trim the app sits at exactly its instance count,
+    // the surplus rule is never entered at all, and the assertion below would
+    // hold for a reason with nothing to do with confirming a writer.
+    const locations = await env.clients[0].getAppLocations(appName);
+    expect(locations.data?.length, 'a surplus must exist or this test declines nothing')
+      .to.equal(HOLDERS.length + 1);
+
+    const before = await installedInstanceIndices(env, appName);
+    expect(before, 'the copy that would be trimmed is still here').to.include(nextIndex);
+
+    await env.partitionGroups([nextIndex], [newestIndex], { awaitSever: false });
+    try {
+      // THE PASS SAYING IT SAW THE SURPLUS AND WOULD NOT ACT ON IT. Waiting for
+      // "nothing was removed" on its own passes just as happily when the pass
+      // never ran - which is how this test passed before, on a fleet where the
+      // give-up pass fired once across five nodes and reported NONE.
+      let declined = null;
+      const refusal = waitForGiveUpConsidered(
+        env.clients[nextIndex], appName,
+        (d) => d.giveUp === false && d.reason === 'SURPLUS' && d.code === 'WRITER_UNCONFIRMED',
+        600000,
+      ).then((v) => { declined = v; return v; });
+      refusal.catch(() => {});
+
+      await stopTicker();
+      await driveUntil(env.clients[nextIndex], async () => declined !== null, {
+        timeoutMs: 600000,
+        label: 'the second-newest reports a surplus it would not act on',
+      });
+
+      const after = await installedInstanceIndices(env, appName);
+      expect(after.slice().sort(), 'a copy left while nobody could confirm the writer')
+        .to.deep.equal(before.slice().sort());
+      expect(
+        await runningComponents(env, newestIndex),
+        'the writer stopped while its peer could not see it',
+      ).to.include(folder);
+    } finally {
+      await env.healPartition([nextIndex], [newestIndex]).catch(() => {});
+      await startTicker().catch(() => {});
+    }
+  });
+
+  it('leaves the writer in place and trims the next copy instead', async function () {
+    this.timeout(900000);
+    const { newestIndex, nextIndex } = await establishShape();
+
+    // The probe has to be able to reach the newest copy again after the
+    // partition above, or this spends ten minutes waiting for a trim that is
+    // being declined for the previous test's reason rather than allowed for
+    // this one.
+    // Either direction counts: which side dialled which is not this suite's
+    // business, and checking only outbound waits forever on a pair that
+    // reconnected the other way round.
     await waitFor(async () => {
-      await advanceBlocks(4);
+      const [outbound, inbound] = await Promise.all([
+        env.clients[nextIndex].getPeers(),
+        env.clients[nextIndex].getIncomingPeers(),
+      ]);
+      const peers = new Set([...(outbound.data || []), ...(inbound.data || [])]);
+      return peers.has(ipOfIndex(newestIndex));
+    }, { timeout: 180000, interval: 3000, label: 'the second-newest can see the newest again' });
+
+    await stopTicker();
+    await driveUntil(env.clients[nextIndex], async () => {
       const installed = await installedInstanceIndices(env, appName);
       return !installed.includes(nextIndex);
-    }, { timeout: 600000, interval: 1000, label: 'the second-newest copy is trimmed' });
+    }, { timeoutMs: 600000, label: 'the second-newest copy is trimmed' });
     await startTicker();
 
     // THE POINT. The writer was never stopped to make the count come out.
@@ -244,33 +365,5 @@ describe('a surplus copy that is also the writer', function () {
 
     const stillInstalled = await installedInstanceIndices(env, appName);
     expect(stillInstalled, 'the writer left instead of the copy behind it').to.include(newestIndex);
-  });
-
-  it('trims nothing at all while the writer cannot be confirmed', async function () {
-    this.timeout(900000);
-
-    // The second-newest may only act on a POSITIVE confirmation that the newest
-    // is running the writer. Every node ranks the same shared order, but "who is
-    // writing" is each node's own reading and FDM's registration lags it - so a
-    // node acting on anything weaker is how two copies leave at once, which is
-    // the one outcome this design has to make impossible.
-    //
-    // With no FDM answering, no node can establish who the writer is. The
-    // correct behaviour is that nobody trims: an app one copy over its count is
-    // a cost, and it is a smaller one than an app a copy short of it.
-    const before = await installedInstanceIndices(env, appName);
-    await setFdmOutage(true);
-
-    await stopTicker();
-    await advanceBlocks(24);
-    await startTicker();
-
-    const after = await installedInstanceIndices(env, appName);
-    // Restored here rather than only in teardown: an assertion below that fails
-    // would otherwise leave the shared FDM stub down for the next suite.
-    await setFdmOutage(false);
-
-    expect(after.slice().sort(), 'a copy left while nobody could say who was writing')
-      .to.deep.equal(before.slice().sort());
   });
 });
