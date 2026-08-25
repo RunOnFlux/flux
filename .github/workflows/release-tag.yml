@@ -66,7 +66,17 @@ jobs:
       - name: Merged tree is in the signed document central serves
         if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
         run: |
+          set -eo pipefail
           NEW_HASH=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+          # d41d8... is the md5 of an empty stream, produced whenever nothing was hashed: ZelBack
+          # absent (pipefail catches that) or present holding no regular files (find exits 0 and
+          # emits nothing, which pipefail cannot see). The signer refuses to list that value, so
+          # the membership check below would fail anyway -- but it would fail as "not in the signed
+          # document", sending the reader to the signing chain instead of the missing directory.
+          if [ "$NEW_HASH" = d41d8cd98f00b204e9800998ecf8427e ]; then
+            echo 'nothing was hashed -- this checkout has no ZelBack files'
+            exit 1
+          fi
           echo "merged tree hash: ${NEW_HASH}"
           # exported for the node script below; GITHUB_ENV only reaches subsequent steps
           export NEW_HASH
