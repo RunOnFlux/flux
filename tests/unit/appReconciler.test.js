@@ -1305,6 +1305,100 @@ describe('appReconciler tests', () => {
     });
   });
 
+  // Every failure this file anticipates ends in one of two decisions: pace a retry
+  // (transient) or deliberately do not (an invalid spec no retry can fix). A pass
+  // that THROWS made neither, and was logged and forgotten - so with the operator's
+  // stop actuated by the reconciler rather than inline, a failed stop left the
+  // container running until the hourly sweep.
+  describe('unhandled pass failures', () => {
+    // The stop is the one actuation with no try/catch of its own, so a docker
+    // failure there is a genuine unhandled throw rather than a contrived one.
+    const operatorStopThatThrows = (message) => {
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.dockerService.appDockerStop.rejects(new Error(message));
+    };
+    // A pass is several awaits deep, and a retry lands through a timer callback
+    // that starts another one - drain microtasks until it has settled.
+    const settle = async () => {
+      for (let i = 0; i < 12; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    };
+
+    it('retries a thrown pass instead of leaving the container to the hourly sweep', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      operatorStopThatThrows('docker daemon is not running');
+
+      await appReconciler.enqueue('www_App');
+      expect(
+        stubs.dockerService.appDockerStop.callCount,
+        'the pass must actually have thrown, or the retry below proves nothing',
+      ).to.equal(1);
+
+      clock.tick(6000);
+      await settle();
+
+      expect(stubs.dockerService.appDockerStop.callCount, 'the failed stop must be retried').to.equal(2);
+      clock.restore();
+    });
+
+    it('stops after the bound, so a permanent fault is not a five-second loop forever', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      operatorStopThatThrows('permanently broken');
+
+      await appReconciler.enqueue('www_App');
+      for (let i = 0; i < 6; i += 1) {
+        clock.tick(6000);
+        // eslint-disable-next-line no-await-in-loop
+        await settle();
+      }
+
+      // the first attempt plus UNHANDLED_FAILURE_RETRIES, and nothing after it:
+      // six further ticks arm nothing, which is the whole point of the bound
+      expect(stubs.dockerService.appDockerStop.callCount).to.equal(4);
+      expect(
+        stubs.log.error.getCalls().some((c) => /leaving it to the hourly sweep/.test(c.args[0])),
+        'the give-up must say so, or an operator cannot tell it from a failure still retrying',
+      ).to.be.true;
+      clock.restore();
+    });
+
+    it('clears the count on a pass that gets through, so a later fault gets the full budget', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      operatorStopThatThrows('transient');
+
+      // exhaust the budget - nothing is armed after this
+      await appReconciler.enqueue('www_App');
+      for (let i = 0; i < 4; i += 1) {
+        clock.tick(6000);
+        // eslint-disable-next-line no-await-in-loop
+        await settle();
+      }
+      expect(stubs.dockerService.appDockerStop.callCount).to.equal(4);
+
+      // a pass that completes is the only evidence the fault has cleared
+      stubs.dockerService.appDockerStop.resolves();
+      await appReconciler.enqueue('www_App');
+      expect(stubs.dockerService.appDockerStop.callCount).to.equal(5);
+
+      // and the budget is whole again. Without the clear, this next pass would be
+      // the sixth consecutive failure, already past the bound, and arm nothing.
+      stubs.dockerService.appDockerStop.rejects(new Error('a new fault, later'));
+      await appReconciler.enqueue('www_App');
+      expect(stubs.dockerService.appDockerStop.callCount).to.equal(6);
+      clock.tick(6000);
+      await settle();
+
+      expect(
+        stubs.dockerService.appDockerStop.callCount,
+        'a fault after a healthy pass must get its own retries, not the exhausted budget',
+      ).to.equal(7);
+      clock.restore();
+    });
+  });
+
   describe('network-detach heal', () => {
     // A running container reported as detached from its own docker network (stale
     // libnetwork endpoint). isContainerDetachedFromNetwork is stubbed directly so

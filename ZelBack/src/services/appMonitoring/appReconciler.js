@@ -61,6 +61,7 @@ const inFlight = new Map(); // per-key single-flight
 const dirty = new Set(); // ids re-requested while in flight -> reconcile again
 const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
+const unhandledFailures = new Map(); // id -> consecutive passes that threw
 
 // The boot-drain gate: opens once every boot-held component has completed ONE
 // reconcile pass (started, backoff-deferred, awaiting-controller, or failed
@@ -108,6 +109,18 @@ function notifyContainerStarted(identifier) {
 // container, defer and re-check shortly (the operation also re-enqueues on
 // completion, so this is just a backstop)
 const MANAGED_RETRY_MS = 5000;
+
+// How many consecutive passes may throw before the component is left to the
+// hourly sweep. A pass that throws is by definition one whose failure nobody
+// anticipated: every failure this file expects returns after deciding either to
+// pace a retry (a transient fault) or deliberately not to (an invalid spec, which
+// no retry can fix). An unhandled throw made neither decision, so it reached the
+// sweep - and with the operator's stop now actuated here rather than inline, a
+// container could keep running for an hour after a stop reported success.
+// Retrying is safe because a pass is level-based: it re-derives desired against
+// actual rather than resuming half-finished work. The bound is what keeps a
+// permanent fault from becoming a five-second log loop forever.
+const UNHANDLED_FAILURE_RETRIES = 3;
 
 // an unmountable volume usually means its host filesystem is still coming up
 // (e.g. the encrypted data partition after a reboot) - retry on a pace that
@@ -1090,7 +1103,28 @@ function scheduleRetry(identifier, delayMs) {
 
 function runReconcile(identifier) {
   const pass = reconcile(identifier)
-    .catch((err) => log.error(`appReconciler - reconcile ${identifier} failed: ${err.message}`))
+    .then(() => {
+      // A pass that got through is the only evidence the fault has cleared.
+      unhandledFailures.delete(identifier);
+    })
+    .catch((err) => {
+      const attempt = (unhandledFailures.get(identifier) || 0) + 1;
+      unhandledFailures.set(identifier, attempt);
+      const retrying = attempt <= UNHANDLED_FAILURE_RETRIES;
+      log.error(
+        `appReconciler - reconcile ${identifier} failed: ${err.message}`
+        + (retrying
+          ? `; retrying (${attempt}/${UNHANDLED_FAILURE_RETRIES})`
+          : `; ${attempt} consecutive failures, leaving it to the hourly sweep`),
+      );
+      // Published for every unhandled failure rather than at each throw site: the
+      // sites that can throw are the ones nobody thought to guard, so an event
+      // added per site would miss exactly the same ones the retry did.
+      fluxEventBus.publish('reconciler:actuated', {
+        identifier, action: 'reconcileFailed', reason: err.message, attempt, retrying,
+      });
+      if (retrying) scheduleRetry(identifier, MANAGED_RETRY_MS);
+    })
     .finally(() => {
       inFlight.delete(identifier);
       // one completed pass (actuated or deferred) is all the boot drain needs
@@ -1294,6 +1328,10 @@ function forgetDesiredState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   controllerDesired.delete(identifier);
   dataDesired.delete(identifier);
+  // A removed component keeps no failure history: the map is keyed by identifier
+  // and a reinstall under the same name would otherwise start part-way up the
+  // count and reach the sweep sooner than a first failure should.
+  unhandledFailures.delete(identifier);
 }
 
 /**
@@ -1358,6 +1396,7 @@ function stop() {
   started = false;
   backoffTimers.forEach((t) => clearTimeout(t));
   backoffTimers.clear();
+  unhandledFailures.clear();
   if (bootDrainCapTimer) {
     clearTimeout(bootDrainCapTimer);
     bootDrainCapTimer = null;
