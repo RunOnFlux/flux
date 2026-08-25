@@ -149,8 +149,23 @@ describe('a surplus copy that is also the writer', function () {
       runningSince: Date.now() - 24 * 60 * 60 * 1000,
     });
     await held.started;
-    await waitFor(async () => (await env.clients[0].getAppLocations(appName)).data?.length >= 4,
-      { timeout: 120000, interval: 2000, label: 'the stub is counted as a fourth holder' });
+
+    // The count is carried out of the wait so a timeout says what it SAW. "The
+    // stub is not counted" and "the fleet lost a holder" are different faults
+    // with the same symptom, and a bare timeout distinguishes neither - it took
+    // a re-run to find out which one had happened.
+    let holders = 0;
+    await waitFor(async () => {
+      const res = await env.clients[0].getAppLocations(appName);
+      holders = Array.isArray(res.data) ? res.data.length : -1;
+      return holders >= 4;
+    }, {
+      timeout: 180000,
+      interval: 2000,
+      label: 'the stub is counted as a fourth holder',
+    }).catch((error) => {
+      throw new Error(`${error.message} - the fleet counted ${holders} holder(s), not 4`);
+    });
   });
 
   after(async function () {

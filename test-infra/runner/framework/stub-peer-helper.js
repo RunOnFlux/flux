@@ -159,10 +159,16 @@ export function stubPeerClient(ip) {
     // Returns a stop function. Call it in `after`, or the interval outlives the
     // fleet it was talking to.
     holdApp(name, { hash, runningSince = Date.now(), everyMs = 20000, ...rest } = {}) {
-      const announce = () => this.runApp(name, { hash, runningSince, ...rest }).catch(() => {});
-      const timer = setInterval(announce, everyMs);
-      const first = announce();
-      return { started: first, stop: () => clearInterval(timer) };
+      // The FIRST announcement is not swallowed. A caller awaits `started` and
+      // then waits for the fleet to count this peer as a holder; if that first
+      // send failed, the caller otherwise sits out its whole timeout watching
+      // for something that was never sent, and reports it as the fleet failing
+      // to notice rather than as this failing to speak. Later re-announcements
+      // are best-effort - by then the holder is established and a dropped
+      // keep-alive is recovered by the next one.
+      const announce = () => this.runApp(name, { hash, runningSince, ...rest });
+      const timer = setInterval(() => { announce().catch(() => {}); }, everyMs);
+      return { started: announce(), stop: () => clearInterval(timer) };
     },
 
     // Give that claim up. Version 2 of the claim's own message, which is what a
