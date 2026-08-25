@@ -1,3 +1,4 @@
+import { controlFetch } from './control-fetch.js';
 const CONTROL_PORT = 16128;
 
 export function stubPeerClient(ip) {
@@ -8,7 +9,7 @@ export function stubPeerClient(ip) {
     controlUrl,
 
     async loadMessage(permanentMessage) {
-      const res = await fetch(`${controlUrl}/load-message`, {
+      const res = await controlFetch(`${controlUrl}/load-message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(permanentMessage),
@@ -17,7 +18,7 @@ export function stubPeerClient(ip) {
     },
 
     async getStats() {
-      const res = await fetch(`${controlUrl}/stats`);
+      const res = await controlFetch(`${controlUrl}/stats`);
       return res.json();
     },
 
@@ -25,7 +26,7 @@ export function stubPeerClient(ip) {
     // node's promotion, so it keeps asking every pass instead of promoting once
     // and falling silent.
     async setPromotedFolders({ ready = true, folders = [] } = {}) {
-      const res = await fetch(`${controlUrl}/promoted-folders`, {
+      const res = await controlFetch(`${controlUrl}/promoted-folders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ready, folders }),
@@ -38,7 +39,7 @@ export function stubPeerClient(ip) {
     // endpoint. The fleet runs one image, so this is the only way a suite can
     // put a node in front of a peer it cannot ask.
     async answerPromotedFoldersWith(status) {
-      const res = await fetch(`${controlUrl}/promoted-folders-status`, {
+      const res = await controlFetch(`${controlUrl}/promoted-folders-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
@@ -51,7 +52,7 @@ export function stubPeerClient(ip) {
     // reads any answer as "alive"; refusal is the only way a suite can put a
     // holder in front of it that is running but unanswerable.
     async refusePromotedFolders(refuse = true) {
-      const res = await fetch(`${controlUrl}/promoted-folders-refuse`, {
+      const res = await controlFetch(`${controlUrl}/promoted-folders-refuse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refuse }),
@@ -100,7 +101,7 @@ export function stubPeerClient(ip) {
     // path, so this is a peer saying something, not a row written behind a
     // node's back.
     async broadcast(data) {
-      const res = await fetch(`${controlUrl}/broadcast`, {
+      const res = await controlFetch(`${controlUrl}/broadcast`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -208,7 +209,7 @@ export function stubPeerClient(ip) {
     },
 
     async clear() {
-      const res = await fetch(`${controlUrl}/clear`, { method: 'POST' });
+      const res = await controlFetch(`${controlUrl}/clear`, { method: 'POST' });
       return res.json();
     },
   };
