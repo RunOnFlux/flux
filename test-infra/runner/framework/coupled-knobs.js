@@ -111,6 +111,15 @@ export function productionQueueRatio() {
  * @param {{removeFluxAppsPeriod: number, explorerPollIntervalMs: number}} fluxapps
  * @returns {number} residentialQueueStepMs, in milliseconds.
  */
+// How many queue steps a ticket tolerates going unobserved before it starts
+// again. Mirrors MAX_TICKET_GAP_MS in residentialNodeDosService: a gap has to
+// mean a pass was MISSED, and one step is only 1.82 passes - so at one step a
+// single late pass restarts the ticket. Production hardly notices; the harness
+// compresses the same ratio to about 30 seconds, where six fleets booting at
+// once make a late pass ordinary, and the ticket then never matures at all.
+// Absolute jitter does not compress with the clocks.
+export const TICKET_GAP_STEPS = 2;
+
 export function derivedQueueStepMs(fluxapps) {
   const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
   return Math.ceil((pass * productionQueueRatio()) / 1000) * 1000;
@@ -133,7 +142,31 @@ export function derivedQueueStepMs(fluxapps) {
 export function derivedEvacuationIntervalMs(fluxapps) {
   const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
   const step = fluxapps.residentialQueueStepMs ?? derivedQueueStepMs(fluxapps);
-  return Math.ceil((step + pass) / 1000) * 1000;
+  return Math.ceil(((step * TICKET_GAP_STEPS) + pass) / 1000) * 1000;
+}
+
+/**
+ * How long ONE departure takes end to end, for a suite that has to wait for it.
+ *
+ * A departure is not just the removal. The node serves its departure interval,
+ * and then serves its queue ticket AGAIN from scratch - the interval reads as a
+ * gap and restarts it, which is the point of the interval - and the ticket is
+ * base plus position times step, the worst position being one short of the
+ * instance count.
+ *
+ * Derived because it MOVED. Suite 55's waits were four minutes against a
+ * four-second interval; the interval is now tens of seconds, and a hand-typed
+ * four minutes quietly stopped covering a single departure. A wait is as coupled
+ * to the pacing as the step is to the pass, and belongs here for the same reason.
+ * @param {object} fluxapps Effective fluxapps config for the fleet.
+ * @param {number} instances How many instances the app under test carries.
+ * @returns {number} Milliseconds one departure can take, at the worst position.
+ */
+export function departureCycleMs(fluxapps, instances) {
+  const step = fluxapps.residentialQueueStepMs ?? derivedQueueStepMs(fluxapps);
+  const base = fluxapps.residentialQueueBaseMs ?? PRODUCTION.residentialQueueBaseMs;
+  const interval = fluxapps.residentialEvacuationIntervalMs ?? derivedEvacuationIntervalMs(fluxapps);
+  return interval + base + (Math.max(instances - 1, 0) * step);
 }
 
 /**
@@ -209,8 +242,8 @@ export function assertDepartureOutlivesTicket(fluxapps) {
   throw new Error(
     'coupled-knobs: residentialEvacuationIntervalMs does not outlive the queue ticket.\n'
     + `  interval ${interval}ms\n`
-    + `  step     ${fluxapps.residentialQueueStepMs}ms  (this IS the ticket's gap tolerance)\n`
-    + `  needed   ${required}ms  -> step + one give-up pass\n`
+    + `  step     ${fluxapps.residentialQueueStepMs}ms  x ${TICKET_GAP_STEPS} = the ticket's gap tolerance\n`
+    + `  needed   ${required}ms  -> that tolerance plus one give-up pass\n`
     + '  Below this a departure no longer restarts the other holders\' tickets, so position\n'
     + '  separates the first departure and nothing after it. Use\n'
     + '  derivedEvacuationIntervalMs(fluxapps) rather than a literal.',

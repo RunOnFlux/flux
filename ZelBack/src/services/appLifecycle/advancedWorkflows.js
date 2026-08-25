@@ -3650,7 +3650,9 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
         detail: 'node is not fit to serve and is handing its apps back',
       };
     }
-    return { giveUp: false, reason: 'EVACUATION', detail: verdict.reason };
+    return {
+      giveUp: false, reason: 'EVACUATION', code: verdict.code, detail: verdict.reason,
+    };
   }
 
   return { giveUp: false, reason: 'NONE', detail: '' };
@@ -3802,11 +3804,32 @@ async function checkAndRemoveApplicationInstance() {
         appName: installedApp.name,
         giveUp: decision.giveUp,
         reason: decision.reason,
+        code: decision.code,
         detail: decision.detail,
       });
       if (!decision.giveUp) {
         if (decision.reason === 'EVACUATION') {
-          log.info(`${installedApp.name} not handed back yet: ${decision.detail}`);
+          // A node held below the instance count WANTS to leave and cannot, and
+          // it is counted and escalated exactly as a safety refusal is - because
+          // until the strength test moved into the pacing gate, that is where
+          // this was answered and what it did. Left uncounted, a node stuck on
+          // an app the fleet can never bring back to strength says nothing
+          // louder than an info line, forever.
+          //
+          // Only this code. Waiting a turn, and pausing between departures, are
+          // this working: counting those would escalate every evacuating node on
+          // its twelfth pass and teach everyone to ignore the warning.
+          if (decision.code === 'BELOW_INSTANCE_COUNT') {
+            const shortRefusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
+            giveUpRefusals.set(installedApp.name, shortRefusals);
+            if (shortRefusals % REFUSALS_BEFORE_ESCALATING === 0) {
+              log.warn(`${installedApp.name} has been refused ${shortRefusals} passes running (EVACUATION, ${decision.code}): ${decision.detail}`);
+            } else {
+              log.info(`${installedApp.name} not handed back yet: ${decision.detail}`);
+            }
+          } else {
+            log.info(`${installedApp.name} not handed back yet: ${decision.detail}`);
+          }
         }
         // eslint-disable-next-line no-continue
         continue;

@@ -83,7 +83,22 @@ const QUEUE_STEP_MS = config.fluxapps.residentialQueueStepMs;
 // test-infra's coupled knobs. A literal here would be a third place that has to
 // be kept in step with the block time, and the last hand-written number in this
 // neighbourhood inverted the property it was meant to enforce.
-const MAX_TICKET_GAP_MS = QUEUE_STEP_MS;
+//
+// TWICE the step, not once. A gap has to mean "a pass did not happen", and one
+// step is 1.82 passes - so a single pass running late trips it. Production
+// hardly notices that (40 minutes of lateness on a 22-minute pass is an
+// incident in itself), but the harness compresses the same ratio to about 30
+// seconds, where six fleets booting at once make a late pass ordinary. The
+// ticket then restarts every few passes and never matures at all: on chud it
+// counted 2m, 1m, 0m, and jumped back to 2m, three times over, and the suite
+// waiting on it timed out.
+//
+// The ABSOLUTE jitter does not compress with the clocks, which is why a ratio
+// that is comfortable at production scale is not comfortable at harness scale.
+// Two steps is ~3.6 passes: a pass has to be missed outright, not merely be
+// slow. The departure interval is what must still exceed it - see the coupled
+// knob that enforces exactly that.
+const MAX_TICKET_GAP_MS = QUEUE_STEP_MS * 2;
 // Minimum gap between this node's departures. The give-up-an-app pass runs every
 // 11 blocks (~22 min), which unpaced would empty the busiest node in the fleet in
 // about four hours; there is no deadline here and slower is strictly safer.
@@ -468,13 +483,19 @@ function isEvacuating() {
  *   here lets a ticket run that the safety gate then refuses as short, which
  *   restarts the observation, and too high only makes the turn wait longer.
  * @param {number} [now] Monotonic ms, injectable for tests.
- * @returns {{ok: boolean, reason: string}}
+ * @returns {{ok: boolean, code: string, reason: string}} `code` is the
+ *   machine-readable half. A caller that has to tell "waiting its turn" from
+ *   "the app is short" cannot do it by matching prose, and the difference
+ *   matters: the first is this working, the second is a node that wants to
+ *   leave and cannot, which is the thing worth escalating. BELOW_INSTANCE_COUNT
+ *   is deliberately the name appEvacuationSafety already uses for the same
+ *   fact, because it IS the same fact asked one layer earlier.
  */
 function mayEvacuateApp(appName, locations, localSocketAddr, minInstances, now = monotonicMs()) {
-  if (!evacuating) return { ok: false, reason: 'node is not evacuating' };
+  if (!evacuating) return { ok: false, code: 'NOT_EVACUATING', reason: 'node is not evacuating' };
   if (lastEvacuationAt !== null && now - lastEvacuationAt < EVACUATION_INTERVAL_MS) {
     const wait = Math.round((EVACUATION_INTERVAL_MS - (now - lastEvacuationAt)) / 60000);
-    return { ok: false, reason: `next departure in ${wait}m` };
+    return { ok: false, code: 'DEPARTURE_INTERVAL', reason: `next departure in ${wait}m` };
   }
 
   // Everything below is the ticket, and it sits BELOW the interval gate on
@@ -491,14 +512,18 @@ function mayEvacuateApp(appName, locations, localSocketAddr, minInstances, now =
   const since = (!whole || gap > MAX_TICKET_GAP_MS) ? now : previous.since;
   wholeObservation.set(appName, { since, lastSeenAt: now });
   if (!whole) {
-    return { ok: false, reason: `app is short (${locations.length}/${minInstances}); its turn starts again` };
+    return {
+      ok: false,
+      code: 'BELOW_INSTANCE_COUNT',
+      reason: `app is below its instance count (${locations.length}/${minInstances}); its turn starts again`,
+    };
   }
   const wait = queueDelayMs(locations, localSocketAddr);
   const observed = now - since;
   if (observed < wait) {
-    return { ok: false, reason: `its turn is in ${Math.round((wait - observed) / 60000)}m` };
+    return { ok: false, code: 'AWAITING_TURN', reason: `its turn is in ${Math.round((wait - observed) / 60000)}m` };
   }
-  return { ok: true, reason: 'ready' };
+  return { ok: true, code: 'READY', reason: 'ready' };
 }
 
 /**

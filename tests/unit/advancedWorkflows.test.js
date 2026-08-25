@@ -4296,6 +4296,54 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
     });
   });
 
+  describe('a node held below the instance count stays visible', () => {
+    it('escalates a shortness refusal the way a safety refusal is escalated', async () => {
+      // The strength test moved INTO the queue ticket, so a short app is now
+      // refused before the pass ever consults the safety gate - and the gate is
+      // where this used to be counted and escalated. Without carrying that over,
+      // a node stuck on an app the fleet can never bring back to strength says
+      // nothing louder than an info line, forever.
+      const logWarn = sinon.stub(log, 'warn');
+      residentialNodeDosService.isEvacuating.returns(true);
+      residentialNodeDosService.mayEvacuateApp.returns({
+        ok: false, code: 'BELOW_INSTANCE_COUNT', reason: 'app is below its instance count (2/3); its turn starts again',
+      });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+
+      for (let pass = 0; pass < 12; pass += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      }
+
+      const escalations = logWarn.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((line) => /refused 12 passes running .*BELOW_INSTANCE_COUNT/.test(line));
+      expect(escalations, 'twelve passes short and nothing was escalated').to.have.lengthOf(1);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not escalate a node that is merely waiting its turn', async () => {
+      // Waiting is this working. Counting it would escalate every evacuating
+      // node on its twelfth pass and teach everyone to ignore the warning.
+      const logWarn = sinon.stub(log, 'warn');
+      residentialNodeDosService.isEvacuating.returns(true);
+      residentialNodeDosService.mayEvacuateApp.returns({
+        ok: false, code: 'AWAITING_TURN', reason: 'its turn is in 20m',
+      });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+
+      for (let pass = 0; pass < 12; pass += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      }
+
+      const escalations = logWarn.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((line) => /refused \d+ passes running/.test(line));
+      expect(escalations, 'waiting a turn is not a fault and must not escalate').to.be.empty;
+    });
+  });
+
   describe('the safety gate applies to BOTH reasons', () => {
     it('refuses a surplus removal that is not safe', async () => {
       // Before this, surplus removal deleted on an instance count alone - one of
