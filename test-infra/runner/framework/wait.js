@@ -3,16 +3,38 @@ import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 
 export async function waitFor(condition, { timeout = 60000, interval = 2000, label = '' } = {}) {
   const start = Date.now();
+  let lastError = null;
   while (Date.now() - start < timeout) {
     // An infra container died: the condition is unreachable, not merely unmet.
     throwIfInfraDead();
-    if (await condition()) return true;
+    try {
+      if (await condition()) return true;
+      lastError = null;
+    } catch (error) {
+      // A POLL THAT COULD NOT BE TAKEN IS NOT A POLL THAT CAME BACK FALSE, and
+      // it is not a reason to abandon the wait. Under gate load a node's API
+      // refuses one connection and answers on the next tick: suite 96 lost a
+      // two-minute wait to a single `fetch failed`, on a fleet that was healthy
+      // either side of it, having passed that same wait twice on an idle box.
+      //
+      // Four suites had already worked this around one predicate at a time with
+      // `.catch(() => null)`; every other wait in the harness was exposed to it.
+      //
+      // Kept rather than swallowed. A predicate that throws EVERY time still
+      // times out - this cannot turn a red into a green - and the timeout now
+      // reports what it was throwing, instead of saying only that a condition
+      // never held.
+      lastError = error;
+    }
     await sleepUnlessInfraDead(interval);
   }
   // ...including a death that landed during the last sleep, which would
   // otherwise be reported as this wait's own timeout.
   throwIfInfraDead();
-  throw new Error(`Timeout after ${timeout}ms waiting for: ${label || 'condition'}`);
+  throw new Error(
+    `Timeout after ${timeout}ms waiting for: ${label || 'condition'}`
+    + (lastError ? ` - the last attempt failed with: ${lastError.message}` : ''),
+  );
 }
 
 // Container-state wait helpers (docker-level, via the node's DinD)
