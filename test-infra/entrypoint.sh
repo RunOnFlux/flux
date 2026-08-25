@@ -73,6 +73,18 @@ if [ "$FLUX_APT_SEEDED" = "false" ]; then
   DEBIAN_FRONTEND=noninteractive apt-get purge -y chrony syncthing netcat-openbsd >/dev/null 2>&1 || true
 fi
 
+# A source apt cannot reach, ALONGSIDE the good one rather than instead of it.
+# apt-get update then exits non-zero exactly as it does on a real node behind an
+# unreachable mirror, an expired key or a DNS blip - while the packages queued
+# behind that failure stay installable from the repository the image built, so a
+# node that survives the failure still finishes its checks. Replacing the good
+# source instead would fail the installs too, and prove only that a broken node
+# stays broken.
+if [ "$FLUX_APT_BAD_SOURCE" = "true" ]; then
+  echo "deb [trusted=yes] file:///opt/flux-apt-repo-does-not-exist ubuntu main" \
+    > /etc/apt/sources.list.d/flux-e2e-unreachable.list
+fi
+
 # Syncthing listens on apiport+2 in production. The availability checker tests
 # that port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))

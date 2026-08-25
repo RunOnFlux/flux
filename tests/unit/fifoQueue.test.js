@@ -191,6 +191,129 @@ describe('FiFoQueue tests', () => {
       expect(ran).to.include('good');
     });
 
+    // The apt cache monitor resumes SYNCHRONOUSLY for a failed apt-get update:
+    // `if (options.command === 'update') { getQueue().resume(); return; }`, with no
+    // await before it, so its resume lands inside the emit. A halt written after
+    // the emit silently undid it - the loop broke out with work still queued and
+    // nothing ever restarted it, because push() only calls work() when the queue
+    // is not already working and working goes false on the way out. One failed
+    // update at boot stranded every apt task behind it for the life of the
+    // process, so syncthing and chrony never installed.
+    it('should keep draining when a listener resumes synchronously from the emit', async () => {
+      const ran = [];
+      const worker = async (opts) => {
+        ran.push(opts.command);
+        if (opts.command === 'update') throw new Error('Could not resolve mirror');
+      };
+
+      const queue = new fifoQueue.FifoQueue({ worker, retryDelay: 0 });
+      queue.on('failed', ({ options }) => {
+        if (options.command === 'update') queue.resume();
+      });
+
+      queue.push({ commandOptions: { command: 'update' }, workerOptions: { retries: 0 } });
+      queue.push({ commandOptions: { command: 'install' }, workerOptions: { retries: 0 } });
+
+      await new Promise((r) => { setTimeout(r, 50); });
+
+      expect(ran, 'the update must actually have failed, or the rest proves nothing').to.include('update');
+      expect(ran, 'the task queued behind a failed update must still run').to.include('install');
+      expect(queue.halted, 'a resumed queue must not be left halted').to.equal(false);
+    });
+
+    // The other half, and the one an operator meets later: push() on a halted queue
+    // appends the task and starts a work loop that exits on its first check.
+    // Nothing reports it - the caller's `wait: true` promise simply never settles.
+    it('should run work pushed after a synchronously-resumed failure', async () => {
+      const ran = [];
+      const worker = async (opts) => {
+        ran.push(opts.command);
+        if (opts.command === 'update') throw new Error('Could not resolve mirror');
+      };
+
+      const queue = new fifoQueue.FifoQueue({ worker, retryDelay: 0 });
+      queue.on('failed', ({ options }) => {
+        if (options.command === 'update') queue.resume();
+      });
+
+      queue.push({ commandOptions: { command: 'update' }, workerOptions: { retries: 0 } });
+      await new Promise((r) => { setTimeout(r, 20); });
+
+      queue.push({ commandOptions: { command: 'install-later' }, workerOptions: { retries: 0 } });
+      await new Promise((r) => { setTimeout(r, 20); });
+
+      expect(ran, 'work pushed after the failure must still run').to.include('install-later');
+    });
+
+    // A resumed final failure has no retries left, so falling through to the retry
+    // sleep waits out the full delay - the production default is 60s - with nothing
+    // to retry, holding every task behind it. retryDelay is deliberately large here
+    // and the assertion window small: with the ladder-over break the next task runs
+    // immediately, without it the queue is inside a 5s sleep and has not reached it.
+    it('should not sleep out the retry delay after a resumed final failure', async () => {
+      const ran = [];
+      const worker = async (opts) => {
+        ran.push(opts.command);
+        if (opts.command === 'update') throw new Error('Could not resolve mirror');
+      };
+
+      const queue = new fifoQueue.FifoQueue({ worker, retryDelay: 5000 });
+      queue.on('failed', ({ options }) => {
+        if (options.command === 'update') queue.resume();
+      });
+
+      queue.push({ commandOptions: { command: 'update' }, workerOptions: { retries: 0 } });
+      queue.push({ commandOptions: { command: 'install' }, workerOptions: { retries: 0 } });
+
+      await new Promise((r) => { setTimeout(r, 50); });
+
+      expect(ran, 'the update must have failed first').to.include('update');
+      expect(ran, 'the queue must carry on rather than sleep out a delay it has no retries for').to.include('install');
+    });
+
+    // resume() from inside the loop used to overwrite `finished` with work()'s
+    // already-resolved promise, so clear() - which awaits it to know the queue is
+    // idle, and which systemService calls on the apt-is-broken path these very
+    // failures reach - could wipe the list while a worker was still in flight.
+    it('should not report itself idle to clear() while a worker is still running', async () => {
+      let releaseWorker;
+      const held = new Promise((r) => { releaseWorker = r; });
+      let secondEntered = false;
+
+      const worker = async (opts) => {
+        if (opts.command === 'update') throw new Error('Could not resolve mirror');
+        secondEntered = true;
+        await held; // still in flight while clear() runs
+      };
+
+      const queue = new fifoQueue.FifoQueue({ worker, retryDelay: 0 });
+      queue.on('failed', ({ options }) => {
+        if (options.command === 'update') queue.resume();
+      });
+
+      queue.push({ commandOptions: { command: 'update' }, workerOptions: { retries: 0 } });
+      queue.push({ commandOptions: { command: 'slow' }, workerOptions: { retries: 0 } });
+      await new Promise((r) => { setTimeout(r, 20); });
+
+      expect(secondEntered, 'the second task must be in flight, or this tests nothing').to.equal(true);
+
+      // clear() awaits `finished` to know the queue is idle before wiping the list.
+      // A re-entrant resume that replaced `finished` with work()'s already-resolved
+      // promise makes that await return at once, so clear() empties the queue under
+      // a running worker - and systemService calls clear() on the apt-is-broken
+      // path these very failures reach.
+      const cleared = queue.clear().then(() => 'cleared');
+      const outcome = await Promise.race([
+        cleared,
+        new Promise((r) => { setTimeout(() => r('still-working'), 30); }),
+      ]);
+
+      expect(outcome, 'clear() must not report the queue idle while a worker is in flight').to.equal('still-working');
+
+      releaseWorker();
+      await cleared;
+    });
+
     it('should give up on a task that keeps failing, and say so', async () => {
       // Each resume grants a fresh ladder of retries, so retain-and-resume is
       // unbounded without a ceiling: the ladder ends, something resumes, it starts

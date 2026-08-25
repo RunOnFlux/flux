@@ -110,6 +110,13 @@ class FifoQueue extends EventEmitter {
    */
   resume() {
     this.halted = false;
+    // A 'failed' listener resumes from INSIDE the work loop, where work() returns
+    // at once because working is already true. Assigning that already-resolved
+    // promise to finished would tell clear() the queue is idle while a worker is
+    // still in flight, and clear() then wipes the list out from under it - a path
+    // systemService reaches on exactly the failures this listener handles. The
+    // running loop reads the flag itself, so there is nothing to start.
+    if (this.working) return;
     this.finished = this.work();
   }
 
@@ -208,12 +215,20 @@ class FifoQueue extends EventEmitter {
         if (!retriesRemaining) {
           // the emit callback runs before the resolve (resolve is awaited)
           resolve({ error });
+          // Halted BEFORE the emit, never after. An emit is a synchronous yield:
+          // the listener runs right here, and it is allowed to resume the queue -
+          // monitorAptCache does exactly that, synchronously, for a failed
+          // apt-get update. A halt written after the emit silently undoes that
+          // resume, the loop breaks out with work still queued, and nothing ever
+          // starts it again: push() only calls work() when it is not already
+          // working, and working goes false on the way out. Settle our own state,
+          // then notify.
+          this.halted = true;
           // commandOptions, not the raw payload: a listener asks what failed, and
           // for a payload of the {commandOptions, workerOptions} shape the command
           // is a level down. Emitting the payload put it out of reach, so every
           // listener test against it silently matched nothing.
           this.emit('failed', { options: commandOptions, error });
-          this.halted = true;
         }
         // Can get halted externally too.
         if (this.halted) {
@@ -238,6 +253,12 @@ class FifoQueue extends EventEmitter {
           }
           break;
         }
+
+        // Not halted, so a listener resumed from inside the emit above and the
+        // queue carries on - but this task's ladder is still over. Falling
+        // through would sleep out the retry delay with nothing left to retry,
+        // stalling every task behind it for the full interval.
+        if (!retriesRemaining) break;
 
         // wait default 10 seconds between retries
         // eslint-disable-next-line no-await-in-loop

@@ -53,6 +53,13 @@ export async function waitForPackagesChecked(node, predicate = () => true, timeo
   return node.waitForEvent('system:packages-checked', predicate, timeout, opts);
 }
 
+// One apt command completing, as a fact rather than as packages turning up on
+// disk later. `opts.afterId` is what makes a second call mean "the NEXT one",
+// which is how a test says "the queue carried on past the one that failed".
+export async function waitForAptCommand(node, predicate = () => true, timeout = 60000, opts) {
+  return node.waitForEvent('system:apt-command', predicate, timeout, opts);
+}
+
 // Restart a node and return only once its boot recovery pass has finished.
 //
 // restartFluxos alone returns when /flux/version answers, and the API is up long

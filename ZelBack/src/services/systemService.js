@@ -98,6 +98,14 @@ async function aptRunner(options = {}) {
     params: envParams,
   });
 
+  // A fact, not a cadence: a legacy boot runs a handful of apt commands, and
+  // WHICH of them completed - and in what order - is the only direct evidence
+  // that the queue carried on past one that failed. Published at the single point
+  // every apt command passes through, on both exits, so a reader sees the failure
+  // and the work behind it as two events rather than inferring the second from
+  // packages appearing on disk some time later.
+  fluxEventBus.publish('system:apt-command', { command: options.command, ok: !error });
+
   // this is so this command can be retried by the worker runner
   if (error) throw error;
 
