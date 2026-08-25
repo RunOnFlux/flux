@@ -59,6 +59,46 @@ describe('coupled harness knobs track production', () => {
     })).to.not.throw();
   });
 
+  it('rejects a harness fleet whose departure interval is inside its ticket gap', () => {
+    // The state suite 55 shipped in once the ticket learned to restart: a 4s
+    // interval against a ~29s step. The block stops reading as a gap, tickets
+    // carry straight across it, and the suite goes green on a queue that has
+    // stopped separating anything after the first departure.
+    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 };
+    const fluxapps = {
+      ...fleet,
+      residentialQueueStepMs: knobs.derivedQueueStepMs(fleet),
+      residentialEvacuationIntervalMs: 4000,
+    };
+
+    expect(() => knobs.assertCoupledRatios(fluxapps)).to.throw(/does not outlive the queue ticket/);
+  });
+
+  it('accepts the departure interval its own derivation produces', () => {
+    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 };
+    const fluxapps = { ...fleet, residentialQueueStepMs: knobs.derivedQueueStepMs(fleet) };
+
+    expect(() => knobs.assertCoupledRatios({
+      ...fluxapps,
+      residentialEvacuationIntervalMs: knobs.derivedEvacuationIntervalMs(fluxapps),
+    })).to.not.throw();
+  });
+
+  it('keeps the departure interval above the step, as production does', () => {
+    const { fluxapps } = productionConfig();
+
+    // 6h against a 40min step. The rule only demands step + a pass; production
+    // clears it by an order of magnitude, and this is what says so out loud.
+    expect(fluxapps.residentialEvacuationIntervalMs)
+      .to.be.above(fluxapps.residentialQueueStepMs);
+    expect(() => knobs.assertDepartureOutlivesTicket({
+      removeFluxAppsPeriod: fluxapps.removeFluxAppsPeriod,
+      explorerPollIntervalMs: fluxapps.explorerPollIntervalMs,
+      residentialQueueStepMs: fluxapps.residentialQueueStepMs,
+      residentialEvacuationIntervalMs: fluxapps.residentialEvacuationIntervalMs,
+    })).to.not.throw();
+  });
+
   it('moves the derived step when the poll moves', () => {
     // The whole failure in one assertion: a literal does not do this.
     const slow = knobs.derivedQueueStepMs({ removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 });

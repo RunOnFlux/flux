@@ -26,6 +26,19 @@ wrong. Under throws.
 | property | harness pair | production ratio | how the harness gets it |
 |---|---|---:|---|
 | two holders of one app cannot mature on the same give-up pass | `residentialQueueStepMs` : `removeFluxAppsPeriod` x 4 x `explorerPollIntervalMs` | 1.82 | `derivedQueueStepMs(fluxapps)` - never a literal |
+| a departure restarts the other holders' queue tickets | `residentialEvacuationIntervalMs` : `residentialQueueStepMs` | 9.0 | `derivedEvacuationIntervalMs(fluxapps)` - never a literal |
+
+The second pair is bounded by what it must OUTLIVE rather than by production's
+ratio, the same way the sigterm window is bounded by a node boot. A node inside
+its departure interval records nothing against its queue tickets, so the block is
+what restarts them - and it only reads as a restart if it is longer than the gap
+a ticket tolerates, which IS the step. Production holds 6h against 40min and
+clears it by 9x; the harness needs only step + one pass, and the rule demands
+that rather than the ratio nobody reasoned about. Below it, tickets carry
+straight across the block, every app is instantly ready the moment the interval
+clears, and the suite goes green on a queue that stopped separating anything
+after the first departure - the same defect a too-short step causes, through the
+other door.
 
 A block costs more than its poll; `BLOCK_COST_OVERHEAD` carries the difference
 and is calibrated against a measurement, not chosen (model 15994ms against 15900ms

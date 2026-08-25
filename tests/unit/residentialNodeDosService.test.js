@@ -692,11 +692,27 @@ describe('residentialNodeDosService tests', () => {
       expect(result.reason).to.contain('not evacuating');
     });
 
+    // Two locations, so two is full strength for this app.
+    const WHOLE = 2;
+    // Position 1 in the queue order (junior first): base plus one step.
+    const WAIT = () => service.QUEUE_BASE_MS + service.QUEUE_STEP_MS;
+
+    // Walk the ticket forward the way the give-up pass does - an evaluation
+    // every half step, which is well inside the gap an observation tolerates.
+    // Written out rather than jumped, because what the ticket measures is an
+    // uninterrupted observation and a single jump is not one.
+    const walk = (name, locs, from, to, min = WHOLE) => {
+      for (let t = from; t < to; t += service.MAX_TICKET_GAP_MS / 2) {
+        service.mayEvacuateApp(name, locs, LOCAL, min, t);
+      }
+      return service.mayEvacuateApp(name, locs, LOCAL, min, to);
+    };
+
     it('refuses until the app has been seen whole for its queue turn', () => {
       const now = Date.now();
-      service.mayEvacuateApp('someapp', locations, LOCAL, now);
+      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
 
-      const result = service.mayEvacuateApp('someapp', locations, LOCAL, now + 1000);
+      const result = service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + 1000);
 
       expect(result.ok).to.equal(false);
       expect(result.reason).to.contain('its turn is in');
@@ -704,23 +720,19 @@ describe('residentialNodeDosService tests', () => {
 
     it('allows once the queue turn has been served', () => {
       const now = Date.now();
-      service.mayEvacuateApp('someapp', locations, LOCAL, now);
-      // Position 1 in the queue order (junior first): base plus one step.
-      const wait = service.QUEUE_BASE_MS + service.QUEUE_STEP_MS;
 
-      const result = service.mayEvacuateApp('someapp', locations, LOCAL, now + wait + 1);
+      const result = walk('someapp', locations, now, now + WAIT() + 1);
 
       expect(result.ok).to.equal(true);
     });
 
     it('paces departures by the evacuation interval', () => {
       const now = Date.now();
-      service.mayEvacuateApp('someapp', locations, LOCAL, now);
-      const wait = service.QUEUE_BASE_MS + service.QUEUE_STEP_MS;
-      expect(service.mayEvacuateApp('someapp', locations, LOCAL, now + wait + 1).ok).to.equal(true);
+      const wait = WAIT();
+      expect(walk('someapp', locations, now, now + wait + 1).ok).to.equal(true);
 
       service.noteEvacuated('someapp', now + wait + 1);
-      const next = service.mayEvacuateApp('other', locations, LOCAL, now + wait + 2);
+      const next = service.mayEvacuateApp('other', locations, LOCAL, WHOLE, now + wait + 2);
 
       expect(next.ok).to.equal(false);
       expect(next.reason).to.contain('next departure in');
@@ -728,13 +740,75 @@ describe('residentialNodeDosService tests', () => {
 
     it("restarts an app's observation when it stops being whole", () => {
       const now = Date.now();
-      service.mayEvacuateApp('someapp', locations, LOCAL, now);
+      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
       service.forgetAppObservation('someapp');
-      const wait = service.QUEUE_BASE_MS + service.QUEUE_STEP_MS;
+      const wait = WAIT();
 
-      const result = service.mayEvacuateApp('someapp', locations, LOCAL, now + wait + 1);
+      const result = service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + wait + 1);
 
       expect(result.ok).to.equal(false);
+    });
+
+    it('does not arrive ready the instant its departure interval clears', () => {
+      // The serialisation between two evacuating holders is the ticket, and the
+      // ticket only separates them if it is still binding after a departure.
+      // Both nodes stamp their tickets in the same pass; one leaves; and if the
+      // other's ticket keeps maturing through the six hours it is blocked, then
+      // when the blocks expire together - they are fired from the same block
+      // height - both are ready for the same app in the same pass.
+      const now = Date.now();
+      const wait = WAIT();
+      walk('other', locations, now, now + wait + 1);
+      expect(walk('someapp', locations, now, now + wait + 1).ok).to.equal(true);
+      service.noteEvacuated('someapp', now + wait + 1);
+
+      // The pass goes on running through the block and goes on asking. It is
+      // refused at the interval gate, and being refused there is NOT having
+      // watched the app: the accounting sits below that gate for this reason.
+      const cleared = now + wait + 1 + service.EVACUATION_INTERVAL_MS + 1;
+      for (let t = now + wait + 2; t < cleared; t += service.MAX_TICKET_GAP_MS / 2) {
+        service.mayEvacuateApp('other', locations, LOCAL, WHOLE, t);
+      }
+
+      const result = service.mayEvacuateApp('other', locations, LOCAL, WHOLE, cleared);
+
+      expect(result.ok).to.equal(false);
+      expect(result.reason).to.contain('its turn is in');
+    });
+
+    it('counts nothing towards the turn while the app is short', () => {
+      // The clock is named for seeing the app at full strength and used to
+      // start on the first ASK, so an app short for its entire wait served the
+      // full wait anyway and was only caught later, by the safety gate.
+      const now = Date.now();
+      const wait = WAIT();
+      const short = [{ ip: LOCAL, runningSince: new Date(1000) }];
+
+      const during = walk('someapp', short, now, now + wait + 1);
+
+      expect(during.ok).to.equal(false);
+      expect(during.reason).to.contain('short');
+
+      // And the turn runs from the moment it is whole, not from the first ask.
+      const result = service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + wait + 2);
+
+      expect(result.ok).to.equal(false);
+    });
+
+    it('restarts the turn when a gap says the node stopped watching', () => {
+      const now = Date.now();
+      const wait = WAIT();
+
+      // Watched without interruption, the turn is served on time.
+      expect(walk('someapp', locations, now, now + wait + 1).ok).to.equal(true);
+
+      service.forgetAppObservation('someapp');
+      // The same elapsed time with one missed pass inside it is not the same
+      // observation, and does not buy the turn.
+      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
+      const resumed = now + service.MAX_TICKET_GAP_MS + 1;
+
+      expect(walk('someapp', locations, resumed, now + wait + 1).ok).to.equal(false);
     });
   });
 

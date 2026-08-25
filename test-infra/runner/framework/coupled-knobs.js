@@ -117,6 +117,26 @@ export function derivedQueueStepMs(fluxapps) {
 }
 
 /**
+ * The departure interval a suite should use, derived rather than chosen.
+ *
+ * A node inside its departure interval records nothing against its queue
+ * tickets, so the block has to read afterwards as a gap the ticket will not
+ * carry across - otherwise a departure stops restarting the queue and position
+ * separates the first departure and nothing after it. Bounded by what it must
+ * OUTLIVE rather than by production's ratio, the same way the boot-drift rule
+ * below is: the ticket's tolerance is MAX_TICKET_GAP_MS, which IS the queue
+ * step. One extra pass on top, so the restart cannot land ambiguously on the
+ * pass grid.
+ * @param {{removeFluxAppsPeriod: number, explorerPollIntervalMs: number, residentialQueueStepMs: number}} fluxapps
+ * @returns {number} residentialEvacuationIntervalMs, in milliseconds.
+ */
+export function derivedEvacuationIntervalMs(fluxapps) {
+  const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
+  const step = fluxapps.residentialQueueStepMs ?? derivedQueueStepMs(fluxapps);
+  return Math.ceil((step + pass) / 1000) * 1000;
+}
+
+/**
  * Refuse to boot a fleet whose coupled knobs do not hold production's ratios.
  *
  * Runs on the EFFECTIVE config - shared.js plus whatever the suite overrode -
@@ -163,6 +183,41 @@ export function assertSigtermOrdering(fluxapps) {
 }
 
 /**
+ * Refuse to boot a fleet whose departure interval is shorter than the gap its
+ * queue tickets tolerate.
+ *
+ * mayEvacuateApp records nothing while the interval gate is refusing, so the
+ * block is meant to read afterwards as one long gap and restart every ticket.
+ * That is what keeps position binding on the SECOND departure and every one
+ * after it. Compress the interval below the step and the block stops looking
+ * like a gap: tickets carry straight across it, every app is instantly ready
+ * the moment the block clears, and two holders whose blocks expire in the same
+ * pass hand back the same app together - the same defect a too-short step
+ * causes, through the other door, and just as invisible to a green suite.
+ *
+ * Production holds 6h against a 40min step, ~9x. The bound here is 1x plus a
+ * pass, because this pair is fixed by what it must outlive rather than by a
+ * ratio anyone reasoned about.
+ * @param {object} fluxapps Effective fluxapps config for the fleet.
+ * @throws {Error} When the interval does not outlive the ticket gap.
+ */
+export function assertDepartureOutlivesTicket(fluxapps) {
+  const interval = fluxapps.residentialEvacuationIntervalMs;
+  if (!interval) return;
+  const required = derivedEvacuationIntervalMs(fluxapps);
+  if (interval >= required) return;
+  throw new Error(
+    'coupled-knobs: residentialEvacuationIntervalMs does not outlive the queue ticket.\n'
+    + `  interval ${interval}ms\n`
+    + `  step     ${fluxapps.residentialQueueStepMs}ms  (this IS the ticket's gap tolerance)\n`
+    + `  needed   ${required}ms  -> step + one give-up pass\n`
+    + '  Below this a departure no longer restarts the other holders\' tickets, so position\n'
+    + '  separates the first departure and nothing after it. Use\n'
+    + '  derivedEvacuationIntervalMs(fluxapps) rather than a literal.',
+  );
+}
+
+/**
  * Every coupled-knob rule this harness enforces, in one call.
  * @param {object} fluxapps Effective fluxapps config for the fleet.
  * @throws {Error} When any relationship does not hold.
@@ -171,6 +226,7 @@ export function assertCoupledRatios(fluxapps) {
   if (!fluxapps) return;
   assertSigtermOrdering(fluxapps);
   if (!fluxapps.residentialQueueStepMs) return;
+  assertDepartureOutlivesTicket(fluxapps);
   const blockCost = harnessBlockCostMs(fluxapps);
   const pass = giveUpPassMs(fluxapps, blockCost);
   const ratio = fluxapps.residentialQueueStepMs / pass;
