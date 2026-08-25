@@ -6,8 +6,7 @@ checker verifies them.
 
 A **factor** is production divided by harness: 10x means the harness reaches the
 same behaviour ten times sooner. Two knobs the code relates by an inequality must
-carry the SAME factor, or the property between them is deleted or inverted - see
-`fluxModels/workstreams/test-harness/HARNESS_CONFIG_COMPRESSION.md`.
+carry the SAME factor, or the property between them is deleted or inverted.
 
 ## Pairs checked at fleet boot
 

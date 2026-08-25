@@ -394,8 +394,9 @@ async function setNodeGeolocation() {
     // address; the fleet's entire hyperscaler population is one Oracle slot.
     // Real, and priced at nil.
     //
-    // Census and method: fluxModels
-    // investigations/PR1784_STATIC_IP_IS_A_RANGE_FLAG_NOT_AN_OBSERVATION.md
+    // Every figure above was measured on the live fleet by reproducing
+    // hasPublicIpOnInterface() across a random sample of slots; the census and
+    // its bounds are recorded with the change that introduced this rule.
     const watchedItChange = Boolean(lastIpChangeDate) && heldForMs < stabilityThreshold;
 
     if (watchedItChange) {
