@@ -58,6 +58,26 @@ const subnet = getSubnetConfig();
 const REAL_NODES = 5;
 const STUB_INDEX = REAL_NODES; // one past the real ones
 
+// TWO ORDERINGS DECIDE THIS FIXTURE, and the whole point is to make them
+// coincide on one node.
+//
+// The syncthing seed - the holder that gets the writable folder at a cold start
+// and therefore RUNS the g: component - is the LOWEST IP among the holders. The
+// instance order the surplus rule ranks is runningSince, which records the order
+// the holders were placed. So placing the seed LAST makes it both the writer and
+// the newest copy, which is exactly the collision this suite exists for.
+//
+// Electing a master does NOT do this. FDM only reports who the primary is; it
+// cannot move a running container, and the election correctly refuses to start a
+// second writer while a peer is running one. An earlier version of this suite
+// tried to elect the newest holder into the role and sat waiting three minutes
+// for a component that was never going to start there.
+const HOLDERS = [0, 1, 2];
+const SEED_INDEX = 0;                   // lowest IP of the three holders
+// Derived, not written out: "the seed goes last" is the rule, and a hand-listed
+// order silently stops meaning that the moment HOLDERS changes.
+const PLACEMENT_ORDER = [...HOLDERS.filter((i) => i !== SEED_INDEX), SEED_INDEX];
+
 describe('a surplus copy that is also the writer', function () {
   let env;
   let app;
@@ -106,7 +126,7 @@ describe('a surplus copy that is also the writer', function () {
     identifier = `${appName}_${appName}`;
     folder = `flux${identifier}`;
     order = await placeGAppInOrder(env, app, {
-      placementOrder: [0, 1, 2], folder, identifier,
+      placementOrder: PLACEMENT_ORDER, folder, identifier,
     });
 
     // Every holder's folder complete and a connected peer holding it, or the
@@ -155,9 +175,16 @@ describe('a surplus copy that is also the writer', function () {
     expect(newestIndex, 'the newest holder is a real node').to.not.equal(undefined);
     expect(nextIndex, 'the second-newest holder is a real node').to.not.equal(undefined);
 
-    // FDM names the NEWEST copy the writer, which is the arrangement the whole
-    // suite exists for: the node the surplus rule would pick is the node that
-    // must not be disturbed.
+    // A CONTROL ON THE FIXTURE, not on the code. Everything below rests on the
+    // seed and the newest copy being the same node; if the seed rule ever moves,
+    // this says so in one line rather than leaving the wait three lines down to
+    // time out after three minutes looking like a product fault.
+    expect(newestIndex, 'the fixture must land the writer on the newest copy')
+      .to.equal(SEED_INDEX);
+
+    // FDM is told what is already true, so the election has no reason to move
+    // the role mid-test. It is not what puts the writer there - the cold-start
+    // seed did that - and nothing here depends on FDM to create the shape.
     await electMaster(appName, newestIp);
 
     // Positive control. Without it a later "the writer never stopped" assertion
