@@ -109,6 +109,20 @@ let inconclusiveStreak = 0;
 const wholeObservation = new Map();
 // Whether the settling window has elapsed and departures may begin.
 let evacuating = false;
+// What /flux/info reports, and DELIBERATELY not derived from `evacuating`.
+//
+// `evacuating` is a per-tick permission for the give-up pass: any tick that
+// cannot read something turns it off, correctly, because a node that cannot
+// establish its own state must not hand an app back. It is not a description of
+// how far through the staging the node is, and reporting it as one would show
+// the node moving BACKWARDS through a staging it never moved backwards through.
+//
+// The window is what actually progresses. `observedWindowMs` only ever grows
+// while the verdict holds - a tick that cannot decide leaves it alone rather
+// than resetting it - and both are cleared together the moment the node stops
+// being enforced, which is the one transition that really is a reversal.
+let enforcing = false;
+let observedWindowMs = 0;
 // The network verdict behind the most recent isResidential(), carried into the
 // decision event so a consumer can tell the three nulls apart.
 let lastVerdict = { classification: null, source: null };
@@ -404,6 +418,29 @@ function queueDelayMs(locations, localSocketAddr) {
 }
 
 /**
+ * How far this node is through being staged out of service, for /flux/info.
+ *
+ *   null       nothing is being enforced against this node
+ *   HOLD       enforced: it takes no NEW apps, and nothing has been deleted
+ *   EVACUATE   the settling window is served and it is handing apps back
+ *
+ * HOLD is the state worth reporting. It is the longest one - a full settling
+ * window - it is the only one where the operator can still fix the node and
+ * lose nothing, and without it a held node is indistinguishable from an
+ * ordinary one that happens not to have been given work.
+ *
+ * The DOS itself is already reported beside this as `dos`, so the three stages
+ * read together: HOLD with no DOS, EVACUATE with no DOS, then EVACUATE with
+ * one. An EMPTY node reports HOLD with a DOS, having skipped the window it had
+ * no data to need.
+ * @returns {('HOLD'|'EVACUATE'|null)}
+ */
+function getDosStaging() {
+  if (!enforcing) return null;
+  return observedWindowMs >= SETTLE_MS ? 'EVACUATE' : 'HOLD';
+}
+
+/**
  * Whether this node is currently shedding the apps it holds.
  *
  * True only once the verdict has held for the settling window - the placement
@@ -627,12 +664,17 @@ async function enforceResidentialPolicy(deps) {
     releaseOurDos(`residential=${residential}, arcaneOs=${arcane}`);
     await clearSettleMarker();
     evacuating = false;
+    enforcing = false;
+    observedWindowMs = 0;
     wholeObservation.clear();
     return true;
   }
 
   // Costs the node nothing it already holds, so it needs no settling period.
   fluxNetworkHelper.setPlacementHold(HOLD_REASON);
+  // Set with the hold and cleared with it: the two are the same fact, and the
+  // hold is the first thing that happens to an enforced node.
+  enforcing = true;
 
   if (!nodeReady) {
     evacuating = false;
@@ -670,6 +712,7 @@ async function enforceResidentialPolicy(deps) {
 
   const now = Date.now();
   const observedMs = await noteVerdictConfirmed(now);
+  if (observedMs !== null) observedWindowMs = observedMs;
   if (observedMs === null) {
     evacuating = false;
     log.info('residentialNodeDos - settle marker unavailable, evacuation stays off');
@@ -755,6 +798,8 @@ function stop() {
   // previous run and skip the read-back that decides whether the slot is ours.
   ourDosActive = false;
   evacuating = false;
+  enforcing = false;
+  observedWindowMs = 0;
   wholeObservation.clear();
   if (timerHandle) {
     clearTimeout(timerHandle);
@@ -776,6 +821,7 @@ module.exports = {
   queueDelayMs,
   listInstalledApps,
   isEvacuating,
+  getDosStaging,
   mayEvacuateApp,
   noteEvacuated,
   forgetAppObservation,

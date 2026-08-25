@@ -469,6 +469,10 @@ describe('Residential node evacuation', function () {
     // other - otherwise there would be nothing to evacuate later.
     const info = await env.clients[TARGET - 1].get('/flux/info');
     expect(info.data.flux.dos.dosState).to.be.below(100);
+    // A residential node that IS attested reports nothing at all. The field
+    // names the staging, not the connection - otherwise every residential
+    // operator running ArcaneOS reads it and asks what is wrong with their node.
+    expect(info.data.flux.dosStaging).to.equal(null);
 
     await seedApp(env, 'residentapp', { instances: 5 });
     await advanceBlocks(3);
@@ -490,6 +494,13 @@ describe('Residential node evacuation', function () {
     const info = await env.clients[TARGET - 1].get('/flux/info');
     expect(info.data.flux.dos.dosState).to.be.below(100);
 
+    // And the node SAYS so. Without this the stage is invisible: a held node
+    // takes no new apps and is otherwise indistinguishable from one that has
+    // simply not been given work - and this is the stage, lasting a whole
+    // settling window, where the operator can still put it right and lose
+    // nothing at all.
+    expect(info.data.flux.dosStaging).to.equal('HOLD');
+
     const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
     expect(installed.data.map((a) => a.name)).to.include('residentapp');
   });
@@ -504,6 +515,19 @@ describe('Residential node evacuation', function () {
     expect(marker, 'the settling window should be running').to.not.be.null;
 
     await elapseSettleWindow(TARGET);
+
+    // The stage moves when the WINDOW is served, before any app has moved -
+    // which is the ordering the staging is built on, and the one an operator
+    // reads. Asserted here rather than after the removal, so it cannot pass on a
+    // stage that only appeared once the app had already gone.
+    await waitFor(async () => {
+      const staged = await env.clients[TARGET - 1].get('/flux/info');
+      return staged?.data?.flux?.dosStaging === 'EVACUATE';
+    }, { timeout: 120000, interval: 2000, label: 'the node reports it is evacuating' });
+
+    const stillHeld = await env.clients[TARGET - 1].get('/apps/installedapps');
+    expect(stillHeld.data.map((a) => a.name), 'the stage moved only after the app had gone')
+      .to.include('residentapp');
 
     // Drive the chain from here rather than letting the ticker free-run, so the
     // give-up pass is reached on a block the node processed AS the tip. See
