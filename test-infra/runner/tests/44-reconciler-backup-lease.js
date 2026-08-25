@@ -2,7 +2,9 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, restartDockerd, execInContainer } from '../framework/container.js';
-import { setSynced, resetSyncState, getPauseWrites } from '../framework/syncthing-control.js';
+import {
+  setSynced, resetSyncState, resetFolderWrites, getPauseWrites,
+} from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -90,7 +92,14 @@ describe('backup leases the whole app against the reconciler', function () {
     // address nothing occupies, and its write log reads empty forever.
     const nodeIp = subnet.nodeIp(1);
 
-    const afterId = client.getLastEventId();
+    // the stub's write log is cumulative and the test above backed up this same
+    // app on this same node, leaving a paused:true/paused:false pair in it. Read
+    // unreset, that pair satisfies the hold-wait below before this test's backup
+    // has taken any hold (making it vacuous) and then fails the assertion with
+    // the PREVIOUS backup's legitimate resume. Suites 87 and 88 reset for the
+    // same reason - the window has to be this test's own.
+    await resetFolderWrites();
+
     // the unresolved promise is the lease window; the backup pauses the folder
     // inside it, and the app is held in backupInProgress for the whole run
     const backupDone = client.appendBackupTask(appName, [appName], auth.zelidauth);
@@ -99,6 +108,12 @@ describe('backup leases the whole app against the reconciler', function () {
     await waitFor(async () => (await getPauseWrites(nodeIp)).some((w) => w.id === app.folder && w.paused === true), {
       timeout: 120000, interval: 1000, label: 'backup paused the folder',
     });
+
+    // taken AFTER the hold is observed, so the pass awaited below is one that
+    // completed inside the window. Taken before the backup started, the wait
+    // would be satisfied by a pass that finished before the folder was ever
+    // paused - which proves a pass ran, not that one ran while it was held.
+    const afterId = client.getLastEventId();
 
     // a real monitor pass runs inside the window (the event proves it ran, so the
     // assertion below is not vacuously green on a pass that never happened), and
