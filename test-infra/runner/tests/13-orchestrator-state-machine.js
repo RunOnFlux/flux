@@ -12,6 +12,57 @@ import {
   clearAllNodeStatus, setNodeStatus, disableAllRpcFailure,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
+
+// How long a node takes to notice a peer that has been unplugged rather than
+// disconnected. Derived, because it is the thing every DEGRADED wait below is
+// really waiting for: a missed pong per interval, and a socket is declared dead
+// after `wsMaxMissedPongs` of them, plus up to one more interval of phase
+// because the timer is not aligned to the moment the peer vanished.
+const PEERS = loadSharedConfig().peers ?? {};
+const PEER_DEATH_MS = (PEERS.wsPingIntervalMs ?? 15000) * ((PEERS.wsMaxMissedPongs ?? 3) + 1);
+
+/**
+ * Take every peer away from node 0, WAIT FOR IT TO NOTICE, and only then ask
+ * what it did about it.
+ *
+ * `disconnectNode` removes the container from the docker network and returns as
+ * soon as dockerd has done so - which says nothing about when this node finds
+ * out. An unplugged container sends no close frame: node 0 discovers each peer
+ * through its own ping/pong liveness, one socket at a time, and the orchestrator
+ * has nothing to react to until the survivors fall below the threshold.
+ *
+ * SPLITTING THE TWO WAITS IS THE POINT. As one deadline they covered "liveness
+ * detection AND the reaction", and a gate run spent it all on the first: three
+ * of four peers had gone, node 0 still counted one against a threshold of one,
+ * so it was never below it and DEGRADED was correct not to fire. What the report
+ * said was "Timeout waiting for event: orchestrator:stateChanged" - which is
+ * also exactly what a genuinely broken orchestrator says. Apart, the two
+ * failures read differently, and only the second is a product bug.
+ *
+ * The four budgets this replaced were 30s, 10s, 30s and 30s for the same
+ * operation. None was derived from anything; the 10s was the one that failed.
+ * @param {object} env Test environment.
+ * @param {object} [opts]
+ * @param {number} [opts.detectMs] Budget for node 0 to observe the peers leave.
+ * @param {number} [opts.reactMs] Budget for the orchestrator to then act.
+ */
+async function dropEveryPeerAndAwaitDegraded(env, { detectMs, reactMs = 15000 } = {}) {
+  // Detection is concurrent across the sockets, so the bound is one peer death
+  // and not four; the multiplier is headroom for scheduling, not for a fourth
+  // serial timeout. Registered BEFORE the first disconnect, or the event can
+  // land while nothing is listening for it.
+  const observed = waitForPeersBelowThreshold(env.clients[0], detectMs ?? 3 * PEER_DEATH_MS);
+  for (let i = 1; i < env.clients.length; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await env.disconnectNode(i);
+  }
+  await observed;
+  // Returned, not swallowed: a caller that cares WHICH state was left - suite 2
+  // asserts SYNCING so its block cannot quietly become a copy of the READY one -
+  // needs the transition itself.
+  return waitForOrchestratorState(env.clients[0], 'DEGRADED', reactMs);
+}
 
 async function bootNodes(env, { discover = false } = {}) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
@@ -170,11 +221,10 @@ describe('Orchestrator: READY to DEGRADED', function () {
   });
 
   it('should transition to DEGRADED when all peers disconnected', async function () {
-    this.timeout(60000);
-    for (let i = 1; i < env.clients.length; i++) {
-      await env.disconnectNode(i);
-    }
-    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000);
+    // A ceiling, not a wait: the bounds that mean anything are derived inside
+    // dropEveryPeerAndAwaitDegraded and this only has to clear their sum.
+    this.timeout(120000);
+    await dropEveryPeerAndAwaitDegraded(env);
   });
 
   it('should emit READINESS_LOST (spawner paused)', async function () {
@@ -218,18 +268,8 @@ describe('Orchestrator: peer drop during SYNCING', function () {
   });
 
   it('should transition to DEGRADED when peers drop during SYNCING', async function () {
-    this.timeout(60000);
-    // waitForEvent answers from the buffer of every event since boot, so this anchor is
-    // what makes the wait below describe the transition this test causes.
-    const beforeDrop = env.clients[0].getLastEventId();
-
-    for (let i = 1; i < env.clients.length; i++) {
-      await env.disconnectNode(i);
-    }
-
-    const degraded = await env.clients[0].waitForEvent(
-      'orchestrator:stateChanged', (d) => d.to === 'DEGRADED', 30000, { afterId: beforeDrop },
-    );
+    this.timeout(120000);
+    const degraded = await dropEveryPeerAndAwaitDegraded(env);
     // Names the entry state, so this block cannot quietly become a second copy of the
     // READY one if the order these two facts arrive in ever changes.
     expect(degraded.data.from).to.equal('SYNCING');
@@ -250,10 +290,7 @@ describe('Orchestrator: DEGRADED recovery cycle', function () {
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
     await stopTicker();
     // Disconnect all peers to trigger DEGRADED
-    for (let i = 1; i < env.clients.length; i++) {
-      await env.disconnectNode(i);
-    }
-    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000);
+    await dropEveryPeerAndAwaitDegraded(env);
   });
 
   after(async function () {
@@ -293,10 +330,7 @@ describe('Orchestrator: block timer during RESYNCING', function () {
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
     await stopTicker();
     // Enter DEGRADED
-    for (let i = 1; i < env.clients.length; i++) {
-      await env.disconnectNode(i);
-    }
-    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000);
+    await dropEveryPeerAndAwaitDegraded(env);
     // Recover peers → RESYNCING
     for (let i = 1; i < env.clients.length; i++) {
       await env.reconnectNode(i);
