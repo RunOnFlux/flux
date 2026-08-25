@@ -35,9 +35,23 @@ const subnet = getSubnetConfig();
 // either as a literal is what broke this suite before. test-env asserts both
 // relationships on every node of every fleet before boot.
 const SHARED_POLL_MS = loadSharedConfig().fluxapps.explorerPollIntervalMs;
+// THE PASS PERIOD, and everything about this suite's cost hangs off it. The
+// give-up pass runs every `removeFluxAppsPeriod x 4` blocks, a block costs one
+// explorer poll, and the queue step, the ticket tolerance and the departure
+// interval are each derived from that pass in turn - so this number multiplies
+// through every departure the suite makes, about six of them.
+//
+// At 4 it put the pass at ~13s and a departure at ~197s, and the suite spent
+// twenty minutes on departures alone, blew the runner's 1800s wall clock, and
+// starved two unrelated suites off the same box. At 2 the pass is ~7s and a
+// departure ~99s. The lower bound is PROPAGATION, not comfort: the removal
+// broadcast has to reach the other holder before its next pass, and at a
+// 1-block pass (~1s) it measurably did not - the other node evaluated twice
+// more before network:appremoved arrived and both holders left.
+const PASS_PERIOD_BLOCKS = 2;
 const RESIDENTIAL_PACING = (() => {
   const fleet = {
-    removeFluxAppsPeriod: 4,
+    removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
     explorerPollIntervalMs: SHARED_POLL_MS,
   };
   const residentialQueueStepMs = derivedQueueStepMs(fleet);
@@ -52,7 +66,12 @@ const RESIDENTIAL_PACING = (() => {
 // four seconds. Two cycles' worth: several of these waits contain a departure
 // AND the pass on which another holder reacts to it.
 const DEPARTURE_WAIT_MS = 2 * departureCycleMs(
-  { ...RESIDENTIAL_PACING, removeFluxAppsPeriod: 4, explorerPollIntervalMs: SHARED_POLL_MS, residentialQueueBaseMs: 1000 },
+  {
+    ...RESIDENTIAL_PACING,
+    removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
+    explorerPollIntervalMs: SHARED_POLL_MS,
+    residentialQueueBaseMs: 1000,
+  },
   5,
 );
 
@@ -332,11 +351,10 @@ describe('Residential node evacuation', function () {
           // network:appremoved reached it - propagation lost the race, both
           // holders saw the app at full strength, and both left.
           //
-          // 4 here puts the pass at 16 blocks. What that costs in wall time is
-          // set by explorerPollIntervalMs, not by this number: at the harness's
-          // 833ms poll it is about 16s, measured at 15.9s over nine consecutive
-          // passes on cindy. Still far shorter than production's 44 blocks.
-          removeFluxAppsPeriod: 4,
+          // Set from PASS_PERIOD_BLOCKS at the top of this file, which explains
+          // what it costs and what bounds it from below. What it costs in wall
+          // time is set by explorerPollIntervalMs, not by this number.
+          removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
           // Left LONG on purpose, and opened by the test when it is ready. A
           // short window would let evacuation start while the hold is still
           // being asserted, and the ordering - hold first, deletes nothing, and
