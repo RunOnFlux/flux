@@ -48,7 +48,7 @@ describe('readers of an app volume do not follow links', () => {
 
   it('lists a link as a link, with its own size rather than its target', async () => {
     sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-    sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount: volume }]);
+    sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount: volume }] });
 
     const res = { json: sinon.stub() };
     await fileQueryService.getAppsFolder(

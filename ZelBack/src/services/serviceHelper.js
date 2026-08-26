@@ -4,6 +4,7 @@ const util = require('node:util');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const execFile = util.promisify(require('node:child_process').execFile);
+const { spawn } = require('node:child_process');
 
 const axios = require('axios').default;
 const qs = require('qs');
@@ -505,6 +506,152 @@ function ipInSubnet(ip, subnet) {
 }
 
 /**
+ * Runs a command whose output is consumed as it arrives, rather than collected
+ * and returned.
+ *
+ * Two things follow from streaming, and both are the point. The output is never
+ * held whole, so a listing of any length costs the same and there is no buffer
+ * ceiling to breach. And every chunk that arrives is evidence the command is
+ * still working, which is what makes `idleTimeout` mean "stopped doing
+ * anything" rather than "taking a while" - the distinction that matters for
+ * work whose duration is set by how much data it was given. A total timeout can
+ * only kill the largest inputs, which are the ones the caller most needs to
+ * succeed.
+ *
+ * Root is the only reason these run as a child process at all: app data is
+ * written by containers as root and this process is not root. That needs sudo,
+ * not a shell - so the command is argv throughout and a path is never parsed as
+ * syntax.
+ *
+ * @param {string} userCmd - Command to run
+ * @param {object} options - runAsRoot, params, onLine, idleTimeout, logError
+ * @returns {Promise<{error: Error|null, stderr: string}>}
+ */
+async function runStreamingCommand(userCmd, options = {}) {
+  const {
+    runAsRoot = false, params = [], onLine = null, idleTimeout = 0, logError,
+  } = options;
+
+  const res = { error: null, stderr: '', idleKilled: false };
+
+  if (!userCmd) {
+    res.error = new Error('Command must be present');
+    return res;
+  }
+
+  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string' || typeof p === 'number')) {
+    res.error = new Error('Invalid params for command, must be an Array of strings');
+    return res;
+  }
+
+  const args = params.map(String);
+  let cmd = userCmd;
+  if (runAsRoot) {
+    args.unshift(userCmd);
+    cmd = 'sudo';
+  }
+
+  log.debug(`Run Cmd (streaming): ${cmd} ${args.join(' ')}`);
+
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let idleTimer = null;
+    let idleKilled = false;
+    let settled = false;
+    let remainder = '';
+    // Enough of stderr to explain a failure, and no more: a command that fails
+    // on every entry must not be able to grow this without limit.
+    const STDERR_CAP = 8192;
+
+    // A root child needs a root signal; an unprivileged FluxOS cannot send one
+    // directly. runCommand prefixes sudo and catches its own spawn failures, so
+    // a kill that cannot fork under memory pressure resolves an error rather
+    // than throwing an unhandled 'error' event out of a bare spawn. Not awaited.
+    const killChild = () => {
+      if (runAsRoot) {
+        runCommand('kill', { runAsRoot: true, params: ['-TERM', String(child.pid)], logError: false });
+      } else {
+        child.kill();
+      }
+    };
+
+    const bump = () => {
+      if (!idleTimeout || idleKilled) return;
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        idleKilled = true;
+        killChild();
+      }, idleTimeout);
+    };
+
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (idleTimer) clearTimeout(idleTimer);
+      // Two facts can be true at once - the idle timer fired AND something else
+      // failed - and they must not compete for one slot: a real error (a
+      // consumer throw, a spawn failure) always wins the error field, with the
+      // idle kill carried separately on res.idleKilled. The idle message is the
+      // error only when the kill is the sole cause (close() passes no error for
+      // the exit the kill itself provoked).
+      if (idleKilled) res.idleKilled = true;
+      if (error) {
+        res.error = error;
+      } else if (idleKilled) {
+        res.error = new Error(`command produced no output for ${idleTimeout}ms and was stopped`);
+      }
+      if (res.error && logError !== false) log.error(res.error);
+      resolve(res);
+    };
+
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      if (settled) return;
+      bump();
+      if (!onLine) return;
+      remainder += chunk;
+      const lines = remainder.split('\n');
+      remainder = lines.pop();
+      try {
+        lines.forEach((line) => { if (line) onLine(line); });
+      } catch (err) {
+        // A consumer that cannot take the output ends the run: swallowed, the
+        // caller would read success off output nothing consumed; unhandled,
+        // the promise never settles and the operation hangs on it.
+        killChild();
+        finish(err);
+      }
+    });
+
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      if (settled) return;
+      bump();
+      if (res.stderr.length < STDERR_CAP) res.stderr += chunk;
+    });
+
+    child.on('error', (err) => finish(err));
+
+    child.on('close', (code) => {
+      if (remainder && onLine && !idleKilled && !settled) {
+        try {
+          onLine(remainder);
+        } catch (err) {
+          finish(err);
+          return;
+        }
+      }
+      // After an idle kill the non-zero exit is the kill's own consequence, not
+      // a second fact - the idle cause is the truthful report, so no error here.
+      finish(code === 0 || idleKilled ? null : new Error(`command exited with code ${code}`));
+    });
+
+    bump();
+  });
+}
+
+/**
  * Runs a command as a child process, without a shell by default.
  * Using a shell is possible with the `shell` option.
  * @param {string} cmd The binary to run. Must be in PATH
@@ -736,6 +883,7 @@ module.exports = {
   parseInterval,
   randomDelayMs,
   runCommand,
+  runStreamingCommand,
   validIpv4Address,
   processInSlices,
 };

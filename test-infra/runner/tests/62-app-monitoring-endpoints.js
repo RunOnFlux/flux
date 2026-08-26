@@ -176,6 +176,17 @@ describe('App monitoring endpoints', function () {
   it('should thin a range past a day to hourly, keeping the newest sample', async function () {
     const dayMs = 24 * 60 * 60 * 1000;
 
+    // The strict inequality below needs a series longer than what thinning
+    // keeps (first + newest = 2 of a sub-hour series), so full must hold >= 3.
+    // Nothing orders this test against the sampler: it starts with the app and
+    // accumulates on its own clock, while the suite arrives whenever the prior
+    // tests finish - a race this test used to win by accident. Enforce the
+    // precondition; the assertion keeps its full strength.
+    await waitFor(async () => {
+      const r = await node.getAuthed(`/apps/appmonitor/${component}`, ownerAuth.zelidauth);
+      return r.status === 'success' && r.data.length >= 3;
+    }, { timeout: 60000, interval: 2000, label: 'monitor store holds at least 3 samples' });
+
     const full = await node.getAuthed(`/apps/appmonitor/${component}`, ownerAuth.zelidauth);
     const thinned = await node.getAuthed(
       `/apps/appmonitor/${component}/${dayMs + 1}`, ownerAuth.zelidauth,

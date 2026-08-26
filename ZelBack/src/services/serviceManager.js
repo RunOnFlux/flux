@@ -638,13 +638,15 @@ async function startFluxFunctions() {
       // masterSlave self-gates on syncthingAppsFirstRun (the syncthing monitor's
       // first-run mount-safety must complete before any g: election), so it starts
       // concurrently rather than after a timed offset.
+      // The election reads the busy lists and the receive-only cache off
+      // globalState itself at each decision; they are not parameters. The
+      // getters return snapshots and masterSlaveApps re-invokes itself forever,
+      // so anything captured at this call is frozen at boot and goes quietly
+      // stale - which is exactly how the backup/restore guard once died.
       advancedWorkflows.masterSlaveApps(
         globalState,
         appQueryService.installedApps,
         appQueryService.listRunningApps,
-        globalState.receiveOnlySyncthingAppsCache,
-        globalState.backupInProgress,
-        globalState.restoreInProgress,
         https,
       ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {

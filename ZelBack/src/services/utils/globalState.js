@@ -113,8 +113,39 @@ module.exports = {
   get syncthingAppsFirstRun() { return syncthingAppsFirstRun; },
   set syncthingAppsFirstRun(value) { syncthingAppsFirstRun = value; },
 
-  get backupInProgress() { return backupInProgress; },
-  get restoreInProgress() { return restoreInProgress; },
+  // A frozen snapshot, not the live array: readers (the monitor, the election,
+  // the reconciler) only ever test membership, and handing out the backing
+  // array let any of them push or splice it and bypass the atomic claim below.
+  // Frozen rather than merely copied so that a stray write throws here instead
+  // of silently mutating a copy nobody reads. The claim and release are the
+  // only writers, and they hold the real arrays.
+  get backupInProgress() { return Object.freeze([...backupInProgress]); },
+  get restoreInProgress() { return Object.freeze([...restoreInProgress]); },
+
+  // Claiming an app for a backup or a restore is a test-and-set, not a read
+  // then a later write: these run to completion before the event loop hands the
+  // next request in, so two overlapping requests for one app cannot both find it
+  // free. The lists stay the observable "this app is busy" signal the monitor,
+  // the election and the reconciler read; only the claim on them is made
+  // indivisible here so a caller cannot split the test from the set.
+  tryStartBackup(appname) {
+    if (backupInProgress.includes(appname)) return false;
+    backupInProgress.push(appname);
+    return true;
+  },
+  finishBackup(appname) {
+    const index = backupInProgress.indexOf(appname);
+    if (index !== -1) backupInProgress.splice(index, 1);
+  },
+  tryStartRestore(appname) {
+    if (restoreInProgress.includes(appname)) return false;
+    restoreInProgress.push(appname);
+    return true;
+  },
+  finishRestore(appname) {
+    const index = restoreInProgress.indexOf(appname);
+    if (index !== -1) restoreInProgress.splice(index, 1);
+  },
 
   get appsMonitored() { return appsMonitored; },
   set appsMonitored(value) { appsMonitored = value; },

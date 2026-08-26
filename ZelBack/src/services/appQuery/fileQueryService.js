@@ -26,13 +26,13 @@ async function getAppsFolder(req, res) {
         throw new Error('appname and component parameters are mandatory');
       }
       let filepath;
-      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
-      if (appVolumePath.length > 0) {
+      const { mounts } = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (mounts.length > 0) {
         // Browse at appid level to show appdata and all other mount points
         // Sanitize folder path to prevent directory traversal attacks
-        filepath = sanitizePath(folder, appVolumePath[0].mount);
+        filepath = sanitizePath(folder, mounts[0].mount);
         // Verify resolved path stays within the allowed base directory
-        await verifyRealPath(filepath, appVolumePath[0].mount);
+        await verifyRealPath(filepath, mounts[0].mount);
       } else {
         throw new Error('Application volume not found');
       }
@@ -48,7 +48,7 @@ async function getAppsFolder(req, res) {
       // sweep. They are implementation detail, they cannot be written through
       // any endpoint, and a listing that offers them invites an operation that
       // will only be refused.
-      const atRoot = filepath === appVolumePath[0].mount;
+      const atRoot = filepath === mounts[0].mount;
       const files = atRoot ? listed.filter((name) => !isReservedName(name)) : listed;
 
       const filesWithDetails = [];

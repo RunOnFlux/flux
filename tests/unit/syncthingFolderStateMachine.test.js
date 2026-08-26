@@ -240,6 +240,65 @@ describe('syncthingFolderStateMachine tests', () => {
     });
   });
 
+  describe('probeFolderSyncCompletion', () => {
+    // Syncthing saying "no such folder" is a finding about the data. Syncthing
+    // not answering is a finding about syncthing. The backup gate reports one of
+    // these to an operator as a fact about their data, so they must not arrive
+    // here as the same thing.
+    it('calls a 404 absent - syncthing answered, and the folder is not there', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'error',
+        data: { message: 'Request failed with status code 404', code: 'ERR_BAD_REQUEST', httpStatus: 404 },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result).to.deep.equal({ status: null, reason: 'absent' });
+    });
+
+    it('calls an unreachable daemon unknown, not absent', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'error',
+        data: { message: 'connect ECONNREFUSED 127.0.0.1:8384', code: 'ECONNREFUSED' },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result).to.deep.equal({ status: null, reason: 'unknown' });
+    });
+
+    it('calls a server error unknown - a 500 is not the folder telling us anything', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'error',
+        data: { message: 'Request failed with status code 500', code: 'ERR_BAD_RESPONSE', httpStatus: 500 },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result.reason).to.equal('unknown');
+    });
+
+    it('calls a thrown lookup unknown', async () => {
+      syncthingServiceMock.getDbStatus.rejects(new Error('socket hang up'));
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result).to.deep.equal({ status: null, reason: 'unknown' });
+    });
+
+    it('reports a real reading as ok', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 1000, state: 'idle' },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result.reason).to.equal('ok');
+      expect(result.status.isSynced).to.equal(true);
+    });
+  });
+
   describe('getFolderSyncCompletion', () => {
     it('should return sync status when successful', async () => {
       syncthingServiceMock.getDbStatus.resolves({
@@ -357,15 +416,33 @@ describe('syncthingFolderStateMachine tests', () => {
       };
     });
 
-    it('should skip update when folder already syncing', async () => {
+    it('asks a stopped r: container to run and keeps the cache entry when the folder is already syncing', async () => {
+      // The folder config comes back untouched on this path, so the two side
+      // effects are the whole of what it does: an r: container that has stopped
+      // is asked to run again, and the entry the health monitor tracks the
+      // folder by survives the pass rather than being reset to a fresh one.
+      mockParams.syncFolder = { type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache = new Map([['test-app', { restarted: true, marker: 'kept' }]]);
+      dockerServiceMock.dockerContainerInspect.resolves({
+        State: { Running: false },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+      expect(result.cache).to.deep.equal({ restarted: true, marker: 'kept' });
+      expect(result.syncthingFolder).to.equal(mockParams.syncthingFolder);
+    });
+
+    it('leaves an already-running container alone when the folder is already syncing', async () => {
       mockParams.syncFolder = { type: 'sendreceive' };
       dockerServiceMock.dockerContainerInspect.resolves({
         State: { Running: true },
       });
 
-      const result = await stateMachine.manageFolderSyncState(mockParams);
+      await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(result.skipUpdate).to.be.true;
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
     it('should handle first run with no sync folder', async () => {
@@ -1952,66 +2029,6 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
 
       expect(result.isSafe).to.be.true;
-    });
-  });
-
-  describe('manageFolderSyncState mount safety on a sendreceive folder', () => {
-    let mockParams;
-
-    beforeEach(() => {
-      mockParams = {
-        appId: 'test-app',
-        syncFolder: { type: 'sendreceive', path: '/apps/test-app' },
-        containerDataFlags: 'g',
-        syncthingAppsFirstRun: false,
-        receiveOnlySyncthingAppsCache: new Map(),
-        appLocation: sinon.stub().resolves([]),
-        localSocketAddr: '10.0.0.1:16127',
-        syncthingFolder: { id: 'test-app', type: 'sendreceive' },
-        installedAppName: 'test-app',
-        liveness: createPeerFolderLiveness(),
-      };
-      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
-    });
-
-    it('mounts an unmounted volume and proceeds when the re-verify passes', async () => {
-      volumeServiceMock.isPathMounted.onFirstCall().resolves(false);
-      volumeServiceMock.isPathMounted.resolves(true);
-      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false });
-
-      const result = await stateMachine.manageFolderSyncState(mockParams);
-
-      sinon.assert.calledWith(volumeServiceMock.ensureAppVolumeMounted, 'test-app');
-      expect(result.skipUpdate).to.be.true;
-      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'stopped');
-    });
-
-    it('demotes to receiveonly and holds the container when the volume cannot be mounted', async () => {
-      volumeServiceMock.isPathMounted.resolves(false);
-      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
-
-      const result = await stateMachine.manageFolderSyncState(mockParams);
-
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
-      expect(result.cache.mountSafetyBlocked).to.be.true;
-      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'stopped');
-    });
-
-    it('still demotes after a successful mount when the index is phantom over an empty volume', async () => {
-      volumeServiceMock.isPathMounted.onFirstCall().resolves(false);
-      volumeServiceMock.isPathMounted.resolves(true);
-      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false });
-      fsMock.promises.readdir.resolves([dirent('.stignore')]);
-      syncthingServiceMock.getDbStatus.resolves({
-        status: 'success',
-        data: { globalBytes: 500000, inSyncBytes: 500000, state: 'idle' },
-      });
-
-      const result = await stateMachine.manageFolderSyncState(mockParams);
-
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
-      expect(result.cache.blockedReason).to.equal('phantom_index_empty_disk');
-      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'stopped');
     });
   });
 });

@@ -28,6 +28,82 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Syncthing, pinned, installed at BUILD time.
+#
+# On a node FluxOS installs it itself: systemService adds syncthing's own apt
+# repository and keyring, installs the package, and re-checks daily (it also
+# migrates the source from stable to stable-v2). A harness must not do that
+# during a run - it would reach the internet, and the version under test would
+# be whatever the repo served that day. As a build arg the layer is cached,
+# every node gets the same binary, and moving the version is a deliberate
+# one-line act.
+#
+# A side effect worth knowing: with syncthing already on PATH, syncthingService's
+# older installSyncthingIdempotently - which still shells out to
+# helpers/installSyncthing.sh, deleted in 25153f259 when the apt path replaced
+# it - finds `syncthing --version` succeeds and returns without touching it.
+# That is a consequence of the image being complete, not a mechanism relied on.
+#
+# Pinned to what the fleet runs: chud reports
+#   syncthing v2.0.15 "Hafnium Hornet" (go1.26.0 linux-amd64) 2026-02-11 [noupgrade]
+# installed there as a Debian package from syncthing's own repo. The release
+# tarball is the same build, and pins without depending on a package mirror.
+# The release publishes exactly one checksum file, PGP-clearsigned:
+# sha256sum.txt.asc - singular "sum", always .asc. There is no unsigned variant
+# to fall back to, so a guess at another name is a 404, not an alternative.
+#
+# The chain is: the vendored key signs the checksum list, the checksum list
+# covers the tarball. Without the signature step the hashes would establish only
+# that the download was not corrupted - both files come from one origin over one
+# TLS connection, so whoever could serve a bad tarball could serve a matching
+# hash beside it. The key is vendored rather than fetched so that it is pinned
+# in git and reviewed, not trusted on first use at build time.
+#
+# The checksum line is read from gpg's verified output, never from the file as
+# downloaded. The same key signs every release's checksum list, so a valid
+# signature alone does not prove the list is THIS release's - a substituted
+# list from another release, with our filename appended outside the signed
+# block, would pass a raw-file grep on the strength of a signature that never
+# covered the appended line. --decrypt emits only the signed text, so appended
+# text does not exist to be matched, and a list that does not name our tarball
+# yields no line at all, which sha256sum -c refuses.
+ARG SYNCTHING_VERSION=v2.0.15
+# The key that must have signed the checksums. Pinned here as well as vendored
+# so that swapping the key file alone does not silently change who is trusted.
+#
+# The verdict is read from --status-fd, NOT from gpg's exit code, and that is
+# deliberate: the file carries a second signature from a retired key
+# (37C84554E7E0A261E4F76E1ED26E6ED000654A3E) that syncthing no longer publishes,
+# so gpg reports NO_PUBKEY for it and exits 2 even when the signature that
+# matters is perfectly good. Asserting VALIDSIG for the pinned fingerprint says
+# exactly what we mean - this key signed this file - and is indifferent to how
+# many other signatures ride along. Do NOT add `set -o pipefail` here or gate on
+# `gpg --verify` succeeding: both reinstate that exit code and the build fails
+# on a valid release.
+ARG SYNCTHING_RELEASE_FPR=FBA2E162F2F44657B38F0309E5665F9BD5970C47
+COPY test-infra/syncthing-release-key.asc /tmp/syncthing-release-key.asc
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+         amd64) starch=amd64 ;; \
+         arm64) starch=arm64 ;; \
+         *) echo "unsupported architecture for syncthing: $arch" >&2; exit 1 ;; \
+       esac \
+    && tarball="syncthing-linux-${starch}-${SYNCTHING_VERSION}.tar.gz" \
+    && base="https://github.com/syncthing/syncthing/releases/download/${SYNCTHING_VERSION}" \
+    && curl -fsSL -o "/tmp/${tarball}" "${base}/${tarball}" \
+    && curl -fsSL -o /tmp/sha256sum.txt.asc "${base}/sha256sum.txt.asc" \
+    && export GNUPGHOME=/tmp/gnupg \
+    && mkdir -p "$GNUPGHOME" && chmod 700 "$GNUPGHOME" \
+    && gpg --batch --quiet --import /tmp/syncthing-release-key.asc \
+    && gpg --batch --status-fd=1 --verify /tmp/sha256sum.txt.asc 2>/dev/null \
+         | grep -q "^\[GNUPG:\] VALIDSIG ${SYNCTHING_RELEASE_FPR} " \
+    && (cd /tmp && gpg --batch --decrypt sha256sum.txt.asc 2>/dev/null | grep " ${tarball}\$" | sha256sum -c -) \
+    && tar -xzf "/tmp/${tarball}" -C /tmp \
+    && install -m 0755 "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}/syncthing" /usr/local/bin/syncthing \
+    && rm -rf "/tmp/${tarball}" /tmp/sha256sum.txt.asc /tmp/syncthing-release-key.asc \
+         "$GNUPGHOME" "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}" \
+    && syncthing --version
+
 WORKDIR /flux
 
 COPY package.json ./

@@ -5,7 +5,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { getAppContainerStatus } from '../framework/container.js';
+import { getAppContainerStatus, execInContainer } from '../framework/container.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -117,5 +117,65 @@ describe('reconciler enforces masterSlave g: election', function () {
     await electMaster(appName, b.ip);
     await assertNoEvent(b, 'reconciler:actuated', (d) => d.identifier === identifier && d.action === 'started', 15000);
     expect(await isUp(b, appName)).to.equal(false);
+  });
+
+  it('leaves an app mid-backup alone: the busy guard fires and no start is decided', async function () {
+    this.timeout(300000);
+    const a = env.clients[holders[0]];
+
+    // stage: a is elected and running (b was operator-stopped above); the
+    // backup's stop phase will then take the app down on the ELECTED node -
+    // exactly the state where a dead busy-guard would promote mid-backup and
+    // demote the folder / chmod against the tar. The guard reads the busy list
+    // off globalState at the decision; a boot-time capture stayed empty forever
+    // and this test is the wiring's end-to-end proof.
+    await electMaster(appName, a.ip);
+    await waitForReconcileActuated(a, identifier, 'started', 60000);
+    await waitForUp(a, appName, 'primary running before backup');
+
+    // bulk appdata so the tar phase is a real window (same shape as suite 44)
+    const bulk = await execInContainer(
+      a.container,
+      `sh -c "d=\\$(ls -d /mnt/appdata/flux-apps/flux${appName}* | head -1) && dd if=/dev/urandom of=\\$d/appdata/bulk.bin bs=1M count=200 && ls -l \\$d/appdata/bulk.bin"`,
+    );
+    if (bulk.exitCode !== 0) {
+      throw new Error(`appdata bulk-up failed (backup window would be too small): ${bulk.stderr || bulk.output}`);
+    }
+
+    // two election cycles of settle so the staging start above cannot land a
+    // late 'started' tick after the baselines are read
+    await new Promise((resolve) => { setTimeout(resolve, 7000); });
+    const skippedBefore = await a.getDecisionCount('masterSlave:decision', appName, 'skippedBusy');
+    const startedBefore = await a.getDecisionCount('masterSlave:decision', identifier, 'started');
+
+    const auth = await authenticate(a.url, appOwnerKey());
+    // the unresolved promise IS the busy window: the app is claimed in
+    // backupInProgress for the whole run
+    const backupDone = a.appendBackupTask(appName, [appName], auth.zelidauth);
+
+    // the backup's stop phase takes the app down - the hold is live and the
+    // elected-primary-not-running state the election would act on is real
+    await waitForDown(a, appName, 'backup stopped the app (hold live)');
+
+    // an election pass RAN and considered the busy app - the counter is the
+    // proof, so the no-start assertion below cannot be vacuously green on a
+    // pass that never happened
+    await waitFor(
+      async () => (await a.getDecisionCount('masterSlave:decision', appName, 'skippedBusy')) > skippedBefore,
+      { timeout: 60000, interval: 1000, label: 'election pass skipped the busy app' },
+    );
+
+    // and no start was decided while the hold was live
+    expect(await a.getDecisionCount('masterSlave:decision', identifier, 'started'),
+      'the election must not decide a start during the backup hold').to.equal(startedBefore);
+    await assertNoEvent(a, 'masterSlave:started', (d) => d.identifier === identifier, 3000);
+
+    const body = await backupDone;
+    expect(body).to.not.match(/Unauthorized/i);
+    // What the app does AFTER the hold is released is not this test's property
+    // and not this branch's behaviour: the backup's own stop earns a rung on the
+    // restart ladder here, so the elected primary is paced back up over minutes.
+    // The convergence assertion lives with the change that makes a deliberate
+    // stop earn nothing.
   });
 });

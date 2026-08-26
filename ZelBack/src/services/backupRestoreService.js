@@ -84,11 +84,13 @@ async function getVolumeDataOfComponent(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
-      const dfInfoData = await IOUtils.getVolumeInfo(appname, component, multiplier, decimal, fields);
-      if (dfInfoData === null) {
+      const { error, mounts } = await IOUtils.getVolumeInfo(appname, component, multiplier, decimal, fields);
+      // A mount table that could not be read and a volume that is not mounted
+      // are both "no data to report" to this endpoint.
+      if (error || !mounts.length) {
         throw new Error('No matching mount found');
       }
-      const response = messageHelper.createDataMessage(dfInfoData[0]);
+      const response = messageHelper.createDataMessage(mounts[0]);
       return res ? res.json(response) : response;
       // eslint-disable-next-line no-else-return
     } else {

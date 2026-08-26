@@ -486,6 +486,41 @@ app.get('/fluxlocation/:ip', (req, res) => {
   });
 });
 
+// Arbitrary bytes a node can fetch over real HTTP. The restore suites need an
+// archive that actually arrives down the wire from inside the subnet, because
+// the whole remote path - the download, the content-length comparison, the file
+// landing in backup/remote - has no other way to be exercised.
+const artifacts = new Map();
+
+// HEAD is answered separately because the size a downloader is PROMISED and the
+// bytes it actually receives have to be able to disagree - that disagreement is
+// the whole subject of the short-download check, and FluxOS learns the promise
+// from a HEAD (IOUtils.getRemoteFileSize).
+app.head('/artifact/:name', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).end();
+  res.setHeader('content-type', 'application/gzip');
+  res.setHeader('content-length', String(artifact.declaredLength ?? artifact.body.length));
+  return res.end();
+});
+
+app.get('/artifact/:name', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).json({ error: 'no such artifact' });
+  res.setHeader('content-type', 'application/gzip');
+  if (artifact.declaredLength == null) {
+    res.setHeader('content-length', String(artifact.body.length));
+    return res.end(artifact.body);
+  }
+  // With a declared length the body is sent chunked and the connection closes
+  // cleanly: the transfer SUCCEEDS and the file on disk is simply shorter than
+  // HEAD promised, which is the case the received-vs-expected comparison exists
+  // for. Sending a content-length that contradicts the body instead leaves the
+  // client waiting for bytes that never come - that is a timeout, not a short
+  // download, and it takes the suite's whole budget to find out.
+  return res.end(artifact.body);
+});
+
 // --- Control API ---
 
 const control = express();
@@ -566,6 +601,16 @@ control.post('/iplocation', (req, res) => {
   });
 });
 
+control.post('/artifact', (req, res) => {
+  const { name, base64, declaredLength = null } = req.body || {};
+  if (!name || typeof base64 !== 'string') {
+    return res.status(400).json({ error: 'name and base64 are required' });
+  }
+  const body = Buffer.from(base64, 'base64');
+  artifacts.set(name, { body, declaredLength });
+  return res.json({ ok: true, name, bytes: body.length, declaredLength });
+});
+
 control.post('/reset', (req, res) => {
   state.blockedRepositories = [];
   state.vettedRepositories = [];
@@ -573,6 +618,7 @@ control.post('/reset', (req, res) => {
   state.tamperingBlocklist = [];
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
+  artifacts.clear();
   serveIpLocation(buildIpLocationArtifact(1));
   res.json({ ok: true });
 });

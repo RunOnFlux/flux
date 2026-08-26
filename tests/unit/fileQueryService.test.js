@@ -22,9 +22,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves(['file1.txt', 'file2.txt', 'folder1']);
 
       const lstatStub = sinon.stub(fs, 'lstat');
@@ -81,7 +84,7 @@ describe('fileQueryService tests', () => {
       const res = { json: sinon.stub() };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount }]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount }] });
       sinon.stub(fs, 'readdir').resolves([
         'appdata', 'backup', '.flux-op-backups',
         '.stfolder', '.stignore', 'lost+found',
@@ -115,7 +118,7 @@ describe('fileQueryService tests', () => {
       const res = { json: sinon.stub() };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount }]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount }] });
       sinon.stub(fs, 'readdir').resolves(['.stignore', 'notes.txt']);
       sinon.stub(fs, 'lstat').resolves({
         isDirectory: () => false,
@@ -198,7 +201,7 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [] });
       sinon.stub(messageHelper, 'createErrorMessage').returns({ status: 'error' });
 
       await fileQueryService.getAppsFolder(req, res);
@@ -217,9 +220,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      const volumeStub = sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      const volumeStub = sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves([]);
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
@@ -239,9 +245,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       const readdirStub = sinon.stub(fs, 'readdir').resolves([]);
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
@@ -263,9 +272,12 @@ describe('fileQueryService tests', () => {
       const mtime = new Date('2024-01-02T00:00:00Z');
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves(['test.txt']);
       sinon.stub(fs, 'lstat').resolves({
         isDirectory: () => false,
@@ -300,9 +312,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves(['link.txt']);
       sinon.stub(fs, 'lstat').resolves({
         isDirectory: () => false,
@@ -331,9 +346,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves(['bigfolder']);
       sinon.stub(fs, 'lstat').resolves({
         isDirectory: () => true,
@@ -363,9 +381,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves([]);
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
@@ -387,9 +408,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').rejects(new Error('Permission denied'));
       sinon.stub(messageHelper, 'createErrorMessage').returns({ status: 'error' });
 
@@ -409,9 +433,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves(['file.txt']);
       sinon.stub(fs, 'lstat').rejects(new Error('File not found'));
       sinon.stub(messageHelper, 'createErrorMessage').returns({ status: 'error' });
@@ -432,9 +459,12 @@ describe('fileQueryService tests', () => {
       };
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(IOUtils, 'getVolumeInfo').resolves([
-        { mount: '/mnt/appvolumes/TestApp_Component1' },
-      ]);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [
+          { mount: '/mnt/appvolumes/TestApp_Component1' },
+        ],
+      });
       sinon.stub(fs, 'readdir').resolves(['file.txt', 'folder', 'link.txt']);
 
       const lstatStub = sinon.stub(fs, 'lstat');

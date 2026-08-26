@@ -163,6 +163,47 @@ async function getFolderSize(folderPath) {
 }
 
 /**
+ * The size of a whole app volume's directory tree, in bytes. `du` walks it in
+ * one process with bounded memory; getFolderSize recurses in-process and fans
+ * out a Promise per entry at every level, which is fine for the handful of
+ * entries a folder listing shows and unbounded on an app's real data.
+ *
+ * Null rather than false when the size cannot be established: zero is a real
+ * answer for an empty directory, and a falsy sentinel makes the two
+ * indistinguishable at every call site that tests the result for truth.
+ *
+ * @param {string} dirPath - The path of the directory to measure.
+ * @returns {Promise<number|null>} - Size in bytes, or null if it could not be measured.
+ */
+async function getDirectorySizeBytes(dirPath) {
+  try {
+    // Without -s, du reports each directory as it walks it and its own total
+    // last, so the answer is unchanged while the walk becomes observable - which
+    // is what an idle limit needs to mean anything. argv, no shell, for the same
+    // reason as the tar calls.
+    let total = null;
+    const result = await serviceHelper.runStreamingCommand('du', {
+      runAsRoot: true,
+      params: ['-b', dirPath],
+      idleTimeout: 5 * 60 * 1000,
+      onLine: (line) => {
+        const value = Number.parseInt(line.split(/\s+/)[0], 10);
+        if (Number.isFinite(value)) total = value;
+      },
+    });
+    if (result.error) {
+      const message = (result.stderr || result.error.message || '').replace(/\n/g, ' ').trim();
+      log.error(`Error measuring directory ${dirPath}: ${message}`);
+      return null;
+    }
+    return total;
+  } catch (error) {
+    log.error(`Error measuring directory ${dirPath}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Retrieves the size of the file at the specified path and formats it with an optional multiplier and decimal places.
  *
  * @param {string} filePath - The path of the file for which the size will be retrieved.
@@ -211,7 +252,12 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @returns {Array|boolean} - Array of objects containing volume information for the specified component, or false if no matching mount is found.
+ * @returns {Promise<{error: Error|null, mounts: object[]}>} - `mounts` is the
+ *          matching mount info (empty when the volume is not mounted - df only
+ *          reports mounted filesystems), and `error` is set only when the mount
+ *          table itself could not be read. An empty `mounts` with no `error` is
+ *          an answer ("not mounted"); an `error` is a failure to answer, which a
+ *          destructive caller must refuse on rather than read as "not mounted".
  */
 async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
@@ -227,7 +273,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
     // A path the KERNEL reports as a mountpoint, selected by the request - never
     // a path built from it. The worst a hostile appname can do is match nothing.
     const matched = mounts.filter((mount) => path.basename(mount.target) === identifier);
-    if (!matched.length) return false;
+    if (!matched.length) return { error: null, mounts: [] };
 
     const divisor = {
       b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3,
@@ -243,7 +289,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
     };
 
     const allowedFields = fields ? String(fields).split(',') : null;
-    return matched.map((mount) => {
+    const mountsInfo = matched.map((mount) => {
       const full = {
         filesystem: mount.source,
         size: toUnit(mount.sizeBytes),
@@ -256,9 +302,10 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
         ? Object.fromEntries(Object.entries(full).filter(([key]) => allowedFields.includes(key)))
         : full;
     }).filter((entry) => Object.keys(entry).length > 0);
+    return { error: null, mounts: mountsInfo };
   } catch (error) {
     log.error(error);
-    return false;
+    return { error, mounts: [] };
   }
 }
 
@@ -424,6 +471,75 @@ async function untarFile(extractPath, tarFilePath) {
 }
 
 /**
+ * Read a gzipped tar without extracting it. One decompression pass, nothing
+ * written to disk and no space consumed, establishing that the archive is
+ * complete and readable BEFORE anything is deleted to make room for its
+ * contents, and yielding the numbers needed to decide whether those contents
+ * will fit.
+ *
+ * The whole stream has to be inflated: gzip's CRC is in the trailing bytes, so
+ * a truncated or corrupt archive cannot be recognised any other way, and the
+ * ISIZE field beside it wraps at 4 GiB - useless on exactly the archives where
+ * the size answer matters. The listing is counted as it arrives and never held,
+ * so an archive of any member count costs the same to read.
+ *
+ * @param {string} tarFilePath - The path of the tarball (tar.gz) file to read.
+ * @returns {Promise<{status: boolean, entries?: number, bytes?: number, error?: string}>}
+ *          entries is the member count; bytes is their total uncompressed size.
+ */
+async function inspectTarGz(tarFilePath) {
+  try {
+    let entries = 0;
+    let bytes = 0;
+    let sized = 0;
+
+    // argv, and no shell: root is the only reason this is a child process, and
+    // a path reaches tar as an argument rather than as anything parsed.
+    //
+    // `sized` counts the members whose size column actually parsed as a number,
+    // which is what separates a differently-shaped listing from an archive whose
+    // members are all genuinely zero length.
+    const result = await serviceHelper.runStreamingCommand('tar', {
+      runAsRoot: true,
+      params: ['-tzvf', tarFilePath],
+      // Bounded by work rather than by size. These archives are the largest
+      // thing the node handles, and a total limit can only kill the ones that
+      // are merely big - which this then reports to an operator as their backup
+      // being unreadable. Every line of the listing is proof of progress, so
+      // silence this long is a read that has stalled.
+      idleTimeout: 5 * 60 * 1000,
+      onLine: (line) => {
+        entries += 1;
+        const size = line.split(/\s+/)[2];
+        if (/^[0-9]+$/.test(size)) {
+          sized += 1;
+          bytes += Number(size);
+        }
+      },
+    });
+
+    if (result.error) {
+      const message = (result.stderr || result.error.message || '').replace(/\n/g, ' ').trim();
+      log.error(`Error reading archive: ${message}`);
+      return { status: false, error: message };
+    }
+    // The size column is the third field of GNU tar's verbose listing. If no
+    // member's third field parsed as a number the listing is a different tar's
+    // column layout, and reporting its total as zero would walk an unmeasured
+    // archive through the free-space check. Testing the total rather than the
+    // parse would also condemn an archive whose members are all genuinely empty,
+    // which is a real thing to restore.
+    if (entries > 0 && sized === 0) {
+      return { status: false, error: 'archive listing not in the expected format' };
+    }
+    return { status: true, entries, bytes };
+  } catch (error) {
+    log.error('Error reading archive:', error);
+    return { status: false, error: error.message };
+  }
+}
+
+/**
  * Creates a tarball (tar.gz) archive from the specified source directory.
  *
  * @param {string} sourceDirectory - The path of the directory to be archived.
@@ -492,7 +608,9 @@ module.exports = {
   convertFileSize,
   downloadFileFromUrl,
   untarFile,
+  inspectTarGz,
   createTarGz,
   removeDirectory,
   getFolderSize,
+  getDirectorySizeBytes,
 };
