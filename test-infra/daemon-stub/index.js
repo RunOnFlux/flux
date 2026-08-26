@@ -70,6 +70,13 @@ function nodeBySourceIp(sourceIp) {
   return deterministicNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
 }
 
+// What benchmark reports as a node's public address, when the harness wants it to
+// differ from where the node actually is. Keyed by the address a request ARRIVES
+// from, so the container keeps its real address and only the ANSWER moves - a node
+// detects that its address changed with nothing renumbered underneath it, which is
+// the only way to reach that path without rebuilding the fleet's network.
+const publicIpOverrides = new Map(); // real source ip -> reported ip
+
 const rpcHandlers = {
   getblockchaininfo: () => ({
     chain: 'main',
@@ -319,6 +326,8 @@ const benchHandlers = {
   }),
 
   getpublicip: (params, sourceIp) => {
+    const override = publicIpOverrides.get(sourceIp.replace('::ffff:', ''));
+    if (override) return override;
     const node = nodeBySourceIp(sourceIp);
     return node ? node.ip.split(':')[0] : '127.0.0.1';
   },
@@ -539,6 +548,18 @@ control.post('/set-node-list', (req, res) => {
   res.json({ nodeCount: deterministicNodeList.length });
 });
 
+// Move a node's public address as benchmark reports it. `node` is where the node
+// really is (what its requests arrive from), `reported` is what getpublicip will
+// answer it. Sending no `reported` puts it back to the truth.
+control.post('/public-ip', (req, res) => {
+  const { node, reported } = req.body;
+  if (!node) return res.status(400).json({ error: 'node required' });
+  const key = String(node).split(':')[0];
+  if (reported) publicIpOverrides.set(key, String(reported).split(':')[0]);
+  else publicIpOverrides.delete(key);
+  return res.json({ node: key, reported: publicIpOverrides.get(key) ?? null });
+});
+
 control.post('/queue-app-tx', (req, res) => {
   const { appHash } = req.body;
   if (!appHash) return res.status(400).json({ error: 'appHash required' });
@@ -684,6 +705,7 @@ control.delete('/seed-data', (req, res) => {
 
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
+  publicIpOverrides.clear();
   rpcFailures.clear();
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];

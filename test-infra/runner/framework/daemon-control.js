@@ -56,6 +56,21 @@ export async function queueAppTx(appHash) {
   return post('/queue-app-tx', { appHash });
 }
 
+// -- Public address, as benchmark reports it --
+
+/**
+ * Report a public address for a node other than the one it is actually at. The
+ * container is untouched - only benchmark's answer moves, and that answer is where
+ * a node learns its own address changed. `node` is where it really is.
+ */
+export async function reportPublicIp(node, reported) {
+  return post('/public-ip', { node, reported });
+}
+
+export async function clearReportedPublicIp(node) {
+  return post('/public-ip', { node });
+}
+
 // -- Per-node status --
 
 export async function setNodeStatus(ip, status) {
