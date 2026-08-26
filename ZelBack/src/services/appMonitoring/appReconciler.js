@@ -971,9 +971,15 @@ async function reconcile(rawIdentifier) {
         // Last, because it throws. The bounce above already happened, so a write
         // failure must not also cost the event, the peer notification and the
         // attachment check a successful restart is owed - it is the record that
-        // failed, not the restart. The throw reaches the pass-level retry, which
-        // paces it and gives up, rather than the swallow that bounced the
-        // container every POST_START_VERIFY_MS for as long as writes failed.
+        // failed, not the restart.
+        //
+        // The throw reaches the pass-level retry, which PACES it - a rate, not a
+        // bound, and the difference matters. UNHANDLED_FAILURE_RETRIES clears only
+        // on a pass that succeeds, so a database that reads but cannot write never
+        // records the generation: four bounces over fifteen seconds, then one per
+        // hourly sweep for as long as the condition holds. Bounding it needs that
+        // condition to be something the node observes centrally rather than each
+        // write site discovering it alone, which is its own change.
         await appsRuntimeState.recordRestartGeneration(identifier, desiredGeneration);
         return;
       }
@@ -1204,8 +1210,21 @@ function enqueue(rawIdentifier) {
  * reads the intent it just wrote. The two can no longer interleave because they
  * are mutually exclusive by construction.
  *
- * The wait is bounded by one pass of ONE component - a docker probe and at most
- * one action - so an operator's command is never behind unrelated work.
+ * The wait is one pass of ONE component - a docker probe and at most one action -
+ * so an operator's command is never behind unrelated work. That is a BOUND only
+ * while passes terminate, and the docker calls a pass makes carry no timeout of
+ * their own: a daemon that HANGS rather than fails leaves the pass unfinished and
+ * this wait with nothing to wake it.
+ *
+ * What that costs is durability, not correctness: nothing wrong is recorded, and
+ * the caller's request hangs on a wedged daemon regardless. What is lost is a
+ * FluxOS restart during the hang - the write has not landed, so the intent does
+ * not survive one.
+ *
+ * Bounding THIS wait is not the repair - giving up on it and writing anyway
+ * restores the interleave described above, which is the defect this exists to
+ * fix. Bounding the docker calls is, and that is fleet-wide work rather than
+ * something this function can do alone.
  * @param {string} rawIdentifier Component identifier.
  * @param {Function} mutate Writes the new intent. Awaited while the key is held.
  * @param {object} [opts]
@@ -1245,50 +1264,97 @@ async function applyIntent(rawIdentifier, mutate, { awaitPass = false } = {}) {
 }
 
 /**
+ * The component identifiers of a set of installed apps.
+ *
+ * Enterprise specs are stored encrypted (compose: []) and the component names
+ * live INSIDE the blob, so the set is decrypted first - leniently: one app
+ * failing to decrypt must not cost the rest their components. An app that stays
+ * encrypted is enumerated from the containers docker is already holding for it,
+ * matched on the `_<appname>` suffix, so it is never silently skipped. That
+ * source can only see components that EXIST, which is the most that can be known
+ * about such an app anyway: a vanished component of one cannot be recreated
+ * either, because recreating it needs the spec.
+ *
+ * The listing is taken once for the whole set, and only if something failed to
+ * decrypt.
+ *
+ * @param {Array<object>} installed Records from appQueryService.installedApps().
+ * @returns {Promise<string[]>} Component identifiers across every app given.
+ */
+async function componentIdsOf(installed) {
+  const { readable, unreadable } = await appQueryService.decryptEnterpriseApps(installed, { formatSpecs: false });
+  const ids = [];
+
+  readable.forEach((app) => {
+    if (app.version >= 4 && Array.isArray(app.compose)) {
+      app.compose.forEach((c) => ids.push(`${c.name}_${app.name}`));
+    } else {
+      ids.push(app.name);
+    }
+  });
+
+  if (!unreadable.length) return ids;
+
+  let dockerNames;
+  try {
+    const containers = await dockerService.dockerListContainers(true);
+    dockerNames = containers.map((c) => (c.Names && c.Names[0] ? c.Names[0].slice(1) : ''));
+  } catch (err) {
+    log.warn(`appReconciler - cannot list containers for undecryptable apps: ${err.message}`);
+    return ids;
+  }
+  unreadable.forEach((app) => {
+    const suffix = `_${app.name}`;
+    dockerNames.filter((name) => name.endsWith(suffix)).forEach((name) => ids.push(name));
+  });
+  return ids;
+}
+
+/**
  * Enqueue every installed component (hourly tick / reconnect / boot drift).
- * Enterprise specs are stored encrypted (compose: []), so the sweep decrypts
- * to enumerate components — leniently: one app failing to decrypt must not
- * abort the sweep for the rest. An app that stays encrypted is still covered
- * via its existing docker containers (see below); never silently skipped.
  */
 async function enqueueAll(reason = 'resync') {
   const res = await appQueryService.installedApps();
   if (!res || res.status !== 'success') return;
-  const { readable: apps, unreadable } = await appQueryService.decryptEnterpriseApps(res.data, { formatSpecs: false });
-  let count = 0;
-  let dockerNames = null; // fetched once, only if some app failed to decrypt
-  // Decryption failed (already logged by decryptEnterpriseApps). The component
-  // names live inside the blob, so enumerate each app's EXISTING docker
-  // containers instead: their reconciles defer on the same decrypt failure
-  // and converge the moment fluxbenchd answers again. A vanished container of
-  // an undecryptable app cannot be recovered anyway (recreation needs the
-  // spec); the next sweep retries, so coverage resumes with decryption.
-  for (const app of unreadable) {
-    if (dockerNames === null) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const containers = await dockerService.dockerListContainers(true);
-        dockerNames = containers.map((c) => (c.Names && c.Names[0] ? c.Names[0].slice(1) : ''));
-      } catch (err) {
-        log.warn(`appReconciler - enqueueAll cannot list containers for undecryptable apps: ${err.message}`);
-        dockerNames = [];
-      }
-    }
-    const suffix = `_${app.name}`;
-    dockerNames.filter((name) => name.endsWith(suffix)).forEach((name) => {
-      enqueue(name); // canonicalised to the bare component identifier by enqueue
-      count += 1;
-    });
+  const ids = await componentIdsOf(res.data);
+  // canonicalised to the bare component identifier by enqueue
+  ids.forEach((id) => enqueue(id));
+  fluxEventBus.publish('reconciler:swept', { reason, count: ids.length });
+}
+
+/**
+ * Ask every component of these apps to restart, and let the normal machinery
+ * carry it out.
+ *
+ * For a caller that knows the node has changed underneath its apps - the address
+ * moved, so the containers have to come up on the new one - and knows nothing
+ * else about them. Everything an app is made of is worked out here rather than by
+ * the caller: which components it has, whether its specs can be read, and what a
+ * restart request even is.
+ *
+ * Durable and paced, deliberately. A generation survives a FluxOS restart part
+ * way through, where a docker call issued from the caller is simply lost, and it
+ * queues behind the same slot as every other intent instead of racing it. Each
+ * request is independent: one component that cannot be recorded must not cost the
+ * others theirs.
+ *
+ * @param {Array<object>} installed Records from appQueryService.installedApps().
+ * @param {string} reason Why, for the log.
+ * @returns {Promise<number>} How many components were asked.
+ */
+async function requestRestartOf(installed, reason) {
+  const ids = await componentIdsOf(installed);
+  let asked = 0;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    await applyIntent(id, async () => {
+      await appsRuntimeState.requestRestart(id);
+    }).then(() => { asked += 1; })
+      .catch((err) => log.error(`appReconciler - could not request restart of ${id} (${reason}): ${err.message}`));
   }
-  for (const app of apps) {
-    if (app.version >= 4 && Array.isArray(app.compose)) {
-      app.compose.forEach((c) => { enqueue(`${c.name}_${app.name}`); count += 1; });
-    } else {
-      enqueue(app.name);
-      count += 1;
-    }
-  }
-  fluxEventBus.publish('reconciler:swept', { reason, count });
+  log.info(`appReconciler - restart requested for ${asked}/${ids.length} components (${reason})`);
+  return asked;
 }
 
 // --- controllerDesired seam (written by masterSlave/syncthing deciders) ---
@@ -1434,6 +1500,7 @@ module.exports = {
   enqueue,
   applyIntent,
   enqueueAll,
+  requestRestartOf,
   setControllerDesired,
   clearControllerDesired,
   forgetDesiredState,

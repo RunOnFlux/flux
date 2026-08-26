@@ -721,32 +721,8 @@ async function appPause(req, res) {
 async function appUnpause(req, res) {
   return deprecatedPauseResponse(req, res);
 }
-/**
- * Docker restart app (internal function)
- * @param {string} appname - Application name
- * @returns {Promise<void>}
- */
-async function appDockerRestart(appname) {
-  try {
-    // mainAppName extracted for potential future use
-    // eslint-disable-next-line no-unused-vars
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerRestart(appname);
-      // Note: startAppMonitoring would need to be injected or called separately
-      log.info(`Component ${appname} restarted successfully`);
-    } else {
-      // ask for restarting entire composed application
-      // This would need getApplicationSpecifications from registryManager
-      log.info(`Restarting entire application ${appname}`);
-      await dockerService.appDockerRestart(appname);
-    }
-  } catch (error) {
-    log.error(`Docker restart failed for ${appname}: ${error.message}`);
-    throw error;
-  }
-}
+// Nothing in this module drives a container. Every route here records the
+// operator's desired state and lets the reconciler actuate it.
 
 /**
  * To stop all non Flux running apps. Executes continuously at regular intervals.
@@ -799,6 +775,5 @@ module.exports = {
   appKill,
   appPause,
   appUnpause,
-  appDockerRestart,
   stopAllNonFluxRunningApps,
 };

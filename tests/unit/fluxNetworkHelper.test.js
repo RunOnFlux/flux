@@ -1083,7 +1083,7 @@ describe('fluxNetworkHelper tests', () => {
     let appQueryServiceStub;
     let registryManagerStub;
     let appUninstallerStub;
-    let appControllerStub;
+    let onAddressChangedSpy;
     let enterpriseHelperStub;
     let geolocationServiceStub;
     let fluxCommunicationMessagesSenderStub;
@@ -1154,10 +1154,11 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      // Stub appController
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      // The apps that survive an address change are handed to whatever registered
+      // for one - serviceManager wires that to appReconciler.requestRestartOf.
+      // Nothing in this module knows what restarting an app involves, so the seam
+      // is what these tests assert on.
+      onAddressChangedSpy = sinon.stub().resolves();
 
       // Stub enterpriseHelper
       enterpriseHelperStub = {
@@ -1180,7 +1181,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1189,15 +1189,18 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // Verify static IP app was uninstalled
       sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
       sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'staticApp');
 
-      // Verify normal app was restarted (not uninstalled)
-      sinon.assert.calledOnce(appControllerStub.appDockerRestart);
-      sinon.assert.calledWith(appControllerStub.appDockerRestart, 'normalApp');
+      // Verify the normal app was handed over to be restarted, not uninstalled -
+      // as the whole surviving set, in one call
+      sinon.assert.calledOnce(onAddressChangedSpy);
+      const [staying] = onAddressChangedSpy.firstCall.args;
+      expect(staying.map((a) => a.name)).to.deep.equal(['normalApp']);
 
       // Verify geolocation service was called
       sinon.assert.calledOnce(geolocationServiceStub.setNodeGeolocation);
@@ -1226,9 +1229,7 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      onAddressChangedSpy = sinon.stub().resolves();
 
       // Stub enterpriseHelper to return decrypted specs with staticip: true
       enterpriseHelperStub = {
@@ -1253,7 +1254,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1262,6 +1262,7 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // Verify enterprise helper was called to decrypt specs
@@ -1294,9 +1295,7 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      onAddressChangedSpy = sinon.stub().resolves();
 
       // Stub enterpriseHelper to throw error
       enterpriseHelperStub = {
@@ -1316,7 +1315,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1325,11 +1323,12 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // Should skip the app entirely when decryption fails - neither uninstall nor restart
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
-      sinon.assert.notCalled(appControllerStub.appDockerRestart);
+      sinon.assert.notCalled(onAddressChangedSpy);
     });
 
     it('should not uninstall v6 apps even with staticip field', async () => {
@@ -1354,9 +1353,7 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      onAddressChangedSpy = sinon.stub().resolves();
 
       enterpriseHelperStub = {
         checkAndDecryptAppSpecs: sinon.stub().callsFake((app) => Promise.resolve(app)),
@@ -1375,7 +1372,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1384,11 +1380,12 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // v6 apps should not be checked for staticip (only v7+)
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
-      sinon.assert.calledOnce(appControllerStub.appDockerRestart);
+      sinon.assert.calledOnce(onAddressChangedSpy);
     });
   });
 
