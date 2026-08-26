@@ -54,6 +54,55 @@ describe('system Services tests', () => {
     });
   });
 
+  // The branch that installs a package the system does not have at all. Its
+  // return value IS the contract - upgradePackage answers whether the install
+  // FAILED, and this branch used to discard that and report the install either
+  // way, so an apt-get that could not find the package read back the same as one
+  // that installed it. The queue is stubbed rather than driven: a real failure
+  // walks five retries a minute apart, which is not what is under test here.
+  describe('ensurePackageVersion tests', () => {
+    function loadWithInstallResult(installError) {
+      const instance = {
+        on: sinon.stub(), push: sinon.stub(), resume: sinon.stub(), clear: sinon.stub(),
+      };
+      instance.push
+        .withArgs(sinon.match({ commandOptions: sinon.match({ command: 'install' }) }), true)
+        .resolves({ error: installError });
+      instance.push.resolves({ error: null });
+      const FifoQueue = sinon.stub().returns(instance);
+      return proxyquire('../../ZelBack/src/services/systemService', {
+        './utils/fifoQueue': { FifoQueue },
+      });
+    }
+
+    beforeEach(() => {
+      // dpkg-query answers empty, so the package is absent and the install runs
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('reports an install apt could not perform as not installed', async () => {
+      const service = loadWithInstallResult(new Error('E: Unable to locate package netcat-openbsd'));
+
+      const installed = await service.ensurePackageVersion('netcat-openbsd', '1.187');
+
+      expect(installed).to.equal(false);
+    });
+
+    it('reports an install that succeeded as installed', async () => {
+      const service = loadWithInstallResult(null);
+
+      const installed = await service.ensurePackageVersion('netcat-openbsd', '1.187');
+
+      expect(installed).to.equal(true);
+    });
+  });
+
   describe('get last cache time update tests', () => {
     let statStub;
     let stubFake;

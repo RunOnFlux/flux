@@ -522,8 +522,13 @@ async function ensurePackageVersion(systemPackage, requiredVersion, currentVersi
 
     if (!actualVersion) {
       log.info(`Package ${systemPackage} not found on system`);
-      await upgradePackage(systemPackage);
-      return true; // Package was installed/upgraded
+      // upgradePackage answers whether it FAILED. This branch used to discard that
+      // and report the install regardless, so an apt-get that could not find the
+      // package read back the same as one that installed it. The upgrade branch
+      // below has always read it.
+      const installError = await upgradePackage(systemPackage);
+      if (installError) log.error(`Package ${systemPackage} could not be installed`);
+      return !installError;
     }
 
     log.info(`Package ${systemPackage} version ${actualVersion} found`);
