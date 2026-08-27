@@ -497,6 +497,37 @@ describe('appReconciler tests', () => {
       }
     });
 
+    // The operator's stop is the one support reaches for when a volume will not
+    // mount, and it outranks the controller's everywhere else in the pass. Reading
+    // only the controller here left a human's stop inert in exactly the state it
+    // exists for, with the container running on over the missing volume.
+    it('honors an OPERATOR stop even when the data volume cannot be mounted', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
+      expect(stubs.dockerService.appDockerKill.called, 'a plain stop is not a kill').to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
+    });
+
+    // An appkill against an unmounted volume must still be a kill: this branch
+    // returns before the main actuation, so dropping the flag here downgrades the
+    // operator's hard kill to a graceful stop with nothing to say so.
+    it('honors an operator KILL as a kill when the data volume cannot be mounted', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: true });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerKill.calledWith('www_App')).to.be.true;
+      expect(stubs.dockerService.appDockerStop.called, 'a kill is not downgraded to a stop').to.be.false;
+    });
+
     it('mounts an unmounted volume and proceeds with the start', async () => {
       stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false });
       await appReconciler.reconcile('www_App');
