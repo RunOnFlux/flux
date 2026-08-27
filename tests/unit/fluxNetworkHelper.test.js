@@ -1387,6 +1387,75 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
       sinon.assert.calledOnce(onAddressChangedSpy);
     });
+
+    // An instance already at this address means the ports are taken, because one
+    // instance per IP is what the host port mapping allows. The node's own
+    // registration is not another instance - it stores its own running-app row
+    // locally, at the address benchmark reports - so what separates "the ports are
+    // gone" from "that row is me" is the port, and only the port.
+    // Each call needs an address no earlier test has used: adjustExternalIP keeps a
+    // cache of addresses it has already handled and returns before the app loop for
+    // a repeat, which leaves the assertions below passing for the wrong reason.
+    async function runWithLocations(locations, ownSocketAddress, newIp) {
+      appQueryServiceStub = {
+        installedApps: sinon.stub().resolves({
+          status: 'success',
+          data: [{ name: 'normalApp', version: 7, staticip: false }],
+        }),
+      };
+      registryManagerStub = { appLocation: sinon.stub().resolves(locations) };
+      appUninstallerStub = { removeAppLocally: sinon.stub().resolves() };
+      onAddressChangedSpy = sinon.stub().resolves();
+      enterpriseHelperStub = { checkAndDecryptAppSpecs: sinon.stub().callsFake((app) => Promise.resolve(app)) };
+      geolocationServiceStub = { setNodeGeolocation: sinon.stub() };
+      fluxCommunicationMessagesSenderStub = {
+        broadcastMessageToOutgoing: sinon.stub().resolves(),
+        broadcastMessageToIncoming: sinon.stub().resolves(),
+      };
+
+      const helper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        './appQuery/appQueryService': appQueryServiceStub,
+        './appDatabase/registryManager': registryManagerStub,
+        './appLifecycle/appUninstaller': appUninstallerStub,
+        './utils/enterpriseHelper': enterpriseHelperStub,
+        './geolocationService': geolocationServiceStub,
+        './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
+        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
+        './serviceHelper': serviceHelper,
+        'fs/promises': { writeFile: writeFileStub },
+      });
+      helper.setStoredFluxBenchAllowed('6.2.0');
+      helper.setLocalSocketAddress(ownSocketAddress);
+      helper.setOnAddressChanged(onAddressChangedSpy);
+      await helper.adjustExternalIP(newIp);
+    }
+
+    it('keeps an app whose only instance at the new address is this node itself', async () => {
+      await runWithLocations(
+        [{ name: 'normalApp', ip: '192.168.1.110:16127' }],
+        '192.168.1.110:16127',
+        '192.168.1.110',
+      );
+
+      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+      sinon.assert.calledOnce(onAddressChangedSpy);
+      const [staying] = onAddressChangedSpy.firstCall.args;
+      expect(staying.map((a) => a.name)).to.deep.equal(['normalApp']);
+    });
+
+    it('uninstalls an app another node already holds the ports for on this address', async () => {
+      // Same IP, different port: a UPnP sibling behind the shared address. The
+      // ports are genuinely gone, so this node cannot run it.
+      await runWithLocations(
+        [{ name: 'normalApp', ip: '192.168.1.111:16157' }],
+        '192.168.1.111:16127',
+        '192.168.1.111',
+      );
+
+      sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
+      sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'normalApp');
+      sinon.assert.notCalled(onAddressChangedSpy);
+    });
   });
 
   describe('checkDeterministicNodesCollisions tests', () => {

@@ -25,7 +25,7 @@ const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
 const {
-  normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress,
+  normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -1208,7 +1208,21 @@ async function adjustExternalIP(ip) {
 
           // eslint-disable-next-line no-await-in-loop
           const runningAppList = await registryManager.appLocation(app.name);
-          const duplicateInstance = runningAppList.find((instance) => extractIp(instance.ip) === ip);
+          // An instance at this address means the ports are taken and this node
+          // cannot run the app: one instance per IP is enforced by the host port
+          // mapping, so a UPnP sibling on another port holds them just as surely
+          // as a node that owns the address alone. That is why the address is
+          // compared at IP granularity.
+          //
+          // The node's OWN registration is not that. It stores its own running-app
+          // row locally, at the address benchmark reports, so the row sitting at
+          // this address is most often itself - and removing on that is a node
+          // deleting an app that is exactly where it belongs, then telling the
+          // network it is gone. Own-ness is the full socket address, which is what
+          // separates it from the sibling that shares only the IP.
+          const duplicateInstance = runningAppList.find(
+            (instance) => ipsMatch(instance.ip, ip) && !socketAddressesMatch(instance.ip, localSocketAddress),
+          );
           if (duplicateInstance) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
             log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${ip} (after IP change)`);
