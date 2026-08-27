@@ -772,14 +772,32 @@ async function reconcile(rawIdentifier) {
     // reached - skipping the stop here would leave a frozen container over the
     // missing volume with nothing left to release it. docker stop works on a
     // paused container.
-    if (controllerDesired.get(identifier) === 'stopped') {
+    // The operator's stop counts here for the same reason the controller's does,
+    // and is the more urgent of the two: a volume that will not mount is the state
+    // support reaches for a stop IN, so a stop that waits for the mount to come
+    // back is a stop that never arrives when it is wanted. It outranks the
+    // controller everywhere else in this pass (see effectiveDesiredRunning) and
+    // reading only the controller here was the one place it did not.
+    const operatorStop = await appsRuntimeState.operatorStopState(identifier);
+    if (operatorStop.stopped || controllerDesired.get(identifier) === 'stopped') {
       try {
         const actualNow = await dockerActual(identifier);
         if (actualNow.reachable && !actualNow.indeterminate && (actualNow.running || actualNow.paused)) {
-          log.info(`appReconciler - ${identifier} data volume unavailable but a stop is desired; stopping the container`);
-          await dockerService.appDockerStop(identifier);
+          // Only an operator asks for a hard kill; every other stop reason is a
+          // drain. Carried through here too, or an appkill against an unmounted
+          // volume quietly becomes a graceful stop.
+          const forceKill = operatorStop.stopped && operatorStop.force === true;
+          const reason = operatorStop.stopped ? 'operatorStopped' : 'controllerDesired';
+          log.info(`appReconciler - ${identifier} data volume unavailable but a stop is desired; ${forceKill ? 'killing' : 'stopping'} the container`);
+          if (forceKill) {
+            await dockerService.appDockerKill(identifier);
+          } else {
+            await dockerService.appDockerStop(identifier);
+          }
           appInspector.stopAppMonitoring(identifier, false);
-          fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'controllerDesired' });
+          fluxEventBus.publish('reconciler:actuated', {
+            identifier, action: 'stopped', reason, forced: forceKill,
+          });
         }
       } catch (err) {
         log.error(`appReconciler - ${identifier} stop under unavailable volume failed: ${err.message}`);
@@ -1520,6 +1538,11 @@ module.exports = {
   // What the reconciler would do with this component now, for a caller that has
   // to report an operator command's outcome truthfully.
   desiredRunState,
+  // What an app is actually made of. Enterprise specs keep their component names
+  // inside an encrypted blob, so reading `compose` off a stored spec yields an
+  // empty list and silently addresses nothing - which is why every caller that
+  // needs an app's components asks here rather than working it out again.
+  componentIdsOf,
   // exposed for tests
   reconcile,
   policyAllowsRun,

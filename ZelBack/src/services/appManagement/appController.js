@@ -4,7 +4,6 @@ const serviceHelper = require('../serviceHelper');
 // Removed verificationHelper to avoid circular dependency - will use dynamic require where needed
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
-const registryManager = require('../appDatabase/registryManager');
 const appsRuntimeState = require('./appsRuntimeState');
 const appReconciler = require('../appMonitoring/appReconciler');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
@@ -162,16 +161,40 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
  *
  * @param {string} appname app or component identifier
  * @param {object|null} appSpecs full app spec (null for a component command)
+ * The components are resolved from what the app is actually made of, never from a
+ * stored spec's `compose`: an enterprise app keeps its component names inside an
+ * encrypted blob, so reading compose yields an empty list and a whole-app command
+ * addresses nothing while reporting success.
+ *
  * @param {boolean} stopped
  * @param {object} [options]
  * @param {boolean} [options.awaitPass] hold until the reconcile pass has run
  * @param {boolean} [options.force] a stop is a hard kill, not a graceful stop
  * @param {boolean} [options.alsoRestart] raise the restart generation with the lock
  */
-async function setAppOperatorStopped(appname, appSpecs, stopped, { awaitPass = false, force = false, alsoRestart = false } = {}) {
-  const ids = (!appname.includes('_') && appSpecs && appSpecs.version > 3)
-    ? appSpecs.compose.map((c) => `${c.name}_${appSpecs.name}`)
-    : [appname];
+async function operatorTargetIds(appname) {
+  const mainAppName = appname.split('_')[1] || appname;
+  // eslint-disable-next-line global-require
+  const appQueryService = require('../appQuery/appQueryService');
+  const installedRes = await appQueryService.installedApps(mainAppName);
+  if (!installedRes || installedRes.status !== 'success' || !installedRes.data.length) {
+    throw new Error(`Application ${mainAppName} is not installed on this node`);
+  }
+  const appName = installedRes.data[0].name;
+  const ids = await appReconciler.componentIdsOf(installedRes.data);
+  if (!appname.includes('_')) return { ids, appName };
+  // A component is addressed by name, and a name that is not one of this app's
+  // components addresses nothing. Taking it verbatim wrote a durable operator
+  // lock under a component that does not exist - nothing clears one, and it holds
+  // the real component down if one is ever created with that name.
+  if (!ids.includes(appname)) {
+    throw new Error(`Component ${appname} is not installed on this node`);
+  }
+  return { ids: [appname], appName: appname };
+}
+
+async function setAppOperatorStopped(appname, stopped, { awaitPass = false, force = false, alsoRestart = false } = {}) {
+  const { ids, appName } = await operatorTargetIds(appname);
   // Components come up in compose order and go down in the reverse of it, so a
   // dependency outlives what writes to it: the database stops after the server it
   // serves, not before it. awaitPass holds each component's pass open before the
@@ -224,7 +247,7 @@ async function setAppOperatorStopped(appname, appSpecs, stopped, { awaitPass = f
     // the sync layer marks a component processed before it asks.
     if (stopped) appReconciler.clearControllerDesired(id);
   }
-  return { ids, actuated: allActuated };
+  return { ids, actuated: allActuated, appName };
 }
 
 /**
@@ -244,6 +267,10 @@ async function containersReachedStopped(ids) {
     // eslint-disable-next-line no-await-in-loop
     const actual = await appReconciler.dockerActual(id);
     if (!actual.reachable) return { settled: false, reason: 'docker is not reachable' };
+    // Nothing there is not the same as stopped. dockerActual distinguishes the two
+    // and this read the pair as one, so a command against a container that does not
+    // exist settled - and answered "stopped" for something that was never running.
+    if (!actual.exists) return { settled: false, reason: 'it is not installed on this node' };
     if (actual.running) return { settled: false, reason: 'the reconciler has not stopped it yet' };
   }
   return { settled: true, reason: null };
@@ -337,23 +364,9 @@ async function appStart(req, res) {
     //
     // awaitPass holds this handler until the pass has run, so a success still
     // means the container is running in the same wall-clock the direct call took.
-    const isComponent = appname.includes('_'); // it is a component start
-    let ids;
-    let actuated;
-    let startedName;
-
-    if (isComponent) {
-      ({ ids, actuated } = await setAppOperatorStopped(appname, null, false, { awaitPass: true }));
-      startedName = appname;
-    } else {
-      // Check if app exists before starting
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      ({ ids, actuated } = await setAppOperatorStopped(appname, appSpecs, false, { awaitPass: true }));
-      startedName = appSpecs.name;
-    }
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: startedName } = await setAppOperatorStopped(appname, false, { awaitPass: true });
 
     // A pass that completed is not a container that started - docker being
     // unreachable completes by deferring, and a synced component the election
@@ -439,23 +452,9 @@ async function appStop(req, res) {
     // Monitoring goes with the container, so the reconciler turns it off when it
     // stops one. Doing it here stopped the sampler for a container the stop had
     // not reached - an unreachable docker left it running and unwatched.
-    const isComponent = appname.includes('_'); // it is a component stop
-    let ids;
-    let actuated;
-    let stoppedName;
-
-    if (isComponent) {
-      ({ ids, actuated } = await setAppOperatorStopped(appname, null, true, { awaitPass: true }));
-      stoppedName = appname;
-    } else {
-      // Check if app exists before stopping
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      ({ ids, actuated } = await setAppOperatorStopped(appname, appSpecs, true, { awaitPass: true }));
-      stoppedName = appSpecs.name;
-    }
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: stoppedName } = await setAppOperatorStopped(appname, true, { awaitPass: true });
 
     // A pass that completed is not a container that stopped - docker being
     // unreachable completes by deferring. Probe rather than infer, so a stop
@@ -530,23 +529,9 @@ async function appRestart(req, res) {
     // the same request satisfied. Expressing it as a level rather than an action
     // is what removes the race: there is no window between this handler deciding
     // and the reconciler deciding, because only one of them decides.
-    const isComponent = appname.includes('_'); // it is a component restart
-    let ids;
-    let actuated;
-    let restartedName;
-
-    if (isComponent) {
-      ({ ids, actuated } = await setAppOperatorStopped(appname, null, false, { awaitPass: true, alsoRestart: true }));
-      restartedName = appname;
-    } else {
-      // Check if app exists before restarting
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      ({ ids, actuated } = await setAppOperatorStopped(appname, appSpecs, false, { awaitPass: true, alsoRestart: true }));
-      restartedName = appSpecs.name;
-    }
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: restartedName } = await setAppOperatorStopped(appname, false, { awaitPass: true, alsoRestart: true });
 
     const outcome = actuated
       ? await containersReachedRunning(ids)
@@ -605,23 +590,9 @@ async function appKill(req, res) {
     // with a mode: the lock, plus force. The reconciler reads the mode where it
     // stops the container, which keeps the choice of signal beside the decision
     // to stop rather than in a handler racing it.
-    const isComponent = appname.includes('_'); // it is a component kill
-    let ids;
-    let actuated;
-    let killedName;
-
-    if (isComponent) {
-      ({ ids, actuated } = await setAppOperatorStopped(appname, null, true, { awaitPass: true, force: true }));
-      killedName = appname;
-    } else {
-      // Check if app exists before killing
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      ({ ids, actuated } = await setAppOperatorStopped(appname, appSpecs, true, { awaitPass: true, force: true }));
-      killedName = appSpecs.name;
-    }
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: killedName } = await setAppOperatorStopped(appname, true, { awaitPass: true, force: true });
 
     const outcome = actuated
       ? await containersReachedStopped(ids)

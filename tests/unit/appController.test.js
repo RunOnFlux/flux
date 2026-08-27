@@ -4,7 +4,6 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
 const dockerService = require('../../ZelBack/src/services/dockerService');
-const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
@@ -16,6 +15,38 @@ const { requireMongo } = require('./dbTestHelper');
 
 describe('appController tests', () => {
   before(requireMongo);
+
+
+  // The handlers ask what an app is actually MADE OF rather than reading compose
+  // off a stored spec, so a fixture has to say what is installed here and what its
+  // components are. Ids mirror componentIdsOf for a readable spec.
+  function stubInstalledApp(spec) {
+    // eslint-disable-next-line global-require
+    const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+    const ids = (spec.version >= 4 && Array.isArray(spec.compose))
+      ? spec.compose.map((c) => `${c.name}_${spec.name}`)
+      : [spec.name];
+    if (!appQueryService.installedApps.restore) sinon.stub(appQueryService, 'installedApps');
+    appQueryService.installedApps.resolves({ status: 'success', data: [spec] });
+    if (!appReconciler.componentIdsOf.restore) sinon.stub(appReconciler, 'componentIdsOf');
+    appReconciler.componentIdsOf.resolves(ids);
+    return ids;
+  }
+
+  function stubNoInstalledApp() {
+    // eslint-disable-next-line global-require
+    const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+    if (!appQueryService.installedApps.restore) sinon.stub(appQueryService, 'installedApps');
+    appQueryService.installedApps.resolves({ status: 'success', data: [] });
+  }
+
+  function stubInstalledComponentApp(component, appName) {
+    return stubInstalledApp({
+      name: appName,
+      version: 4,
+      compose: [{ name: component }, { name: 'other' }],
+    });
+  }
 
   let verificationHelperStub;
   let db;
@@ -53,12 +84,12 @@ describe('appController tests', () => {
         await mutate();
         return true;
       });
-      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, running: true });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
     });
 
     it('should start app and return success message', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'TestApp',
         version: 3,
       });
@@ -124,6 +155,8 @@ describe('appController tests', () => {
     it('should handle component start for component names', async () => {
       verificationHelperStub.resolves(true);
 
+      stubInstalledComponentApp('Component', 'TestApp');
+
       const req = {
         params: { appname: 'Component_TestApp' },
         query: {},
@@ -142,7 +175,7 @@ describe('appController tests', () => {
 
     it('should start all components for version 4+ apps', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'ComposedApp',
         version: 4,
         compose: [
@@ -176,11 +209,11 @@ describe('appController tests', () => {
 
     it('should report the election, not a start, for a component held by its decider', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'TestApp',
         version: 3,
       });
-      appReconciler.dockerActual.resolves({ reachable: true, running: false });
+      appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
       sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: null, reason: 'awaitingController' });
 
       const req = {
@@ -202,7 +235,7 @@ describe('appController tests', () => {
 
     it('should report an unreachable docker rather than claiming a start', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'TestApp',
         version: 3,
       });
@@ -252,7 +285,7 @@ describe('appController tests', () => {
 
     it('should stop app and return success message', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'TestApp',
         version: 3,
       });
@@ -281,7 +314,7 @@ describe('appController tests', () => {
     it('should stop all components for version 4+ apps in reverse order', async () => {
       verificationHelperStub.resolves(true);
       sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'ComposedApp',
         version: 4,
         compose: [
@@ -318,6 +351,8 @@ describe('appController tests', () => {
       verificationHelperStub.resolves(true);
       sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
 
+      stubInstalledComponentApp('Component', 'TestApp');
+
       const req = {
         params: { appname: 'Component_TestApp' },
         query: {},
@@ -346,6 +381,8 @@ describe('appController tests', () => {
       globalState.bootContainerStateSettled = true;
       sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: false, running: false });
 
+      stubInstalledComponentApp('Component', 'TestApp');
+
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
       await appController.appStop(req, res);
@@ -360,7 +397,9 @@ describe('appController tests', () => {
       verificationHelperStub.resolves(true);
       sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
       globalState.bootContainerStateSettled = true;
-      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, running: false });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
+
+      stubInstalledComponentApp('Component', 'TestApp');
 
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -378,6 +417,8 @@ describe('appController tests', () => {
       // that converges rather than a stopped container that gets restarted.
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      stubInstalledComponentApp('Component', 'TestApp');
 
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -397,6 +438,8 @@ describe('appController tests', () => {
       sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
       const clearControllerDesired = sinon.stub(appReconciler, 'clearControllerDesired');
 
+      stubInstalledComponentApp('Component', 'TestApp');
+
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
       await appController.appStop(req, res);
@@ -411,6 +454,8 @@ describe('appController tests', () => {
       verificationHelperStub.resolves(true);
       sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
       const clearControllerDesired = sinon.stub(appReconciler, 'clearControllerDesired');
+
+      stubInstalledComponentApp('Component', 'TestApp');
 
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -427,7 +472,7 @@ describe('appController tests', () => {
       publishStub = sinon.stub(fluxEventBus, 'publish');
       sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
       sinon.stub(appsRuntimeState, 'requestRestart').resolves();
-      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, running: false });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
     });
 
     const intents = () => publishStub.getCalls()
@@ -440,6 +485,8 @@ describe('appController tests', () => {
         await mutate();
         return true;
       });
+
+      stubInstalledComponentApp('Component', 'TestApp');
 
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -456,8 +503,9 @@ describe('appController tests', () => {
         await mutate();
         return true;
       });
-      appReconciler.dockerActual.resolves({ reachable: true, running: true });
+      appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: true });
 
+      stubInstalledComponentApp('Component', 'TestApp');
       const res = { json: sinon.fake((param) => param) };
       await appController.appKill({ params: { appname: 'Component_TestApp' }, query: {} }, res);
       await appController.appRestart({ params: { appname: 'Component_TestApp' }, query: {} }, res);
@@ -485,6 +533,8 @@ describe('appController tests', () => {
         return true;
       });
 
+      stubInstalledComponentApp('Component', 'TestApp');
+
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
       await appController.appStop(req, res);
@@ -499,6 +549,8 @@ describe('appController tests', () => {
         await mutate();
         return true;
       });
+
+      stubInstalledComponentApp('Component', 'TestApp');
 
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -519,12 +571,12 @@ describe('appController tests', () => {
         await mutate();
         return true;
       });
-      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, running: true });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
     });
 
     it('should restart app and return success message', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'TestApp',
         version: 3,
       });
@@ -550,7 +602,7 @@ describe('appController tests', () => {
 
     it('should restart all components for version 4+ apps', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'ComposedApp',
         version: 4,
         compose: [
@@ -600,7 +652,7 @@ describe('appController tests', () => {
     it('clears the operator stop lock and raises the generation together (v1-3 app)', async () => {
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({ name: 'TestApp', version: 3 });
+      stubInstalledApp({ name: 'TestApp', version: 3 });
 
       const req = { params: { appname: 'TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -616,7 +668,7 @@ describe('appController tests', () => {
     it('clears every component lock before restarting a composed app', async () => {
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'ComposedApp',
         version: 4,
         compose: [{ name: 'Component1' }, { name: 'Component2' }],
@@ -634,6 +686,7 @@ describe('appController tests', () => {
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
 
+      stubInstalledComponentApp('Component1', 'ComposedApp');
       const req = { params: { appname: 'Component1_ComposedApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
       await appController.appRestart(req, res);
@@ -647,13 +700,15 @@ describe('appController tests', () => {
     it('lifts the lock for a synced component the election holds, and says so', async () => {
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'ComposedApp',
         version: 4,
         compose: [{ name: 'Gcomp', containerData: 'g:/data' }],
       });
-      appReconciler.dockerActual.resolves({ reachable: true, running: false });
+      appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
       sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: null, reason: 'awaitingController' });
+
+      stubInstalledComponentApp('Gcomp', 'ComposedApp');
 
       const req = { params: { appname: 'Gcomp_ComposedApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -673,12 +728,14 @@ describe('appController tests', () => {
         await mutate();
         return true;
       });
-      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, running: false });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
     });
 
     it('records the kill as a forced stop and leaves the signal to the reconciler', async () => {
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      stubInstalledComponentApp('Component', 'TestApp');
 
       const req = { params: { appname: 'Component_TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
@@ -693,7 +750,7 @@ describe('appController tests', () => {
 
     it('should kill app and return success message', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'TestApp',
         version: 3,
       });
@@ -717,7 +774,7 @@ describe('appController tests', () => {
     it('should kill all components for version 4+ apps', async () => {
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'ComposedApp',
         version: 4,
         compose: [
@@ -750,7 +807,7 @@ describe('appController tests', () => {
 
     it('reports pending rather than killed when docker cannot be reached', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+      stubInstalledApp({
         name: 'TestApp',
         version: 3,
       });
@@ -764,9 +821,63 @@ describe('appController tests', () => {
       expect(result.data).to.equal('Application TestApp will be killed: docker is not reachable');
     });
 
+    // An enterprise spec keeps its component names inside an encrypted blob, so the
+    // stored compose is empty. Deriving ids from it addressed NOTHING and then
+    // reported success, because zero components all reached stopped.
+    it('stops every component of an enterprise app, whose stored compose is empty', async () => {
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      // eslint-disable-next-line global-require
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      sinon.stub(appQueryService, 'installedApps').resolves({
+        status: 'success',
+        data: [{ name: 'EntApp', version: 8, enterprise: 'encrypted-blob', compose: [] }],
+      });
+      sinon.stub(appReconciler, 'componentIdsOf').resolves(['api_EntApp', 'db_EntApp']);
+
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop({ params: { appname: 'EntApp' }, query: {} }, res);
+
+      expect(setOperatorStopped.callCount, 'both components must be addressed').to.equal(2);
+      const addressed = setOperatorStopped.getCalls().map((c) => c.args[0]).sort();
+      expect(addressed).to.deep.equal(['api_EntApp', 'db_EntApp']);
+    });
+
+    // A component name was taken verbatim, so a typo wrote a durable operator lock
+    // under a component that does not exist. Nothing clears one, and it holds the
+    // real component down if one is ever created with that name.
+    it('refuses a component that is not one of the app\'s, and writes no lock', async () => {
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      stubInstalledComponentApp('Real', 'TestApp');
+
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop({ params: { appname: 'Bogus_TestApp' }, query: {} }, res);
+
+      const result = res.json.firstCall.args[0];
+      expect(result.status).to.equal('error');
+      sinon.assert.notCalled(setOperatorStopped);
+    });
+
+    // "nothing there" settled as "stopped", so a command against a container that
+    // does not exist answered that it had been stopped.
+    it('does not report a container that is not installed as stopped', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      appReconciler.dockerActual.resolves({ reachable: true, exists: false, running: false });
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop({ params: { appname: 'TestApp' }, query: {} }, res);
+
+      const message = JSON.stringify(res.json.firstCall.args[0]);
+      expect(message, 'must not claim a stop').to.not.match(/TestApp stopped/);
+      expect(message).to.match(/not installed on this node/);
+    });
+
     it('should return error if app not found', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves(null);
+      stubNoInstalledApp();
 
       const req = {
         params: { appname: 'NonExistentApp' },
@@ -786,7 +897,7 @@ describe('appController tests', () => {
     // operator, and ending someone else's app abruptly is not theirs to order.
     it('asks for a privilege that excludes the node operator', async () => {
       verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({ name: 'TestApp', version: 3 });
+      stubInstalledApp({ name: 'TestApp', version: 3 });
 
       const req = { params: { appname: 'TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
