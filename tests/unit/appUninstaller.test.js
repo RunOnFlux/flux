@@ -138,6 +138,31 @@ describe('appUninstaller tests', () => {
       expect(verificationHelperStub.verifyPrivilege.called).to.be.true;
     });
 
+    // The gate IS the policy: hosting an app is not owning it, so ending one is
+    // the owner's call or the team's on their behalf. appownerabove and
+    // appownerorfluxteam differ in exactly one member - the node operator - so
+    // which of the two is asked for is the whole of what keeps them out, and
+    // asserting merely that a privilege was checked leaves that free to change.
+    // What each privilege admits is pinned in verificationHelperUtils.test.js
+    // ("FALSE for the node operator, who OrHigher admits"); this pins the hop
+    // between them.
+    it('gates an uninstall on the privilege that refuses the node operator', async () => {
+      const req = {
+        params: { appname: 'testapp' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+      };
+
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error' });
+
+      await appUninstaller.removeAppLocallyApi(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub.verifyPrivilege, 'appownerorfluxteam', req, 'testapp');
+    });
+
     it('should handle missing appname parameter', async () => {
       const req = {
         params: {},
