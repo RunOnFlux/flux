@@ -36,6 +36,14 @@ export async function addNodeAddress(container, ip, { prefix = 24, iface = 'eth0
 // probe fail, which is what a node needs before it will ask benchmark whether its
 // address changed.
 //
+// REJECT rather than DROP, and the difference decides whether this works at all.
+// A peer asked whether it can reach this node probes it and answers within the
+// asker's own timeout budget. Dropped packets blackhole, so that probe burns its
+// full timeout and the peer answers too late - the asker times out on the PEER and
+// reads "I could not ask" instead of "I am unreachable", which retries without ever
+// consulting benchmark. Refusing fails the probe instantly, so the answer arrives
+// in time and says what it is meant to say.
+//
 // Named peers rather than the subnet: the runner reaches the node from the docker
 // gateway on that same /24, so a blanket rule would cut off the very client doing
 // the asserting.
@@ -46,7 +54,7 @@ export async function addNodeAddress(container, ip, { prefix = 24, iface = 'eth0
 export async function blockPeerAccess(container, peerIps, apiPort) {
   for (const peerIp of peerIps) {
     // eslint-disable-next-line no-await-in-loop
-    const r = await execInContainer(container, `iptables -I INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j DROP`);
+    const r = await execInContainer(container, `iptables -I INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
     if (r.exitCode !== 0) {
       throw new Error(`blockPeerAccess: could not drop ${peerIp} -> :${apiPort}: ${r.output}`);
     }
@@ -59,7 +67,7 @@ export async function blockPeerAccess(container, peerIps, apiPort) {
 export async function unblockPeerAccess(container, peerIps, apiPort) {
   for (const peerIp of peerIps) {
     // eslint-disable-next-line no-await-in-loop
-    await execInContainer(container, `iptables -D INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j DROP`);
+    await execInContainer(container, `iptables -D INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
   }
 }
 
