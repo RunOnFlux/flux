@@ -67,7 +67,21 @@ try {
 
 function nodeBySourceIp(sourceIp) {
   const clean = sourceIp.replace('::ffff:', '');
-  return deterministicNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
+  const listed = deterministicNodeList.find((n) => n.ip.split(':')[0] === clean);
+  if (listed) return listed;
+  // A node that has really moved arrives from its NEW address while its list entry
+  // still says where it was - which is exactly the state an address change puts it
+  // in, before the chain catches up. It is the same node, and failing to recognise
+  // it here costs it its own identity: every answer about it falls back to the
+  // not-found defaults, so it reads its own address as 127.0.0.1, decides it is not
+  // in the confirmed list, and skips the availability check that would have told it
+  // what happened.
+  for (const [realIp, override] of reportedAddresses) {
+    if (String(override.reported).split(':')[0] === clean) {
+      return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
+    }
+  }
+  return null;
 }
 
 // Where a node really is, versus where the network is told it is.
@@ -114,12 +128,37 @@ function publicIpAnswerFor(node) {
   return (o ? o.reported : node.ip).split(':')[0];
 }
 
-// The list as the network sees it: every entry at its reported address. A node
-// that has not moved is returned untouched, so a run with no override in play
-// serves the very same objects it always did.
-function publishedNodeList() {
-  if (!reportedAddresses.size) return deterministicNodeList;
-  return deterministicNodeList.map((n) => {
+// Nodes hidden from their PEERS' view of the network, but never from their own.
+//
+// This is what makes a node unreachable to the fleet deterministically. Asked
+// whether it can reach a node, a peer consults its node list FIRST and answers
+// "not available" outright when the address is not in it - no probe, no timeout,
+// no dependence on how fast anything answers. Blocking packets instead only makes
+// the probe slow, and a slow probe is a different answer from an absent one: the
+// asker times out on the PEER and never learns it is unreachable.
+//
+// The node still sees ITSELF, because it has its own confirmed-list gate to pass
+// before it will run the availability check at all. Hiding it from everyone,
+// itself included, stops the check ever running.
+const hiddenFromPeers = new Set(); // real ip -> hidden from other nodes' lists
+
+// The list as a given requester sees it: every entry at its reported address,
+// minus any node hidden from that requester. A run with nothing hidden and nothing
+// moved serves the very same objects it always did.
+function publishedNodeList(sourceIp) {
+  const asker = sourceIp ? sourceIp.replace('::ffff:', '') : null;
+  const visible = hiddenFromPeers.size
+    ? deterministicNodeList.filter((n) => {
+      const ip = n.ip.split(':')[0];
+      return !hiddenFromPeers.has(ip) || ip === asker;
+    })
+    : deterministicNodeList;
+  return publishReported(visible);
+}
+
+function publishReported(list) {
+  if (!reportedAddresses.size) return list;
+  return list.map((n) => {
     const o = reportedAddresses.get(n.ip.split(':')[0]);
     return o && o.scope === 'all' ? { ...n, ip: o.reported } : n;
   });
@@ -223,8 +262,8 @@ const rpcHandlers = {
   getmempoolinfo: () => ({ size: 0, bytes: 0, usage: 0 }),
   getrawmempool: () => [],
 
-  viewdeterministiczelnodelist: () => publishedNodeList(),
-  viewdeterministicfluxnodelist: () => publishedNodeList(),
+  viewdeterministiczelnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
+  viewdeterministicfluxnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
 
   getzelnodestatus: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
@@ -268,8 +307,8 @@ const rpcHandlers = {
   getdoslist: () => [],
   getstartlist: () => [],
 
-  listfluxnodes: () => publishedNodeList(),
-  listzelnodes: () => publishedNodeList(),
+  listfluxnodes: (params, sourceIp) => publishedNodeList(sourceIp),
+  listzelnodes: (params, sourceIp) => publishedNodeList(sourceIp),
 
   getrawtransaction: (params) => {
     const txid = params[0];
@@ -607,6 +646,20 @@ control.post('/set-node-list', (req, res) => {
 // address moves and before the chain has caught up - and it is the only state in
 // which a node can DETECT the move, because detection is precisely those two
 // answers disagreeing.
+// Hide a node from its PEERS' view of the network, or put it back. The node keeps
+// seeing itself, which is what lets it still run the availability check that then
+// comes back "unreachable" - deterministically, because a peer answers from its
+// list rather than from a probe.
+control.post('/node-visibility/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === key);
+  if (!node) return res.status(404).json({ error: `no node in the list at ${key}` });
+  const hidden = (req.body || {}).hidden !== false;
+  if (hidden) hiddenFromPeers.add(key);
+  else hiddenFromPeers.delete(key);
+  return res.json({ node: key, hiddenFromPeers: hidden });
+});
+
 control.post('/node-address/:ip', (req, res) => {
   const key = String(req.params.ip).split(':')[0];
   const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === key);
@@ -776,6 +829,7 @@ control.delete('/seed-data', (req, res) => {
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
   reportedAddresses.clear();
+  hiddenFromPeers.clear();
   rpcFailures.clear();
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];

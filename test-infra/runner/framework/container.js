@@ -6,25 +6,37 @@ export async function execInContainer(container, command) {
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, output: result.output };
 }
 
-// Give a node a second address on the fleet network, so it answers there as well
-// as where it started.
+// Move a node to a different address on the fleet network: the new one goes on,
+// the old one comes off.
 //
-// The other half of an address change. Telling the network a node moved is not
-// enough on its own: the availability check that gates the whole path has a PEER
-// dial the address the node now claims, so a node that claims an address nothing
-// answers on reads as unreachable rather than as moved. The nodes run privileged,
-// so the address is simply added to the interface - no renumbering, no restart,
-// and every existing connection survives because the original address stays.
+// This is what an address change IS, and doing it for real is what makes the rest
+// of the fixture honest. Its peers then find it unreachable at the old address
+// because it genuinely is not there - no packet filter simulating it, and nothing
+// hidden from the node list, so they still recognise it as the sender of the
+// fluxipchanged broadcast that follows.
+//
+// The timing matters and is measured. A probe to an address that is gone fails
+// with EHOSTUNREACH at ~3.1s (ARP gives up), NOT a hang - so a peer's own probe
+// budget of 5s sees a failure rather than a timeout, and it answers the asking
+// node inside that node's 7s budget. Those margins are why this works where
+// dropping packets did not: a dropped probe burns the full 5s, and the answer
+// then arrives after the asker has already given up, which reads as "I could not
+// ask" rather than "you are unreachable" - a different branch entirely, and one
+// that never consults benchmark.
 //
 // @param {object} container The node's container.
-// @param {string} ip Bare address to add, inside the fleet's own /24.
-export async function addNodeAddress(container, ip, { prefix = 24, iface = 'eth0' } = {}) {
-  const r = await execInContainer(container, `ip addr add ${ip}/${prefix} dev ${iface}`);
-  // Already present is the state we wanted, not a failure.
-  if (r.exitCode !== 0 && !/File exists/i.test(r.output || '')) {
-    throw new Error(`addNodeAddress: could not add ${ip}/${prefix} to ${iface}: ${r.output}`);
+// @param {string} to Bare address to move to, inside the fleet's own /24.
+// @param {string} from Bare address to give up.
+export async function moveNodeAddress(container, to, from, { prefix = 24, iface = 'eth0' } = {}) {
+  const add = await execInContainer(container, `ip addr add ${to}/${prefix} dev ${iface}`);
+  if (add.exitCode !== 0 && !/File exists/i.test(add.output || '')) {
+    throw new Error(`moveNodeAddress: could not add ${to}/${prefix} to ${iface}: ${add.output}`);
   }
-  return ip;
+  const del = await execInContainer(container, `ip addr del ${from}/${prefix} dev ${iface}`);
+  if (del.exitCode !== 0 && !/Cannot assign|not exist/i.test(del.output || '')) {
+    throw new Error(`moveNodeAddress: could not remove ${from}/${prefix} from ${iface}: ${del.output}`);
+  }
+  return to;
 }
 
 // Make a node unreachable to the named peers, without taking it off the network.

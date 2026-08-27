@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
-import { getAppContainerStatus, blockPeerAccess, unblockPeerAccess } from '../framework/container.js';
+import { getAppContainerStatus, moveNodeAddress } from '../framework/container.js';
 import { setNodeAddress, clearNodeAddress } from '../framework/daemon-control.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
@@ -27,10 +27,21 @@ const subnet = getSubnetConfig();
 // Moving them together instead describes a change already settled everywhere, which
 // no node ever has to detect.
 //
-// And the node stops answering its PEERS at the old address (blockPeerAccess), which
-// is what an address change looks like from the outside. That is what the path
-// requires: a node only asks benchmark whether its address moved after a peer has
-// failed to reach it, so a node that is still perfectly reachable never asks.
+// And the node actually moves (moveNodeAddress): the new address goes on its
+// interface and the old one comes off. Its peers then find it unreachable at the
+// old address because it genuinely is not there, which is what the path requires -
+// a node only asks benchmark whether its address moved after a peer has failed to
+// reach it, so a node that is still perfectly reachable never asks.
+//
+// Moving it for real rather than simulating unreachability is what lets both
+// assertions hold at once. The node list is untouched, so peers still recognise it
+// as the sender of the fluxipchanged broadcast below - hiding it from their lists
+// would make them answer "unreachable" just as reliably and then reject that
+// broadcast as coming from a stranger.
+//
+// The client follows it (followTo). The harness otherwise reaches a node at a fixed
+// address, so a node that really moves goes blind to its own client and the suite
+// fails because the observer was left behind rather than because anything broke.
 //
 // Leaving the list alone matters twice over. It is what lets the node pass its own
 // confirmed-list check and run the availability check at all - and it is what lets
@@ -39,8 +50,6 @@ const subnet = getSubnetConfig();
 //
 // Three nodes, not ten: one node runs the app and the others are there to be
 // peers. No election is involved, so there is no quorum to satisfy.
-
-const API_PORT = 16127;
 
 const COMPONENT_A = 'alpha';
 const COMPONENT_B = 'beta';
@@ -59,7 +68,6 @@ describe('a node whose address changed restarts the apps that stay', function ()
   let baseline;
   let peerIdx;
   let peerBaseline;
-  let peerIps = [];
   const appName = `e2eipchg${Date.now()}`;
   const idA = `${COMPONENT_A}_${appName}`;
   const idB = `${COMPONENT_B}_${appName}`;
@@ -107,25 +115,21 @@ describe('a node whose address changed restarts the apps that stay', function ()
       label: 'both components running before the address moves',
     });
 
-    // Taken before the move, so a restart that had already happened cannot be read
-    // as this one's.
-    baseline = client.getLastEventId();
     peerIdx = (idx + 1) % env.clients.length;
     peerBaseline = env.clients[peerIdx].getLastEventId();
 
-    peerIps = env.clients.map((_, i) => subnet.nodeIp(i + 1)).filter((_, i) => i !== idx);
-    // Unreachable to its peers first, then the probe moves. In that order the node
-    // cannot conclude it is fine before it has anything to compare.
-    await blockPeerAccess(client.container, peerIps, API_PORT);
+    // The node moves first, then the probe reports it. In that order the node cannot
+    // conclude it is fine before it has anything to compare.
+    await moveNodeAddress(client.container, movedIp, nodeIp);
+    // Follow it, or every assertion below is made against an address nothing answers
+    // on. The reconnect resets the buffer, so the baseline is taken from here.
+    baseline = await client.followTo(movedIp);
     await setNodeAddress(nodeIp, movedIp, { scope: 'publicip' });
   });
 
   after(async function () {
     this.timeout(60000);
     await clearNodeAddress(nodeIp).catch(() => {});
-    if (peerIps.length) {
-      await unblockPeerAccess(env.clients[idx].container, peerIps, API_PORT).catch(() => {});
-    }
     await env?.teardown();
   });
 

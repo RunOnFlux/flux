@@ -81,6 +81,27 @@ export async function setNodeAddress(node, reported, { scope = 'all' } = {}) {
   return post(`/node-address/${String(node).split(':')[0]}`, { reported, scope });
 }
 
+/**
+ * Hide a node from its peers' view of the network, so they answer "not available"
+ * for it without probing anything.
+ *
+ * A peer asked whether it can reach a node consults its node list first and answers
+ * outright when the address is not in it. That is an answer, not a timeout, so it
+ * arrives inside the asker's budget every time - which is what makes an unreachable
+ * node a deterministic fixture rather than a race.
+ *
+ * The node keeps seeing itself: it has its own confirmed-list gate to pass before it
+ * will run the availability check at all.
+ */
+export async function hideNodeFromPeers(node) {
+  return post(`/node-visibility/${String(node).split(':')[0]}`, { hidden: true });
+}
+
+/** Put a node back into its peers' view. */
+export async function revealNodeToPeers(node) {
+  return post(`/node-visibility/${String(node).split(':')[0]}`, { hidden: false });
+}
+
 /** Put a node's address back to where it really is. */
 export async function clearNodeAddress(node) {
   return post(`/node-address/${String(node).split(':')[0]}`, {});
