@@ -1189,6 +1189,10 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
@@ -1262,6 +1266,10 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
@@ -1323,6 +1331,10 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
@@ -1380,6 +1392,10 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
@@ -1441,6 +1457,23 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnce(onAddressChangedSpy);
       const [staying] = onAddressChangedSpy.firstCall.args;
       expect(staying.map((a) => a.name)).to.deep.equal(['normalApp']);
+    });
+
+    // localSocketAddress is cleared whenever benchmark hiccups, and the change must
+    // survive that rather than be decided on it or dropped. Asserting the userconfig
+    // write did NOT happen is the point: that write is what marks the change handled,
+    // so an unwritten config is a change still pending for the next cycle.
+    it('defers the whole change, unwritten, when it does not know its own address', async () => {
+      await runWithLocations(
+        [{ name: 'normalApp', ip: '192.168.1.112:16157' }],
+        null,
+        '192.168.1.112',
+      );
+
+      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+      sinon.assert.notCalled(onAddressChangedSpy);
+      sinon.assert.notCalled(writeFileStub);
+      sinon.assert.notCalled(geolocationServiceStub.setNodeGeolocation);
     });
 
     it('uninstalls an app another node already holds the ports for on this address', async () => {

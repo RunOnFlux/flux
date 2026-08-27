@@ -1130,6 +1130,23 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
+    // Everything below needs to know which node this is: whose registration among
+    // the ones found at the new address is our own, which apps are ours to hand
+    // over, and what address the fluxipchanged broadcast is moving FROM.
+    // localSocketAddress is cleared whenever benchmark hiccups, and a comparison
+    // against nothing matches nothing - so acting here would read our own rows as
+    // strangers' and uninstall the apps they belong to.
+    //
+    // Return BEFORE the userconfig write, which is what makes this a deferral
+    // rather than a silent drop: the write is what marks the change handled, so
+    // leaving it unwritten leaves the change pending. checkMyFluxAvailability
+    // already refuses to run while the address is unknown, so nothing reaches here
+    // again until benchmark answers - and then this runs with the node knowing
+    // itself, exactly once, as designed.
+    if (!localSocketAddress) {
+      log.warn(`adjustExternalIP - own address unknown, deferring the change to ${ip} until benchmark answers`);
+      return;
+    }
     const oldUserConfigIp = userconfig.initial.ipaddress;
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
