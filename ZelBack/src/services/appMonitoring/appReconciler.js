@@ -1297,7 +1297,9 @@ async function applyIntent(rawIdentifier, mutate, { awaitPass = false } = {}) {
  * decrypt.
  *
  * @param {Array<object>} installed Records from appQueryService.installedApps().
- * @returns {Promise<string[]>} Component identifiers across every app given.
+ * @returns {Promise<string[]>} Bare component identifiers (`<component>_<app>`,
+ *   or `<app>` for v1-3) across every app given - one spelling whichever source
+ *   they came from.
  */
 async function componentIdsOf(installed) {
   const { readable, unreadable } = await appQueryService.decryptEnterpriseApps(installed, { formatSpecs: false });
@@ -1323,7 +1325,13 @@ async function componentIdsOf(installed) {
   }
   unreadable.forEach((app) => {
     const suffix = `_${app.name}`;
-    dockerNames.filter((name) => name.endsWith(suffix)).forEach((name) => ids.push(name));
+    // Docker holds the namespaced name (`flux<component>_<app>`); the readable
+    // branch above produces the bare one. One list carries one spelling, so a
+    // consumer that compares it against a component name an operator typed
+    // matches it, rather than refusing every component of an app whose spec
+    // will not decrypt. The consumers that canonicalise on ingest cannot tell
+    // the two apart, which is why they coexisted unnoticed.
+    dockerNames.filter((name) => name.endsWith(suffix)).forEach((name) => ids.push(canonical(name)));
   });
   return ids;
 }

@@ -843,6 +843,35 @@ describe('appController tests', () => {
       expect(addressed).to.deep.equal(['api_EntApp', 'db_EntApp']);
     });
 
+    // Runs the REAL componentIdsOf, deliberately. Every other test here stubs it
+    // and so states what it returns rather than checking it - which is what let
+    // its two branches drift apart. An app whose spec will not decrypt has its
+    // components enumerated from docker, which namespaces every name it holds,
+    // and operatorTargetIds checks the operator's component name against that
+    // list: a `flux`-prefixed entry refused the very component it names.
+    it('honours a component command against an app whose spec will not decrypt', async () => {
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      // eslint-disable-next-line global-require
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      const stored = {
+        name: 'EntApp', version: 8, enterprise: 'encrypted-blob', compose: [],
+      };
+      sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [stored] });
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({ readable: [], unreadable: [stored], inPlace: [stored] });
+      sinon.stub(dockerService, 'dockerListContainers').resolves([
+        { Names: ['/fluxapi_EntApp'] },
+        { Names: ['/fluxdb_EntApp'] },
+      ]);
+
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop({ params: { appname: 'api_EntApp' }, query: {} }, res);
+
+      const result = res.json.firstCall.args[0];
+      expect(result.data, 'the component must not be refused as uninstalled').to.equal('Application api_EntApp stopped');
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'api_EntApp', true, { force: false });
+    });
+
     // A component name was taken verbatim, so a typo wrote a durable operator lock
     // under a component that does not exist. Nothing clears one, and it holds the
     // real component down if one is ever created with that name.

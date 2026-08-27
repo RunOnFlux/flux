@@ -1131,6 +1131,33 @@ describe('appReconciler tests', () => {
       const deferred = stubs.log.warn.getCalls().some((c) => /spec read failed, deferring/.test(c.args[0]));
       expect(deferred, 'should defer on decrypt failure, never act on still-encrypted data').to.equal(true);
     });
+
+    // The two branches read from different sources - compose for a readable
+    // spec, docker's own container names for an unreadable one - and docker
+    // namespaces every name it holds. The list must carry one spelling: every
+    // consumer up to now canonicalised on ingest and so could not tell them
+    // apart, which is what let the divergence stand until one compared the list
+    // against a component name an operator typed.
+    it('returns the bare component identifier whether or not the spec decrypted', async () => {
+      const plain = { name: 'Plain', version: 4, compose: [{ name: 'www', containerData: '/data' }] };
+      const encrypted = {
+        name: 'EntApp', version: 8, enterprise: 'CIPHERTEXT', compose: [],
+      };
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({
+        readable: arr.filter((a) => !a.enterprise),
+        unreadable: arr.filter((a) => a.enterprise),
+        inPlace: arr,
+      }));
+      stubs.dockerService.dockerListContainers.resolves([
+        { Names: ['/fluxc1_EntApp'] },
+        { Names: ['/fluxc2_EntApp'] },
+      ]);
+
+      const ids = await appReconciler.componentIdsOf([plain, encrypted]);
+
+      expect(ids, 'docker-derived ids must be namespace-stripped like compose-derived ones')
+        .to.have.members(['www_Plain', 'c1_EntApp', 'c2_EntApp']);
+    });
   });
 
   // The sweep contract: enqueueAll must cover EVERY installed component -
