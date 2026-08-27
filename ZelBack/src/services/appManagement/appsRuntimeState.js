@@ -70,14 +70,13 @@ function isDuplicateKeyError(err) {
   return err && (err.code === 11000 || /E11000/.test(err.message || ''));
 }
 
-async function setFields(rawIdentifier, fields) {
-  const identifier = canonical(rawIdentifier);
+async function upsertState(identifier, update) {
   const database = collection();
   const write = () => dbHelper.updateOneInDatabase(
     database,
     appsRuntimeState,
     { identifier },
-    { $set: { identifier, ...fields, updatedAt: Date.now() } },
+    update,
     { upsert: true },
   );
   try {
@@ -86,10 +85,16 @@ async function setFields(rawIdentifier, fields) {
     // Under the unique index, the loser of a concurrent first upsert THROWS a
     // duplicate-key error instead of converting to an update. The document
     // exists at that point, so one retry takes the update path - without it the
-    // loser's write (possibly the operator stop lock) would be silently dropped.
+    // loser's write (possibly the operator stop lock, or a restart request)
+    // would be silently dropped.
     if (!isDuplicateKeyError(err)) throw err;
     await write();
   }
+}
+
+async function setFields(rawIdentifier, fields) {
+  const identifier = canonical(rawIdentifier);
+  await upsertState(identifier, { $set: { identifier, ...fields, updatedAt: Date.now() } });
 }
 
 /**
@@ -132,10 +137,21 @@ async function setOperatorStopped(identifier, stopped, opts = {}) {
  *
  * @param {string} identifier
  */
-async function requestRestart(identifier) {
-  const state = await getState(identifier);
-  const next = ((state && state.restartGeneration) || 0) + 1;
-  await setFields(identifier, { restartGeneration: next });
+async function requestRestart(rawIdentifier) {
+  // Incremented by the database, never read and rewritten here. Reading first
+  // asked getState for a number and got null for two different answers - "no
+  // record yet" and "the read failed" - and treating the second as zero wrote a
+  // generation BELOW the one already actuated, which reads as nothing pending: the
+  // restart is reported and never happens. $inc has no such answer to
+  // misread, and creates the field at 1 when there is no record, which is what
+  // the read was for. It also counts two concurrent requests as two, where
+  // read-then-write had both read the same number and one silently overwrite the
+  // other.
+  const identifier = canonical(rawIdentifier);
+  await upsertState(identifier, {
+    $inc: { restartGeneration: 1 },
+    $set: { identifier, updatedAt: Date.now() },
+  });
 }
 
 /**

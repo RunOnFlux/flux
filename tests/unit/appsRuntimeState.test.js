@@ -6,14 +6,19 @@ describe('appsRuntimeState tests', () => {
   let appsRuntimeState;
   let store; // fake collection: identifier -> doc
   let logStub;
+  let readFails;
 
   beforeEach(() => {
     store = new Map();
+    readFails = false;
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
 
     const dbHelperStub = {
       databaseConnection: () => ({ db: () => ({}) }),
-      findOneInDatabase: async (_db, _coll, query) => store.get(query.identifier) || null,
+      findOneInDatabase: async (_db, _coll, query) => {
+        if (readFails) throw new Error('connection reset');
+        return store.get(query.identifier) || null;
+      },
       // The fake honors projections the way mongo does: a query that stops
       // selecting a field loses that field here too. operatorStoppedIdentifiers
       // reads doc.identifier off an unauthenticated peer route, and a stub that
@@ -42,7 +47,15 @@ describe('appsRuntimeState tests', () => {
       },
       updateOneInDatabase: async (_db, _coll, query, update) => {
         const existing = store.get(query.identifier) || {};
-        store.set(query.identifier, { ...existing, ...update.$set });
+        const next = { ...existing, ...update.$set };
+        // $inc as mongo does it: add to what is there, and CREATE the field at the
+        // increment when there is nothing - which is the whole reason a counter can
+        // be raised without reading it first. A fake that ignored $inc would let a
+        // read-then-write implementation pass these tests unchanged.
+        Object.entries(update.$inc || {}).forEach(([field, by]) => {
+          next[field] = (existing[field] || 0) + by;
+        });
+        store.set(query.identifier, next);
       },
       removeDocumentsFromCollection: async (_db, _coll, query) => { store.delete(query.identifier); },
     };
@@ -55,6 +68,40 @@ describe('appsRuntimeState tests', () => {
   });
 
   afterEach(() => sinon.restore());
+
+  // The generation is raised BY the database. Read-then-write asked getState for the
+  // current number and got null for two different answers - "no record yet" and "the
+  // read failed" - so a failed read wrote 1 over a generation already past it, which
+  // the reconciler reads as nothing pending: reported, never done.
+  describe('requestRestart', () => {
+    it('creates the generation at 1 when the component has no record', async () => {
+      await appsRuntimeState.requestRestart('www_App');
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration).to.equal(1);
+    });
+
+    it('raises an existing generation rather than restarting the count', async () => {
+      store.set('www_App', { identifier: 'www_App', restartGeneration: 7, actuatedRestartGeneration: 7 });
+      await appsRuntimeState.requestRestart('www_App');
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration).to.equal(8);
+    });
+
+    it('raises it correctly even when the state cannot be read', async () => {
+      store.set('www_App', { identifier: 'www_App', restartGeneration: 7, actuatedRestartGeneration: 7 });
+      readFails = true;
+      await appsRuntimeState.requestRestart('www_App');
+      readFails = false;
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration,
+        'a generation below the actuated one is never actuated').to.equal(8);
+    });
+
+    it('counts two concurrent requests as two', async () => {
+      await Promise.all([
+        appsRuntimeState.requestRestart('www_App'),
+        appsRuntimeState.requestRestart('www_App'),
+      ]);
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration).to.equal(2);
+    });
+  });
 
   describe('operatorStopped', () => {
     it('persists the stop lock and reads it back', async () => {
