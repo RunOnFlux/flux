@@ -70,12 +70,60 @@ function nodeBySourceIp(sourceIp) {
   return deterministicNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
 }
 
-// What benchmark reports as a node's public address, when the harness wants it to
-// differ from where the node actually is. Keyed by the address a request ARRIVES
-// from, so the container keeps its real address and only the ANSWER moves - a node
-// detects that its address changed with nothing renumbered underneath it, which is
-// the only way to reach that path without rebuilding the fleet's network.
-const publicIpOverrides = new Map(); // real source ip -> reported ip
+// Where a node really is, versus where the network is told it is.
+//
+// A node's list entry carries ONE address and the stub uses it for two different
+// jobs: matching the address a request ARRIVES from, to work out whose request it
+// is, and answering every chain-facing question about where that node lives.
+// Moving the second by editing the entry breaks the first - the node stops being
+// findable by its own requests - so the override sits beside the list, keyed by
+// where the node really is, and only the ANSWERS move. The container keeps its
+// address and nothing is renumbered underneath it.
+//
+// Every answer that names a node's address reads through here: getbenchmarks
+// (which is what a node's own getLocalSocketAddress reads, and so what it believes
+// about itself), getpublicip, its status, and the deterministic list the network is
+// served. One dial rather than one per RPC - a suite that moves an address means
+// all of them, and a per-RPC dial is how a suite comes to move an answer the
+// product never reads.
+const reportedAddresses = new Map(); // real ip -> { reported, scope }
+
+// Two facts, and a real address change separates them for as long as it takes the
+// chain to catch up: where the network says the node lives, and what benchmark's
+// public-IP probe reads right now. `all` moves both. `publicip` moves only the
+// probe - benchmark still reports the old address as the node's own, the node is
+// still listed there, and only getpublicip has noticed. That is the state a node
+// is actually in when its address moves, and it is what lets it detect the move at
+// all: the two answers disagreeing IS the detection.
+function overrideFor(node) {
+  if (!node) return null;
+  return reportedAddresses.get(node.ip.split(':')[0]) || null;
+}
+
+// The address the network believes this node has. Unmoved under `publicip`.
+function reportedAddressOf(node) {
+  if (!node) return null;
+  const o = overrideFor(node);
+  return o && o.scope === 'all' ? o.reported : node.ip;
+}
+
+// What benchmark's public-IP probe answers, which moves under either scope.
+function publicIpAnswerFor(node) {
+  if (!node) return null;
+  const o = overrideFor(node);
+  return (o ? o.reported : node.ip).split(':')[0];
+}
+
+// The list as the network sees it: every entry at its reported address. A node
+// that has not moved is returned untouched, so a run with no override in play
+// serves the very same objects it always did.
+function publishedNodeList() {
+  if (!reportedAddresses.size) return deterministicNodeList;
+  return deterministicNodeList.map((n) => {
+    const o = reportedAddresses.get(n.ip.split(':')[0]);
+    return o && o.scope === 'all' ? { ...n, ip: o.reported } : n;
+  });
+}
 
 const rpcHandlers = {
   getblockchaininfo: () => ({
@@ -175,8 +223,8 @@ const rpcHandlers = {
   getmempoolinfo: () => ({ size: 0, bytes: 0, usage: 0 }),
   getrawmempool: () => [],
 
-  viewdeterministiczelnodelist: () => deterministicNodeList,
-  viewdeterministicfluxnodelist: () => deterministicNodeList,
+  viewdeterministiczelnodelist: () => publishedNodeList(),
+  viewdeterministicfluxnodelist: () => publishedNodeList(),
 
   getzelnodestatus: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
@@ -187,7 +235,7 @@ const rpcHandlers = {
       collateral: node ? node.collateral : 'COutPoint(0000000000000000000000000000000000000000000000000000000000000000, 0)',
       txhash: node ? node.txhash : '0000000000000000000000000000000000000000000000000000000000000000',
       outidx: node ? node.outidx : '0',
-      ip: node ? node.ip : '127.0.0.1',
+      ip: node ? reportedAddressOf(node) : '127.0.0.1',
       network: '',
       added_height: node ? node.added_height : currentHeight - 1000,
       confirmed_height: node ? node.confirmed_height : currentHeight - 500,
@@ -220,8 +268,8 @@ const rpcHandlers = {
   getdoslist: () => [],
   getstartlist: () => [],
 
-  listfluxnodes: () => deterministicNodeList,
-  listzelnodes: () => deterministicNodeList,
+  listfluxnodes: () => publishedNodeList(),
+  listzelnodes: () => publishedNodeList(),
 
   getrawtransaction: (params) => {
     const txid = params[0];
@@ -298,7 +346,7 @@ const benchHandlers = {
     };
     const s = specs[tier] || specs.cumulus;
     return {
-      ipaddress: node ? node.ip : '127.0.0.1',
+      ipaddress: node ? reportedAddressOf(node) : '127.0.0.1',
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,
@@ -326,10 +374,8 @@ const benchHandlers = {
   }),
 
   getpublicip: (params, sourceIp) => {
-    const override = publicIpOverrides.get(sourceIp.replace('::ffff:', ''));
-    if (override) return override;
     const node = nodeBySourceIp(sourceIp);
-    return node ? node.ip.split(':')[0] : '127.0.0.1';
+    return node ? publicIpAnswerFor(node) : '127.0.0.1';
   },
 
   getpublickey: (params, sourceIp) => {
@@ -548,16 +594,40 @@ control.post('/set-node-list', (req, res) => {
   res.json({ nodeCount: deterministicNodeList.length });
 });
 
-// Move a node's public address as benchmark reports it. `node` is where the node
-// really is (what its requests arrive from), `reported` is what getpublicip will
-// answer it. Sending no `reported` puts it back to the truth.
-control.post('/public-ip', (req, res) => {
-  const { node, reported } = req.body;
-  if (!node) return res.status(400).json({ error: 'node required' });
-  const key = String(node).split(':')[0];
-  if (reported) publicIpOverrides.set(key, String(reported).split(':')[0]);
-  else publicIpOverrides.delete(key);
-  return res.json({ node: key, reported: publicIpOverrides.get(key) ?? null });
+// Move where a node is said to be. `:ip` is where it really is - the address its
+// requests arrive from, which never changes - and `reported` is the address that
+// then answers for it. Sending no `reported` puts it back to the truth.
+//
+// `scope: 'all'` (default) moves every chain-facing answer together: benchmark's
+// reply about the node itself, getpublicip, its status, and its list entry. That is
+// an address change already settled everywhere.
+//
+// `scope: 'publicip'` moves only benchmark's public-IP probe. Everything else still
+// says the node is where it was. That is the state a node is in the moment its
+// address moves and before the chain has caught up - and it is the only state in
+// which a node can DETECT the move, because detection is precisely those two
+// answers disagreeing.
+control.post('/node-address/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === key);
+  if (!node) return res.status(404).json({ error: `no node in the list at ${key}` });
+
+  const { reported, scope = 'all' } = req.body || {};
+  if (!reported) {
+    reportedAddresses.delete(key);
+    return res.json({ node: key, reported: node.ip, scope: null });
+  }
+  if (scope !== 'all' && scope !== 'publicip') {
+    return res.status(400).json({ error: `scope must be 'all' or 'publicip', got '${scope}'` });
+  }
+
+  // A bare address keeps the node's own port. The api port is what its peers reach
+  // it on, and moving that is a different change from moving the address.
+  const value = String(reported);
+  const realPort = node.ip.split(':')[1];
+  const full = value.includes(':') || !realPort ? value : `${value}:${realPort}`;
+  reportedAddresses.set(key, { reported: full, scope });
+  return res.json({ node: key, reported: full, scope });
 });
 
 control.post('/queue-app-tx', (req, res) => {
@@ -705,7 +775,7 @@ control.delete('/seed-data', (req, res) => {
 
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
-  publicIpOverrides.clear();
+  reportedAddresses.clear();
   rpcFailures.clear();
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];

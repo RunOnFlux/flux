@@ -6,6 +6,63 @@ export async function execInContainer(container, command) {
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, output: result.output };
 }
 
+// Give a node a second address on the fleet network, so it answers there as well
+// as where it started.
+//
+// The other half of an address change. Telling the network a node moved is not
+// enough on its own: the availability check that gates the whole path has a PEER
+// dial the address the node now claims, so a node that claims an address nothing
+// answers on reads as unreachable rather than as moved. The nodes run privileged,
+// so the address is simply added to the interface - no renumbering, no restart,
+// and every existing connection survives because the original address stays.
+//
+// @param {object} container The node's container.
+// @param {string} ip Bare address to add, inside the fleet's own /24.
+export async function addNodeAddress(container, ip, { prefix = 24, iface = 'eth0' } = {}) {
+  const r = await execInContainer(container, `ip addr add ${ip}/${prefix} dev ${iface}`);
+  // Already present is the state we wanted, not a failure.
+  if (r.exitCode !== 0 && !/File exists/i.test(r.output || '')) {
+    throw new Error(`addNodeAddress: could not add ${ip}/${prefix} to ${iface}: ${r.output}`);
+  }
+  return ip;
+}
+
+// Make a node unreachable to the named peers, without taking it off the network.
+//
+// The node keeps its address, its list entry and its outbound connections; what
+// stops is inbound traffic to its API port FROM those peers. That is what a node
+// whose address has moved looks like from the outside - still listed where it was,
+// no longer answering there - and it is the state that makes a peer's availability
+// probe fail, which is what a node needs before it will ask benchmark whether its
+// address changed.
+//
+// Named peers rather than the subnet: the runner reaches the node from the docker
+// gateway on that same /24, so a blanket rule would cut off the very client doing
+// the asserting.
+//
+// @param {object} container The node's container.
+// @param {string[]} peerIps Bare addresses whose traffic to drop.
+// @param {number} apiPort The node's API port.
+export async function blockPeerAccess(container, peerIps, apiPort) {
+  for (const peerIp of peerIps) {
+    // eslint-disable-next-line no-await-in-loop
+    const r = await execInContainer(container, `iptables -I INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j DROP`);
+    if (r.exitCode !== 0) {
+      throw new Error(`blockPeerAccess: could not drop ${peerIp} -> :${apiPort}: ${r.output}`);
+    }
+  }
+  return peerIps;
+}
+
+// Undo blockPeerAccess. Tolerates a rule that is already gone so teardown after a
+// failed test cannot fail in its own right.
+export async function unblockPeerAccess(container, peerIps, apiPort) {
+  for (const peerIp of peerIps) {
+    // eslint-disable-next-line no-await-in-loop
+    await execInContainer(container, `iptables -D INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j DROP`);
+  }
+}
+
 export async function listAppContainers(container, { all = false } = {}) {
   const flag = all ? ' -a' : '';
   const { stdout } = await execInContainer(container,

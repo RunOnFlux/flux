@@ -56,19 +56,34 @@ export async function queueAppTx(appHash) {
   return post('/queue-app-tx', { appHash });
 }
 
-// -- Public address, as benchmark reports it --
+// -- Where the network believes a node is --
 
 /**
- * Report a public address for a node other than the one it is actually at. The
- * container is untouched - only benchmark's answer moves, and that answer is where
- * a node learns its own address changed. `node` is where it really is.
+ * Move a node's address as the whole network sees it: what benchmark tells the
+ * node about itself (which is where it learns its address changed), what
+ * getpublicip answers, its node status, and its entry in the deterministic list.
+ *
+ * The container is untouched. `node` is where it really is - the address its
+ * requests arrive from - and that never moves, so the fleet stays reachable and
+ * every other node keeps talking to it exactly as before.
+ *
+ * A bare address keeps the node's own api port.
+ *
+ * `scope: 'all'` (default) moves every answer at once - an address change already
+ * settled. `scope: 'publicip'` moves only benchmark's public-IP probe, leaving the
+ * node listed and reporting itself where it was: the state a node is in the moment
+ * its address moves, and the only one in which it can notice.
+ *
+ * @param {string} node Where the node really is.
+ * @param {string} reported The address the network should now carry for it.
  */
-export async function reportPublicIp(node, reported) {
-  return post('/public-ip', { node, reported });
+export async function setNodeAddress(node, reported, { scope = 'all' } = {}) {
+  return post(`/node-address/${String(node).split(':')[0]}`, { reported, scope });
 }
 
-export async function clearReportedPublicIp(node) {
-  return post('/public-ip', { node });
+/** Put a node's address back to where it really is. */
+export async function clearNodeAddress(node) {
+  return post(`/node-address/${String(node).split(':')[0]}`, {});
 }
 
 // -- Per-node status --
