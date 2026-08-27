@@ -1320,7 +1320,11 @@ async function componentIdsOf(installed) {
     const containers = await dockerService.dockerListContainers(true);
     dockerNames = containers.map((c) => (c.Names && c.Names[0] ? c.Names[0].slice(1) : ''));
   } catch (err) {
-    log.warn(`appReconciler - cannot list containers for undecryptable apps: ${err.message}`);
+    // The list is returned short rather than refused, so one app's failure
+    // cannot cost the readable apps their sweep. Named at error level because a
+    // short list is indistinguishable from a complete one at every call site:
+    // the app is simply absent from what the caller acts on.
+    log.error(`appReconciler - cannot list containers, dropping undecryptable apps [${unreadable.map((app) => app.name).join(', ')}]: ${err.message}`);
     return ids;
   }
   unreadable.forEach((app) => {

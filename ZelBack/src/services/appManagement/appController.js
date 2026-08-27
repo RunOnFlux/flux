@@ -182,6 +182,16 @@ async function operatorTargetIds(appname) {
   }
   const appName = installedRes.data[0].name;
   const ids = await appReconciler.componentIdsOf(installedRes.data);
+  // An installed app with nothing to address is not an app that needs nothing
+  // done to it - it is one whose parts this node cannot work out: a spec that
+  // will not decrypt, falling back to a docker listing that is empty or that
+  // failed outright. Acting on the empty list wrote no intent, settled
+  // vacuously against nothing, and answered that the command had succeeded.
+  // Refused rather than reported, in the operator's terms: what they need to
+  // know is that nothing happened.
+  if (!ids.length) {
+    throw new Error(`Application ${appName} was not changed: this node cannot determine its components`);
+  }
   if (!appname.includes('_')) return { ids, appName };
   // A component is addressed by name, and a name that is not one of this app's
   // components addresses nothing. Taking it verbatim wrote a durable operator

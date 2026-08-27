@@ -872,6 +872,33 @@ describe('appController tests', () => {
       sinon.assert.calledOnceWithExactly(setOperatorStopped, 'api_EntApp', true, { force: false });
     });
 
+    // An installed app whose parts cannot be worked out - the spec will not
+    // decrypt and the docker fallback comes back with nothing - wrote no intent,
+    // settled vacuously against an empty list and answered that the app had been
+    // stopped. Zero components all reach "stopped" by construction, so every
+    // check downstream agreed. It has to be refused, in terms that say nothing
+    // happened.
+    it('refuses a command it cannot address, rather than reporting it done', async () => {
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      // eslint-disable-next-line global-require
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      const stored = {
+        name: 'EntApp', version: 8, enterprise: 'encrypted-blob', compose: [],
+      };
+      sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [stored] });
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({ readable: [], unreadable: [stored], inPlace: [stored] });
+      sinon.stub(dockerService, 'dockerListContainers').resolves([]);
+
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop({ params: { appname: 'EntApp' }, query: {} }, res);
+
+      const result = res.json.firstCall.args[0];
+      expect(result.status, 'a command that addressed nothing must not report success').to.equal('error');
+      expect(result.data.message).to.match(/cannot determine its components/);
+      sinon.assert.notCalled(setOperatorStopped);
+    });
+
     // A component name was taken verbatim, so a typo wrote a durable operator lock
     // under a component that does not exist. Nothing clears one, and it holds the
     // real component down if one is ever created with that name.
