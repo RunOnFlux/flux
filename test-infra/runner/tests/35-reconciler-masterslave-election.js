@@ -180,6 +180,13 @@ describe('reconciler enforces masterSlave g: election', function () {
     // none of which is a fault. Counting those would put it on the five-minute
     // rung, so a window of two minutes is what tells the two apart - the app is
     // either back within a cycle or it is being paced.
+    //
+    // Proven here for an image that shuts down cleanly, which is the scope of the
+    // rule today: the test app traps SIGTERM and exits 0 (test-app.c), so the
+    // backup's stop leaves no failure code behind. An image that does NOT trap it
+    // exits 143 and IS paced for the same stop - the exit code cannot tell a drain
+    // from a fault, and teaching the ladder to needs desired state rather than the
+    // corpse. This suite would not notice that, and is not the place to.
     await waitFor(() => isUp(a, appName), { timeout: 120000, interval: 3000, label: 'app running again after the backup released' });
   });
 });
