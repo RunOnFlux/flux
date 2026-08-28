@@ -7,6 +7,21 @@ process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // an empty value is parsed and fails rather than being ignored.
 delete process.env.NODE_CONFIG;
 
+// The same door, one variable over. Express hands a caller the exception stack
+// instead of the status text unless this says production, and apicache stamps its
+// version onto every cached response. Assigned rather than defaulted: the
+// environment is not hashed, so a value read from it is a change to how the node
+// answers that tamper detection cannot see. Set before the first require - express
+// and apicache each read it as they load.
+process.env.NODE_ENV = 'production';
+
+// node-config names its deployment from the environment too, preferring this
+// variable to NODE_ENV. Pinned to the deployment it already resolves to, so the
+// line above governs express and apicache alone: the config directory holds one
+// file, default.js, and node-config warns on every start for a deployment name it
+// cannot find a file for.
+process.env.NODE_CONFIG_ENV = 'development';
+
 const log = require('./ZelBack/src/lib/log');
 const path = require('path');
 const compression = require('compression');
@@ -53,4 +68,8 @@ async function initiate() {
   });
 }
 
-initiate();
+// Guarded so the entry point can be loaded without starting a node: the four
+// environment lines above decide what this process discloses, and a test can only
+// read them off the real file. Both launchers - `node app.js` and `nodemon app.js`
+// - enter here as main.
+if (require.main === module) initiate();
