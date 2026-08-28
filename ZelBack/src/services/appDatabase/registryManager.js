@@ -782,6 +782,96 @@ async function getApplicationSpecifications(appName) {
 }
 
 /**
+ * What the flux team may know about an app whose specification they cannot
+ * read: the names of its components, whether each is election managed, and what
+ * the app costs in total.
+ *
+ * Deliberately NOT specification-shaped. A redacted specification is the
+ * dangerous thing here: it is indistinguishable from a complete one, so an
+ * update composed from it writes its blanks back over the customer's app.
+ * Nothing can mistake this shape for a spec or submit it as one.
+ *
+ * Two different claims, which is why they are two fields:
+ *
+ * `resources` is public information that happens to be sealed today. v9 keeps
+ * the totals OUTSIDE the encrypted envelope on purpose - a node has to judge
+ * whether it can host an app without being able to read it - and binds them
+ * into the AAD so a relayer cannot understate them. Returning them here is that
+ * same decision, made for a spec version that has not shipped it yet.
+ *
+ * `components` is not. v9 seals the component list and publishes only a count,
+ * so handing over the names is a deliberate exception rather than a claim they
+ * are harmless: the container tools address a component as `<component>_<app>`,
+ * so logs, terminal, monitoring and file changes cannot function without them.
+ * The exception is granted to an authenticated flux team caller, on a node that
+ * already holds the plaintext, and to nobody else.
+ *
+ * Withheld either way: environment parameters, repository credentials, secrets,
+ * commands, image tags, ports and domains.
+ *
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ */
+async function getApplicationComponentNamesAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Application Name specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    // fluxteam, not appownerorfluxteam: an owner reads the specification itself
+    // and has no use for this, and the node operator is not a party to a
+    // customer's app at all.
+    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req, mainAppName);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+
+    const specifications = await getApplicationSpecifications(mainAppName);
+    if (!specifications) {
+      throw new Error(`Application: ${mainAppName} not found`);
+    }
+
+    const components = specifications.version >= 4 && Array.isArray(specifications.compose)
+      ? specifications.compose
+      : [specifications];
+
+    // Totals, not per-component sizing: it is what an app costs, it is what the
+    // app list renders, and it is the granularity v9 publishes. Named for the
+    // fields a v8 spec carries - v9 calls the same three cpu, memoryMb and
+    // storageGb.
+    const resources = components.reduce((total, component) => ({
+      cpu: total.cpu + (Number(component.cpu) || 0),
+      ram: total.ram + (Number(component.ram) || 0),
+      hdd: total.hdd + (Number(component.hdd) || 0),
+    }), { cpu: 0, ram: 0, hdd: 0 });
+
+    const response = messageHelper.createDataMessage({
+      components: components.map((component) => ({
+        name: component.name,
+        masterSlave: Boolean(component.containerData && component.containerData.includes('g:')),
+      })),
+      resources,
+    });
+
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
  * Get application specification via API
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -2168,6 +2258,7 @@ module.exports = {
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
   getApplicationSpecifications,
+  getApplicationComponentNamesAPI,
   getApplicationSpecificationAPI,
   updateApplicationSpecificationAPI,
   getApplicationOwner,
