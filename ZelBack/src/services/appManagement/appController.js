@@ -350,7 +350,10 @@ async function appStart(req, res) {
     // Use dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    // Not appownerabove: that admits the node operator, and whether someone
+    // else's app runs is not theirs to decide. The same gate appkill and
+    // appremove ask for; the argument is on verifyAppOwnerOrFluxTeamSession.
+    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -433,7 +436,10 @@ async function appStop(req, res) {
     // Use dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    // Not appownerabove: that admits the node operator, and whether someone
+    // else's app runs is not theirs to decide. The same gate appkill and
+    // appremove ask for; the argument is on verifyAppOwnerOrFluxTeamSession.
+    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -519,7 +525,10 @@ async function appRestart(req, res) {
     // Use dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    // Not appownerabove: that admits the node operator, and whether someone
+    // else's app runs is not theirs to decide. The same gate appkill and
+    // appremove ask for; the argument is on verifyAppOwnerOrFluxTeamSession.
+    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -589,7 +598,7 @@ async function appKill(req, res) {
     const verificationHelper = require('../verificationHelper');
     // Not appownerabove: that admits the node operator, and a hard kill of
     // someone else's app is not theirs to order. The owner and the flux team
-    // only - the operator keeps every other lifecycle control.
+    // only, as for every other verb that decides whether the app runs.
     const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
