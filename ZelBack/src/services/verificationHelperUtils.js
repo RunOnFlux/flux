@@ -272,9 +272,10 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
  * Verifies an app-owner or flux-team session: the app's owner and the flux team,
  * but NOT the node operator.
  *
- * This is the gate for every verb that decides whether someone else's app runs -
- * start, stop, restart, kill and remove. verifyAppOwnerOrHigherSession admits the
- * node's own admin as well, which is right for reading and wrong for these.
+ * This is the gate for every verb that decides whether someone else's app runs,
+ * or whether it keeps its data - start, stop, restart, kill, redeploy and remove.
+ * verifyAppOwnerOrHigherSession admits the node's own admin as well, which these
+ * must not.
  *
  * The operator has no run-state case to make. An app cannot exceed what was
  * bought - dockerService sets NanoCPUs and Memory/MemorySwap on the container
