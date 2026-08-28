@@ -388,6 +388,103 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('getApplicationComponentNamesAPI tests', () => {
+    const composedApp = {
+      name: 'NamesApp',
+      version: 8,
+      enterprise: 'encrypted-blob',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      hash: 'nameshash',
+      height: 100,
+      compose: [
+        {
+          name: 'palworld', containerData: 'g:/palworld/Pal/Saved', cpu: 4, ram: 16000, hdd: 50,
+          repotag: 'private/palworld:1', repoauth: 'secret-token',
+          environmentParameters: ['ADMIN_PASSWORD=hunter2'], secrets: 'sealed', commands: ['--token', 'abc'],
+          ports: [30001], domains: ['pal.example.invalid'],
+        },
+        {
+          name: 'sidecar', containerData: '/data', cpu: 1, ram: 2000, hdd: 5,
+          repotag: 'private/sidecar:1', repoauth: '', environmentParameters: [],
+        },
+      ],
+    };
+
+    function subjectWithPrivilege(verifyPrivilege) {
+      return proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec },
+        '../utils/appUtilities': { specificationFormatter: (spec) => spec },
+        '../verificationHelper': { verifyPrivilege },
+      });
+    }
+
+    beforeEach(async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+
+      await dbHelper.insertOneToDatabase(database, collection, composedApp);
+    });
+
+    // fluxteam, not appownerorfluxteam: the owner reads the specification itself,
+    // and the node operator is not a party to a customer's app at all.
+    it('is refused to anyone the flux-team privilege refuses', async () => {
+      const verifyPrivilege = sinon.stub().resolves(false);
+      const req = { params: { appname: 'NamesApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+
+      await subjectWithPrivilege(verifyPrivilege).getApplicationComponentNamesAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'fluxteam', req, 'NamesApp');
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    it('answers with component names and their election mode', async () => {
+      const req = { params: { appname: 'NamesApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+
+      await subjectWithPrivilege(sinon.stub().resolves(true))
+        .getApplicationComponentNamesAPI(req, res);
+
+      const { status, data } = res.json.firstCall.args[0];
+
+      expect(status).to.equal('success');
+      expect(data.components).to.deep.equal([
+        { name: 'palworld', masterSlave: true },
+        { name: 'sidecar', masterSlave: false },
+      ]);
+    });
+
+    // Totals, which v9 keeps outside the sealed envelope precisely so a node can
+    // read them without decrypting. Summed, not per-component.
+    it('answers with the app total, not per-component sizing', async () => {
+      const req = { params: { appname: 'NamesApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+
+      await subjectWithPrivilege(sinon.stub().resolves(true))
+        .getApplicationComponentNamesAPI(req, res);
+
+      expect(res.json.firstCall.args[0].data.resources)
+        .to.deep.equal({ cpu: 5, ram: 18000, hdd: 55 });
+    });
+
+    // The whole reason this endpoint exists rather than a redacted spec. Asserted
+    // over the serialised response so a field nested anywhere in it still fails.
+    it('carries nothing that could configure or impersonate the app', async () => {
+      const req = { params: { appname: 'NamesApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+
+      await subjectWithPrivilege(sinon.stub().resolves(true))
+        .getApplicationComponentNamesAPI(req, res);
+
+      const serialised = JSON.stringify(res.json.firstCall.args[0]);
+
+      ['secret-token', 'ADMIN_PASSWORD', 'hunter2', 'sealed', 'private/palworld', 'pal.example.invalid', '30001']
+        .forEach((withheld) => expect(serialised).to.not.contain(withheld));
+      // and no key by which one could be reintroduced
+      ['repoauth', 'environmentParameters', 'secrets', 'commands', 'repotag', 'domains', 'ports', 'containerData', 'compose']
+        .forEach((key) => expect(serialised).to.not.contain(key));
+    });
+  });
+
   describe('updateApplicationSpecificationAPI tests', () => {
     // The response carries the whole spec encrypted to a session key the CALLER
     // supplies, and nothing is stripped from it, so it discloses more of a
