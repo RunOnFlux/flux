@@ -2,11 +2,13 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
 const { ObjectId } = require('mongodb');
+const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 // eslint-disable-next-line no-unused-vars
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('registryManager tests', () => {
@@ -344,6 +346,77 @@ describe('registryManager tests', () => {
       const result = res.json.firstCall.args[0];
       expect(result.status).to.equal('error');
       expect(result.data.message).to.include('Daemon not yet synced');
+    });
+
+    // appownerabove and appownerorfluxteam differ in exactly one member - the
+    // node operator - so the string this asks for is the whole of the policy. The
+    // branch it guards serves a non-owner the spec with environmentParameters and
+    // repoauth stripped; what is left is still a customer's decrypted enterprise
+    // app. Both calls are pinned, and the count with them: the owner check comes
+    // first, and a third and wider check added beside them would fail this.
+    it('gates a decrypted enterprise spec on the privilege that refuses the node operator', async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'EntSpecApp',
+        version: 8,
+        enterprise: 'encrypted-blob',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        compose: [],
+        hash: 'entspechash',
+        height: 100,
+      });
+
+      const req = {
+        params: { appname: 'EntSpecApp', decrypt: 'true' },
+        query: {},
+        headers: { 'enterprise-key': 'session-key' },
+      };
+      const res = { json: sinon.fake((param) => param) };
+
+      // Reaching the gate needs the spec to decrypt, and checkAndDecryptAppSpecs
+      // refuses outright off Arcane. It and the formatter it feeds are the only
+      // two substitutions; everything else is the real module.
+      const verifyPrivilege = sinon.stub().resolves(false);
+      const subject = proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec },
+        '../utils/appUtilities': { specificationFormatter: (spec) => spec },
+        '../verificationHelper': { verifyPrivilege },
+      });
+
+      await subject.getApplicationSpecificationAPI(req, res);
+
+      sinon.assert.calledTwice(verifyPrivilege);
+      expect(verifyPrivilege.getCall(0).args).to.deep.equal(['appowner', req, 'EntSpecApp']);
+      expect(verifyPrivilege.getCall(1).args).to.deep.equal(['appownerorfluxteam', req, 'EntSpecApp']);
+    });
+  });
+
+  describe('updateApplicationSpecificationAPI tests', () => {
+    // The response carries the whole spec encrypted to a session key the CALLER
+    // supplies, and nothing is stripped from it, so this discloses more of a
+    // customer's enterprise app than the endpoint above does.
+    it('gates a spec upgrade on the privilege that refuses the node operator', async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
+        data: { synced: true, height: 1000 },
+      });
+      const collection = config.database.appsglobal.collections.appsInformation;
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'UpgradeSpecApp',
+        version: 3,
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        repotag: 'test/app:latest',
+        hash: 'upgradespechash',
+        height: 100,
+      });
+
+      const req = { params: { appname: 'UpgradeSpecApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake((param) => param) };
+
+      const verifyPrivilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+
+      await registryManager.updateApplicationSpecificationAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'UpgradeSpecApp');
     });
   });
 

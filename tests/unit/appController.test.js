@@ -893,17 +893,17 @@ describe('appController tests', () => {
       expect(result.status).to.equal('error');
     });
 
-    // Narrower than its siblings on purpose: appownerabove admits the node
-    // operator, and ending someone else's app abruptly is not theirs to order.
+    // The same privilege its siblings ask for: appownerabove admits the node
+    // operator, and ending someone else's app abruptly is not theirs to order
+    // any more than starting or stopping it is.
     it('asks for a privilege that excludes the node operator', async () => {
-      verificationHelperStub.resolves(true);
-      stubInstalledApp({ name: 'TestApp', version: 3 });
+      verificationHelperStub.resolves(false);
 
       const req = { params: { appname: 'TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
       await appController.appKill(req, res);
 
-      expect(verificationHelperStub.firstCall.args[0]).to.equal('appownerorfluxteam');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
     });
 
     it('refuses a caller the narrower privilege rejects', async () => {
@@ -968,6 +968,10 @@ describe('appController tests', () => {
       // satisfied by any other error name, including one from an unrelated throw
       // that never reached the privilege check at all.
       expect(result.data.name).to.equal('Unauthorized');
+      // The route answers 410 whatever the caller, so the privilege decides only
+      // which refusal they get. It asks for the same one as every other
+      // app-scoped endpoint so that appownerabove has no caller to be revived by.
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
     });
 
     // Express's default extended query parser turns ?appname=a&appname=b into an
