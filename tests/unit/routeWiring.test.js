@@ -39,6 +39,17 @@ function recordRouteTable() {
   return routes;
 }
 
+/**
+ * apicache's middleware factory returns a function named cache carrying its own
+ * .options - which is how a chain entry is identified as the cache rather than by
+ * position, since routes carry other middleware too.
+ * @param {Function} fn - a middleware from a route's chain
+ * @returns {boolean}
+ */
+function isApicache(fn) {
+  return typeof fn === 'function' && fn.name === 'cache' && typeof fn.options === 'function';
+}
+
 describe('route wiring', () => {
   let table;
 
@@ -111,6 +122,78 @@ describe('route wiring', () => {
         expect(route, `${path} is not registered as a ${method.toUpperCase()}`).to.not.equal(undefined);
         expect(route.chain).to.include(requireBootSettled);
       });
+    });
+  });
+  describe('endpoints that decide who is asking', () => {
+    // apicache answers from its store BEFORE the handler runs, and keys an entry on
+    // the request URL alone - nothing about the caller. So the privilege check
+    // inside the handler never runs for the second caller, who is handed the first
+    // caller's response, and whatever the handler would have DONE never happens.
+    //
+    // Both halves were staged against a node: one user's session row, login phrase
+    // included, was served to a different user, and a second user's logout was
+    // answered from the first user's cached success while their session stayed
+    // live. A cache in front of any of these is wrong however cheap the route is.
+    //
+    // The list is explicit because the route table alone cannot say which handler
+    // checks a privilege - that lives in the service module behind it. Add a path
+    // here when a route gains a privilege check.
+    const decidesByCaller = [
+      '/daemon/getinfo',
+      '/daemon/validateaddress/:fluxaddress?',
+      '/flux/restart',
+      '/flux/peerhistory',
+      '/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?',
+      '/daemon/submitblock/:hexdata?/:jsonparametersobject?',
+      '/id/loggedsessions',
+      '/id/logoutcurrentsession',
+      '/id/logoutallsessions',
+      '/zelid/loggedsessions',
+      '/zelid/logoutcurrentsession',
+      '/zelid/logoutallsessions',
+      '/syncthing/system/browse/:current?',
+      '/syncthing/system/debug/:enable?/:disable?',
+      '/syncthing/system/discovery/:device?/:addr?',
+      '/syncthing/system/error/clear',
+      '/syncthing/system/error/:message?',
+      '/syncthing/system/log/:since?',
+      '/syncthing/system/logtxt/:since?',
+      '/syncthing/system/paths',
+      '/syncthing/system/pause/:device?',
+      '/syncthing/system/reset/:folder?',
+      '/syncthing/system/restart',
+      '/syncthing/system/resume/:device?',
+      '/syncthing/system/shutdown',
+      '/syncthing/system/upgrade',
+      '/syncthing/config',
+      '/syncthing/config/gui',
+      '/syncthing/events/disk',
+      '/syncthing/events/:events?/:since?/:limit?/:timeout?',
+      '/syncthing/svc/random/string/:length?',
+      '/syncthing/debug/peercompletion',
+      '/syncthing/debug/httpmetrics',
+      '/syncthing/debug/cpuprof',
+      '/syncthing/debug/heapprof',
+      '/syncthing/debug/support',
+      '/syncthing/debug/file',
+      '/syncthing/metrics',
+      '/syncthing/metrics/health',
+      '/syncthing/metrics/history/:limit?',
+      '/syncthing/peer/diagnostics',
+    ];
+
+    // Without this, a renamed or mistyped path would make every assertion below
+    // pass on a route that no longer exists.
+    it('names paths that are all really registered', () => {
+      const missing = decidesByCaller.filter((path) => !table.some((entry) => entry.path === path));
+      expect(missing, 'these paths are not in the route table').to.deep.equal([]);
+    });
+
+    it('are answered by their handler, never from a cache', () => {
+      const cached = decidesByCaller.filter((path) => table
+        .filter((entry) => entry.path === path)
+        .some((entry) => entry.chain.some(isApicache)));
+      expect(cached, 'these check a privilege behind a cache that answers first').to.deep.equal([]);
     });
   });
 });

@@ -66,7 +66,7 @@ module.exports = (app) => {
   app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     daemonServiceControlRpcs.help(req, res);
   });
-  app.get('/daemon/getinfo', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getinfo', (req, res) => {
     daemonServiceControlRpcs.getInfo(req, res);
   });
   app.get('/daemon/getfluxnodestatus', cache('60 seconds'), (req, res) => {
@@ -216,7 +216,7 @@ module.exports = (app) => {
   app.get('/daemon/estimatepriority/:nblocks?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.estimatePriority(req, res);
   });
-  app.get('/daemon/validateaddress/:fluxaddress?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/validateaddress/:fluxaddress?', (req, res) => {
     daemonServiceUtilityRpcs.validateAddress(req, res);
   });
   app.get('/daemon/verifymessage/:fluxaddress?/:signature?/:message?', cache('30 seconds'), (req, res) => {
@@ -305,7 +305,7 @@ module.exports = (app) => {
   app.get('/flux/marketplaceurl', cache('1 day'), (req, res) => {
     fluxService.getMarketplaceURL(req, res);
   });
-  app.get('/flux/restart', cache('30 seconds'), (req, res) => {
+  app.get('/flux/restart', (req, res) => {
     fluxService.restartFluxOS(req, res);
   });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
@@ -321,7 +321,7 @@ module.exports = (app) => {
   app.get('/flux/unstablenodes', cache('30 seconds'), (req, res) => {
     fluxCommunication.getUnstableNodes(req, res);
   });
-  app.get('/flux/peerhistory', cache('5 seconds'), (req, res) => {
+  app.get('/flux/peerhistory', (req, res) => {
     fluxCommunication.getPeerHistory(req, res);
   });
   app.get('/flux/topology', cache('5 seconds'), (req, res) => {
@@ -526,29 +526,29 @@ module.exports = (app) => {
   });
 
   // GET PROTECTED API - User level
-  app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', (req, res) => {
     daemonServiceMiningRpcs.prioritiseTransaction(req, res);
   });
-  app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', (req, res) => {
     daemonServiceMiningRpcs.submitBlock(req, res);
   });
 
-  app.get('/id/loggedsessions', cache('30 seconds'), (req, res) => {
+  app.get('/id/loggedsessions', (req, res) => {
     idService.loggedSessions(req, res);
   });
-  app.get('/id/logoutcurrentsession', cache('30 seconds'), (req, res) => {
+  app.get('/id/logoutcurrentsession', (req, res) => {
     idService.logoutCurrentSession(req, res);
   });
-  app.get('/id/logoutallsessions', cache('30 seconds'), (req, res) => {
+  app.get('/id/logoutallsessions', (req, res) => {
     idService.logoutAllSessions(req, res);
   });
-  app.get('/zelid/loggedsessions', cache('30 seconds'), (req, res) => { // DEPRECATED
+  app.get('/zelid/loggedsessions', (req, res) => { // DEPRECATED
     idService.loggedSessions(req, res);
   });
-  app.get('/zelid/logoutcurrentsession', cache('30 seconds'), (req, res) => { // DEPRECATED
+  app.get('/zelid/logoutcurrentsession', (req, res) => { // DEPRECATED
     idService.logoutCurrentSession(req, res);
   });
-  app.get('/zelid/logoutallsessions', cache('30 seconds'), (req, res) => { // DEPRECATED
+  app.get('/zelid/logoutallsessions', (req, res) => { // DEPRECATED
     idService.logoutAllSessions(req, res);
   });
 
@@ -577,61 +577,61 @@ module.exports = (app) => {
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
   });
-  app.get('/syncthing/system/browse/:current?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/browse/:current?', (req, res) => {
     syncthingService.systemBrowse(req, res);
   });
   app.get('/syncthing/system/connections', cache('30 seconds'), (req, res) => {
     syncthingService.systemConnections(req, res);
   });
-  app.get('/syncthing/system/debug/:enable?/:disable?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/debug/:enable?/:disable?', (req, res) => {
     syncthingService.systemDebug(req, res);
   });
-  app.get('/syncthing/system/discovery/:device?/:addr?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/discovery/:device?/:addr?', (req, res) => {
     syncthingService.systemDiscovery(req, res);
   });
-  app.get('/syncthing/system/error/clear', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/error/clear', (req, res) => {
     syncthingService.systemErrorClear(req, res);
   });
-  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/error/:message?', (req, res) => {
     syncthingService.systemError(req, res);
   });
-  app.get('/syncthing/system/log/:since?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/log/:since?', (req, res) => {
     syncthingService.systemLog(req, res);
   });
-  app.get('/syncthing/system/logtxt/:since?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/logtxt/:since?', (req, res) => {
     syncthingService.systemLogTxt(req, res);
   });
-  app.get('/syncthing/system/paths', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/paths', (req, res) => {
     syncthingService.systemPaths(req, res);
   });
-  app.get('/syncthing/system/pause/:device?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/pause/:device?', (req, res) => {
     syncthingService.systemPause(req, res);
   });
   app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
     syncthingService.systemPing(req, res);
   });
-  app.get('/syncthing/system/reset/:folder?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/reset/:folder?', (req, res) => {
     syncthingService.systemReset(req, res);
   });
-  app.get('/syncthing/system/restart', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/restart', (req, res) => {
     syncthingService.systemRestart(req, res);
   });
-  app.get('/syncthing/system/resume/:device?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/resume/:device?', (req, res) => {
     syncthingService.systemResume(req, res);
   });
-  app.get('/syncthing/system/shutdown', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/shutdown', (req, res) => {
     syncthingService.systemShutdown(req, res);
   });
   app.get('/syncthing/system/status', cache('30 seconds'), (req, res) => {
     syncthingService.systemStatus(req, res);
   });
-  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/upgrade', (req, res) => {
     syncthingService.systemUpgrade(req, res);
   });
   app.get('/syncthing/system/version', cache('30 seconds'), (req, res) => {
     syncthingService.systemVersion(req, res);
   });
-  app.get('/syncthing/config', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/config', (req, res) => {
     syncthingService.getConfig(req, res);
   });
   app.get('/syncthing/config/restart-required', cache('30 seconds'), (req, res) => {
@@ -658,7 +658,7 @@ module.exports = (app) => {
   app.get('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigLdap(req, res);
   });
-  app.get('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/config/gui', (req, res) => {
     syncthingService.getConfigGui(req, res);
   });
   app.get('/syncthing/stats/device', cache('30 seconds'), (req, res) => {
@@ -703,13 +703,13 @@ module.exports = (app) => {
   app.get('/syncthing/db/status/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbStatus(req, res);
   });
-  app.get('/syncthing/events/disk', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/events/disk', (req, res) => {
     syncthingService.getEventsDisk(req, res);
   });
-  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', (req, res) => {
     syncthingService.getEvents(req, res);
   });
-  app.get('/syncthing/svc/random/string/:length?', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/svc/random/string/:length?', (req, res) => {
     syncthingService.getSvcRandomString(req, res);
   });
   app.get('/syncthing/svc/report', cache('30 seconds'), (req, res) => {
@@ -718,22 +718,22 @@ module.exports = (app) => {
   app.get('/syncthing/svc/:deviceid?', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcDeviceID(req, res);
   });
-  app.get('/syncthing/debug/peercompletion', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/debug/peercompletion', (req, res) => {
     syncthingService.debugPeerCompletion(req, res);
   });
-  app.get('/syncthing/debug/httpmetrics', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/debug/httpmetrics', (req, res) => {
     syncthingService.debugHttpmetrics(req, res);
   });
-  app.get('/syncthing/debug/cpuprof', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/debug/cpuprof', (req, res) => {
     syncthingService.debugCpuprof(req, res);
   });
-  app.get('/syncthing/debug/heapprof', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/debug/heapprof', (req, res) => {
     syncthingService.debugHeapprof(req, res);
   });
-  app.get('/syncthing/debug/support', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/debug/support', (req, res) => {
     syncthingService.debugSupport(req, res);
   });
-  app.get('/syncthing/debug/file', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/debug/file', (req, res) => {
     syncthingService.debugFile(req, res);
   });
   // BACKUP & RESTORE
@@ -1322,16 +1322,16 @@ module.exports = (app) => {
     monitoringOrchestrator.appMonitorStreamAPI(req, res);
   });
 
-  app.get('/syncthing/metrics', cache('10 seconds'), (req, res) => {
+  app.get('/syncthing/metrics', (req, res) => {
     syncthingService.getSyncthingMetrics(req, res);
   });
-  app.get('/syncthing/metrics/health', cache('10 seconds'), (req, res) => {
+  app.get('/syncthing/metrics/health', (req, res) => {
     syncthingService.getSyncthingHealthSummary(req, res);
   });
-  app.get('/syncthing/metrics/history/:limit?', cache('10 seconds'), (req, res) => {
+  app.get('/syncthing/metrics/history/:limit?', (req, res) => {
     syncthingService.getSyncthingMetricsHistory(req, res);
   });
-  app.get('/syncthing/peer/diagnostics', cache('10 seconds'), (req, res) => {
+  app.get('/syncthing/peer/diagnostics', (req, res) => {
     syncthingService.getPeerSyncDiagnosticsApi(req, res);
   });
 
