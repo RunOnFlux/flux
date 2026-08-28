@@ -414,7 +414,13 @@ module.exports = (app) => {
   app.get('/apps/latestspecificationversion', cache('5 minutes'), (req, res) => {
     appQueryService.getlatestApplicationSpecificationAPI(req, res);
   });
-  app.get('/apps/updatetolatestspecs/:appname', cache('30 seconds'), (req, res) => {
+  // Not cached. apicache keys an entry on the URL alone and answers from it
+  // before the handler runs, so a privilege-checked route behind one hands the
+  // first caller's response to the next without checking them at all. This
+  // route's response is also built for one caller in particular - the payload is
+  // encrypted to a session key they supply in a header - so there is nothing in
+  // it another caller could use even if it were shared.
+  app.get('/apps/updatetolatestspecs/:appname', (req, res) => {
     registryManager.updateApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appspecifications/:appname/:decrypt?', (req, res) => {
