@@ -836,37 +836,24 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
     }
 
-    const ownerAuthorized = await verificationHelper.verifyPrivilege(
+    // Decrypting a spec is the owner's alone. A partly-redacted one would be
+    // neither usable nor safe: an update composed from a spec whose
+    // environmentParameters and repoauth have been blanked writes those blanks
+    // back over the customer's app, and everything left in it is still theirs.
+    //
+    // The flux team decrypts out of band instead, which keeps a decryption a
+    // deliberate act by a named person rather than a side effect of opening a
+    // page.
+    const authorized = await verificationHelper.verifyPrivilege(
       'appowner',
       req,
       mainAppName,
     );
 
-    // appownerorfluxteam, which is the privilege this variable is named for.
-    // The branch below serves a non-owner the spec with environmentParameters
-    // and repoauth stripped; what remains is still a customer's decrypted
-    // enterprise app, so the node operator is not one of the non-owners it is
-    // served to.
-    const fluxTeamAuthorized = ownerAuthorized === true
-      ? false
-      : await verificationHelper.verifyPrivilege(
-        'appownerorfluxteam',
-        req,
-        mainAppName,
-      );
-
-    if (ownerAuthorized !== true && fluxTeamAuthorized !== true) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return null;
-    }
-
-    if (fluxTeamAuthorized) {
-      specifications.compose.forEach((component) => {
-        const comp = component;
-        comp.environmentParameters = [];
-        comp.repoauth = '';
-      });
     }
 
     // this seems a bit weird, but the client can ask for the specs encrypted or decrypted.
@@ -965,8 +952,12 @@ async function updateApplicationSpecificationAPI(req, res) {
       }
     }
 
+    // The owner alone, as for the decrypt path above. This upgrades the stored
+    // spec and hands it back whole, encrypted to a session key the caller
+    // supplies - environmentParameters and repoauth included - which is the
+    // spec its owner is about to re-sign, and nobody else's business.
     const authorized = await verificationHelper.verifyPrivilege(
-      'appownerorfluxteam',
+      'appowner',
       req,
       mainAppName,
     );
