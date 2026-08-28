@@ -541,7 +541,7 @@ class VolumeSession {
 async function openVolume(req, options = {}) {
   // This default is the gate on eight endpoints that write to a customer's app
   // volume - create, rename, move, copy, compress, extract, upload and remove -
-  // and no caller overrides it. appownerorfluxteam rather than appownerabove,
+  // and no caller overrides it. appownerorfluxteam refuses the node operator,
   // because uploading into, rewriting or deleting the data of an app you only
   // host is not the node operator's to do.
   const { privilege = 'appownerorfluxteam' } = options;

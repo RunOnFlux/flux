@@ -275,7 +275,7 @@ describe('appController tests', () => {
       expect(result.data.message).to.include('global start');
     });
 
-    // appownerabove and appownerorfluxteam differ in exactly one member - the node
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
     // operator - so which of the two is asked for is the whole of the policy. What
     // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
     // calledOnceWithExactly, so a second and wider check beside it fails too.
@@ -477,7 +477,7 @@ describe('appController tests', () => {
       sinon.assert.notCalled(clearControllerDesired);
     });
 
-    // appownerabove and appownerorfluxteam differ in exactly one member - the node
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
     // operator - so which of the two is asked for is the whole of the policy. What
     // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
     // calledOnceWithExactly, so a second and wider check beside it fails too.
@@ -650,7 +650,7 @@ describe('appController tests', () => {
       sinon.assert.notCalled(dockerService.appDockerRestart);
     });
 
-    // appownerabove and appownerorfluxteam differ in exactly one member - the node
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
     // operator - so which of the two is asked for is the whole of the policy. What
     // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
     // calledOnceWithExactly, so a second and wider check beside it fails too.
@@ -893,7 +893,7 @@ describe('appController tests', () => {
       expect(result.status).to.equal('error');
     });
 
-    // The same privilege its siblings ask for: appownerabove admits the node
+    // The same privilege its siblings ask for. It refuses the node
     // operator, and ending someone else's app abruptly is not theirs to order
     // any more than starting or stopping it is.
     it('asks for a privilege that excludes the node operator', async () => {
@@ -970,7 +970,7 @@ describe('appController tests', () => {
       expect(result.data.name).to.equal('Unauthorized');
       // The route answers 410 whatever the caller, so the privilege decides only
       // which refusal they get. It asks for the same one as every other
-      // app-scoped endpoint so that appownerabove has no caller to be revived by.
+      // app-scoped endpoint, so no handler asks for a privilege the operator passes.
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
     });
 

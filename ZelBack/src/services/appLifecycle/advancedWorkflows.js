@@ -1701,7 +1701,7 @@ async function redeployComponentAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    // Not appownerabove: that admits the node operator, and a redeploy is an
+    // This refuses the node operator, and a redeploy is an
     // uninstall followed by a reinstall. With force it is the hard one, which
     // unmounts the component's volume and rm -rf's it - the app's data on this
     // node is gone. The same gate appremove asks for, which this would otherwise
@@ -1765,7 +1765,7 @@ async function redeployAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    // Not appownerabove: that admits the node operator, and a redeploy is an
+    // This refuses the node operator, and a redeploy is an
     // uninstall followed by a reinstall. With force it is the hard one, which
     // unmounts the component's volume and rm -rf's it - the app's data on this
     // node is gone. The same gate appremove asks for, which this would otherwise

@@ -62,14 +62,12 @@ describe('verificationHelper tests', () => {
       stub.reset();
     });
 
-    it('should call verifyAppOwnerOrHigherSession when flag "appownerabove" is passed', async () => {
-      const privilege = 'appownerabove';
-      const stub = sinon.stub(verificationHelperUtils, 'verifyAppOwnerOrHigherSession').resolves(true);
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req, appName);
-
-      sinon.assert.calledOnceWithExactly(stub, req.headers, appName);
-      expect(verifyPrivilegeResult).to.be.true;
-      stub.reset();
+    // 'appownerabove' admitted the node operator, and nothing asks for it. The
+    // string is not a privilege any more, and an unknown privilege authorises
+    // nobody - so a handler that reached for it again would refuse every caller
+    // rather than quietly admit the operator.
+    it('authorises nobody for "appownerabove", which is not a privilege', async () => {
+      expect(await verifyPrivilege('appownerabove', req, appName)).to.be.false;
     });
 
     it('should call verifyAppOwnerSession when flag "appowner" is passed', async () => {

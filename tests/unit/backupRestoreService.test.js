@@ -8,7 +8,7 @@ describe('backupRestoreService tests', () => {
   });
 
   // Every endpoint here is app-scoped, and the node operator is admitted to none
-  // of them. appownerabove and appownerorfluxteam differ in exactly one member -
+  // of them. appownerorfluxteam admits the app's owner and the flux team, and refuses
   // the node operator - so the string a handler asks for is the whole of the
   // policy; what each privilege admits is pinned in verificationHelperUtils.test.js.
   //
