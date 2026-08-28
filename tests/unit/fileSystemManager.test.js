@@ -718,7 +718,7 @@ describe('fileSystemManager tests', () => {
   // The eight operations above are gated by openVolume's default privilege, which
   // volumeSession.test.js pins in one place. These two ask for themselves, so they
   // are pinned here: taking a customer's files off the node is not their host's to
-  // do, and appownerabove and appownerorfluxteam differ in exactly the node
+  // do, and appownerorfluxteam refuses exactly the node
   // operator.
   describe('the node operator is refused a download', () => {
     ['downloadAppsFolder', 'downloadAppsFile'].forEach((handler) => {

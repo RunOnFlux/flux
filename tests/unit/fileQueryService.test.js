@@ -506,7 +506,7 @@ describe('fileQueryService tests', () => {
       expect(response.data[2].isSymbolicLink).to.be.true;
     });
 
-    // appownerabove and appownerorfluxteam differ in exactly one member - the
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
     // node operator - so the string this asks for is the whole of the policy.
     // A listing of a customer's app volume is theirs, not their host's.
     it('gates the listing on the privilege that refuses the node operator', async () => {

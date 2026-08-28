@@ -223,52 +223,6 @@ async function verifyAppOwnerSession(headers, appName) {
 }
 
 /**
- * Verifies app owner (or higher privilege) session
- * @param {object} headers
- *
- * @returns {Promise<boolean>}
- */
-async function verifyAppOwnerOrHigherSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
-  if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  // Use dynamic require to avoid circular dependency
-  // eslint-disable-next-line global-require
-  const registryManager = require('./appDatabase/registryManager');
-  const ownerFluxID = await registryManager.getApplicationOwner(appName);
-  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== nodeAdminZelid() && auth.zelid !== config.fluxSupportTeamFluxID) return false;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
-  const projection = {};
-  const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  // if not logged, check if not older than 2 hours
-  if (!loggedUser) {
-    const timestamp = Date.now();
-    const message = auth.loginPhrase;
-    const maxHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
-      return false;
-    }
-  }
-
-  // check if signature corresponds to message with that zelid
-  let valid = false;
-  try {
-    valid = signatureVerifier.verifySignature(auth.loginPhrase, auth.zelid, auth.signature);
-  } catch (error) {
-    return false;
-  }
-  if (valid) {
-    // now we know this is indeed a logged application owner
-    return true;
-  }
-  return false;
-}
-
-/**
  * Verifies an app-owner or flux-team session: the app's owner and the flux team,
  * but NOT the node operator.
  *
@@ -277,8 +231,9 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
  * redeploy, remove, the volume operations and backup/restore - and everything
  * that discloses what is inside it - logs, inspect, stats, the process list, the
  * file listings and downloads, and a decrypted enterprise spec.
- * verifyAppOwnerOrHigherSession admits the node's own admin as well, which none
- * of those may.
+ *
+ * The node operator is the node's own admin, so verifyAdminSession admits them
+ * and this must not.
  *
  * Hosting an app is not owning it, and the two halves of that have the same
  * answer. On run state: an app cannot exceed what was bought - dockerService
@@ -346,7 +301,6 @@ module.exports = {
   verifyAdminAndFluxTeamSession,
   verifyAdminSession,
   verifyAppOwnerOrFluxTeamSession,
-  verifyAppOwnerOrHigherSession,
   verifyAppOwnerSession,
   verifyFluxTeamSession,
   verifyUserSession,

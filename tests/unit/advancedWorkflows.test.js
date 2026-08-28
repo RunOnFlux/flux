@@ -150,10 +150,9 @@ describe('advancedWorkflows tests', () => {
       globalState.finishRestore('myapp');
     });
 
-    // The gate IS the policy: appownerabove and appownerorfluxteam differ in
-    // exactly one member - the node operator - and a forced redeploy rm -rf's the
-    // component's volume, so admitting them here would be the way around the
-    // appremove gate that already refuses them.
+    // The gate IS the policy: appownerorfluxteam refuses the node operator, and a
+    // forced redeploy rm -rf's the component's volume, so admitting them here
+    // would be the way around the appremove gate that already refuses them.
     it('gates a component redeploy on the privilege that refuses the node operator', async () => {
       req.params.appname = 'myapp';
       req.params.component = 'frontend';
@@ -3103,7 +3102,7 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledOnce(IOUtils.createTarGz);
     });
 
-    // appownerabove and appownerorfluxteam differ in exactly one member - the
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
     // node operator - so the string this asks for is the whole of the policy. An
     // archive of a customer's volume is theirs, and taking one off the node is
     // not their host's to order.
@@ -3895,7 +3894,7 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledWith(IOUtils.getVolumeInfo, appname, 'null');
     });
 
-    // appownerabove and appownerorfluxteam differ in exactly one member - the
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
     // node operator - so the string this asks for is the whole of the policy. A
     // restore overwrites a customer's volume from an archive the caller names,
     // which makes it the most destructive of the file verbs, not the mildest.

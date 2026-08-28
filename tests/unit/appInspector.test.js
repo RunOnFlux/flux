@@ -2354,7 +2354,7 @@ describe('appInspector tests', () => {
     });
   });
 
-  // appownerabove and appownerorfluxteam differ in exactly one member - the node
+  // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
   // operator - so the string a handler asks for is the whole of the policy. What
   // each privilege admits is pinned in verificationHelperUtils.test.js; these pin
   // the hop for every endpoint in this module.
