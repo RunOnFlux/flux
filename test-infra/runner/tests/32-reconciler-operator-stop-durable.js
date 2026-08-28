@@ -104,29 +104,35 @@ describe('reconciler honours a durable operator stop', function () {
     await waitForUp(client, appName, 'running again after appstart');
   });
 
-  // The node operator hosts the container and keeps every ordinary lifecycle
-  // control over it. Ending someone else's app abruptly is not theirs to order.
-  // Both halves matter: a privilege check that refused everything would pass the
-  // first assertion on its own.
-  it('refuses the node operator a kill, while still allowing them a stop', async function () {
+  // Hosting an app is not owning it: whether someone else's app runs is the
+  // owner's decision, or the team's on their behalf, and the node operator is
+  // admitted to none of the four verbs that make it.
+  //
+  // The owner half is the control, and it is what makes the refusals mean
+  // anything - a gate that refused every caller would pass every refusal above on
+  // its own. It runs against the same endpoint, on the same node.
+  it('refuses the node operator every run-state verb, and still admits the owner', async function () {
     this.timeout(180000);
     const client = env.clients[idx];
     await waitForUp(client, appName, 'running before the operator acts');
 
     const operator = await authenticate(client.url, nodeKey(idx + 1));
 
-    const killed = await client.getAuthed(`/apps/appkill/${appName}`, operator.zelidauth);
-    expect(killed.status, 'the node operator cannot order a kill').to.equal('error');
-    expect(killed.data.code).to.equal(401);
+    for (const verb of ['appkill', 'appstop', 'appstart', 'apprestart']) {
+      // eslint-disable-next-line no-await-in-loop
+      const refused = await client.getAuthed(`/apps/${verb}/${appName}`, operator.zelidauth);
+      expect(refused.status, `the node operator cannot order ${verb}`).to.equal('error');
+      expect(refused.data.code, `${verb} refused the node operator`).to.equal(401);
+    }
     const stillUp = await getAppContainerStatus(client.container, appName);
     expect(stillUp && stillUp.status.startsWith('Up'), 'and the container is untouched').to.equal(true);
 
-    const stopped = await client.getAuthed(`/apps/appstop/${appName}`, operator.zelidauth);
-    expect(stopped.status, 'but a stop is still theirs to order').to.equal('success');
-    await waitForDown(client, appName, 'stopped by the node operator');
+    const owner = await authenticate(client.url, appOwnerKey());
+    const stopped = await client.getAuthed(`/apps/appstop/${appName}`, owner.zelidauth);
+    expect(stopped.status, "the owner's stop lands on the same endpoint").to.equal('success');
+    await waitForDown(client, appName, 'stopped by the app owner');
 
-    const auth = await authenticate(client.url, appOwnerKey());
-    await client.getAuthed(`/apps/appstart/${appName}`, auth.zelidauth);
+    await client.getAuthed(`/apps/appstart/${appName}`, owner.zelidauth);
     await waitForUp(client, appName, 'running again for the suites that follow');
   });
 });
