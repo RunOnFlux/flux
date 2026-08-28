@@ -274,6 +274,20 @@ describe('appController tests', () => {
       expect(result.status).to.equal('success');
       expect(result.data.message).to.include('global start');
     });
+
+    // appownerabove and appownerorfluxteam differ in exactly one member - the node
+    // operator - so which of the two is asked for is the whole of the policy. What
+    // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
+    // calledOnceWithExactly, so a second and wider check beside it fails too.
+    it('gates a start on the privilege that refuses the node operator', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStart(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
+    });
   });
 
   describe('appStop tests', () => {
@@ -462,6 +476,20 @@ describe('appController tests', () => {
 
       sinon.assert.notCalled(clearControllerDesired);
     });
+
+    // appownerabove and appownerorfluxteam differ in exactly one member - the node
+    // operator - so which of the two is asked for is the whole of the policy. What
+    // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
+    // calledOnceWithExactly, so a second and wider check beside it fails too.
+    it('gates a stop on the privilege that refuses the node operator', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
+    });
   });
 
 
@@ -620,6 +648,20 @@ describe('appController tests', () => {
       const result = res.json.firstCall.args[0];
       expect(result.data).to.equal('Application Gcomp_ComposedApp will be restarted: waiting for the election');
       sinon.assert.notCalled(dockerService.appDockerRestart);
+    });
+
+    // appownerabove and appownerorfluxteam differ in exactly one member - the node
+    // operator - so which of the two is asked for is the whole of the policy. What
+    // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
+    // calledOnceWithExactly, so a second and wider check beside it fails too.
+    it('gates a restart on the privilege that refuses the node operator', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
     });
   });
 
