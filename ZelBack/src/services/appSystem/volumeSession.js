@@ -539,7 +539,12 @@ class VolumeSession {
  * @returns {Promise<VolumeSession>}
  */
 async function openVolume(req, options = {}) {
-  const { privilege = 'appownerabove' } = options;
+  // This default is the gate on eight endpoints that write to a customer's app
+  // volume - create, rename, move, copy, compress, extract, upload and remove -
+  // and no caller overrides it. appownerorfluxteam rather than appownerabove,
+  // because uploading into, rewriting or deleting the data of an app you only
+  // host is not the node operator's to do.
+  const { privilege = 'appownerorfluxteam' } = options;
 
   // ensureObject for url-encoded parity: express.json() populates req.body for
   // application/json, and a form-encoded caller arrives as a string.

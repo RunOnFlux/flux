@@ -2390,7 +2390,7 @@ async function appendBackupTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname) : true;
     if (authorized === true) {
       // eslint-disable-next-line global-require
       const registryManager = require('../appDatabase/registryManager');
@@ -2626,7 +2626,7 @@ async function appendRestoreTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname) : true;
     if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
