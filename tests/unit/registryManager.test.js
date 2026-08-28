@@ -407,6 +407,15 @@ describe('registryManager tests', () => {
           name: 'sidecar', containerData: '/data', cpu: 1, ram: 2000, hdd: 5,
           repotag: 'private/sidecar:1', repoauth: '', environmentParameters: [],
         },
+        {
+          // A sync flag counts only on the primary mount, so this component is
+          // not election managed and the election does not treat it as one. It
+          // reads as one to a substring search, which is what separates the
+          // classifier from a search. Its invalid second mount is rejected by
+          // the parser, which logs - that rejection IS the answer.
+          name: 'misplaced', containerData: '/data|g:/db', cpu: 2, ram: 1000, hdd: 5,
+          repotag: 'private/misplaced:1', repoauth: '', environmentParameters: [],
+        },
       ],
     };
 
@@ -450,6 +459,7 @@ describe('registryManager tests', () => {
       expect(data.components).to.deep.equal([
         { name: 'palworld', masterSlave: true },
         { name: 'sidecar', masterSlave: false },
+        { name: 'misplaced', masterSlave: false },
       ]);
     });
 
@@ -463,7 +473,7 @@ describe('registryManager tests', () => {
         .getApplicationComponentNamesAPI(req, res);
 
       expect(res.json.firstCall.args[0].data.resources)
-        .to.deep.equal({ cpu: 5, ram: 18000, hdd: 55 });
+        .to.deep.equal({ cpu: 7, ram: 19000, hdd: 60 });
     });
 
     // The whole reason this endpoint exists rather than a redacted spec. Asserted
