@@ -348,13 +348,12 @@ describe('registryManager tests', () => {
       expect(result.data.message).to.include('Daemon not yet synced');
     });
 
-    // appownerabove and appownerorfluxteam differ in exactly one member - the
-    // node operator - so the string this asks for is the whole of the policy. The
-    // branch it guards serves a non-owner the spec with environmentParameters and
-    // repoauth stripped; what is left is still a customer's decrypted enterprise
-    // app. Both calls are pinned, and the count with them: the owner check comes
-    // first, and a third and wider check added beside them would fail this.
-    it('gates a decrypted enterprise spec on the privilege that refuses the node operator', async () => {
+    // Decryption is the owner's alone, so this asks for the one privilege that
+    // admits nobody else - not the node operator, and not the flux team either.
+    // calledOnceWithExactly pins the count as well as the string: a second check
+    // beside this one is how a wider path gets re-admitted, and it would fail
+    // here.
+    it('gates a decrypted enterprise spec on the owner, and nobody else', async () => {
       const collection = config.database.appsglobal.collections.appsInformation;
       await dbHelper.insertOneToDatabase(database, collection, {
         name: 'EntSpecApp',
@@ -385,17 +384,16 @@ describe('registryManager tests', () => {
 
       await subject.getApplicationSpecificationAPI(req, res);
 
-      sinon.assert.calledTwice(verifyPrivilege);
-      expect(verifyPrivilege.getCall(0).args).to.deep.equal(['appowner', req, 'EntSpecApp']);
-      expect(verifyPrivilege.getCall(1).args).to.deep.equal(['appownerorfluxteam', req, 'EntSpecApp']);
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appowner', req, 'EntSpecApp');
     });
   });
 
   describe('updateApplicationSpecificationAPI tests', () => {
     // The response carries the whole spec encrypted to a session key the CALLER
-    // supplies, and nothing is stripped from it, so this discloses more of a
-    // customer's enterprise app than the endpoint above does.
-    it('gates a spec upgrade on the privilege that refuses the node operator', async () => {
+    // supplies, and nothing is stripped from it, so it discloses more of a
+    // customer's enterprise app than the decrypt endpoint above. Same privilege
+    // for the same reason: the owner alone.
+    it('gates a spec upgrade on the owner, and nobody else', async () => {
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
         data: { synced: true, height: 1000 },
       });
@@ -416,7 +414,7 @@ describe('registryManager tests', () => {
 
       await registryManager.updateApplicationSpecificationAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'UpgradeSpecApp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appowner', req, 'UpgradeSpecApp');
     });
   });
 
