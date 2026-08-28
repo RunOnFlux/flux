@@ -272,19 +272,30 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
  * Verifies an app-owner or flux-team session: the app's owner and the flux team,
  * but NOT the node operator.
  *
- * This is the gate for every verb that decides whether someone else's app runs,
- * or whether it keeps its data - start, stop, restart, kill, redeploy and remove.
- * verifyAppOwnerOrHigherSession admits the node's own admin as well, which these
- * must not.
+ * This is the gate for every app-scoped endpoint: the verbs that decide whether
+ * someone else's app runs or keeps its data - start, stop, restart, kill,
+ * redeploy, remove, the volume operations and backup/restore - and everything
+ * that discloses what is inside it - logs, inspect, stats, the process list, the
+ * file listings and downloads, and a decrypted enterprise spec.
+ * verifyAppOwnerOrHigherSession admits the node's own admin as well, which none
+ * of those may.
  *
- * The operator has no run-state case to make. An app cannot exceed what was
- * bought - dockerService sets NanoCPUs and Memory/MemorySwap on the container
- * from the spec - so an app inside its allocation is spending cycles the operator
- * sold, and an app outside one is a containment defect to fix in the limits
- * rather than to paper over on a single node with a button. And the operator is
- * paid whether the container runs or not, so a per-app stop withholds the service
- * and keeps the payment. Stopping FluxOS is the honest lever precisely because it
- * forfeits the payment along with the obligation.
+ * Hosting an app is not owning it, and the two halves of that have the same
+ * answer. On run state: an app cannot exceed what was bought - dockerService
+ * sets NanoCPUs and Memory/MemorySwap on the container from the spec - so an app
+ * inside its allocation is spending cycles the operator sold, and an app outside
+ * one is a containment defect to fix in the limits rather than to paper over on
+ * a single node with a button. The operator is paid whether the container runs
+ * or not, so a per-app stop withholds the service and keeps the payment;
+ * stopping FluxOS forfeits the payment along with the obligation, which is what
+ * makes it the honest lever.
+ *
+ * On disclosure: hosting is a reason to know what an app COSTS you, which
+ * /apps/appsresources answers unauthenticated and in aggregate. It is not a
+ * reason to read the customer's environment variables, files or logs. That the
+ * operator may also have local access to the disk is not an argument for
+ * serving the same data over an authenticated API - remote, scriptable across a
+ * fleet, and exposed with the operator's zelid rather than with their machine.
  *
  * @param {object} headers
  * @param {string} appName

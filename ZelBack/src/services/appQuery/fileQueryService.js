@@ -16,7 +16,7 @@ async function getAppsFolder(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname || '';
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';

@@ -668,7 +668,7 @@ async function deprecatedPauseResponse(req, res) {
       const mainAppName = appname.split('_')[1] || appname;
       // eslint-disable-next-line global-require
       const verificationHelper = require('../verificationHelper');
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         return res ? res.json(errMessage) : errMessage;

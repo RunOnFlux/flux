@@ -842,10 +842,15 @@ async function getApplicationSpecificationAPI(req, res) {
       mainAppName,
     );
 
+    // appownerorfluxteam, which is the privilege this variable is named for.
+    // The branch below serves a non-owner the spec with environmentParameters
+    // and repoauth stripped; what remains is still a customer's decrypted
+    // enterprise app, so the node operator is not one of the non-owners it is
+    // served to.
     const fluxTeamAuthorized = ownerAuthorized === true
       ? false
       : await verificationHelper.verifyPrivilege(
-        'appownerabove',
+        'appownerorfluxteam',
         req,
         mainAppName,
       );
@@ -961,7 +966,7 @@ async function updateApplicationSpecificationAPI(req, res) {
     }
 
     const authorized = await verificationHelper.verifyPrivilege(
-      'appownerabove',
+      'appownerorfluxteam',
       req,
       mainAppName,
     );
