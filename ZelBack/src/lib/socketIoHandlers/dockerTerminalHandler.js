@@ -56,7 +56,7 @@ async function dockerTerminalHandler(socket) {
       // Authorise BEFORE touching Docker: the lookup below is a remote-controlled
       // operation on an attacker-supplied name, and must not be reachable by an
       // unauthenticated caller.
-      const authorized = await verificationHelperUtils.verifyAppOwnerOrHigherSession(auth, mainAppName);
+      const authorized = await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(auth, mainAppName);
       if (authorized !== true) {
         socket.emit('error', 'Not authorized.');
         return;
