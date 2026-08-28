@@ -1701,8 +1701,12 @@ async function redeployComponentAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    // Authorization check - must be app owner or above
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    // Not appownerabove: that admits the node operator, and a redeploy is an
+    // uninstall followed by a reinstall. With force it is the hard one, which
+    // unmounts the component's volume and rm -rf's it - the app's data on this
+    // node is gone. The same gate appremove asks for, which this would otherwise
+    // be the way around.
+    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1761,7 +1765,12 @@ async function redeployAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    // Not appownerabove: that admits the node operator, and a redeploy is an
+    // uninstall followed by a reinstall. With force it is the hard one, which
+    // unmounts the component's volume and rm -rf's it - the app's data on this
+    // node is gone. The same gate appremove asks for, which this would otherwise
+    // be the way around.
+    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);

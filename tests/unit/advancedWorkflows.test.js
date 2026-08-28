@@ -150,7 +150,11 @@ describe('advancedWorkflows tests', () => {
       globalState.finishRestore('myapp');
     });
 
-    it('should return unauthorized error if not authorized', async () => {
+    // The gate IS the policy: appownerabove and appownerorfluxteam differ in
+    // exactly one member - the node operator - and a forced redeploy rm -rf's the
+    // component's volume, so admitting them here would be the way around the
+    // appremove gate that already refuses them.
+    it('gates a component redeploy on the privilege that refuses the node operator', async () => {
       req.params.appname = 'myapp';
       req.params.component = 'frontend';
 
@@ -159,7 +163,7 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflows.redeployComponentAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelper.verifyPrivilege.calledWith('appownerabove', req, 'myapp')).to.be.true;
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
     });
 
     it('should handle force parameter from query string', async () => {
@@ -177,6 +181,44 @@ describe('advancedWorkflows tests', () => {
 
       // Should attempt to call hardRedeployComponent but will fail because app not found
       expect(res.json.calledOnce).to.be.true;
+    });
+  });
+
+  // redeployAPI had no test of its own. Its gate matters for the same reason the
+  // component one does, and for more of the app: force=true takes the whole thing
+  // through a hard uninstall, so every component's data goes with it.
+  describe('redeployAPI tests', () => {
+    let req;
+    let res;
+    let globalState;
+    let verificationHelper;
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.restoreInProgress = [];
+
+      // eslint-disable-next-line global-require
+      verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+
+      req = { params: {}, query: {}, headers: {} };
+      res = {
+        json: sinon.stub(),
+        write: sinon.stub(),
+        flush: sinon.stub(),
+        setHeader: sinon.stub(),
+      };
+    });
+
+    it('gates a redeploy on the privilege that refuses the node operator', async () => {
+      req.params.appname = 'myapp';
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+
+      await advancedWorkflows.redeployAPI(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
     });
   });
 
