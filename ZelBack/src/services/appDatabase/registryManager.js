@@ -10,6 +10,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
+const mountParser = require('../utils/mountParser');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -854,7 +855,10 @@ async function getApplicationComponentNamesAPI(req, res) {
     const response = messageHelper.createDataMessage({
       components: components.map((component) => ({
         name: component.name,
-        masterSlave: Boolean(component.containerData && component.containerData.includes('g:')),
+        // The classifier the election itself uses. A sync flag counts only on the
+        // primary mount, so this must agree with what decides the component's
+        // fate rather than with anywhere the letters happen to appear.
+        masterSlave: mountParser.isGComponent(component.containerData || ''),
       })),
       resources,
     });
