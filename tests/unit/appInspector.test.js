@@ -1586,7 +1586,7 @@ describe('appInspector tests', () => {
 
       await inspector.appMonitorAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerabove', req, 'myapp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
     });
   });
 
@@ -2351,6 +2351,55 @@ describe('appInspector tests', () => {
       expect(appInspector.appMonitor).to.be.a('function');
       expect(appInspector.appChanges).to.be.a('function');
       expect(appInspector.listAppsImages).to.be.a('function');
+    });
+  });
+
+  // appownerabove and appownerorfluxteam differ in exactly one member - the node
+  // operator - so the string a handler asks for is the whole of the policy. What
+  // each privilege admits is pinned in verificationHelperUtils.test.js; these pin
+  // the hop for every endpoint in this module.
+  //
+  // Driven as a table because completeness is the point: one handler left on the
+  // wider privilege is the whole hole, and a per-handler assertion written by
+  // hand is exactly the kind of list that acquires a gap.
+  describe('the node operator is refused every app-scoped endpoint', () => {
+    const handlers = [
+      'appTop', 'appLog', 'appLogStream', 'appLogPolling',
+      'appInspect', 'appStats', 'appMonitorAPI', 'appChanges',
+    ];
+
+    handlers.forEach((handler) => {
+      it(`${handler} asks for the privilege that refuses the node operator`, async () => {
+        const verifyPrivilege = sinon.stub().resolves(false);
+        const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+          config: configStub,
+          '../utils/globalState': globalStateStub,
+          '../dockerService': dockerServiceStub,
+          '../messageHelper': messageHelperStub,
+          '../../lib/log': logStub,
+          '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().returnsArg(0) },
+          '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
+          '../dbHelper': { databaseConnection: sinon.stub() },
+          '../verificationHelper': { verifyPrivilege },
+          '../utils/appConstants': { appConstants: {} },
+          '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+          '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+          'node-cmd': { run: sinon.stub() },
+        });
+
+        const req = { params: { appname: 'myapp' }, query: {} };
+        const res = {
+          json: sinon.stub(),
+          setHeader: sinon.stub(),
+          write: sinon.stub(),
+          end: sinon.stub(),
+          flush: sinon.stub(),
+        };
+
+        await inspector[handler](req, res);
+
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+      });
     });
   });
 });

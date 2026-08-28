@@ -6,7 +6,7 @@ const { expect } = chai;
 
 describe('dockerTerminalHandler tests', () => {
   let trackTerminalSession;
-  let verifyAppOwnerOrHigherSession;
+  let verifyAppOwnerOrFluxTeamSession;
   let getDockerContainerByIdOrName;
   let dockerTerminalHandler;
 
@@ -33,11 +33,11 @@ describe('dockerTerminalHandler tests', () => {
 
   beforeEach(() => {
     trackTerminalSession = sinon.stub();
-    verifyAppOwnerOrHigherSession = sinon.stub().resolves(true);
+    verifyAppOwnerOrFluxTeamSession = sinon.stub().resolves(true);
     getDockerContainerByIdOrName = sinon.stub().resolves({ exec: sinon.stub() });
     dockerTerminalHandler = proxyquire('../../ZelBack/src/lib/socketIoHandlers/dockerTerminalHandler', {
       '../../services/analyticsService': { trackTerminalSession },
-      '../../services/verificationHelperUtils': { verifyAppOwnerOrHigherSession },
+      '../../services/verificationHelperUtils': { verifyAppOwnerOrFluxTeamSession },
       '../../services/dockerService': { getDockerContainerByIdOrName },
     });
   });
@@ -49,7 +49,7 @@ describe('dockerTerminalHandler tests', () => {
   it('does not record a session that never opened when the client leaves mid-setup', async () => {
     const socket = makeSocket();
     let releaseAuth;
-    verifyAppOwnerOrHigherSession.returns(new Promise((resolve) => { releaseAuth = resolve; }));
+    verifyAppOwnerOrFluxTeamSession.returns(new Promise((resolve) => { releaseAuth = resolve; }));
 
     dockerTerminalHandler(socket);
     const exec = socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
@@ -89,5 +89,22 @@ describe('dockerTerminalHandler tests', () => {
     expect(sessionsOfType('close')).to.have.lengthOf(1);
     expect(sessionsOfType('close')[0].args[1]).to.equal('myapp');
     expect(stream.destroy.calledOnce).to.be.true;
+  });
+
+  // The terminal is the one app-scoped entry point that does not go through
+  // verifyPrivilege, so it carries no privilege string and a sweep for one does
+  // not reach it. This is the only assertion that says a shell inside a
+  // customer's container is not the node operator's, and it names the check by
+  // function rather than by argument for the same reason.
+  it('authorises a session with the check that refuses the node operator', async () => {
+    const socket = makeSocket();
+    dockerTerminalHandler(socket);
+    await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+    sinon.assert.calledOnceWithExactly(
+      verifyAppOwnerOrFluxTeamSession,
+      { zelidauth: 'zelidauth' },
+      'myapp',
+    );
   });
 });

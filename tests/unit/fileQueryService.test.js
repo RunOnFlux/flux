@@ -505,5 +505,19 @@ describe('fileQueryService tests', () => {
       expect(response.data[1].isDirectory).to.be.true;
       expect(response.data[2].isSymbolicLink).to.be.true;
     });
+
+    // appownerabove and appownerorfluxteam differ in exactly one member - the
+    // node operator - so the string this asks for is the whole of the policy.
+    // A listing of a customer's app volume is theirs, not their host's.
+    it('gates the listing on the privilege that refuses the node operator', async () => {
+      const req = { params: { appname: 'TestApp', component: 'Component1' }, query: {} };
+      const res = { json: sinon.stub() };
+
+      const verifyPrivilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+
+      await fileQueryService.getAppsFolder(req, res);
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'TestApp');
+    });
   });
 });

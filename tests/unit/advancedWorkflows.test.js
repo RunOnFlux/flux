@@ -184,9 +184,9 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // redeployAPI had no test of its own. Its gate matters for the same reason the
-  // component one does, and for more of the app: force=true takes the whole thing
-  // through a hard uninstall, so every component's data goes with it.
+  // The whole-app gate matters for the same reason the component one does, and
+  // for more of the app: force=true takes every component through a hard
+  // uninstall, so all of the app's data on this node goes with it.
   describe('redeployAPI tests', () => {
     let req;
     let res;
@@ -3102,6 +3102,20 @@ describe('advancedWorkflows tests', () => {
       expect([firstResult, secondResult]).to.have.members([true, false]);
       sinon.assert.calledOnce(IOUtils.createTarGz);
     });
+
+    // appownerabove and appownerorfluxteam differ in exactly one member - the
+    // node operator - so the string this asks for is the whole of the policy. An
+    // archive of a customer's volume is theirs, and taking one off the node is
+    // not their host's to order.
+    it('gates a backup on the privilege that refuses the node operator', async () => {
+      verificationHelper.verifyPrivilege.resolves(false);
+      const req = backupReq();
+
+      await advancedWorkflows.appendBackupTask(req, makeRes());
+
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, appname);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+    });
   });
 
   describe('appendRestoreTask tests', () => {
@@ -3879,6 +3893,20 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.calledWith(IOUtils.getVolumeInfo, appname, 'null');
+    });
+
+    // appownerabove and appownerorfluxteam differ in exactly one member - the
+    // node operator - so the string this asks for is the whole of the policy. A
+    // restore overwrites a customer's volume from an archive the caller names,
+    // which makes it the most destructive of the file verbs, not the mildest.
+    it('gates a restore on the privilege that refuses the node operator', async () => {
+      verificationHelper.verifyPrivilege.resolves(false);
+      const req = restoreReq();
+
+      await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, appname);
+      sinon.assert.notCalled(IOUtils.getVolumeInfo);
     });
   });
 
