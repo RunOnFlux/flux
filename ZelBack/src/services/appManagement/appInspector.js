@@ -737,7 +737,10 @@ async function appExec(req, res) {
 
       const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
 
-      const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+      // The container terminal's privilege: it reaches this component with more -
+      // an interactive session on a caller-named user - so a narrower gate here
+      // refuses nothing.
+      const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
       if (authorized === true) {
         let cmd = processedBody.cmd || [];
         let env = processedBody.env || [];

@@ -2402,4 +2402,41 @@ describe('appInspector tests', () => {
       });
     });
   });
+
+  // Outside the table above: appExec reads its operands from the request body, so
+  // it needs a request that emits them. The privilege is the container terminal's.
+  describe('appExec', () => {
+    it('asks for the privilege the container terminal asks for', async () => {
+      const verifyPrivilege = sinon.stub().resolves(false);
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: configStub,
+        '../utils/globalState': globalStateStub,
+        '../dockerService': dockerServiceStub,
+        '../messageHelper': messageHelperStub,
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().returnsArg(0) },
+        '../dbHelper': { databaseConnection: sinon.stub() },
+        '../verificationHelper': { verifyPrivilege },
+        '../utils/appConstants': { appConstants: {} },
+        '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+        '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+        'node-cmd': { run: sinon.stub() },
+      });
+
+      // The handler accumulates the body itself, so deliver it the way http does
+      // and await the 'end' listener's own async work.
+      const handlers = {};
+      const req = {
+        on: (event, cb) => { handlers[event] = cb; },
+        headers: {},
+      };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), end: sinon.stub() };
+
+      inspector.appExec(req, res);
+      handlers.data(JSON.stringify({ appname: 'mycomponent_myapp', cmd: ['ls'] }));
+      await handlers.end();
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+    });
+  });
 });
