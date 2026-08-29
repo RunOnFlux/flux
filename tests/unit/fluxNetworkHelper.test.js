@@ -1083,7 +1083,7 @@ describe('fluxNetworkHelper tests', () => {
     let appQueryServiceStub;
     let registryManagerStub;
     let appUninstallerStub;
-    let appControllerStub;
+    let onAddressChangedSpy;
     let enterpriseHelperStub;
     let geolocationServiceStub;
     let fluxCommunicationMessagesSenderStub;
@@ -1154,10 +1154,11 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      // Stub appController
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      // The apps that survive an address change are handed to whatever registered
+      // for one - serviceManager wires that to appReconciler.requestRestartOf.
+      // Nothing in this module knows what restarting an app involves, so the seam
+      // is what these tests assert on.
+      onAddressChangedSpy = sinon.stub().resolves();
 
       // Stub enterpriseHelper
       enterpriseHelperStub = {
@@ -1180,7 +1181,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1189,15 +1189,22 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // Verify static IP app was uninstalled
       sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
       sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'staticApp');
 
-      // Verify normal app was restarted (not uninstalled)
-      sinon.assert.calledOnce(appControllerStub.appDockerRestart);
-      sinon.assert.calledWith(appControllerStub.appDockerRestart, 'normalApp');
+      // Verify the normal app was handed over to be restarted, not uninstalled -
+      // as the whole surviving set, in one call
+      sinon.assert.calledOnce(onAddressChangedSpy);
+      const [staying] = onAddressChangedSpy.firstCall.args;
+      expect(staying.map((a) => a.name)).to.deep.equal(['normalApp']);
 
       // Verify geolocation service was called
       sinon.assert.calledOnce(geolocationServiceStub.setNodeGeolocation);
@@ -1226,9 +1233,7 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      onAddressChangedSpy = sinon.stub().resolves();
 
       // Stub enterpriseHelper to return decrypted specs with staticip: true
       enterpriseHelperStub = {
@@ -1253,7 +1258,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1262,6 +1266,11 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // Verify enterprise helper was called to decrypt specs
@@ -1294,9 +1303,7 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      onAddressChangedSpy = sinon.stub().resolves();
 
       // Stub enterpriseHelper to throw error
       enterpriseHelperStub = {
@@ -1316,7 +1323,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1325,11 +1331,16 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // Should skip the app entirely when decryption fails - neither uninstall nor restart
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
-      sinon.assert.notCalled(appControllerStub.appDockerRestart);
+      sinon.assert.notCalled(onAddressChangedSpy);
     });
 
     it('should not uninstall v6 apps even with staticip field', async () => {
@@ -1354,9 +1365,7 @@ describe('fluxNetworkHelper tests', () => {
         removeAppLocally: sinon.stub().resolves(),
       };
 
-      appControllerStub = {
-        appDockerRestart: sinon.stub().resolves(),
-      };
+      onAddressChangedSpy = sinon.stub().resolves();
 
       enterpriseHelperStub = {
         checkAndDecryptAppSpecs: sinon.stub().callsFake((app) => Promise.resolve(app)),
@@ -1375,7 +1384,6 @@ describe('fluxNetworkHelper tests', () => {
         './appQuery/appQueryService': appQueryServiceStub,
         './appDatabase/registryManager': registryManagerStub,
         './appLifecycle/appUninstaller': appUninstallerStub,
-        './appManagement/appController': appControllerStub,
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
@@ -1384,11 +1392,102 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
+      // Each test proxyquires its OWN module instance, so the address has to be set
+      // on THAT one - the beforeEach sets it on the outer module, which this code
+      // never reads. A node reaches adjustExternalIP only once it knows itself.
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
       // v6 apps should not be checked for staticip (only v7+)
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
-      sinon.assert.calledOnce(appControllerStub.appDockerRestart);
+      sinon.assert.calledOnce(onAddressChangedSpy);
+    });
+
+    // An instance already at this address means the ports are taken, because one
+    // instance per IP is what the host port mapping allows. The node's own
+    // registration is not another instance - it stores its own running-app row
+    // locally, at the address benchmark reports - so what separates "the ports are
+    // gone" from "that row is me" is the port, and only the port.
+    // Each call needs an address no earlier test has used: adjustExternalIP keeps a
+    // cache of addresses it has already handled and returns before the app loop for
+    // a repeat, which leaves the assertions below passing for the wrong reason.
+    async function runWithLocations(locations, ownSocketAddress, newIp) {
+      appQueryServiceStub = {
+        installedApps: sinon.stub().resolves({
+          status: 'success',
+          data: [{ name: 'normalApp', version: 7, staticip: false }],
+        }),
+      };
+      registryManagerStub = { appLocation: sinon.stub().resolves(locations) };
+      appUninstallerStub = { removeAppLocally: sinon.stub().resolves() };
+      onAddressChangedSpy = sinon.stub().resolves();
+      enterpriseHelperStub = { checkAndDecryptAppSpecs: sinon.stub().callsFake((app) => Promise.resolve(app)) };
+      geolocationServiceStub = { setNodeGeolocation: sinon.stub() };
+      fluxCommunicationMessagesSenderStub = {
+        broadcastMessageToOutgoing: sinon.stub().resolves(),
+        broadcastMessageToIncoming: sinon.stub().resolves(),
+      };
+
+      const helper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        './appQuery/appQueryService': appQueryServiceStub,
+        './appDatabase/registryManager': registryManagerStub,
+        './appLifecycle/appUninstaller': appUninstallerStub,
+        './utils/enterpriseHelper': enterpriseHelperStub,
+        './geolocationService': geolocationServiceStub,
+        './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
+        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
+        './serviceHelper': serviceHelper,
+        'fs/promises': { writeFile: writeFileStub },
+      });
+      helper.setStoredFluxBenchAllowed('6.2.0');
+      helper.setLocalSocketAddress(ownSocketAddress);
+      helper.setOnAddressChanged(onAddressChangedSpy);
+      await helper.adjustExternalIP(newIp);
+    }
+
+    it('keeps an app whose only instance at the new address is this node itself', async () => {
+      await runWithLocations(
+        [{ name: 'normalApp', ip: '192.168.1.110:16127' }],
+        '192.168.1.110:16127',
+        '192.168.1.110',
+      );
+
+      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+      sinon.assert.calledOnce(onAddressChangedSpy);
+      const [staying] = onAddressChangedSpy.firstCall.args;
+      expect(staying.map((a) => a.name)).to.deep.equal(['normalApp']);
+    });
+
+    // localSocketAddress is cleared whenever benchmark hiccups, and the change must
+    // survive that rather than be decided on it or dropped. Asserting the userconfig
+    // write did NOT happen is the point: that write is what marks the change handled,
+    // so an unwritten config is a change still pending for the next cycle.
+    it('defers the whole change, unwritten, when it does not know its own address', async () => {
+      await runWithLocations(
+        [{ name: 'normalApp', ip: '192.168.1.112:16157' }],
+        null,
+        '192.168.1.112',
+      );
+
+      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+      sinon.assert.notCalled(onAddressChangedSpy);
+      sinon.assert.notCalled(writeFileStub);
+      sinon.assert.notCalled(geolocationServiceStub.setNodeGeolocation);
+    });
+
+    it('uninstalls an app another node already holds the ports for on this address', async () => {
+      // Same IP, different port: a UPnP sibling behind the shared address. The
+      // ports are genuinely gone, so this node cannot run it.
+      await runWithLocations(
+        [{ name: 'normalApp', ip: '192.168.1.111:16157' }],
+        '192.168.1.111:16127',
+        '192.168.1.111',
+      );
+
+      sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
+      sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'normalApp');
+      sinon.assert.notCalled(onAddressChangedSpy);
     });
   });
 

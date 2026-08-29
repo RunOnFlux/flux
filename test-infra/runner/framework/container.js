@@ -6,6 +6,83 @@ export async function execInContainer(container, command) {
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, output: result.output };
 }
 
+// Move a node to a different address on the fleet network: the new one goes on,
+// the old one comes off.
+//
+// This is what an address change IS, and doing it for real is what makes the rest
+// of the fixture honest. Its peers then find it unreachable at the old address
+// because it genuinely is not there - no packet filter simulating it, and nothing
+// hidden from the node list, so they still recognise it as the sender of the
+// fluxipchanged broadcast that follows.
+//
+// The timing matters and is measured. A probe to an address that is gone fails
+// with EHOSTUNREACH at ~3.1s (ARP gives up), NOT a hang - so a peer's own probe
+// budget of 5s sees a failure rather than a timeout, and it answers the asking
+// node inside that node's 7s budget. Those margins are why this works where
+// dropping packets did not: a dropped probe burns the full 5s, and the answer
+// then arrives after the asker has already given up, which reads as "I could not
+// ask" rather than "you are unreachable" - a different branch entirely, and one
+// that never consults benchmark.
+//
+// @param {object} container The node's container.
+// @param {string} to Bare address to move to, inside the fleet's own /24.
+// @param {string} from Bare address to give up.
+export async function moveNodeAddress(container, to, from, { prefix = 24, iface = 'eth0' } = {}) {
+  const add = await execInContainer(container, `ip addr add ${to}/${prefix} dev ${iface}`);
+  if (add.exitCode !== 0 && !/File exists/i.test(add.output || '')) {
+    throw new Error(`moveNodeAddress: could not add ${to}/${prefix} to ${iface}: ${add.output}`);
+  }
+  const del = await execInContainer(container, `ip addr del ${from}/${prefix} dev ${iface}`);
+  if (del.exitCode !== 0 && !/Cannot assign|not exist/i.test(del.output || '')) {
+    throw new Error(`moveNodeAddress: could not remove ${from}/${prefix} from ${iface}: ${del.output}`);
+  }
+  return to;
+}
+
+// Make a node unreachable to the named peers, without taking it off the network.
+//
+// The node keeps its address, its list entry and its outbound connections; what
+// stops is inbound traffic to its API port FROM those peers. That is what a node
+// whose address has moved looks like from the outside - still listed where it was,
+// no longer answering there - and it is the state that makes a peer's availability
+// probe fail, which is what a node needs before it will ask benchmark whether its
+// address changed.
+//
+// REJECT rather than DROP, and the difference decides whether this works at all.
+// A peer asked whether it can reach this node probes it and answers within the
+// asker's own timeout budget. Dropped packets blackhole, so that probe burns its
+// full timeout and the peer answers too late - the asker times out on the PEER and
+// reads "I could not ask" instead of "I am unreachable", which retries without ever
+// consulting benchmark. Refusing fails the probe instantly, so the answer arrives
+// in time and says what it is meant to say.
+//
+// Named peers rather than the subnet: the runner reaches the node from the docker
+// gateway on that same /24, so a blanket rule would cut off the very client doing
+// the asserting.
+//
+// @param {object} container The node's container.
+// @param {string[]} peerIps Bare addresses whose traffic to drop.
+// @param {number} apiPort The node's API port.
+export async function blockPeerAccess(container, peerIps, apiPort) {
+  for (const peerIp of peerIps) {
+    // eslint-disable-next-line no-await-in-loop
+    const r = await execInContainer(container, `iptables -I INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
+    if (r.exitCode !== 0) {
+      throw new Error(`blockPeerAccess: could not drop ${peerIp} -> :${apiPort}: ${r.output}`);
+    }
+  }
+  return peerIps;
+}
+
+// Undo blockPeerAccess. Tolerates a rule that is already gone so teardown after a
+// failed test cannot fail in its own right.
+export async function unblockPeerAccess(container, peerIps, apiPort) {
+  for (const peerIp of peerIps) {
+    // eslint-disable-next-line no-await-in-loop
+    await execInContainer(container, `iptables -D INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
+  }
+}
+
 export async function listAppContainers(container, { all = false } = {}) {
   const flag = all ? ' -a' : '';
   const { stdout } = await execInContainer(container,

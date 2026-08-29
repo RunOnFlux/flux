@@ -319,7 +319,7 @@ describe('appInstaller tests', () => {
       };
 
       verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -332,6 +332,70 @@ describe('appInstaller tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(logStub.error.called).to.be.true;
+    });
+  });
+
+  // Placing a registered app on a node is not the operator's call, for the same
+  // reason removing one is not. The temporary-message route is deliberately NOT
+  // closed with it - that is how an app is tested before it is registered.
+  describe('local install is not the node operator\'s to make', () => {
+    const nameInstall = () => ({ params: { appname: 'someCustomerApp' }, query: {} });
+
+    it('refuses a node admin installing a registered app by name', async () => {
+      const req = nameInstall();
+      const res = { json: sinon.stub(), setHeader: sinon.stub() };
+
+      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
+      // the node operator's own privilege - held, and no longer sufficient here
+      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(false);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(verificationHelperStub.verifyPrivilege.calledWith('fluxteam', req), 'the gate must ask for fluxteam').to.be.true;
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+    });
+
+    it('refuses a node admin on the test-install route too', async () => {
+      const req = nameInstall();
+      const res = { json: sinon.stub(), setHeader: sinon.stub() };
+
+      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(false);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+    });
+
+    // The one that must keep working: an app under test is addressed by HASH and
+    // carries a temporary message, so it never reaches the by-name gate at all.
+    it('still lets any logged-in user install an app under test by its temporary message', async () => {
+      const req = { params: { appname: 'a1b2c3hash' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub() };
+
+      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(false);
+      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(false);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        appSpecifications: { name: 'apptest', version: 3, owner: 'someone' },
+      });
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+
+      await appInstaller.installAppLocally(req, res);
+
+      // It got past the gate: no Unauthorized was returned, and the by-name
+      // privilege was never consulted because a temporary message was found.
+      const unauthorized = res.json.getCalls().some((c) => c.args[0]?.data?.message === 'Unauthorized');
+      expect(unauthorized, 'a temporary app must not be refused').to.equal(false);
+      expect(verificationHelperStub.verifyPrivilege.calledWith('fluxteam', req), 'the by-name gate must not be reached').to.be.false;
     });
   });
 
@@ -382,7 +446,7 @@ describe('appInstaller tests', () => {
       };
 
       verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -430,7 +494,7 @@ describe('appInstaller tests', () => {
       };
 
       verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);

@@ -172,10 +172,21 @@ describe('reconciler enforces masterSlave g: election', function () {
 
     const body = await backupDone;
     expect(body).to.not.match(/Unauthorized/i);
-    // What the app does AFTER the hold is released is not this test's property
-    // and not this branch's behaviour: the backup's own stop earns a rung on the
-    // restart ladder here, so the elected primary is paced back up over minutes.
-    // The convergence assertion lives with the change that makes a deliberate
-    // stop earn nothing.
+
+    // The hold is released, and the elected primary converges back to running
+    // without serving a backoff rung first. This is the end-to-end reading of
+    // "a rung is earned by evidence of a fault": the suite has started and
+    // stopped this app repeatedly by now, and the backup stopped it once more,
+    // none of which is a fault. Counting those would put it on the five-minute
+    // rung, so a window of two minutes is what tells the two apart - the app is
+    // either back within a cycle or it is being paced.
+    //
+    // Proven here for an image that shuts down cleanly, which is the scope of the
+    // rule today: the test app traps SIGTERM and exits 0 (test-app.c), so the
+    // backup's stop leaves no failure code behind. An image that does NOT trap it
+    // exits 143 and IS paced for the same stop - the exit code cannot tell a drain
+    // from a fault, and teaching the ladder to needs desired state rather than the
+    // corpse. This suite would not notice that, and is not the place to.
+    await waitFor(() => isUp(a, appName), { timeout: 120000, interval: 3000, label: 'app running again after the backup released' });
   });
 });

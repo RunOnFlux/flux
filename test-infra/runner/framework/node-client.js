@@ -4,8 +4,11 @@ import { getSubnetConfig } from './subnet-config.js';
 import { infraDeathError, offInfraDeath, onInfraDeath } from './infra-death.js';
 
 export function nodeClient(nodeNum) {
-  const ip = getSubnetConfig().nodeIp(nodeNum);
-  const url = `http://${ip}:16127`;
+  // Not constants: a node's address can change, and a client bound to where the
+  // node USED to be is a client that cannot see it any more. Every request and the
+  // event stream read these, so following a node is a matter of re-pointing them.
+  let ip = getSubnetConfig().nodeIp(nodeNum);
+  let url = `http://${ip}:16127`;
 
   async function get(path) {
     const res = await fetch(`${url}${path}`);
@@ -236,6 +239,7 @@ export function nodeClient(nodeNum) {
         'message:dispatched',
         'reconciler:actuated',
         'reconciler:desiredChanged',
+        'app:operatorIntent',
         'reconciler:swept',
       ]) {
         eventSource.addEventListener(name, (e) => {
@@ -249,6 +253,31 @@ export function nodeClient(nodeNum) {
         });
       }
     });
+  }
+
+  /**
+   * Follow this node to a new address.
+   *
+   * The harness reaches a node at a fixed address, so a node that genuinely moves
+   * becomes invisible to its own client - every request goes to where it was, and
+   * the event stream dies with the address. That makes an address change untestable
+   * for the wrong reason: not because the product failed, but because the observer
+   * was left behind.
+   *
+   * The event stream is reconnected, so events emitted between the move and this
+   * call are not in the buffer. Callers that need to span the move should take their
+   * baseline from what this returns rather than from before it.
+   *
+   * @param {string} newIp The address the node now answers on.
+   * @returns {Promise<number>} The last event id after reconnecting, as a baseline.
+   */
+  async function followTo(newIp) {
+    const wasStreaming = Boolean(eventSource);
+    if (wasStreaming) disconnectEventStream();
+    ip = newIp;
+    url = `http://${ip}:16127`;
+    if (wasStreaming) await connectEventStream();
+    return getLastEventId();
   }
 
   function disconnectEventStream() {
@@ -328,8 +357,9 @@ export function nodeClient(nodeNum) {
   }
 
   return {
-    ip,
-    url,
+    get ip() { return ip; },
+    get url() { return url; },
+    followTo,
     num: nodeNum,
     get,
     getAuthed,

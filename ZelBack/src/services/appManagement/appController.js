@@ -4,12 +4,11 @@ const serviceHelper = require('../serviceHelper');
 // Removed verificationHelper to avoid circular dependency - will use dynamic require where needed
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
-const registryManager = require('../appDatabase/registryManager');
-const appInspector = require('./appInspector');
 const appsRuntimeState = require('./appsRuntimeState');
 const appReconciler = require('../appMonitoring/appReconciler');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
+const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
 
 const { globalCmdDelayMs } = config.fluxapps;
@@ -162,16 +161,87 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
  *
  * @param {string} appname app or component identifier
  * @param {object|null} appSpecs full app spec (null for a component command)
+ * The components are resolved from what the app is actually made of, never from a
+ * stored spec's `compose`: an enterprise app keeps its component names inside an
+ * encrypted blob, so reading compose yields an empty list and a whole-app command
+ * addresses nothing while reporting success.
+ *
  * @param {boolean} stopped
+ * @param {object} [options]
+ * @param {boolean} [options.awaitPass] hold until the reconcile pass has run
+ * @param {boolean} [options.force] a stop is a hard kill, not a graceful stop
+ * @param {boolean} [options.alsoRestart] raise the restart generation with the lock
  */
-async function setAppOperatorStopped(appname, appSpecs, stopped) {
-  const ids = (!appname.includes('_') && appSpecs && appSpecs.version > 3)
-    ? appSpecs.compose.map((c) => `${c.name}_${appSpecs.name}`)
-    : [appname];
+async function operatorTargetIds(appname) {
+  const mainAppName = appname.split('_')[1] || appname;
+  // eslint-disable-next-line global-require
+  const appQueryService = require('../appQuery/appQueryService');
+  const installedRes = await appQueryService.installedApps(mainAppName);
+  if (!installedRes || installedRes.status !== 'success' || !installedRes.data.length) {
+    throw new Error(`Application ${mainAppName} is not installed on this node`);
+  }
+  const appName = installedRes.data[0].name;
+  const ids = await appReconciler.componentIdsOf(installedRes.data);
+  // An installed app with nothing to address is not an app that needs nothing
+  // done to it - it is one whose parts this node cannot work out: a spec that
+  // will not decrypt, falling back to a docker listing that is empty or that
+  // failed outright. Acting on the empty list wrote no intent, settled
+  // vacuously against nothing, and answered that the command had succeeded.
+  // Refused rather than reported, in the operator's terms: what they need to
+  // know is that nothing happened.
+  if (!ids.length) {
+    throw new Error(`Application ${appName} was not changed: this node cannot determine its components`);
+  }
+  if (!appname.includes('_')) return { ids, appName };
+  // A component is addressed by name, and a name that is not one of this app's
+  // components addresses nothing. Taking it verbatim wrote a durable operator
+  // lock under a component that does not exist - nothing clears one, and it holds
+  // the real component down if one is ever created with that name.
+  if (!ids.includes(appname)) {
+    throw new Error(`Component ${appname} is not installed on this node`);
+  }
+  return { ids: [appname], appName: appname };
+}
+
+async function setAppOperatorStopped(appname, stopped, { awaitPass = false, force = false, alsoRestart = false } = {}) {
+  const { ids, appName } = await operatorTargetIds(appname);
+  // Components come up in compose order and go down in the reverse of it, so a
+  // dependency outlives what writes to it: the database stops after the server it
+  // serves, not before it. awaitPass holds each component's pass open before the
+  // next id is touched, so this order is the order the containers move in.
+  // Reversed on the mapped ids, which is a fresh array - never on the spec, whose
+  // compose array is shared with whatever the caller fetched it from.
+  if (stopped) ids.reverse();
+  let allActuated = true;
   // eslint-disable-next-line no-restricted-syntax
   for (const id of ids) {
+    // Written through the reconciler's per-key slot rather than straight to the
+    // store. A pass reads the lock and acts on that answer once docker has
+    // replied, so a write landing in between is not seen: the pass starts a
+    // container the operator has just stopped and the next pass stops it again.
+    // applyIntent waits out any pass deciding for this id, holds the key while
+    // the write lands, and enqueues on release - so the two cannot interleave,
+    // and the next pass reads what was just written.
     // eslint-disable-next-line no-await-in-loop
-    await appsRuntimeState.setOperatorStopped(id, stopped);
+    const actuated = await appReconciler.applyIntent(id, async () => {
+      await appsRuntimeState.setOperatorStopped(id, stopped, { force });
+      // Raised inside the same slot as the lock, so a pass cannot read one
+      // without the other and bounce a container the operator meant to keep down.
+      if (alsoRestart) await appsRuntimeState.requestRestart(id);
+      // The operator's intent is the one desired-state write in this flow that
+      // announced nothing, so nothing could be ordered against it - and the
+      // failure it hides is an actuation on the PREVIOUS intent arriving after
+      // this one landed. Published from inside the slot: after the write, so it
+      // can never claim an intent that did not persist, and before the pass,
+      // which is what makes it the ordering point.
+      fluxEventBus.publish('app:operatorIntent', {
+        // The bare component id the reconciler publishes its own actuations
+        // under. An event carrying a different spelling of the same component
+        // cannot be ordered against them, which is the only thing it is for.
+        identifier: dockerService.getBaseAppName(id), stopped, force, restartRequested: alsoRestart,
+      });
+    }, { awaitPass });
+    if (!actuated) allActuated = false;
     // A stop retracts the controller's desire as well as taking the lock. The
     // lock only suppresses the reconciler while it is held; a desire left
     // standing is reconciled against the stopped container the moment the lock
@@ -187,6 +257,80 @@ async function setAppOperatorStopped(appname, appSpecs, stopped) {
     // the sync layer marks a component processed before it asks.
     if (stopped) appReconciler.clearControllerDesired(id);
   }
+  return { ids, actuated: allActuated, appName };
+}
+
+/**
+ * What the containers are actually doing, once the reconciler has had its pass.
+ *
+ * `actuated` says a pass ran, not that it achieved anything: a pass that finds
+ * docker unreachable completes by deferring. So the answer to "is it stopped"
+ * comes from probing, and dockerActual is the probe that can tell a container
+ * being gone from docker being unreachable - which is the difference between
+ * reporting done and reporting pending.
+ * @param {string[]} ids Component identifiers.
+ * @returns {Promise<{settled: boolean, reason: string|null}>}
+ */
+async function containersReachedStopped(ids) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    const actual = await appReconciler.dockerActual(id);
+    if (!actual.reachable) return { settled: false, reason: 'docker is not reachable' };
+    // Nothing there is not the same as stopped. dockerActual distinguishes the two
+    // and this read the pair as one, so a command against a container that does not
+    // exist settled - and answered "stopped" for something that was never running.
+    if (!actual.exists) return { settled: false, reason: 'it is not installed on this node' };
+    if (actual.running) return { settled: false, reason: 'the reconciler has not stopped it yet' };
+  }
+  return { settled: true, reason: null };
+}
+
+// Why the reconciler is not running a component, in the operator's terms. The
+// election cases are not failures: a synced component runs on the node the
+// election made the writer, so "not started" is the correct outcome elsewhere
+// and saying so is more use than a generic wait.
+const NOT_RUNNING_REASONS = {
+  awaitingController: 'waiting for the election',
+  controllerDesired: 'the election has not made this node the writer',
+  policy: 'its restart policy does not allow it to run',
+  invalidSpec: 'its specification cannot be actuated',
+  notInstalled: 'it is not installed on this node',
+};
+
+/**
+ * What the containers are actually doing, once the reconciler has had its pass.
+ *
+ * The mirror of containersReachedStopped, with one asymmetry: a container that
+ * is not running may be one the reconciler is right to leave alone, so the
+ * reason comes from the reconciler's own verdict rather than from the absence.
+ *
+ * @param {string[]} ids Component identifiers.
+ * @returns {Promise<{settled: boolean, reason: string|null}>}
+ */
+async function containersReachedRunning(ids) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    const actual = await appReconciler.dockerActual(id);
+    if (!actual.reachable) return { settled: false, reason: 'docker is not reachable' };
+    if (actual.running) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    let verdict;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      verdict = await appReconciler.desiredRunState(id);
+    } catch (err) {
+      return { settled: false, reason: `its state could not be read: ${err.message}` };
+    }
+    return {
+      settled: false,
+      reason: NOT_RUNNING_REASONS[verdict.reason] || 'the reconciler has not started it yet',
+    };
+  }
+  return { settled: true, reason: null };
 }
 
 async function appStart(req, res) {
@@ -203,7 +347,6 @@ async function appStart(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
-    // eslint-disable-next-line global-require
     // Use dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
@@ -219,96 +362,41 @@ async function appStart(req, res) {
       return res ? res.json(appResponse) : appResponse;
     }
 
-    const isComponent = appname.includes('_'); // it is a component start
-    let appRes;
+    // THE RECONCILER STARTS IT, NOT THIS HANDLER.
+    //
+    // Clearing the lock is the whole of an operator start: whether the container
+    // may run is a decision the election already owns for a g:/r: component, and
+    // the reconciler consults it on every pass. A handler that also probed docker
+    // was asking a different question - "is this container running now" as a proxy
+    // for "should this node be running it" - and those diverge both ways: a
+    // primary whose container is stopped was refused a start, a standby whose
+    // container happened to be up was started.
+    //
+    // awaitPass holds this handler until the pass has run, so a success still
+    // means the container is running in the same wall-clock the direct call took.
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: startedName } = await setAppOperatorStopped(appname, false, { awaitPass: true });
 
-    if (isComponent) {
-      // user-initiated start clears the operator stop lock so the reconciler keeps it running
-      await setAppOperatorStopped(appname, null, false);
-      // For component start, check if it uses g:syncthing mode
-      const componentMainApp = appname.split('_')[1];
-      const appSpecs = await registryManager.getApplicationSpecifications(componentMainApp);
-      if (appSpecs && appSpecs.version > 3) {
-        const componentSpec = appSpecs.compose.find((comp) => `${comp.name}_${appSpecs.name}` === appname);
-        if (componentSpec && componentSpec.containerData && componentSpec.containerData.includes('g:')) {
-          // Check if component is running
-          try {
-            const containers = await dockerService.dockerListContainers(false); // Get only running containers
-            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
-            if (!isRunning) {
-              log.info(`Skipping start for g:syncthing component ${appname} - not currently running`);
-              appRes = `Component ${appname} uses g:syncthing mode and is not running - skipped start`;
-              const appResponse = messageHelper.createDataMessage(appRes);
-              return res ? res.json(appResponse) : appResponse;
-            }
-          } catch (error) {
-            log.warn(`Could not check running status for ${appname}: ${error.message}`);
-          }
-        }
-      }
-      appRes = await dockerService.appDockerStart(appname);
-      appInspector.startAppMonitoring(appname);
-    } else {
-      // Check if app exists before starting
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      // user-initiated start clears the operator stop lock so the reconciler keeps it running
-      await setAppOperatorStopped(appname, appSpecs, false);
+    // A pass that completed is not a container that started - docker being
+    // unreachable completes by deferring, and a synced component the election
+    // holds elsewhere is a pass that correctly did nothing. Probe rather than
+    // infer, and name which of the two it was.
+    const outcome = actuated
+      ? await containersReachedRunning(ids)
+      : { settled: false, reason: 'no reconcile has run yet' };
 
-      if (appSpecs.version <= 3) {
-        // For non-composed apps, check if it uses g:syncthing mode
-        if (appSpecs.containerData && appSpecs.containerData.includes('g:')) {
-          try {
-            const containers = await dockerService.dockerListContainers(false);
-            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
-            if (!isRunning) {
-              log.info(`Skipping start for g:syncthing app ${appname} - not currently running`);
-              appRes = `Application ${appname} uses g:syncthing mode and is not running - skipped start`;
-              const appResponse = messageHelper.createDataMessage(appRes);
-              return res ? res.json(appResponse) : appResponse;
-            }
-          } catch (error) {
-            log.warn(`Could not check running status for ${appname}: ${error.message}`);
-          }
-        }
-        appRes = await dockerService.appDockerStart(appname);
-        appInspector.startAppMonitoring(appname);
-      } else {
-        // For composed applications (version > 3), start all components
-        log.info(`Starting composed app ${appSpecs.name} with ${appSpecs.compose.length} components`);
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          const componentName = `${appComponent.name}_${appSpecs.name}`;
-          // Check if component uses g:syncthing mode
-          if (appComponent.containerData && appComponent.containerData.includes('g:')) {
-            try {
-              // eslint-disable-next-line no-await-in-loop
-              const containers = await dockerService.dockerListContainers(false);
-              const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(componentName) || container.Id === componentName);
-              if (!isRunning) {
-                log.info(`Skipping start for g:syncthing component ${componentName} - not currently running`);
-                // eslint-disable-next-line no-continue
-                continue;
-              }
-            } catch (error) {
-              log.warn(`Could not check running status for ${componentName}: ${error.message}`);
-            }
-          }
-          log.info(`Starting component: ${componentName}`);
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStart(componentName);
-          log.info(`Component ${componentName} started, starting monitoring`);
-          appInspector.startAppMonitoring(componentName);
-          log.info(`Monitoring started for ${componentName}`);
-        }
-        log.info(`All components started for ${appSpecs.name}`);
-        appRes = `Application ${appSpecs.name} started`;
-      }
+    if (!outcome.settled) {
+      // Accepted, not applied. The intent is durable and the reconciler converges
+      // on it; where the reason is the election, "not started here" is the correct
+      // outcome rather than a failure, and the operator is told which it is.
+      const pending = messageHelper.createDataMessage(
+        `Application ${startedName} will be started: ${outcome.reason}`,
+      );
+      return res ? res.json(pending) : pending;
     }
 
-    const appResponse = messageHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(`Application ${startedName} started`);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
@@ -357,43 +445,45 @@ async function appStop(req, res) {
       return res ? res.json(appResponse) : appResponse;
     }
 
-    const isComponent = appname.includes('_'); // it is a component stop
-    let appRes;
+    // THE RECONCILER STOPS IT, NOT THIS HANDLER.
+    //
+    // Two things drove the container before this: the handler called
+    // appDockerStop directly while the reconciler actuated off its own per-key
+    // queue. Two writers to one container is what made an operator stop
+    // interleave with a pass - the pass read the lock, the stop landed, the pass
+    // started the container it had already decided to start. Writing the intent
+    // and letting the single actuator converge removes the second writer rather
+    // than narrowing the window between them.
+    //
+    // The contract is unchanged: awaitPass holds this handler until the pass has
+    // run, so a success still means the container is stopped, in the same
+    // wall-clock the direct call took.
+    //
+    // Monitoring goes with the container, so the reconciler turns it off when it
+    // stops one. Doing it here stopped the sampler for a container the stop had
+    // not reached - an unreachable docker left it running and unwatched.
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: stoppedName } = await setAppOperatorStopped(appname, true, { awaitPass: true });
 
-    if (isComponent) {
-      // lock BEFORE the docker op (matching the whole-app path): a crash between
-      // the stop and the lock write would leave a stopped container the
-      // reconciler restarts against the operator's intent
-      await setAppOperatorStopped(appname, null, true);
-      appInspector.stopAppMonitoring(appname, false);
-      appRes = await dockerService.appDockerStop(appname);
-    } else {
-      // Check if app exists before stopping
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      // operator stop persists so the reconciler does not restart it
-      await setAppOperatorStopped(appname, appSpecs, true);
+    // A pass that completed is not a container that stopped - docker being
+    // unreachable completes by deferring. Probe rather than infer, so a stop
+    // that has not happened yet is never reported as one that has.
+    const outcome = actuated
+      ? await containersReachedStopped(ids)
+      : { settled: false, reason: 'no reconcile has run yet' };
 
-      // eslint-disable-next-line no-restricted-syntax
-      if (appSpecs.version <= 3) {
-        // eslint-disable-next-line no-await-in-loop
-        appInspector.stopAppMonitoring(appname, false);
-        appRes = await dockerService.appDockerStop(appname);
-      } else {
-        // For composed applications (version > 3), stop all components in reverse order
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose.reverse()) {
-          appInspector.stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
-        }
-        appRes = `Application ${appSpecs.name} stopped`;
-      }
+    if (!outcome.settled) {
+      // Accepted, not applied. The intent is durable and the reconciler will
+      // converge, so an error here would be false - the old direct call threw
+      // in exactly this case, after the lock had already been written.
+      const pending = messageHelper.createDataMessage(
+        `Application ${stoppedName} will be stopped: ${outcome.reason}`,
+      );
+      return res ? res.json(pending) : pending;
     }
 
-    const appResponse = messageHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(`Application ${stoppedName} stopped`);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
@@ -420,7 +510,6 @@ async function appRestart(req, res) {
     global = global || req.query.global || false;
     global = serviceHelper.ensureBoolean(global);
 
-    // eslint-disable-next-line global-require
     if (!appname) {
       throw new Error('No Flux App specified');
     }
@@ -442,91 +531,30 @@ async function appRestart(req, res) {
       return res ? res.json(appResponse) : appResponse;
     }
 
-    const isComponent = appname.includes('_'); // it is a component restart
-    let appRes;
+    // A RESTART IS DESIRED STATE, NOT A DOCKER CALL.
+    //
+    // "Make it run now" is the lock cleared and the restart generation raised.
+    // The reconciler bounces a running container once the generation passes the
+    // one it last actuated, and a stopped container is simply started - which is
+    // the same request satisfied. Expressing it as a level rather than an action
+    // is what removes the race: there is no window between this handler deciding
+    // and the reconciler deciding, because only one of them decides.
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: restartedName } = await setAppOperatorStopped(appname, false, { awaitPass: true, alsoRestart: true });
 
-    if (isComponent) {
-      // user-initiated restart means "make it run": clear the operator stop lock
-      // (before the docker op) so the reconciler keeps it running afterwards
-      await setAppOperatorStopped(appname, null, false);
-      // For component restart, check if it uses g:syncthing mode
-      const componentMainApp = appname.split('_')[1];
-      const appSpecs = await registryManager.getApplicationSpecifications(componentMainApp);
-      if (appSpecs && appSpecs.version > 3) {
-        const componentSpec = appSpecs.compose.find((comp) => `${comp.name}_${appSpecs.name}` === appname);
-        if (componentSpec && componentSpec.containerData && componentSpec.containerData.includes('g:')) {
-          // Check if component is running
-          try {
-            const containers = await dockerService.dockerListContainers(false); // Get only running containers
-            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
-            if (!isRunning) {
-              log.info(`Skipping restart for g:syncthing component ${appname} - not currently running`);
-              appRes = `Component ${appname} uses g:syncthing mode and is not running - skipped restart`;
-              const appResponse = messageHelper.createDataMessage(appRes);
-              return res ? res.json(appResponse) : appResponse;
-            }
-          } catch (error) {
-            log.warn(`Could not check running status for ${appname}: ${error.message}`);
-          }
-        }
-      }
-      appRes = await dockerService.appDockerRestart(appname);
-    } else {
-      // Check if app exists before restarting
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      // eslint-disable-next-line no-restricted-syntax
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      // user-initiated restart means "make it run": clear the operator stop lock
-      // for every component (before the docker ops), matching appStart
-      await setAppOperatorStopped(appname, appSpecs, false);
+    const outcome = actuated
+      ? await containersReachedRunning(ids)
+      : { settled: false, reason: 'no reconcile has run yet' };
 
-      if (appSpecs.version <= 3) {
-        // For non-composed apps, check if it uses g:syncthing mode
-        if (appSpecs.containerData && appSpecs.containerData.includes('g:')) {
-          try {
-            const containers = await dockerService.dockerListContainers(false);
-            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
-            if (!isRunning) {
-              log.info(`Skipping restart for g:syncthing app ${appname} - not currently running`);
-              appRes = `Application ${appname} uses g:syncthing mode and is not running - skipped restart`;
-              const appResponse = messageHelper.createDataMessage(appRes);
-              return res ? res.json(appResponse) : appResponse;
-            }
-          } catch (error) {
-            log.warn(`Could not check running status for ${appname}: ${error.message}`);
-          }
-        }
-        appRes = await dockerService.appDockerRestart(appname);
-      } else {
-        // For composed applications (version > 3), restart all components
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          const componentName = `${appComponent.name}_${appSpecs.name}`;
-          // Check if component uses g:syncthing mode
-          if (appComponent.containerData && appComponent.containerData.includes('g:')) {
-            try {
-              // eslint-disable-next-line no-await-in-loop
-              const containers = await dockerService.dockerListContainers(false);
-              const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(componentName) || container.Id === componentName);
-              if (!isRunning) {
-                log.info(`Skipping restart for g:syncthing component ${componentName} - not currently running`);
-                // eslint-disable-next-line no-continue
-                continue;
-              }
-            } catch (error) {
-              log.warn(`Could not check running status for ${componentName}: ${error.message}`);
-            }
-          }
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
-        }
-        appRes = `Application ${appSpecs.name} restarted`;
-      }
+    if (!outcome.settled) {
+      const pending = messageHelper.createDataMessage(
+        `Application ${restartedName} will be restarted: ${outcome.reason}`,
+      );
+      return res ? res.json(pending) : pending;
     }
 
-    const appResponse = messageHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(`Application ${restartedName} restarted`);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
@@ -548,7 +576,6 @@ async function appRestart(req, res) {
 async function appKill(req, res) {
   try {
     let { appname } = req.params;
-    // eslint-disable-next-line global-require
     appname = appname || req.query.appname;
 
     if (!appname) {
@@ -560,43 +587,35 @@ async function appKill(req, res) {
     // Use dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    // Not appownerabove: that admits the node operator, and a hard kill of
+    // someone else's app is not theirs to order. The owner and the flux team
+    // only - the operator keeps every other lifecycle control.
+    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const isComponent = appname.includes('_'); // it is a component kill. Proceed with killing just component
-    let appRes;
+    // A kill is a stop that carries a signal, so it is the same desired state
+    // with a mode: the lock, plus force. The reconciler reads the mode where it
+    // stops the container, which keeps the choice of signal beside the decision
+    // to stop rather than in a handler racing it.
+    // Which components this addresses - and whether the app or component even
+    // exists here - is resolved from what the app is made of, in one place.
+    const { ids, actuated, appName: killedName } = await setAppOperatorStopped(appname, true, { awaitPass: true, force: true });
 
-    if (isComponent) {
-      // lock BEFORE the docker op (matching the whole-app path) - crash-safe direction
-      await setAppOperatorStopped(appname, null, true);
-      appRes = await dockerService.appDockerKill(appname);
-    } else {
-      // eslint-disable-next-line no-restricted-syntax
-      // Check if app exists before killing
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      // operator kill persists so the reconciler does not restart it
-      await setAppOperatorStopped(appname, appSpecs, true);
+    const outcome = actuated
+      ? await containersReachedStopped(ids)
+      : { settled: false, reason: 'no reconcile has run yet' };
 
-      if (appSpecs.version <= 3) {
-        appRes = await dockerService.appDockerKill(appname);
-      } else {
-        // For composed applications (version > 3), kill all components in reverse order
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose.reverse()) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerKill(`${appComponent.name}_${appSpecs.name}`);
-        }
-        appRes = `Application ${appSpecs.name} killed`;
-      }
+    if (!outcome.settled) {
+      const pending = messageHelper.createDataMessage(
+        `Application ${killedName} will be killed: ${outcome.reason}`,
+      );
+      return res ? res.json(pending) : pending;
     }
 
-    const appResponse = messageHelper.createDataMessage(appRes);
+    const appResponse = messageHelper.createDataMessage(`Application ${killedName} killed`);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
@@ -683,32 +702,8 @@ async function appPause(req, res) {
 async function appUnpause(req, res) {
   return deprecatedPauseResponse(req, res);
 }
-/**
- * Docker restart app (internal function)
- * @param {string} appname - Application name
- * @returns {Promise<void>}
- */
-async function appDockerRestart(appname) {
-  try {
-    // mainAppName extracted for potential future use
-    // eslint-disable-next-line no-unused-vars
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerRestart(appname);
-      // Note: startAppMonitoring would need to be injected or called separately
-      log.info(`Component ${appname} restarted successfully`);
-    } else {
-      // ask for restarting entire composed application
-      // This would need getApplicationSpecifications from registryManager
-      log.info(`Restarting entire application ${appname}`);
-      await dockerService.appDockerRestart(appname);
-    }
-  } catch (error) {
-    log.error(`Docker restart failed for ${appname}: ${error.message}`);
-    throw error;
-  }
-}
+// Nothing in this module drives a container. Every route here records the
+// operator's desired state and lets the reconciler actuate it.
 
 /**
  * To stop all non Flux running apps. Executes continuously at regular intervals.
@@ -761,6 +756,5 @@ module.exports = {
   appKill,
   appPause,
   appUnpause,
-  appDockerRestart,
   stopAllNonFluxRunningApps,
 };

@@ -116,6 +116,8 @@ module.exports = {
   fluxapps: {
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    restartBurstCount: 5,
+    restartBurstWindowMs: 300000,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.

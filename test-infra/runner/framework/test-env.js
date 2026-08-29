@@ -582,7 +582,9 @@ export async function createTestEnv({
   const declaredMs = (hookCtx && typeof hookCtx.timeout === 'function') ? hookCtx.timeout() : 0;
   if (declaredMs > 0) hookCtx.timeout(declaredMs + BOOT_LOCK_MAX_WAIT_MS + 30000);
   const queuedFrom = process.hrtime.bigint();
-  await acquireBootLock();
+  await acquireBootLock({
+    nodes, deferred: deferredNodes, legacy: legacyNodes.length, syncthing,
+  });
   if (declaredMs > 0) {
     const queuedMs = Number((process.hrtime.bigint() - queuedFrom) / 1000000n);
     hookCtx.timeout(declaredMs + queuedMs);

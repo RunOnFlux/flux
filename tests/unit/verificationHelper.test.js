@@ -52,6 +52,16 @@ describe('verificationHelper tests', () => {
       stub.reset();
     });
 
+    it('should call verifyAppOwnerOrFluxTeamSession when flag "appownerorfluxteam" is passed', async () => {
+      const privilege = 'appownerorfluxteam';
+      const stub = sinon.stub(verificationHelperUtils, 'verifyAppOwnerOrFluxTeamSession').resolves(true);
+      const verifyPrivilegeResult = await verifyPrivilege(privilege, req, appName);
+
+      sinon.assert.calledOnceWithExactly(stub, req.headers, appName);
+      expect(verifyPrivilegeResult).to.be.true;
+      stub.reset();
+    });
+
     it('should call verifyAppOwnerOrHigherSession when flag "appownerabove" is passed', async () => {
       const privilege = 'appownerabove';
       const stub = sinon.stub(verificationHelperUtils, 'verifyAppOwnerOrHigherSession').resolves(true);

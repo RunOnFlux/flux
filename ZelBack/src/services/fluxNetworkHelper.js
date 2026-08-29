@@ -25,10 +25,24 @@ const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
 const {
-  normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress,
+  normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+// Fired once, with the apps that survived an address change, after the node's
+// public IP has moved. serviceManager wires it to appReconciler.requestRestartOf
+// (mirrors appUninstaller.setOnComponentRemoved).
+//
+// A seam rather than a require, and not for tidiness: appUninstaller requires
+// THIS module and appReconciler requires appUninstaller, so reaching upward from
+// here for either closes a cycle. Twenty-odd app-layer modules import this one -
+// it sits underneath them and stays there. What it knows is that the address
+// moved and which apps it kept; what restarting one involves is not its business.
+let onAddressChanged = null;
+function setOnAddressChanged(callback) {
+  onAddressChanged = callback;
+}
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
@@ -1116,6 +1130,23 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
+    // Everything below needs to know which node this is: whose registration among
+    // the ones found at the new address is our own, which apps are ours to hand
+    // over, and what address the fluxipchanged broadcast is moving FROM.
+    // localSocketAddress is cleared whenever benchmark hiccups, and a comparison
+    // against nothing matches nothing - so acting here would read our own rows as
+    // strangers' and uninstall the apps they belong to.
+    //
+    // Return BEFORE the userconfig write, which is what makes this a deferral
+    // rather than a silent drop: the write is what marks the change handled, so
+    // leaving it unwritten leaves the change pending. checkMyFluxAvailability
+    // already refuses to run while the address is unknown, so nothing reaches here
+    // again until benchmark answers - and then this runs with the node knowing
+    // itself, exactly once, as designed.
+    if (!localSocketAddress) {
+      log.warn(`adjustExternalIP - own address unknown, deferring the change to ${ip} until benchmark answers`);
+      return;
+    }
     const oldUserConfigIp = userconfig.initial.ipaddress;
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
@@ -1155,13 +1186,15 @@ async function adjustExternalIP(ip) {
       // eslint-disable-next-line global-require
       const appUninstaller = require('./appLifecycle/appUninstaller');
       // eslint-disable-next-line global-require
-      const appController = require('./appManagement/appController');
-      // eslint-disable-next-line global-require
       const enterpriseHelper = require('./utils/enterpriseHelper');
       let apps = await appQueryService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
         let appsRemoved = 0;
+        // The apps still installed once the loop has removed the ones that cannot
+        // stay. Handed to whoever registered for an address change; nothing here
+        // knows what bringing them back involves.
+        const staying = [];
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // Check if app requires static IP - if so, uninstall it since IP changed
@@ -1192,7 +1225,21 @@ async function adjustExternalIP(ip) {
 
           // eslint-disable-next-line no-await-in-loop
           const runningAppList = await registryManager.appLocation(app.name);
-          const duplicateInstance = runningAppList.find((instance) => extractIp(instance.ip) === ip);
+          // An instance at this address means the ports are taken and this node
+          // cannot run the app: one instance per IP is enforced by the host port
+          // mapping, so a UPnP sibling on another port holds them just as surely
+          // as a node that owns the address alone. That is why the address is
+          // compared at IP granularity.
+          //
+          // The node's OWN registration is not that. It stores its own running-app
+          // row locally, at the address benchmark reports, so the row sitting at
+          // this address is most often itself - and removing on that is a node
+          // deleting an app that is exactly where it belongs, then telling the
+          // network it is gone. Own-ness is the full socket address, which is what
+          // separates it from the sibling that shares only the IP.
+          const duplicateInstance = runningAppList.find(
+            (instance) => ipsMatch(instance.ip, ip) && !socketAddressesMatch(instance.ip, localSocketAddress),
+          );
           if (duplicateInstance) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
             log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${ip} (after IP change)`);
@@ -1200,10 +1247,19 @@ async function adjustExternalIP(ip) {
             await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
             appsRemoved += 1;
           } else {
-            // once app specs v8 is done we check if app have specs that is using fluxnode service.
-            // eslint-disable-next-line no-await-in-loop
-            await appController.appDockerRestart(app.name);
+            staying.push(app);
           }
+        }
+        // One handover for the whole set, not a call per app: what an app is made
+        // of - a composed one's containers are `<component>_<app>`, and an
+        // enterprise one's names are inside a blob this layer cannot read - is
+        // knowledge the reconciler already holds. Failures stay inside it too, so
+        // one app that cannot be asked costs the others nothing and leaves the
+        // broadcast, the confirmation transaction and the geolocation update below
+        // reachable.
+        if (staying.length && onAddressChanged) {
+          await onAddressChanged(staying, `node ip changed to ${ip}`)
+            .catch((error) => log.error(`adjustExternalIP - restart request failed: ${error.message}`));
         }
         if (apps.length > appsRemoved) {
           const broadcastedAt = Date.now();
@@ -2259,6 +2315,7 @@ module.exports = {
   checkFluxbenchVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIP,
+  setOnAddressChanged,
   allowPort,
   allowOutPort,
   isFirewallActive,

@@ -132,6 +132,22 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // Backstop for images whose entrypoint discards the payload's exit status.
+    // A clean exit proves nothing, so for those images restart RATE is the only
+    // fault evidence left and this is the only thing that ever paces them.
+    // This many automatic restarts inside the window is treated as a crash and
+    // enters the ladder above, which reaches anything restarting closer together
+    // than window/count - 60s apart at these values. Slower is deliberately left
+    // alone: Palworld's segfault-restart cycle is ~77s at its worst, and coming
+    // straight back is better for the customer than being paced.
+    // Keep the window wider than the reconciler's retry interval times this
+    // count. A container that fails to START never ran, so it is never a fault
+    // and never walks the ladder directly - it reaches it only by filling this
+    // window, and a window narrower than that retries forever.
+    // Counted as restarts ALREADY RECORDED, so at 5 the sixth restart is the one
+    // that earns a rung and the seventh is the first one held back.
+    restartBurstCount: 5,
+    restartBurstWindowMs: 300000,
     // How long a finished operation stays readable at /apps/operations/:jobId,
     // and how long a client is told to wait between polls while one runs. A
     // RUNNING job never expires - only terminal ones are retained on a clock.
@@ -394,7 +410,7 @@ module.exports = {
     daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
-    ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
+    ownerAppAllowance: 1000, // a by-name local install (fluxteam only) runs for this amount of blocks before the expiry sweep removes it
     temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions

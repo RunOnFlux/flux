@@ -67,7 +67,101 @@ try {
 
 function nodeBySourceIp(sourceIp) {
   const clean = sourceIp.replace('::ffff:', '');
-  return deterministicNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
+  const listed = deterministicNodeList.find((n) => n.ip.split(':')[0] === clean);
+  if (listed) return listed;
+  // A node that has really moved arrives from its NEW address while its list entry
+  // still says where it was - which is exactly the state an address change puts it
+  // in, before the chain catches up. It is the same node, and failing to recognise
+  // it here costs it its own identity: every answer about it falls back to the
+  // not-found defaults, so it reads its own address as 127.0.0.1, decides it is not
+  // in the confirmed list, and skips the availability check that would have told it
+  // what happened.
+  for (const [realIp, override] of reportedAddresses) {
+    if (String(override.reported).split(':')[0] === clean) {
+      return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
+    }
+  }
+  return null;
+}
+
+// Where a node really is, versus where the network is told it is.
+//
+// A node's list entry carries ONE address and the stub uses it for two different
+// jobs: matching the address a request ARRIVES from, to work out whose request it
+// is, and answering every chain-facing question about where that node lives.
+// Moving the second by editing the entry breaks the first - the node stops being
+// findable by its own requests - so the override sits beside the list, keyed by
+// where the node really is, and only the ANSWERS move. The container keeps its
+// address and nothing is renumbered underneath it.
+//
+// Every answer that names a node's address reads through here: getbenchmarks
+// (which is what a node's own getLocalSocketAddress reads, and so what it believes
+// about itself), getpublicip, its status, and the deterministic list the network is
+// served. One dial rather than one per RPC - a suite that moves an address means
+// all of them, and a per-RPC dial is how a suite comes to move an answer the
+// product never reads.
+const reportedAddresses = new Map(); // real ip -> { reported, scope }
+
+// Two facts, and a real address change separates them for as long as it takes the
+// chain to catch up: where the network says the node lives, and what benchmark's
+// public-IP probe reads right now. `all` moves both. `publicip` moves only the
+// probe - benchmark still reports the old address as the node's own, the node is
+// still listed there, and only getpublicip has noticed. That is the state a node
+// is actually in when its address moves, and it is what lets it detect the move at
+// all: the two answers disagreeing IS the detection.
+function overrideFor(node) {
+  if (!node) return null;
+  return reportedAddresses.get(node.ip.split(':')[0]) || null;
+}
+
+// The address the network believes this node has. Unmoved under `publicip`.
+function reportedAddressOf(node) {
+  if (!node) return null;
+  const o = overrideFor(node);
+  return o && o.scope === 'all' ? o.reported : node.ip;
+}
+
+// What benchmark's public-IP probe answers, which moves under either scope.
+function publicIpAnswerFor(node) {
+  if (!node) return null;
+  const o = overrideFor(node);
+  return (o ? o.reported : node.ip).split(':')[0];
+}
+
+// Nodes hidden from their PEERS' view of the network, but never from their own.
+//
+// This is what makes a node unreachable to the fleet deterministically. Asked
+// whether it can reach a node, a peer consults its node list FIRST and answers
+// "not available" outright when the address is not in it - no probe, no timeout,
+// no dependence on how fast anything answers. Blocking packets instead only makes
+// the probe slow, and a slow probe is a different answer from an absent one: the
+// asker times out on the PEER and never learns it is unreachable.
+//
+// The node still sees ITSELF, because it has its own confirmed-list gate to pass
+// before it will run the availability check at all. Hiding it from everyone,
+// itself included, stops the check ever running.
+const hiddenFromPeers = new Set(); // real ip -> hidden from other nodes' lists
+
+// The list as a given requester sees it: every entry at its reported address,
+// minus any node hidden from that requester. A run with nothing hidden and nothing
+// moved serves the very same objects it always did.
+function publishedNodeList(sourceIp) {
+  const asker = sourceIp ? sourceIp.replace('::ffff:', '') : null;
+  const visible = hiddenFromPeers.size
+    ? deterministicNodeList.filter((n) => {
+      const ip = n.ip.split(':')[0];
+      return !hiddenFromPeers.has(ip) || ip === asker;
+    })
+    : deterministicNodeList;
+  return publishReported(visible);
+}
+
+function publishReported(list) {
+  if (!reportedAddresses.size) return list;
+  return list.map((n) => {
+    const o = reportedAddresses.get(n.ip.split(':')[0]);
+    return o && o.scope === 'all' ? { ...n, ip: o.reported } : n;
+  });
 }
 
 const rpcHandlers = {
@@ -168,8 +262,8 @@ const rpcHandlers = {
   getmempoolinfo: () => ({ size: 0, bytes: 0, usage: 0 }),
   getrawmempool: () => [],
 
-  viewdeterministiczelnodelist: () => deterministicNodeList,
-  viewdeterministicfluxnodelist: () => deterministicNodeList,
+  viewdeterministiczelnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
+  viewdeterministicfluxnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
 
   getzelnodestatus: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
@@ -180,7 +274,7 @@ const rpcHandlers = {
       collateral: node ? node.collateral : 'COutPoint(0000000000000000000000000000000000000000000000000000000000000000, 0)',
       txhash: node ? node.txhash : '0000000000000000000000000000000000000000000000000000000000000000',
       outidx: node ? node.outidx : '0',
-      ip: node ? node.ip : '127.0.0.1',
+      ip: node ? reportedAddressOf(node) : '127.0.0.1',
       network: '',
       added_height: node ? node.added_height : currentHeight - 1000,
       confirmed_height: node ? node.confirmed_height : currentHeight - 500,
@@ -213,8 +307,8 @@ const rpcHandlers = {
   getdoslist: () => [],
   getstartlist: () => [],
 
-  listfluxnodes: () => deterministicNodeList,
-  listzelnodes: () => deterministicNodeList,
+  listfluxnodes: (params, sourceIp) => publishedNodeList(sourceIp),
+  listzelnodes: (params, sourceIp) => publishedNodeList(sourceIp),
 
   getrawtransaction: (params) => {
     const txid = params[0];
@@ -291,7 +385,7 @@ const benchHandlers = {
     };
     const s = specs[tier] || specs.cumulus;
     return {
-      ipaddress: node ? node.ip : '127.0.0.1',
+      ipaddress: node ? reportedAddressOf(node) : '127.0.0.1',
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,
@@ -320,7 +414,7 @@ const benchHandlers = {
 
   getpublicip: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
-    return node ? node.ip.split(':')[0] : '127.0.0.1';
+    return node ? publicIpAnswerFor(node) : '127.0.0.1';
   },
 
   getpublickey: (params, sourceIp) => {
@@ -539,6 +633,56 @@ control.post('/set-node-list', (req, res) => {
   res.json({ nodeCount: deterministicNodeList.length });
 });
 
+// Move where a node is said to be. `:ip` is where it really is - the address its
+// requests arrive from, which never changes - and `reported` is the address that
+// then answers for it. Sending no `reported` puts it back to the truth.
+//
+// `scope: 'all'` (default) moves every chain-facing answer together: benchmark's
+// reply about the node itself, getpublicip, its status, and its list entry. That is
+// an address change already settled everywhere.
+//
+// `scope: 'publicip'` moves only benchmark's public-IP probe. Everything else still
+// says the node is where it was. That is the state a node is in the moment its
+// address moves and before the chain has caught up - and it is the only state in
+// which a node can DETECT the move, because detection is precisely those two
+// answers disagreeing.
+// Hide a node from its PEERS' view of the network, or put it back. The node keeps
+// seeing itself, which is what lets it still run the availability check that then
+// comes back "unreachable" - deterministically, because a peer answers from its
+// list rather than from a probe.
+control.post('/node-visibility/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === key);
+  if (!node) return res.status(404).json({ error: `no node in the list at ${key}` });
+  const hidden = (req.body || {}).hidden !== false;
+  if (hidden) hiddenFromPeers.add(key);
+  else hiddenFromPeers.delete(key);
+  return res.json({ node: key, hiddenFromPeers: hidden });
+});
+
+control.post('/node-address/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === key);
+  if (!node) return res.status(404).json({ error: `no node in the list at ${key}` });
+
+  const { reported, scope = 'all' } = req.body || {};
+  if (!reported) {
+    reportedAddresses.delete(key);
+    return res.json({ node: key, reported: node.ip, scope: null });
+  }
+  if (scope !== 'all' && scope !== 'publicip') {
+    return res.status(400).json({ error: `scope must be 'all' or 'publicip', got '${scope}'` });
+  }
+
+  // A bare address keeps the node's own port. The api port is what its peers reach
+  // it on, and moving that is a different change from moving the address.
+  const value = String(reported);
+  const realPort = node.ip.split(':')[1];
+  const full = value.includes(':') || !realPort ? value : `${value}:${realPort}`;
+  reportedAddresses.set(key, { reported: full, scope });
+  return res.json({ node: key, reported: full, scope });
+});
+
 control.post('/queue-app-tx', (req, res) => {
   const { appHash } = req.body;
   if (!appHash) return res.status(400).json({ error: 'appHash required' });
@@ -684,6 +828,8 @@ control.delete('/seed-data', (req, res) => {
 
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
+  reportedAddresses.clear();
+  hiddenFromPeers.clear();
   rpcFailures.clear();
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];

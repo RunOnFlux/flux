@@ -440,6 +440,10 @@ async function startFluxFunctions() {
     // a removed component's in-memory controller verdict dies with it - a
     // reinstalled g:/r: app must await a fresh election, not inherit a stale one
     appUninstaller.setOnComponentRemoved((id) => appReconciler.forgetDesiredState(id));
+    // the node's address moved, so every app that survived it has to come up on
+    // the new one - asked for durably here rather than driven from the network
+    // layer, which sits underneath the reconciler and cannot require it
+    fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.adjustFirewall();

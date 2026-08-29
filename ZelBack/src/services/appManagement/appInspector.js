@@ -679,10 +679,30 @@ function stopAppMonitoring(appName, deleteData) {
 
   if (appsMonitored[appName]) {
     clearInterval(appsMonitored[appName].oneMinuteInterval);
+    // Dropped, not just cleared: a stale handle is indistinguishable from a live
+    // one, and ensureAppMonitoring has to be able to tell them apart.
+    appsMonitored[appName].oneMinuteInterval = null;
     if (deleteData) {
       delete appsMonitored[appName];
     }
   }
+}
+
+/**
+ * Starts monitoring only if it is not already running.
+ *
+ * startAppMonitoring resets statsStore, so calling it for a container that is
+ * already monitored discards the series the charts read. The reconciler reaches
+ * a running container on every pass, so it needs the question asked rather than
+ * the reset repeated.
+ *
+ * @param {string} appName - Application name
+ * @returns {void}
+ */
+function ensureAppMonitoring(appName) {
+  const { appsMonitored } = globalState;
+  if (appsMonitored[appName] && appsMonitored[appName].oneMinuteInterval) return;
+  startAppMonitoring(appName);
 }
 
 /**
@@ -1209,6 +1229,7 @@ module.exports = {
   appExec,
   appChanges,
   startAppMonitoring,
+  ensureAppMonitoring,
   stopAppMonitoring,
   listAppsImages,
   getAppsDOSState,

@@ -6,14 +6,19 @@ describe('appsRuntimeState tests', () => {
   let appsRuntimeState;
   let store; // fake collection: identifier -> doc
   let logStub;
+  let readFails;
 
   beforeEach(() => {
     store = new Map();
+    readFails = false;
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
 
     const dbHelperStub = {
       databaseConnection: () => ({ db: () => ({}) }),
-      findOneInDatabase: async (_db, _coll, query) => store.get(query.identifier) || null,
+      findOneInDatabase: async (_db, _coll, query) => {
+        if (readFails) throw new Error('connection reset');
+        return store.get(query.identifier) || null;
+      },
       // The fake honors projections the way mongo does: a query that stops
       // selecting a field loses that field here too. operatorStoppedIdentifiers
       // reads doc.identifier off an unauthenticated peer route, and a stub that
@@ -42,7 +47,15 @@ describe('appsRuntimeState tests', () => {
       },
       updateOneInDatabase: async (_db, _coll, query, update) => {
         const existing = store.get(query.identifier) || {};
-        store.set(query.identifier, { ...existing, ...update.$set });
+        const next = { ...existing, ...update.$set };
+        // $inc as mongo does it: add to what is there, and CREATE the field at the
+        // increment when there is nothing - which is the whole reason a counter can
+        // be raised without reading it first. A fake that ignored $inc would let a
+        // read-then-write implementation pass these tests unchanged.
+        Object.entries(update.$inc || {}).forEach(([field, by]) => {
+          next[field] = (existing[field] || 0) + by;
+        });
+        store.set(query.identifier, next);
       },
       removeDocumentsFromCollection: async (_db, _coll, query) => { store.delete(query.identifier); },
     };
@@ -55,6 +68,40 @@ describe('appsRuntimeState tests', () => {
   });
 
   afterEach(() => sinon.restore());
+
+  // The generation is raised BY the database. Read-then-write asked getState for the
+  // current number and got null for two different answers - "no record yet" and "the
+  // read failed" - so a failed read wrote 1 over a generation already past it, which
+  // the reconciler reads as nothing pending: reported, never done.
+  describe('requestRestart', () => {
+    it('creates the generation at 1 when the component has no record', async () => {
+      await appsRuntimeState.requestRestart('www_App');
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration).to.equal(1);
+    });
+
+    it('raises an existing generation rather than restarting the count', async () => {
+      store.set('www_App', { identifier: 'www_App', restartGeneration: 7, actuatedRestartGeneration: 7 });
+      await appsRuntimeState.requestRestart('www_App');
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration).to.equal(8);
+    });
+
+    it('raises it correctly even when the state cannot be read', async () => {
+      store.set('www_App', { identifier: 'www_App', restartGeneration: 7, actuatedRestartGeneration: 7 });
+      readFails = true;
+      await appsRuntimeState.requestRestart('www_App');
+      readFails = false;
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration,
+        'a generation below the actuated one is never actuated').to.equal(8);
+    });
+
+    it('counts two concurrent requests as two', async () => {
+      await Promise.all([
+        appsRuntimeState.requestRestart('www_App'),
+        appsRuntimeState.requestRestart('www_App'),
+      ]);
+      expect((await appsRuntimeState.getState('www_App')).restartGeneration).to.equal(2);
+    });
+  });
 
   describe('operatorStopped', () => {
     it('persists the stop lock and reads it back', async () => {
@@ -277,6 +324,152 @@ describe('appsRuntimeState tests', () => {
     });
   });
 
+  describe('a clean exit is not a crash (and the burst window is what catches the ones that lie)', () => {
+    // Docker's exit code cannot be trusted to mean "no fault": an image whose
+    // entrypoint is a wrapper script ending in `exit 0` reports a clean stop for
+    // a segfault, and nothing we wrap around the container can recover a status
+    // the image already threw away. So the code is used only in the direction it
+    // is sound - non-zero PROVES a fault, zero proves nothing - and the burst
+    // window is the backstop for everything the code hid.
+    let clock;
+
+    beforeEach(() => { clock = sinon.useFakeTimers({ now: 1_000_000_000 }); });
+    afterEach(() => clock.restore());
+
+    it('restarts a clean exit immediately and leaves the ladder untouched', async () => {
+      await appsRuntimeState.recordRestart('www_App', false);
+      expect(store.get('www_App').restartHistory, 'no ladder entry for a clean exit').to.be.undefined;
+      expect(await appsRuntimeState.restartWaitMs('www_App', null, false)).to.equal(0);
+    });
+
+    // An operator restart is not "a clean exit" - it is appStart/appRestart
+    // clearing the lock, and the rungs go with it. Recognising it by exit code
+    // instead would hand the same exemption to a laundered segfault, which also
+    // exits 0, and walk it out of every wait the ladder had put it in.
+    it('does not spend a rung built by earlier crashes on an operator restart', async () => {
+      await appsRuntimeState.recordRestart('www_App', true);
+      await appsRuntimeState.recordRestart('www_App', true);
+      expect(await appsRuntimeState.restartWaitMs('www_App'), 'a crash is still paced').to.be.above(0);
+
+      clock.tick(1000);
+      await appsRuntimeState.setOperatorStopped('www_App', false);
+
+      expect(await appsRuntimeState.restartWaitMs('www_App'), 'the operator is not').to.equal(0);
+      expect(store.get('www_App').restartHistory, 'the ladder went with the lock').to.deep.equal([]);
+    });
+
+    // The shape nothing else drives: a rung longer than a stable run, served in
+    // full, then a death. The wait is time the component spent stopped, and
+    // reading it as time the component spent running clears the ladder every
+    // time a long rung fires - so it never reaches the cap.
+    it('does not read a wait it just served as a stable run', async () => {
+      const id = 'www_App';
+      await appsRuntimeState.recordRestart(id, true);
+      await appsRuntimeState.recordRestart(id, true);
+      await appsRuntimeState.recordRestart(id, true);
+      expect(store.get(id).restartHistory, 'three rungs to reach one longer than a stable run').to.have.lengthOf(3);
+
+      const wait = await appsRuntimeState.restartWaitMs(id);
+      expect(wait, 'the rung must outlast STABLE_RUN_MS, or this proves nothing').to.be.above(appsRuntimeState.STABLE_RUN_MS);
+      clock.tick(wait);
+
+      // the wait ends: it starts, runs two seconds, and dies reporting success
+      await appsRuntimeState.recordRestart(id, false);
+      clock.tick(2000);
+      await appsRuntimeState.recordExit(id, 0);
+
+      expect(store.get(id).restartHistory, 'the ladder survived its own wait').to.have.lengthOf(4);
+      expect(await appsRuntimeState.restartWaitMs(id, Date.now()), 'and it climbs instead of starting over').to.be.above(0);
+    });
+
+    it('paces a container restarting faster than the burst window, whatever the exit code says', async () => {
+      const id = 'www_App';
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await appsRuntimeState.restartWaitMs(id, null, false), `restart ${i} is free`).to.equal(0);
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart(id, false);
+        clock.tick(1000);
+      }
+      expect(store.get(id).restartHistory, 'still no ladder entry while under the burst').to.be.undefined;
+
+      // The window is now full, so this restart is the one that carries the count
+      // over - and it is counted, not held. restartWaitMs runs ahead of
+      // recordRestart in the reconciler, so it sees an empty ladder and lets this
+      // one straight back; the rung is earned on its way past. Asserted because
+      // every comment describing the ceiling describes this step, and reordering
+      // the two calls would change it with nothing to object.
+      expect(await appsRuntimeState.restartWaitMs(id, null, false), 'the restart that crosses the line is not itself held').to.equal(0);
+      await appsRuntimeState.recordRestart(id, false);
+      expect(store.get(id).restartHistory, 'the trip is recorded as a crash would be').to.have.lengthOf(1);
+      expect(await appsRuntimeState.restartWaitMs(id, null, false)).to.equal(appsRuntimeState.BACKOFF_DELAYS_MS[1]);
+    });
+
+    it('never trips on restarts spaced wider than the window', async () => {
+      const id = 'www_App';
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT * 2; i += 1) {
+        clock.tick(appsRuntimeState.RESTART_BURST_WINDOW_MS);
+        // eslint-disable-next-line no-await-in-loop
+        expect(await appsRuntimeState.restartWaitMs(id, null, false), `restart ${i}`).to.equal(0);
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart(id, false);
+      }
+      expect(store.get(id).restartHistory).to.be.undefined;
+    });
+
+    // How far the ceiling reaches is window/count, NOT the window: the check runs
+    // BEFORE the append, so the five entries it judges span five gaps. Nothing
+    // pinned that derived number, and the PR body described the reach as "a
+    // minute or two" while the shipped values reached twelve seconds.
+    const spacingIsPaced = async (id, spacingMs) => {
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT * 3; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await appsRuntimeState.restartWaitMs(id, null, false) > 0) return true;
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart(id, false);
+        clock.tick(spacingMs);
+      }
+      return false;
+    };
+
+    it('reaches restarts spaced window/count apart, and nothing slower', async () => {
+      const reach = appsRuntimeState.RESTART_BURST_WINDOW_MS / appsRuntimeState.RESTART_BURST_COUNT;
+      expect(await spacingIsPaced('atReach_App', reach), 'at the reach').to.equal(true);
+      expect(await spacingIsPaced('pastReach_App', reach + 1), 'one millisecond past it').to.equal(false);
+    });
+
+    // The reach is a product decision, not just a mechanism: an image that
+    // launders its exit status has no other protection, so what the shipped
+    // configuration actually catches is the whole guarantee. Asserted in seconds
+    // on purpose - a test derived from the same constants cannot notice them
+    // being retuned, which is how the twelve-second reach went unnoticed.
+    it('paces a laundered-exit container dying every 30 seconds', async () => {
+      expect(await spacingIsPaced('halfMinute_App', 30_000)).to.equal(true);
+    });
+
+    it('leaves a container restarting every 90 seconds alone', async () => {
+      expect(await spacingIsPaced('ninetySeconds_App', 90_000)).to.equal(false);
+    });
+
+    it('caps the burst window so a permanently restarting container cannot grow the document', async () => {
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT + 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart('www_App', false);
+      }
+      expect(store.get('www_App').autoRestartWindow).to.have.lengthOf(appsRuntimeState.RESTART_BURST_COUNT);
+    });
+
+    it('a deliberate start clears the burst window, not just the ladder', async () => {
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart('www_App', false);
+      }
+      await appsRuntimeState.setOperatorStopped('www_App', false);
+      expect(store.get('www_App').autoRestartWindow).to.deep.equal([]);
+      expect(await appsRuntimeState.restartWaitMs('www_App', null, false), 'starts from clean').to.equal(0);
+    });
+  });
+
   describe('config-tunable ladder (harness compression)', () => {
     it('reads the ladder and stable-run window from config when present', () => {
       const tuned = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
@@ -285,12 +478,19 @@ describe('appsRuntimeState tests', () => {
         '../dockerService': { getBaseAppName: (id) => id },
         config: {
           database: { appslocal: { database: 'localzelapps', collections: { appsRuntimeState: 'zelappsruntimestate' } } },
-          fluxapps: { crashBackoffDelaysMs: [0, 1000, 2000], crashBackoffStableRunMs: 5000 },
+          fluxapps: {
+            crashBackoffDelaysMs: [0, 1000, 2000],
+            crashBackoffStableRunMs: 5000,
+            restartBurstCount: 3,
+            restartBurstWindowMs: 2000,
+          },
         },
       });
       expect(tuned.BACKOFF_DELAYS_MS).to.deep.equal([0, 1000, 2000]);
       expect(tuned.STABLE_RUN_MS).to.equal(5000);
       expect(tuned.MAX_HISTORY).to.equal(3);
+      expect(tuned.RESTART_BURST_COUNT).to.equal(3);
+      expect(tuned.RESTART_BURST_WINDOW_MS).to.equal(2000);
     });
   });
 
@@ -367,6 +567,22 @@ describe('appsRuntimeState tests', () => {
 
       expect(updateStub.callCount).to.equal(1);
       expect(thrown).to.be.an('error');
+    });
+
+    // recordRestartGeneration reads like a recorder and sits among others that
+    // swallow, but it is not history: it is the only thing that stops the next
+    // pass bouncing the container again. Swallowed, a failed write read as
+    // "recorded", and a node whose reads work while its writes do not restarted
+    // the app every verify interval for as long as that lasted - on the one path
+    // deliberately exempt from the backoff ladder.
+    it('surfaces a failed restart-generation write rather than reporting it recorded', async () => {
+      updateStub.rejects(new Error('not enough disk space'));
+
+      let thrown = null;
+      await retryState.recordRestartGeneration('www_App', 5).catch((e) => { thrown = e; });
+
+      expect(thrown, 'the caller has to be able to tell the record did not land').to.be.an('error');
+      expect(thrown.message).to.match(/disk space/);
     });
 
     it('propagates a lock-write failure to the caller (API must not report success)', async () => {
@@ -526,6 +742,30 @@ describe('appsRuntimeState tests', () => {
       expect(merged.lastExitCode).to.equal(137);
       expect(merged.lastDiedAt).to.equal(5000);
       sinon.assert.called(logStub.warn);
+    });
+
+    // The merge builds from an explicit field list, so a field nobody adds here
+    // is dropped silently. These two decide whether a container gets bounced and
+    // how it gets stopped, and losing either is invisible until it matters.
+    it('carries the restart request and the force mode through a merge', async () => {
+      docs = [
+        {
+          identifier: 'www_App', restartGeneration: 7, actuatedRestartGeneration: 7, updatedAt: 1000,
+        },
+        {
+          identifier: 'www_App', operatorStopForce: true, restartGeneration: 4, actuatedRestartGeneration: 2, updatedAt: 9000,
+        },
+      ];
+
+      await prepState.prepareCollection();
+
+      const merged = upserts[0].set;
+      // a kill must never merge down into a graceful stop
+      expect(merged.operatorStopForce).to.equal(true);
+      // highest request, lowest actuation: a restart asked for on either doc is
+      // still owed, so the container bounces once rather than not at all
+      expect(merged.restartGeneration).to.equal(7);
+      expect(merged.actuatedRestartGeneration).to.equal(2);
     });
 
     it('trims a merged history to the ladder length', async () => {
