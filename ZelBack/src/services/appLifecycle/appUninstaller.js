@@ -1021,6 +1021,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         if (res.flush) res.flush();
       }
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      // eslint-disable-next-line global-require
+      require('../utils/enterpriseRedaction').resetCache();
       const databaseStatus2 = {
         status: 'Database cleaned',
       };
@@ -1153,6 +1155,8 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
         if (res.flush) res.flush();
       }
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      // eslint-disable-next-line global-require
+      require('../utils/enterpriseRedaction').resetCache();
       const databaseStatus2 = {
         status: 'Database cleaned',
       };

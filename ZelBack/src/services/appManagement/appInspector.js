@@ -648,6 +648,19 @@ async function appChanges(req, res) {
  */
 async function listAppsImages(req, res) {
   try {
+    // Every image pulled on this node, enterprise ones included — and unlike a
+    // container listing there is nothing in the image list to attribute a tag
+    // back to an app, so it cannot be selectively redacted. A node hosting an
+    // enterprise app therefore published that app's image here for anyone who
+    // asked. It is a node-diagnostic endpoint, not something the network reads,
+    // so it is gated rather than filtered.
+    if (res) {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      if (authorized !== true) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+    }
     const apps = await dockerService.dockerListImages();
     const appsResponse = messageHelper.createDataMessage(apps);
     return res ? res.json(appsResponse) : appsResponse;

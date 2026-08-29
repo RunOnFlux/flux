@@ -6,6 +6,7 @@ const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appConstants = require('../utils/appConstants');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const enterpriseRedaction = require('../utils/enterpriseRedaction');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const fluxCaching = require('../utils/cacheManager');
 const log = require('../../lib/log');
@@ -205,7 +206,12 @@ async function listRunningApps(req, res) {
       delete app.Mounts;
       modifiedApps.push(app);
     });
-    const appsResponse = messageHelper.createDataMessage(modifiedApps);
+    // `res` set means this is going out over the public API; internal callers
+    // (spawner, installer, reconciler, resource accounting) get the real data.
+    const payload = res
+      ? await enterpriseRedaction.redactEnterpriseContainers(modifiedApps)
+      : modifiedApps;
+    const appsResponse = messageHelper.createDataMessage(payload);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);
@@ -240,7 +246,10 @@ async function listAllApps(req, res) {
       delete app.Mounts;
       modifiedApps.push(app);
     });
-    const appsResponse = messageHelper.createDataMessage(modifiedApps);
+    const payload = res
+      ? await enterpriseRedaction.redactEnterpriseContainers(modifiedApps)
+      : modifiedApps;
+    const appsResponse = messageHelper.createDataMessage(payload);
     return res ? res.json(appsResponse) : appsResponse;
   } catch (error) {
     log.error(error);

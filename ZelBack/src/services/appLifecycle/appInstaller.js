@@ -590,6 +590,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name}. Database insert returned undefined - likely duplicate key error or database failure. Aborting installation to prevent orphaned Docker containers.`);
       }
       log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
+      // The set of enterprise apps just changed; drop the cached copy so the
+      // new app's container is never published unredacted.
+      // eslint-disable-next-line global-require
+      require('../utils/enterpriseRedaction').resetCache();
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;

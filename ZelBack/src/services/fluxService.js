@@ -1325,7 +1325,11 @@ async function getFluxInfo(req, res) {
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
-    info.apps.runningapps = appsRunning.data;
+    // /flux/info is polled by the public stats aggregator, so the container
+    // listing it carries has to be redacted the same way the API path is.
+    // eslint-disable-next-line global-require
+    const enterpriseRedaction = require('./utils/enterpriseRedaction');
+    info.apps.runningapps = await enterpriseRedaction.redactEnterpriseContainers(appsRunning.data);
     const appsResources = await resourceQueryService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
