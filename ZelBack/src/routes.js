@@ -1067,19 +1067,19 @@ module.exports = (app) => {
     return fluxService.restartDaemon(req, res);
   }));
   app.get('/flux/entermaster', asyncRoute((req, res) => {
-    return fluxService.enterMaster(req, res);
+    return fluxService.enterMasterApi(req, res);
   }));
   app.get('/flux/enterdevelopment', asyncRoute((req, res) => {
-    return fluxService.enterDevelopment(req, res);
+    return fluxService.enterDevelopmentApi(req, res);
   }));
   app.get('/flux/updateflux', asyncRoute((req, res) => { // method shall be called only if flux version is obsolete.
     return fluxService.updateFlux(req, res);
   }));
   app.get('/flux/softupdateflux', asyncRoute((req, res) => { // method shall be called only if flux version is obsolete.
-    return fluxService.softUpdateFlux(req, res);
+    return fluxService.softUpdateFluxApi(req, res);
   }));
   app.get('/flux/softupdatefluxinstall', asyncRoute((req, res) => { // method shall be called only if flux version is obsolete.
-    return fluxService.softUpdateFluxInstall(req, res);
+    return fluxService.softUpdateFluxInstallApi(req, res);
   }));
   app.get('/flux/hardupdateflux', asyncRoute((req, res) => { // method shall be called only if flux version is obsolete and updatezeflux is not working correctly
     return fluxService.hardUpdateFlux(req, res);
