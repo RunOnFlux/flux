@@ -66,6 +66,7 @@ const { sendFile } = require('../utils/fileTransfer');
 const executor = require('./volumeExecutor');
 const jobRegistry = require('../utils/jobRegistry');
 const operationsController = require('../appManagement/operationsController');
+const { Privilege } = require('../utils/privileges');
 
 /**
  * Reclaim an upload's operation slot if the request stops sending bytes at the
@@ -304,7 +305,7 @@ async function downloadAppsFolder(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname || '';
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname);
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder;
@@ -379,7 +380,7 @@ async function downloadAppsFile(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname || '';
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname);
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;

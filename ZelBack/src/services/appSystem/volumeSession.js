@@ -10,6 +10,7 @@ const {
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
 const { STAGING_PREFIX, isReservedName } = require('./volumeReservedNames');
 const { measureTree, BLOCK_UNIT } = require('../utils/treeSize');
+const { Privilege } = require('../utils/privileges');
 
 /**
  * Where an app's volume is mounted inside the executor container. Operands in
@@ -544,7 +545,7 @@ async function openVolume(req, options = {}) {
   // and no caller overrides it. appownerorfluxteam refuses the node operator,
   // because uploading into, rewriting or deleting the data of an app you only
   // host is not the node operator's to do.
-  const { privilege = 'appownerorfluxteam' } = options;
+  const { privilege = Privilege.APP_OWNER_OR_FLUX_TEAM } = options;
 
   // ensureObject for url-encoded parity: express.json() populates req.body for
   // application/json, and a form-encoded caller arrives as a string.

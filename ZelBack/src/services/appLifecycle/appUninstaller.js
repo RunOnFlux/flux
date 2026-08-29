@@ -22,6 +22,7 @@ const { stopAppMonitoring } = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const volumeService = require('../utils/volumeService');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { Privilege } = require('../utils/privileges');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -1211,7 +1212,7 @@ async function removeAppLocallyApi(req, res) {
     // admits exactly {owner, fluxTeam, fluxSupport}, which is who may uninstall a
     // vetted app too. A second check against the same set can only ever agree, and
     // asking it costs two database reads and a vetted lookup per uninstall.
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);

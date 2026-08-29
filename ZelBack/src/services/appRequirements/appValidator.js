@@ -21,6 +21,7 @@ const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
 const { peerManager } = require('../utils/peerState');
+const { Privilege } = require('../utils/privileges');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1542,7 +1543,7 @@ async function registerAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);

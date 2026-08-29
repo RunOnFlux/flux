@@ -2,6 +2,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
+const { Privilege } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -350,7 +351,7 @@ async function verifyChain(req, res) {
   let { checklevel, numblocks } = req.params;
   checklevel = checklevel || req.query.checklevel || 3;
   numblocks = numblocks || req.query.numblocks || 288;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;

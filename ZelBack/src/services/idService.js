@@ -13,6 +13,7 @@ const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appInspector = require('./appManagement/appInspector');
 const signatureVerifier = require('./signatureVerifier');
+const { Privilege } = require('./utils/privileges');
 
 async function deleteLoginPhrase(phrase) {
   try {
@@ -429,7 +430,7 @@ async function provideSign(req, res) {
  */
 async function activeLoginPhrases(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
 
@@ -462,7 +463,7 @@ async function activeLoginPhrases(req, res) {
  */
 async function loggedUsers(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -494,7 +495,7 @@ async function loggedUsers(req, res) {
  */
 async function loggedSessions(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
 
@@ -529,7 +530,7 @@ async function loggedSessions(req, res) {
  */
 async function logoutCurrentSession(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
       const db = dbHelper.databaseConnection();
@@ -564,7 +565,7 @@ async function logoutSpecificSession(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
       if (authorized === true) {
         const processedBody = serviceHelper.ensureObject(body);
         const obtainedLoginPhrase = processedBody.loginPhrase;
@@ -599,7 +600,7 @@ async function logoutSpecificSession(req, res) {
  */
 async function logoutAllSessions(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
     if (authorized === true) {
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
       const db = dbHelper.databaseConnection();
@@ -628,7 +629,7 @@ async function logoutAllSessions(req, res) {
  */
 async function logoutAllUsers(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -839,19 +840,19 @@ async function checkLoggedUser(req, res) {
           },
         },
       };
-      const isAdmin = await verificationHelper.verifyPrivilege('admin', request);
+      const isAdmin = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, request);
       if (isAdmin) {
         const message = messageHelper.createSuccessMessage('admin');
         res.json(message);
         return;
       }
-      const isFluxTeam = await verificationHelper.verifyPrivilege('fluxteam', request);
+      const isFluxTeam = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, request);
       if (isFluxTeam) {
         const message = messageHelper.createSuccessMessage('fluxteam');
         res.json(message);
         return;
       }
-      const isUser = await verificationHelper.verifyPrivilege('user', request);
+      const isUser = await verificationHelper.verifyPrivilege(Privilege.USER, request);
       if (isUser) {
         const message = messageHelper.createSuccessMessage('user');
         res.json(message);

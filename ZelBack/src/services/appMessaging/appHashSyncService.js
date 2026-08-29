@@ -21,6 +21,7 @@ const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
+const { Privilege } = require('../utils/privileges');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
@@ -720,7 +721,7 @@ async function syncMissingHashes(options = {}) {
 
 async function triggerAppHashesCheckAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
