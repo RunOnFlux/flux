@@ -83,7 +83,7 @@ async function getVolumeDataOfComponent(req, res) {
     if (!appname || !component) {
       throw new Error('Both the appname and component parameters are required');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname }) : true;
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized === true) {
       const { error, mounts } = await IOUtils.getVolumeInfo(appname, component, multiplier, decimal, fields);
       // A mount table that could not be read and a volume that is not mounted
@@ -92,11 +92,11 @@ async function getVolumeDataOfComponent(req, res) {
         throw new Error('No matching mount found');
       }
       const response = messageHelper.createDataMessage(mounts[0]);
-      return res ? res.json(response) : response;
+      return res.json(response);
       // eslint-disable-next-line no-else-return
     } else {
       const errorResponse = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errorResponse) : errorResponse;
+      return res.json(errorResponse);
     }
   } catch (error) {
     log.error(error);
@@ -105,7 +105,7 @@ async function getVolumeDataOfComponent(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -133,7 +133,7 @@ async function getLocalBackupList(req, res) {
     if (!path) {
       throw new Error('path and appname parameters are required');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname }) : true;
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized === true) {
       if (!pathValidation(vPath)) {
         throw new Error('Path validation failed..');
@@ -143,11 +143,11 @@ async function getLocalBackupList(req, res) {
         throw new Error('No matching mount found');
       }
       const response = messageHelper.createDataMessage(listData);
-      return res ? res.json(response) : response;
+      return res.json(response);
       // eslint-disable-next-line no-else-return
     } else {
       const errorResponse = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errorResponse) : errorResponse;
+      return res.json(errorResponse);
     }
   } catch (error) {
     log.error(error);
@@ -156,7 +156,7 @@ async function getLocalBackupList(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -183,18 +183,18 @@ async function getRemoteFileSize(req, res) {
     if (!fileurl || !appname) {
       throw new Error('fileurl and appname parameters are mandatory');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname }) : true;
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized === true) {
       const fileSize = await IOUtils.getRemoteFileSize(fileurl, multiplier, decimal, number);
       if (fileSize === false) {
         throw new Error('Error fetching file size');
       }
       const response = messageHelper.createDataMessage(fileSize);
-      return res ? res.json(response) : response;
+      return res.json(response);
       // eslint-disable-next-line no-else-return
     } else {
       const errorResponse = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errorResponse) : errorResponse;
+      return res.json(errorResponse);
     }
   } catch (error) {
     log.error(error);
@@ -203,7 +203,7 @@ async function getRemoteFileSize(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -224,7 +224,7 @@ async function removeBackupFile(req, res) {
     if (!filepath || !appname) {
       throw new Error('filepath and appname parameters are mandatory');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname }) : true;
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized === true) {
       if (!pathValidation(filepath)) {
         throw new Error('Path validation failed..');
@@ -244,7 +244,7 @@ async function removeBackupFile(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 

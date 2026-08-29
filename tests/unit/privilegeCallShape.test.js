@@ -91,6 +91,23 @@ describe('privilege call shape', () => {
     expect(wrong).to.deep.equal([]);
   });
 
+  it('never makes the check conditional on an argument being present', () => {
+    // `res ? await verifyPrivilege(...) : true` and `if (req) { ...check... }`
+    // both decide whether to authorise from whether a caller passed something,
+    // so a caller who passes nothing is trusted. A handler that serves requests
+    // checks; an operation with no caller to check does not exist as a request
+    // handler at all.
+    const offenders = [];
+    sourceFiles().forEach((rel) => {
+      const src = fs.readFileSync(nodePath.join(ROOT, rel), 'utf8');
+      src.split('\n').forEach((line, i) => {
+        if (/res \? await verificationHelper/.test(line)) offenders.push(`${rel}:${i + 1} conditional on res`);
+        if (/^\s*if \(req\) \{/.test(line) && /verifyPrivilege/.test(src)) offenders.push(`${rel}:${i + 1} conditional on req`);
+      });
+    });
+    expect(offenders).to.deep.equal([]);
+  });
+
   it('leaves nobody reaching a verifier behind verifyPrivilege\'s back', () => {
     // The container terminal did exactly this, and so carried no privilege for a
     // search to find. The helper itself is the one place allowed to.
