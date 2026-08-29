@@ -28,6 +28,15 @@ const utilFake = { promisify: () => runExecStub };
 const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService', { 'node:util': utilFake });
 
 describe('syncthingService tests', () => {
+  // These endpoints authorise unconditionally now, so a test that wants to reach
+  // the request underneath supplies a caller who passes rather than omitting the
+  // response to skip the check.
+  const asAuthorised = () => {
+    if (!verificationHelper.verifyPrivilege.restore) sinon.stub(verificationHelper, 'verifyPrivilege');
+    verificationHelper.verifyPrivilege.resolves(true);
+    return { json: sinon.stub().returnsArg(0) };
+  };
+
   describe('postDbIgnores privilege tests', () => {
     afterEach(() => {
       sinon.restore();
@@ -230,7 +239,7 @@ describe('syncthingService tests', () => {
       // the events endpoint holds the request open up to `timeout` seconds when
       // nothing is pending; the shared instance's 5s default aborts every quiet
       // poll before syncthing can answer
-      await syncthingService.getEvents({ params: {}, query: { since: 5, events: 'FolderSummary', timeout: 55 } });
+      await syncthingService.getEvents({ params: {}, query: { since: 5, events: 'FolderSummary', timeout: 55 } }, asAuthorised());
 
       sinon.assert.calledOnce(fakeGet);
       const config = fakeGet.firstCall.args[1];
@@ -239,7 +248,7 @@ describe('syncthingService tests', () => {
     });
 
     it('plain request (no hold asked): keeps the instance default timeout', async () => {
-      await syncthingService.getEvents({ params: {}, query: { since: 5 } });
+      await syncthingService.getEvents({ params: {}, query: { since: 5 } }, asAuthorised());
 
       sinon.assert.calledOnce(fakeGet);
       const config = fakeGet.firstCall.args[1];
@@ -344,19 +353,19 @@ describe('syncthingService tests', () => {
     });
 
     it('systemPause posts to /rest/system/pause with the device', async () => {
-      await syncthingService.systemPause({ params: { device: deviceId }, query: {} }, null);
+      await syncthingService.systemPause({ params: { device: deviceId }, query: {} }, asAuthorised());
       sinon.assert.calledOnce(fakePost);
       expect(fakePost.firstCall.args[0]).to.equal(`/rest/system/pause?device=${deviceId}`);
     });
 
     it('systemResume posts to /rest/system/resume with the device', async () => {
-      await syncthingService.systemResume({ params: { device: deviceId }, query: {} }, null);
+      await syncthingService.systemResume({ params: { device: deviceId }, query: {} }, asAuthorised());
       sinon.assert.calledOnce(fakePost);
       expect(fakePost.firstCall.args[0]).to.equal(`/rest/system/resume?device=${deviceId}`);
     });
 
     it('systemResume posts to /rest/system/resume for all devices when none given', async () => {
-      await syncthingService.systemResume({ params: {}, query: {} }, null);
+      await syncthingService.systemResume({ params: {}, query: {} }, asAuthorised());
       sinon.assert.calledOnce(fakePost);
       expect(fakePost.firstCall.args[0]).to.equal('/rest/system/resume');
     });

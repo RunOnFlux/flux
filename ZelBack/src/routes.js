@@ -659,7 +659,7 @@ module.exports = (app) => {
     return syncthingService.getConfigLdap(req, res);
   }));
   app.get('/syncthing/config/gui', asyncRoute((req, res) => {
-    return syncthingService.getConfigGui(req, res);
+    return syncthingService.getConfigGuiApi(req, res);
   }));
   app.get('/syncthing/stats/device', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.statsDevice(req, res);
