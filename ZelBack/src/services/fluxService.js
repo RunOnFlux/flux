@@ -1266,10 +1266,7 @@ async function getFluxInfo(req, res) {
     }
     info.flux.nodeJsVersion = nodeJsVersionsRes.data.node;
     const syncthingVersion = await syncthingService.systemVersion();
-    if (syncthingVersion.status === 'error') {
-      throw syncthingVersion.data;
-    }
-    info.flux.syncthingVersion = syncthingVersion.data.version;
+    info.flux.syncthingVersion = syncthingVersion.version;
     const dockerVersion = await dockerService.dockerVersion();
     info.flux.dockerVersion = dockerVersion.Version;
     info.flux.mongoDbVersion = await dbHelper.getMongoDbVersion();

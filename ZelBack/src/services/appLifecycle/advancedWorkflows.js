@@ -1844,12 +1844,9 @@ async function stopSyncthingApp(appComponentName, res) {
     // eslint-disable-next-line global-require
     const syncthingService = require('../syncthingService');
     const allSyncthingFolders = await syncthingService.getConfigFolders();
-    if (allSyncthingFolders.status === 'error') {
-      return;
-    }
     let folderId = null;
     // eslint-disable-next-line no-restricted-syntax
-    for (const syncthingFolder of allSyncthingFolders.data) {
+    for (const syncthingFolder of allSyncthingFolders) {
       if (syncthingFolder.path === folder || syncthingFolder.path.includes(`${folder}/`)) {
         folderId = syncthingFolder.id;
       }
@@ -1894,16 +1891,12 @@ async function changeSyncthingFolderType(folderId, folderType) {
     log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
 
     // Get current folder configuration
-    const foldersResponse = await syncthingService.getConfigFolders();
-    if (foldersResponse.status !== 'success') {
-      log.error(`Failed to get syncthing folders: ${JSON.stringify(foldersResponse)}`);
-      return false;
-    }
+    const folders = await syncthingService.getConfigFolders();
 
     // Find the folder by path
     // Syncthing syncs the entire appId folder (includes all subdirectories)
     const folderPath = `${appsFolder}${folderId}`;
-    const folder = foldersResponse.data.find((f) => f.path === folderPath);
+    const folder = folders.find((f) => f.path === folderPath);
 
     if (!folder) {
       log.error(`Syncthing folder not found for path: ${folderPath}`);
@@ -4128,7 +4121,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       // eslint-disable-next-line global-require
       const syncthingService = require('../syncthingService');
       const syncthingHealth = await syncthingService.getHealth();
-      if (syncthingHealth.status !== 'success' || !syncthingHealth.data || syncthingHealth.data.status !== 'OK') {
+      if (syncthingHealth?.status !== 'OK') {
         log.warn('masterSlaveApps: Syncthing is not available or not healthy, skipping this cycle');
         return;
       }
@@ -4307,11 +4300,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const syncthingService = require('../syncthingService');
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
-                    if (allSyncthingFolders.status === 'success') {
+                    if (Array.isArray(allSyncthingFolders)) {
                       // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
-                      for (const syncthingFolder of allSyncthingFolders.data) {
+                      for (const syncthingFolder of allSyncthingFolders) {
                         if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
                           log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
                           isReady = true;
@@ -4692,11 +4685,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const syncthingService = require('../syncthingService');
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
-                    if (allSyncthingFolders.status === 'success') {
+                    if (Array.isArray(allSyncthingFolders)) {
                       // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
-                      for (const syncthingFolder of allSyncthingFolders.data) {
+                      for (const syncthingFolder of allSyncthingFolders) {
                         if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
                           log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
                           isReady = true;

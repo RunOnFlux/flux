@@ -48,7 +48,7 @@ function abortableDeferred() {
 }
 
 function eventsResponse(events) {
-  return { status: 'success', data: events };
+  return events;
 }
 
 describe('syncthingEventsConsumer tests', () => {
@@ -84,7 +84,7 @@ describe('syncthingEventsConsumer tests', () => {
     sinon.assert.calledWith(onFolderActivity, 'fluxcomp_app1', 'FolderSummary');
     sinon.assert.calledWith(onFolderActivity, 'fluxcomp_app1', 'StateChanged');
     // the second poll continues from the last seen id
-    const secondCallQuery = syncthingServiceMock.getEvents.secondCall.args[0].query;
+    const secondCallQuery = syncthingServiceMock.getEvents.secondCall.args[0];
     expect(secondCallQuery.since).to.equal(6);
   });
 
@@ -127,7 +127,7 @@ describe('syncthingEventsConsumer tests', () => {
 
     sinon.assert.calledOnce(onResync);
     // since continues from the new stream's last id
-    const thirdCallQuery = syncthingServiceMock.getEvents.thirdCall.args[0].query;
+    const thirdCallQuery = syncthingServiceMock.getEvents.thirdCall.args[0];
     expect(thirdCallQuery.since).to.equal(1);
   });
 
@@ -165,7 +165,7 @@ describe('syncthingEventsConsumer tests', () => {
     });
 
     // the poll after the failure starts over from "now", not the stale position
-    const recoveryQuery = syncthingServiceMock.getEvents.thirdCall.args[0].query;
+    const recoveryQuery = syncthingServiceMock.getEvents.thirdCall.args[0];
     expect(recoveryQuery.since).to.equal(0);
     // exactly one resync, announced once the stream is healthy again
     sinon.assert.calledOnce(onResync);
