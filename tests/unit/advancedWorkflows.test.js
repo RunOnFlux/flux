@@ -528,10 +528,7 @@ describe('advancedWorkflows tests', () => {
 
       const syncthingService = require('../../ZelBack/src/services/syncthingService');
       syncthingServiceStub = sinon.stub(syncthingService, 'getConfigFolders');
-      sinon.stub(syncthingService, 'getHealth').resolves({
-        status: 'success',
-        data: { status: 'OK' },
-      });
+      sinon.stub(syncthingService, 'getHealth').resolves({ status: 'OK' });
 
       // Stub decryptEnterpriseApps to return apps as-is
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
@@ -557,7 +554,7 @@ describe('advancedWorkflows tests', () => {
       // silence acted on has to supply the evidence for it.
       const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
       syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
-      syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves({ status: 'success', data: [] });
+      syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -774,7 +771,7 @@ describe('advancedWorkflows tests', () => {
     // never resolved the peer and cannot say.
     const peerSyncthingSays = (peerSocketAddr, remoteState) => {
       globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
-      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState } });
+      syncthingCompletionStub.resolves({ remoteState });
     };
 
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
@@ -1348,11 +1345,8 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary());
       // nothing cached, but this node's syncthing still has the device configured
       // under the name the monitor gave it, and reports the connection closed
-      syncthingDevicesStub.resolves({
-        status: 'success',
-        data: [{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }],
-      });
-      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState: 'unknown' } });
+      syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }]);
+      syncthingCompletionStub.resolves({ remoteState: 'unknown' });
 
       await runPass();
 
@@ -3199,10 +3193,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
       sinon.stub(registryManager, 'getApplicationSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
-      sinon.stub(syncthingService, 'getConfigFolders').resolves({
-        status: 'success',
-        data: [{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }],
-      });
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }]);
       sinon.stub(dockerService, 'appDockerStop').resolves();
       // The stop is verified by reading the container back, not by the stop
       // call returning - so this stub is what makes the containers actually

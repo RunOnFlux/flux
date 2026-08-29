@@ -239,7 +239,7 @@ describe('syncthingService tests', () => {
       // the events endpoint holds the request open up to `timeout` seconds when
       // nothing is pending; the shared instance's 5s default aborts every quiet
       // poll before syncthing can answer
-      await syncthingService.getEvents({ params: {}, query: { since: 5, events: 'FolderSummary', timeout: 55 } }, asAuthorised());
+      await syncthingService.getEvents({ since: 5, events: 'FolderSummary', timeout: 55 });
 
       sinon.assert.calledOnce(fakeGet);
       const config = fakeGet.firstCall.args[1];
@@ -353,19 +353,19 @@ describe('syncthingService tests', () => {
     });
 
     it('systemPause posts to /rest/system/pause with the device', async () => {
-      await syncthingService.systemPause({ params: { device: deviceId }, query: {} }, asAuthorised());
+      await syncthingService.systemPause(deviceId);
       sinon.assert.calledOnce(fakePost);
       expect(fakePost.firstCall.args[0]).to.equal(`/rest/system/pause?device=${deviceId}`);
     });
 
     it('systemResume posts to /rest/system/resume with the device', async () => {
-      await syncthingService.systemResume({ params: { device: deviceId }, query: {} }, asAuthorised());
+      await syncthingService.systemResume(deviceId);
       sinon.assert.calledOnce(fakePost);
       expect(fakePost.firstCall.args[0]).to.equal(`/rest/system/resume?device=${deviceId}`);
     });
 
     it('systemResume posts to /rest/system/resume for all devices when none given', async () => {
-      await syncthingService.systemResume({ params: {}, query: {} }, asAuthorised());
+      await syncthingService.systemResume();
       sinon.assert.calledOnce(fakePost);
       expect(fakePost.firstCall.args[0]).to.equal('/rest/system/resume');
     });
