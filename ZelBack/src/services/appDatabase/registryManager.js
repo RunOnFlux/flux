@@ -827,7 +827,7 @@ async function getApplicationComponentNamesAPI(req, res) {
     // fluxteam, not appownerorfluxteam: an owner reads the specification itself
     // and has no use for this, and the node operator is not a party to a
     // customer's app at all.
-    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
