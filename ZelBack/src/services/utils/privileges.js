@@ -37,4 +37,19 @@ const Privilege = Object.freeze({
  */
 const APP_SCOPED = Object.freeze([Privilege.APP_OWNER, Privilege.APP_OWNER_OR_FLUX_TEAM]);
 
-module.exports = { Privilege, APP_SCOPED };
+/**
+ * The auth a request carries, or null if it carries none.
+ *
+ * A request with no zelidauth header is ordinary - it is every unauthenticated
+ * call there has ever been - and answers false at the check like any other
+ * refusal. One absent value rather than three, so a caller never has to tell
+ * undefined from null from empty.
+ *
+ * Lives here so a route reads `verifyPrivilege(Privilege.X, authOf(req))`: the
+ * privilege it requires, and where the identity comes from, in one line.
+ * @param {object} req - express request
+ * @returns {string|null} the zelidauth header value
+ */
+const authOf = (req) => req?.headers?.zelidauth || null;
+
+module.exports = { Privilege, APP_SCOPED, authOf };

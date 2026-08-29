@@ -61,7 +61,7 @@ let maxNumberOfIpChanges = 0;
 
 const myCache = cacheManager.ipCache;
 const { lruRateLimit } = require('./utils/rateLimit');
-const { Privilege } = require('./utils/privileges');
+const { Privilege, authOf } = require('./utils/privileges');
 
 // This node's socket address (ip:port) from benchmark
 let localSocketAddress = null;
@@ -411,7 +411,7 @@ async function checkAppAvailability(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
       const processedBody = serviceHelper.ensureObject(body);
 
@@ -506,7 +506,7 @@ function tcpConnectAndDestroy(host, port, timeout) {
  */
 async function keepUPNPPortsOpen(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
     const { body } = req;
     const processedBody = serviceHelper.ensureObject(body);
@@ -1632,7 +1632,7 @@ async function setDOSStateApi(req, res) {
   if (!config.has('testEventStream') || config.get('testEventStream') !== true) {
     return res.status(404).json({ status: 'error', data: { message: 'Not available' } });
   }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -1849,7 +1849,7 @@ async function allowPortApi(req, res) {
     const errMessage = messageHelper.createErrorMessage('No Port address specified.');
     return res.json(errMessage);
   }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
   let message;
 

@@ -2,7 +2,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -17,7 +17,7 @@ async function addMultiSigAddress(req, res) {
   let { n, keysobject } = req.params;
   n = n || req.query.n;
   keysobject = keysobject || req.query.keysobject;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -49,7 +49,7 @@ async function addMultiSigAddressPost(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
     let { n } = processedBody;
     let { keysobject } = processedBody;
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);
@@ -76,7 +76,7 @@ async function addMultiSigAddressPost(req, res) {
 async function backupWallet(req, res) {
   let { destination } = req.params;
   destination = destination || req.query.destination;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -100,7 +100,7 @@ async function backupWallet(req, res) {
 async function dumpPrivKey(req, res) {
   let { taddr } = req.params;
   taddr = taddr || req.query.taddr;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -125,7 +125,7 @@ async function getBalance(req, res) {
   let { minconf, includewatchonly } = req.params;
   minconf = minconf || req.query.minconf || 1;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -146,7 +146,7 @@ async function getBalance(req, res) {
  * @returns {object} Message.
  */
 async function getNewAddress(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -164,7 +164,7 @@ async function getNewAddress(req, res) {
  * @returns {object} Message.
  */
 async function getRawChangeAddress(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -185,7 +185,7 @@ async function getReceivedByAddress(req, res) {
   let { fluxaddress, minconf } = req.params;
   fluxaddress = fluxaddress || req.query.fluxaddress;
   minconf = minconf || req.query.minconf || 1;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -230,7 +230,7 @@ async function getTransaction(req, res) {
  * @returns {object} Message.
  */
 async function getUnconfirmedBalance(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -248,7 +248,7 @@ async function getUnconfirmedBalance(req, res) {
  * @returns {object} Message.
  */
 async function getWalletInfo(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -271,7 +271,7 @@ async function importAddress(req, res) {
   label = label || req.query.label || '';
   rescan = rescan ?? req.query.rescan ?? true;
 
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -298,7 +298,7 @@ async function importPrivKey(req, res) {
   fluxprivkey = fluxprivkey || req.query.fluxprivkey;
   label = label || req.query.label || '';
   rescan = rescan ?? req.query.rescan ?? true;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -323,7 +323,7 @@ async function importPrivKey(req, res) {
 async function importWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -347,7 +347,7 @@ async function importWallet(req, res) {
 async function keyPoolRefill(req, res) {
   let { newsize } = req.params;
   newsize = newsize || req.query.newsize || 100;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -367,7 +367,7 @@ async function keyPoolRefill(req, res) {
  * @returns {object} Message.
  */
 async function listAddressGroupings(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -385,7 +385,7 @@ async function listAddressGroupings(req, res) {
  * @returns {object} Message.
  */
 async function listLockUnspent(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -405,7 +405,7 @@ async function listLockUnspent(req, res) {
 async function rescanBlockchain(req, res) {
   let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -429,7 +429,7 @@ async function listReceivedByAddress(req, res) {
   minconf = minconf || req.query.minconf || 1;
   includeempty = includeempty ?? req.query.includeempty ?? false;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -455,7 +455,7 @@ async function listSinceBlock(req, res) {
   blockhash = blockhash || req.query.blockhash || '';
   targetconfirmations = targetconfirmations || req.query.targetconfirmations || 1;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -481,7 +481,7 @@ async function listTransactions(req, res) {
   count = count || req.query.count || 10;
   from = from || req.query.from || 0;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -507,7 +507,7 @@ async function listUnspent(req, res) {
   minconf = minconf || req.query.minconf || 1;
   maxconf = maxconf || req.query.maxconf || 9999999;
   addresses = addresses || req.query.addresses;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -536,7 +536,7 @@ async function lockUnspent(req, res) {
   let { unlock, transactions } = req.params;
   unlock = unlock ?? req.query.unlock;
   transactions = transactions || req.query.transactions;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -570,7 +570,7 @@ async function sendFrom(req, res) {
   minconf = minconf || req.query.minconf || 1;
   comment = comment || req.query.comment || '';
   commentto = commentto || req.query.commentto || '';
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -609,7 +609,7 @@ async function sendFromPost(req, res) {
     minconf = minconf || 1;
     comment = comment || '';
     commentto = commentto || '';
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);
@@ -643,7 +643,7 @@ async function sendMany(req, res) {
   minconf = minconf || req.query.minconf || 1;
   comment = comment || req.query.comment || '';
   substractfeefromamount = substractfeefromamount || req.query.substractfeefromamount;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -686,7 +686,7 @@ async function sendManyPost(req, res) {
     const fromaccount = '';
     minconf = minconf || 1;
     comment = comment || '';
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);
@@ -726,7 +726,7 @@ async function sendToAddress(req, res) {
   comment = comment || req.query.comment || '';
   commentto = commentto || req.query.commentto || '';
   substractfeefromamount = substractfeefromamount ?? req.query.substractfeefromamount ?? false;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -765,7 +765,7 @@ async function sendToAddressPost(req, res) {
     comment = comment || '';
     commentto = commentto || '';
     substractfeefromamount = substractfeefromamount ?? false;
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);
@@ -793,7 +793,7 @@ async function sendToAddressPost(req, res) {
 async function setTxFee(req, res) {
   let { amount } = req.params;
   amount = amount || req.query.amount;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -820,7 +820,7 @@ async function signMessage(req, res) {
   let { taddr, message } = req.params;
   taddr = taddr || req.query.taddr;
   message = message || req.query.message;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -852,7 +852,7 @@ async function signMessagePost(req, res) {
     const { taddr } = processedBody;
     const { message } = processedBody;
 
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);

@@ -5,7 +5,7 @@ const serviceHelper = require('../serviceHelper');
 const benchmarkService = require('../benchmarkService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 // Check if running on Arcane OS
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -55,7 +55,7 @@ async function getPublicKey(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         return res.json(errMessage);

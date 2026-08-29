@@ -1,5 +1,3 @@
-const querystring = require('node:querystring');
-
 const verificationHelper = require('../../services/verificationHelper');
 const log = require('../log');
 const { Privilege } = require('../../services/utils/privileges');
@@ -16,11 +14,15 @@ async function debugHandler(socket) {
     return;
   }
 
-  const parsed = querystring.decode(authDetails);
-
-  const req = { headers: { zelidauth: parsed } };
-
-  const ok = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+  // authDetails is the query string the client sent, which is the same form a
+  // zelidauth header takes. There is no request here to take it from, and there
+  // never was - the one this built existed only to fit a signature.
+  const ok = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authDetails)
+    .catch((error) => {
+      // A throw in a socket.io listener is unhandled and takes the process down.
+      log.error(error);
+      return false;
+    });
 
   if (ok !== true) {
     socket.emit('error', 'Unauthorized');

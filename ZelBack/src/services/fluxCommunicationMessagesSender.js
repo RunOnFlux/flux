@@ -9,7 +9,7 @@ const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
-const { Privilege } = require('./utils/privileges');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
@@ -204,7 +204,7 @@ async function broadcastMessageFromUser(req, res) {
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
     let message;
 
@@ -242,7 +242,7 @@ async function broadcastMessageFromUserPost(req, res) {
         throw new Error('No message to broadcast attached.');
       }
       const processedBody = serviceHelper.ensureObject(body);
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
       let message;
 

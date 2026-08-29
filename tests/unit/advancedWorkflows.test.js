@@ -6,6 +6,7 @@ const sinon = require('sinon');
 const axios = require('axios');
 const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const log = require('../../ZelBack/src/lib/log');
@@ -162,7 +163,7 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflows.redeployComponentAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
 
     it('should handle force parameter from query string', async () => {
@@ -217,7 +218,7 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflows.redeployAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
 
@@ -3112,7 +3113,7 @@ describe('advancedWorkflows tests', () => {
 
       await advancedWorkflows.appendBackupTask(req, makeRes());
 
-      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, appname);
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
       sinon.assert.notCalled(IOUtils.createTarGz);
     });
   });
@@ -3904,7 +3905,7 @@ describe('advancedWorkflows tests', () => {
 
       await advancedWorkflows.appendRestoreTask(req, makeRes());
 
-      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, 'appownerorfluxteam', req, appname);
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
       sinon.assert.notCalled(IOUtils.getVolumeInfo);
     });
   });

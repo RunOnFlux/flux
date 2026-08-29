@@ -24,7 +24,7 @@ const {
   appsHashesCollection,
   scannedHeightCollection,
 } = require('../utils/appConstants');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 let reindexRunning = false;
 
@@ -828,7 +828,7 @@ async function getApplicationComponentNamesAPI(req, res) {
     // fluxteam, not appownerorfluxteam: an owner reads the specification itself
     // and has no use for this, and the node operator is not a party to a
     // customer's app at all.
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -941,8 +941,8 @@ async function getApplicationSpecificationAPI(req, res) {
     // page.
     const authorized = await verificationHelper.verifyPrivilege(
       Privilege.APP_OWNER,
-      req,
-      mainAppName,
+      authOf(req),
+      { appName: mainAppName },
     );
 
     if (authorized !== true) {
@@ -1053,8 +1053,8 @@ async function updateApplicationSpecificationAPI(req, res) {
     // spec its owner is about to re-sign, and nobody else's business.
     const authorized = await verificationHelper.verifyPrivilege(
       Privilege.APP_OWNER,
-      req,
-      mainAppName,
+      authOf(req),
+      { appName: mainAppName },
     );
 
     if (!authorized) {
@@ -1799,7 +1799,7 @@ async function reconstructAppMessagesHashCollection() {
  */
 async function reconstructAppMessagesHashCollectionAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
       const result = await reconstructAppMessagesHashCollection();
       const message = messageHelper.createSuccessMessage(result);
@@ -1850,7 +1850,7 @@ async function registerAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
@@ -2038,7 +2038,7 @@ async function reindexGlobalAppsLocation() {
  */
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = messageHelper.createSuccessMessage('Reindex successfull');
@@ -2065,7 +2065,7 @@ async function reindexGlobalAppsLocationAPI(req, res) {
  */
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       await reindexGlobalAppsInformation();
       const message = messageHelper.createSuccessMessage('Reindex successfull');
@@ -2132,7 +2132,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
  */
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;

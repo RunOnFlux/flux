@@ -14,7 +14,7 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const { Privilege } = require('./utils/privileges');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
@@ -292,7 +292,7 @@ async function systemBrowse(req, res) {
   if (current) {
     apiPath += `?current=${current}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', apiPath);
@@ -336,7 +336,7 @@ async function systemDebug(req, res) {
   } else if (disable) {
     apiPath += `?disable=${disable}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest(method, apiPath);
@@ -366,7 +366,7 @@ async function systemDiscovery(req, res) {
     method = 'post';
     apiPath += `?device=${device}&addr=${addr}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest(method, apiPath);
@@ -383,7 +383,7 @@ async function systemDiscovery(req, res) {
  * @returns {object} Message
  */
 async function systemErrorClear(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', '/rest/system/error/clear');
@@ -407,7 +407,7 @@ async function systemError(req, res) {
   if (message) {
     method = 'post';
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest(method, apiPath, message);
@@ -431,7 +431,7 @@ async function postSystemError(req, res) {
   req.on('end', async () => {
     const message = serviceHelper.ensureObject(body);
     try {
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest('post', '/rest/system/error', message);
@@ -460,7 +460,7 @@ async function systemLog(req, res) {
   if (since) {
     apiPath += `?since=${since}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', apiPath);
@@ -483,7 +483,7 @@ async function systemLogTxt(req, res) {
   if (since) {
     apiPath += `?since=${since}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', apiPath);
@@ -500,7 +500,7 @@ async function systemLogTxt(req, res) {
  * @returns {object} Message
  */
 async function systemPaths(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/system/paths');
@@ -523,7 +523,7 @@ async function systemPause(req, res) {
   if (device) {
     apiPath += `?device=${device}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', apiPath);
@@ -558,7 +558,7 @@ async function systemReset(req, res) {
   if (folder) {
     apiPath += `?folder=${folder}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', apiPath);
@@ -592,7 +592,7 @@ async function systemResetFolderId(folderId) {
  */
 async function systemRestart(req, res) {
   log.info('Restarting Syncthing...');
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', '/rest/system/restart');
@@ -616,7 +616,7 @@ async function systemResume(req, res) {
   if (device) {
     apiPath += `?device=${device}`;
   }
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', apiPath);
@@ -633,7 +633,7 @@ async function systemResume(req, res) {
  * @returns {object} Message
  */
 async function systemShutdown(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', '/rest/system/shutdown');
@@ -661,7 +661,7 @@ async function systemStatus(req, res) {
  * @returns {object} Message
  */
 async function systemUpgrade(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/system/upgrade');
@@ -678,7 +678,7 @@ async function systemUpgrade(req, res) {
  * @returns {object} Message
  */
 async function postSystemUpgrade(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', '/rest/system/upgrade');
@@ -708,7 +708,7 @@ async function systemVersion(req, res) {
  * @returns {object} Message
  */
 async function getConfig(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/config');
@@ -733,7 +733,7 @@ async function postConfig(req, res) {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest('put', '/rest/config', newConfig);
@@ -853,7 +853,7 @@ async function postConfigFolders(req, res) {
       const newConfig = processedBody.config;
       const { id } = processedBody;
       const method = (processedBody.method || 'post').toLowerCase();
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigFolders(method, newConfig, id);
@@ -906,7 +906,7 @@ async function postConfigDevices(req, res) {
       const newConfig = processedBody.config;
       const { id } = processedBody;
       const method = (processedBody.method || 'post').toLowerCase();
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigDevices(method, newConfig, id);
@@ -973,7 +973,7 @@ async function postConfigDefaultsFolder(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigDefaultsFolder(method, newConfig);
@@ -1005,7 +1005,7 @@ async function postConfigDefaultsDevice(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/defaults/device', newConfig);
@@ -1048,7 +1048,7 @@ async function postConfigDefaultsIgnores(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = 'put';
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/defaults/ignores', newConfig);
@@ -1083,7 +1083,7 @@ async function getConfigOptions(req, res) {
  * @returns {object} Message
  */
 async function getConfigGui(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/config/gui');
@@ -1133,7 +1133,7 @@ async function postConfigOptions(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigOptions(method, newConfig);
@@ -1165,7 +1165,7 @@ async function postConfigGui(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/gui', newConfig);
@@ -1197,7 +1197,7 @@ async function postConfigLdap(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/ldap', newConfig);
@@ -1247,7 +1247,7 @@ async function postClusterPendigDevices(req, res) {
       if (device) {
         apiPath += `?device=${device}`;
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1295,7 +1295,7 @@ async function postClusterPendigFolders(req, res) {
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1396,7 +1396,7 @@ async function postFolderVersions(req, res) {
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1687,7 +1687,7 @@ async function postDbIgnores(req, res) {
       // other node running it - so the blast radius of this one call is the fleet,
       // not the box. Reading the volume is the operator's already; choosing what
       // the network carries is not.
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1726,7 +1726,7 @@ async function postDbOverride(req, res) {
       } else {
         throw new Error('folder parameter is mandatory');
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1771,7 +1771,7 @@ async function postDbPrio(req, res) {
       } else {
         throw new Error('file parameter is mandatory');
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1810,7 +1810,7 @@ async function postDbRevert(req, res) {
       } else {
         throw new Error('folder parameter is mandatory');
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1868,7 +1868,7 @@ async function postDbScan(req, res) {
       };
       const qqStr = qs.stringify(qq);
       apiPath += `${qqStr}`;
-      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+      const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1893,7 +1893,7 @@ async function postDbScan(req, res) {
  * @returns {object} Message
  */
 async function debugPeerCompletion(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/debug/peerCompletion');
@@ -1910,7 +1910,7 @@ async function debugPeerCompletion(req, res) {
  * @returns {object} Message
  */
 async function debugHttpmetrics(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/debug/httpmetrics');
@@ -1927,7 +1927,7 @@ async function debugHttpmetrics(req, res) {
  * @returns {object} Message
  */
 async function debugCpuprof(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     try {
@@ -1957,7 +1957,7 @@ async function debugCpuprof(req, res) {
  * @returns {object} Message
  */
 async function debugHeapprof(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     try {
@@ -1987,7 +1987,7 @@ async function debugHeapprof(req, res) {
  * @returns {object} Message
  */
 async function debugSupport(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/debug/support', undefined, 60000);
@@ -2020,7 +2020,7 @@ async function debugFile(req, res) {
     } else {
       throw new Error('file parameter is mandatory');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
     let response = null;
     if (authorized === true) {
       try {
@@ -2057,7 +2057,7 @@ async function debugFile(req, res) {
  * @returns {object} Message
  */
 async function getEvents(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   if (authorized !== true) {
     const response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -2108,7 +2108,7 @@ async function getEvents(req, res) {
  * @returns {object} Message
  */
 async function getEventsDisk(req, res) {
-  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+  const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
   if (authorized !== true) {
     const response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -2179,7 +2179,7 @@ async function getSvcRandomString(req, res) {
     if (length) {
       const parsedLength = Number(length);
       if (!Number.isFinite(parsedLength) || parsedLength < 0 || parsedLength > 10000) {
-        const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req) : true;
+        const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)) : true;
         if (authorized !== true) {
           const response = messageHelper.errUnauthorizedMessage();
           return res ? res.json(response) : response;
@@ -2931,7 +2931,7 @@ function saveMetricsSnapshot(metrics) {
  */
 async function getSyncthingMetrics(req, res) {
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req)) : true;
     let response = null;
     if (authorized === true) {
       const metrics = await collectSyncthingMetrics();
@@ -2955,7 +2955,7 @@ async function getSyncthingMetrics(req, res) {
  */
 async function getSyncthingHealthSummary(req, res) {
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req)) : true;
     let response = null;
     if (authorized === true) {
       const metrics = await collectSyncthingMetrics();
@@ -3007,7 +3007,7 @@ async function getSyncthingHealthSummary(req, res) {
  */
 async function getSyncthingMetricsHistory(req, res) {
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req)) : true;
     let response = null;
     if (authorized === true) {
       let { limit } = req.params;
@@ -3365,7 +3365,7 @@ async function getPeerSyncDiagnostics() {
  */
 async function getPeerSyncDiagnosticsApi(req, res) {
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req)) : true;
     let response = null;
     if (authorized === true) {
       const diagnostics = await getPeerSyncDiagnostics();

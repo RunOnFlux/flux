@@ -8,6 +8,7 @@ const EventEmitter = require('node:events');
 // 3rd Party Stubbed
 const axios = require('axios');
 const log = require('../../ZelBack/src/lib/log');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
@@ -47,7 +48,7 @@ describe('syncthingService tests', () => {
 
       const answer = await answerFor(req);
 
-      sinon.assert.calledOnceWithExactly(verify, 'fluxteam', req);
+      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
       expect(answer.data.code).to.equal(401);
       expect(answer.data.name).to.equal('Unauthorized');
     });

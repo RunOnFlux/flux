@@ -4,6 +4,7 @@ const config = require('config');
 const { ObjectId } = require('mongodb');
 const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 // eslint-disable-next-line no-unused-vars
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
@@ -384,7 +385,7 @@ describe('registryManager tests', () => {
 
       await subject.getApplicationSpecificationAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appowner', req, 'EntSpecApp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER, authOf(req), { appName: 'EntSpecApp' });
     });
   });
 
@@ -442,7 +443,7 @@ describe('registryManager tests', () => {
 
       await subjectWithPrivilege(verifyPrivilege).getApplicationComponentNamesAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'fluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.FLUX_TEAM, authOf(req));
       expect(res.json.firstCall.args[0].status).to.equal('error');
     });
 
@@ -521,7 +522,7 @@ describe('registryManager tests', () => {
 
       await registryManager.updateApplicationSpecificationAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appowner', req, 'UpgradeSpecApp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER, authOf(req), { appName: 'UpgradeSpecApp' });
     });
   });
 

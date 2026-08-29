@@ -1,12 +1,14 @@
 const chai = require('chai');
 const sinon = require('sinon');
+
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 
 describe('dockerTerminalHandler tests', () => {
   let trackTerminalSession;
-  let verifyAppOwnerOrFluxTeamSession;
+  let verifyPrivilege;
   let getDockerContainerByIdOrName;
   let dockerTerminalHandler;
 
@@ -33,11 +35,11 @@ describe('dockerTerminalHandler tests', () => {
 
   beforeEach(() => {
     trackTerminalSession = sinon.stub();
-    verifyAppOwnerOrFluxTeamSession = sinon.stub().resolves(true);
+    verifyPrivilege = sinon.stub().resolves(true);
     getDockerContainerByIdOrName = sinon.stub().resolves({ exec: sinon.stub() });
     dockerTerminalHandler = proxyquire('../../ZelBack/src/lib/socketIoHandlers/dockerTerminalHandler', {
       '../../services/analyticsService': { trackTerminalSession },
-      '../../services/verificationHelperUtils': { verifyAppOwnerOrFluxTeamSession },
+      '../../services/verificationHelper': { verifyPrivilege },
       '../../services/dockerService': { getDockerContainerByIdOrName },
     });
   });
@@ -49,7 +51,7 @@ describe('dockerTerminalHandler tests', () => {
   it('does not record a session that never opened when the client leaves mid-setup', async () => {
     const socket = makeSocket();
     let releaseAuth;
-    verifyAppOwnerOrFluxTeamSession.returns(new Promise((resolve) => { releaseAuth = resolve; }));
+    verifyPrivilege.returns(new Promise((resolve) => { releaseAuth = resolve; }));
 
     dockerTerminalHandler(socket);
     const exec = socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
@@ -101,10 +103,13 @@ describe('dockerTerminalHandler tests', () => {
     dockerTerminalHandler(socket);
     await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
 
+    // Through verifyPrivilege, carrying the privilege it needs, so a search for
+    // who may open a shell in a customer's container finds this one too.
     sinon.assert.calledOnceWithExactly(
-      verifyAppOwnerOrFluxTeamSession,
-      { zelidauth: 'zelidauth' },
-      'myapp',
+      verifyPrivilege,
+      Privilege.APP_OWNER_OR_FLUX_TEAM,
+      'zelidauth',
+      { appName: 'myapp' },
     );
   });
 });

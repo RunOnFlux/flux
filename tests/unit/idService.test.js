@@ -1,5 +1,7 @@
 const chai = require('chai');
 const sinon = require('sinon');
+
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const chaiAsPromised = require('chai-as-promised');
 const os = require('os');
 const bitcoinMessage = require('bitcoinjs-message');
@@ -1515,7 +1517,7 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is an admin', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1536,8 +1538,8 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is fluxteam', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1558,9 +1560,9 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is an ordinary user', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.USER, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1581,9 +1583,9 @@ describe('idService tests', () => {
     });
 
     it('should return error message if user has no privileges', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.USER, sinon.match.string).returns(false);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',

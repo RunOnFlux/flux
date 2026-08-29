@@ -2,6 +2,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+
 describe('appUninstaller tests', () => {
   let appUninstaller;
   let verificationHelperStub;
@@ -159,7 +161,7 @@ describe('appUninstaller tests', () => {
 
       await appUninstaller.removeAppLocallyApi(req, res);
 
-      sinon.assert.calledOnceWithExactly(verificationHelperStub.verifyPrivilege, 'appownerorfluxteam', req, 'testapp');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'testapp' });
     });
 
     it('should handle missing appname parameter', async () => {

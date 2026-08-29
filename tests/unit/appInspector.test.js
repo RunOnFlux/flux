@@ -2,6 +2,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+
 describe('appInspector tests', () => {
   let appInspector;
   let dockerServiceStub;
@@ -1586,7 +1588,7 @@ describe('appInspector tests', () => {
 
       await inspector.appMonitorAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
 
@@ -2398,7 +2400,7 @@ describe('appInspector tests', () => {
 
         await inspector[handler](req, res);
 
-        sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
       });
     });
   });
@@ -2436,7 +2438,7 @@ describe('appInspector tests', () => {
       handlers.data(JSON.stringify({ appname: 'mycomponent_myapp', cmd: ['ls'] }));
       await handlers.end();
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
 });
