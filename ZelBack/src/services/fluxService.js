@@ -143,31 +143,38 @@ async function fluxBackendFolder(req, res) {
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
-async function getCurrentCommitId(req, res) {
+async function getCurrentCommitId() {
   // Fix - this breaks if head in detached state? (or something, can't remember)
-  if (req) {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized !== true) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-  }
-
   const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
     logError: false, params: ['rev-parse', '--short', 'HEAD'],
   });
 
-  if (error) {
-    const errMsg = messageHelper.createErrorMessage(
+  if (error) throw error;
+
+  return commitId.trim();
+}
+
+/**
+ * To show the current short commit id. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+async function getCurrentCommitIdApi(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized !== true) {
+    return res.json(messageHelper.errUnauthorizedMessage());
+  }
+
+  try {
+    return res.json(messageHelper.createSuccessMessage(await getCurrentCommitId()));
+  } catch (error) {
+    return res.json(messageHelper.createErrorMessage(
       `Error getting current commit id of Flux: ${error.message}`,
       error.name,
       error.code,
-    );
-    return res ? res.json(errMsg) : errMsg;
+    ));
   }
-
-  const successMsg = messageHelper.createSuccessMessage(commitId.trim());
-  return res ? res.json(successMsg) : successMsg;
 }
 
 /**
@@ -176,31 +183,38 @@ async function getCurrentCommitId(req, res) {
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
-async function getCurrentBranch(req, res) {
+async function getCurrentBranch() {
   // ToDo: Fix - this breaks if head in detached state (or something similar)
-  if (req) {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized !== true) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-  }
-
-  const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
+  const { stdout: branch, error } = await serviceHelper.runCommand('git', {
     logError: false, params: ['rev-parse', '--abbrev-ref', 'HEAD'],
   });
 
-  if (error) {
-    const errMsg = messageHelper.createErrorMessage(
+  if (error) throw error;
+
+  return branch.trim();
+}
+
+/**
+ * To show the currently selected branch. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+async function getCurrentBranchApi(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized !== true) {
+    return res.json(messageHelper.errUnauthorizedMessage());
+  }
+
+  try {
+    return res.json(messageHelper.createSuccessMessage(await getCurrentBranch()));
+  } catch (error) {
+    return res.json(messageHelper.createErrorMessage(
       `Error getting current branch of Flux: ${error.message}`,
       error.name,
       error.code,
-    );
-    return res ? res.json(errMsg) : errMsg;
+    ));
   }
-
-  const successMsg = messageHelper.createSuccessMessage(commitId.trim());
-  return res ? res.json(successMsg) : successMsg;
 }
 
 /**
@@ -237,27 +251,33 @@ async function checkoutBranch(branch, options = {}) {
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
-// eslint-disable-next-line consistent-return
-async function enterMaster(req, res) {
+async function enterMaster() {
   // why use npm for this?
-  if (req) {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized !== true) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-  }
   const cwd = path.join(__dirname, '../../../');
 
   const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'entermaster'] });
 
-  if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${error.message}`, error.name, error.code);
-    return res ? res.json(errMessage) : errMessage;
+  if (error) throw error;
+}
+
+/**
+ * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+async function enterMasterApi(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized !== true) {
+    return res.json(messageHelper.errUnauthorizedMessage());
   }
 
-  const message = messageHelper.createSuccessMessage('Master branch successfully entered');
-  return res ? res.json(message) : message;
+  try {
+    await enterMaster();
+    return res.json(messageHelper.createSuccessMessage('Master branch successfully entered'));
+  } catch (error) {
+    return res.json(messageHelper.createErrorMessage(`Error entering master branch of Flux: ${error.message}`, error.name, error.code));
+  }
 }
 
 /**
@@ -266,26 +286,32 @@ async function enterMaster(req, res) {
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
-// eslint-disable-next-line consistent-return
-async function enterDevelopment(req, res) {
-  if (req) {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized !== true) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-  }
+async function enterDevelopment() {
   const cwd = path.join(__dirname, '../../../');
 
   const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'enterdevelopment'] });
 
-  if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${error.message}`, error.name, error.code);
-    return res ? res.json(errMessage) : errMessage;
+  if (error) throw error;
+}
+
+/**
+ * To switch to development branch of FluxOS. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+async function enterDevelopmentApi(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized !== true) {
+    return res.json(messageHelper.errUnauthorizedMessage());
   }
 
-  const message = messageHelper.createSuccessMessage('Development branch successfully entered');
-  return res ? res.json(message) : message;
+  try {
+    await enterDevelopment();
+    return res.json(messageHelper.createSuccessMessage('Development branch successfully entered'));
+  } catch (error) {
+    return res.json(messageHelper.createErrorMessage(`Error entering development branch of Flux: ${error.message}`, error.name, error.code));
+  }
 }
 
 /**
@@ -321,27 +347,32 @@ async function updateFlux(req, res) {
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
-// eslint-disable-next-line consistent-return
-async function softUpdateFlux(req, res) {
-  if (req) {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized !== true) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-  }
-
+async function softUpdateFlux() {
   const cwd = path.join(__dirname, '../../../');
 
   const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdate'] });
 
-  if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error soft updating Flux: ${error.message}`, error.name, error.code);
-    return res ? res.json(errMessage) : errMessage;
+  if (error) throw error;
+}
+
+/**
+ * To soft update FluxOS version (executes the command `npm run softupdate` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+async function softUpdateFluxApi(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized !== true) {
+    return res.json(messageHelper.errUnauthorizedMessage());
   }
 
-  const message = messageHelper.createSuccessMessage('Flux successfully soft updated');
-  return res ? res.json(message) : message;
+  try {
+    await softUpdateFlux();
+    return res.json(messageHelper.createSuccessMessage('Flux successfully soft updated'));
+  } catch (error) {
+    return res.json(messageHelper.createErrorMessage(`Error soft updating Flux: ${error.message}`, error.name, error.code));
+  }
 }
 
 /**
@@ -350,27 +381,32 @@ async function softUpdateFlux(req, res) {
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
-// eslint-disable-next-line consistent-return
-async function softUpdateFluxInstall(req, res) {
-  if (req) {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized !== true) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-  }
-
+async function softUpdateFluxInstall() {
   const cwd = path.join(__dirname, '../../../');
 
   const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdateinstall'] });
 
-  if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error soft updating Flux with installation: ${error.message}`, error.name, error.code);
-    return res ? res.json(errMessage) : errMessage;
+  if (error) throw error;
+}
+
+/**
+ * To install the soft update of FluxOS (executes the command `npm run softupdateinstall` on the node machine). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+async function softUpdateFluxInstallApi(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized !== true) {
+    return res.json(messageHelper.errUnauthorizedMessage());
   }
 
-  const message = messageHelper.createSuccessMessage('Flux successfully soft updated with installation');
-  return res ? res.json(message) : message;
+  try {
+    await softUpdateFluxInstall();
+    return res.json(messageHelper.createSuccessMessage('Flux successfully soft updated with installation'));
+  } catch (error) {
+    return res.json(messageHelper.createErrorMessage(`Error soft updating Flux with installation: ${error.message}`, error.name, error.code));
+  }
 }
 
 /**
@@ -2113,7 +2149,9 @@ module.exports = {
   checkoutBranch,
   daemonDebug,
   enterDevelopment,
+  enterDevelopmentApi,
   enterMaster,
+  enterMasterApi,
   fluxBackendFolder,
   fluxDebugLog,
   fluxErrorLog,
@@ -2124,7 +2162,9 @@ module.exports = {
   getBlockedRepositories,
   getEnterpriseAppOwners,
   getCurrentBranch,
+  getCurrentBranchApi,
   getCurrentCommitId,
+  getCurrentCommitIdApi,
   getFluxGeolocation,
   getFluxInfo,
   getFluxIP,
@@ -2146,7 +2186,9 @@ module.exports = {
   restartDaemon,
   restartFluxOS,
   softUpdateFlux,
+  softUpdateFluxApi,
   softUpdateFluxInstall,
+  softUpdateFluxInstallApi,
   startBenchmark,
   startDaemon,
   streamChainPreparation,

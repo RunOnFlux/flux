@@ -204,7 +204,7 @@ describe('fluxService tests', () => {
       };
       const req = {};
 
-      const response = await fluxService.softUpdateFlux(req, res);
+      const response = await fluxService.softUpdateFluxApi(req, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
@@ -225,7 +225,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFlux(undefined, res);
+      await fluxService.softUpdateFluxApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -253,7 +253,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFlux(undefined, res);
+      await fluxService.softUpdateFluxApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -286,7 +286,7 @@ describe('fluxService tests', () => {
         status: 'error',
       };
 
-      const response = await fluxService.softUpdateFluxInstall({}, res);
+      const response = await fluxService.softUpdateFluxInstallApi({}, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
@@ -307,7 +307,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFluxInstall(undefined, res);
+      await fluxService.softUpdateFluxInstallApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -335,7 +335,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFluxInstall(undefined, res);
+      await fluxService.softUpdateFluxInstallApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -3170,6 +3170,63 @@ describe('fluxService tests', () => {
 
       await fluxService.streamChain(req, res);
       expect(received).to.deep.equal(['testtesttesttest']);
+    });
+  });
+  // Each of these is a pair: an endpoint that authorises, and an operation that
+  // does not, because it has no caller to authorise. One function cannot be
+  // both, which is what the shape these replaced attempted - it decided whether
+  // to check by whether a request object happened to have been passed, so the
+  // scheduler that passed none was trusted, and so was anyone who arrived in a
+  // way that left it undefined.
+  describe('the command is behind the privilege check, not beside it', () => {
+    const pairs = [
+      ['enterMasterApi', 'entermaster'],
+      ['enterDevelopmentApi', 'enterdevelopment'],
+      ['softUpdateFluxApi', 'softupdate'],
+      ['softUpdateFluxInstallApi', 'softupdateinstall'],
+    ];
+
+    let verifyPrivilegeStub;
+    let runCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    pairs.forEach(([api, script]) => {
+      it(`${api} runs nothing when the caller is refused`, async () => {
+        verifyPrivilegeStub.resolves(false);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.notCalled(runCmdStub);
+      });
+
+      it(`${api} runs npm ${script} once the caller is admitted`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.calledOnceWithMatch(runCmdStub, 'npm', { params: ['run', script] });
+      });
+    });
+
+    // The operation itself takes no request and consults nobody. If one of
+    // these ever asks a privilege question again, the endpoint above stops
+    // being the only door and this fails.
+    pairs.forEach(([api]) => {
+      const operation = api.replace(/Api$/, '');
+      it(`${operation} authorises nobody - that is the endpoint's job`, async () => {
+        await fluxService[operation]();
+
+        sinon.assert.notCalled(verifyPrivilegeStub);
+        sinon.assert.calledOnce(runCmdStub);
+      });
     });
   });
 });
