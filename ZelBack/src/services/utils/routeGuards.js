@@ -84,4 +84,20 @@ function rejectQueryParameters(req, res, next) {
   return res.status(400).json(errMessage);
 }
 
-module.exports = { rejectQueryParameters, requireBootSettled };
+/**
+ * Hand a route handler's promise to express.
+ *
+ * Registering `(req, res) => handler(req, res)` drops it, so a rejection is
+ * unhandled: node raises it to the uncaughtException handler in apiServer,
+ * which exits the process. The caller gets no response at all, and the node
+ * restarts - once per request. Routed through here a rejection reaches
+ * express's error handler and answers 500, which is what a caller can act on
+ * and what leaves the node serving everyone else.
+ * @param {Function} handler Route handler taking (req, res)
+ * @returns {Function} express handler
+ */
+function asyncRoute(handler) {
+  return (req, res, next) => Promise.resolve(handler(req, res)).catch(next);
+}
+
+module.exports = { asyncRoute, rejectQueryParameters, requireBootSettled };
