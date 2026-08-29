@@ -1,4 +1,5 @@
-const verificationHelperUtils = require('../../services/verificationHelperUtils');
+const verificationHelper = require('../../services/verificationHelper');
+const { Privilege } = require('../../services/utils/privileges');
 const dockerService = require('../../services/dockerService');
 const serviceHelper = require('../../services/serviceHelper');
 const { trackTerminalSession } = require('../../services/analyticsService');
@@ -50,13 +51,18 @@ async function dockerTerminalHandler(socket) {
       if (analyticsOpened) trackTerminalSession(zelidauth, analyticsAppName, 'close', clientIp, component);
     });
     try {
-      const auth = {
-        zelidauth,
-      };
       // Authorise BEFORE touching Docker: the lookup below is a remote-controlled
       // operation on an attacker-supplied name, and must not be reachable by an
       // unauthenticated caller.
-      const authorized = await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(auth, mainAppName);
+      //
+      // Through verifyPrivilege like every other caller, so this shell carries a
+      // privilege a sweep can find. Reaching the verifier directly is what once
+      // hid an interactive root shell from a search for the privilege it needed.
+      const authorized = await verificationHelper.verifyPrivilege(
+        Privilege.APP_OWNER_OR_FLUX_TEAM,
+        zelidauth,
+        { appName: mainAppName },
+      );
       if (authorized !== true) {
         socket.emit('error', 'Not authorized.');
         return;

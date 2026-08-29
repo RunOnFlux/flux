@@ -24,6 +24,7 @@ const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
@@ -2232,7 +2233,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return a success message if the port number is properly passed in query', async () => {
@@ -2258,7 +2259,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return an unauthorized message if privilege is not right', async () => {
@@ -2281,7 +2282,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return an error message if allowPort status is false', async () => {
@@ -2309,7 +2310,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
   });
 

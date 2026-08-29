@@ -1,7 +1,7 @@
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -40,7 +40,7 @@ async function getBenchStatus(req, res) {
  * @returns {object} Message.
  */
 async function startBenchmarkD(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -58,7 +58,7 @@ async function startBenchmarkD(req, res) {
  * @returns {object} Message.
  */
 async function stopBenchmarkD(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;

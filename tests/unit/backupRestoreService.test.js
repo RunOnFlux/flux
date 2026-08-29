@@ -1,5 +1,6 @@
 const sinon = require('sinon');
 const backupRestoreService = require('../../ZelBack/src/services/backupRestoreService');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
 describe('backupRestoreService tests', () => {
@@ -40,7 +41,7 @@ describe('backupRestoreService tests', () => {
 
         await backupRestoreService[name](req, res);
 
-        sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
       });
     });
   });

@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const systemIntegration = require('../../ZelBack/src/services/appSystem/systemIntegration');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -133,7 +134,7 @@ describe('systemIntegration tests', () => {
 
       await systemIntegration.createFluxNetworkAPI(req, res);
 
-      sinon.assert.calledWith(verifyStub, 'adminandfluxteam', req);
+      sinon.assert.calledWith(verifyStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should handle errors', async () => {

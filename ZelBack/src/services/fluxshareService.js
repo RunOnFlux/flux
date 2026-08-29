@@ -13,7 +13,7 @@ const generalService = require('./generalService');
 const log = require('../lib/log');
 const IOUtils = require('./IOUtils');
 const { sanitizePath } = require('./utils/pathSecurity');
-const { Privilege } = require('./utils/privileges');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const dirpath = path.join(__dirname, '../../../');
 const appsFolder = process.env.FLUX_APPS_FOLDER || path.join(dirpath, 'ZelApps');
@@ -183,7 +183,7 @@ async function fluxShareSharedFiles() {
  */
 async function fluxShareGetSharedFiles(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       const files = await fluxShareSharedFiles();
       const resultsResponse = messageHelper.createDataMessage(files);
@@ -215,7 +215,7 @@ async function fluxShareGetSharedFiles(req, res) {
  */
 async function fluxShareUnshareFile(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -250,7 +250,7 @@ async function fluxShareUnshareFile(req, res) {
  */
 async function fluxShareShareFile(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -289,7 +289,7 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
   try {
     let auth = authorized;
     if (!auth) {
-      auth = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+      auth = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     }
 
     if (auth) {
@@ -354,7 +354,7 @@ async function fluxShareDownloadFile(req, res) {
   try {
     // Define base path for sanitization
     const zelShareBase = path.join(appsFolder, 'ZelShare');
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -438,7 +438,7 @@ async function fluxShareDownloadFile(req, res) {
  */
 async function fluxShareRename(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { oldpath } = req.params;
       oldpath = oldpath || req.query.oldpath;
@@ -499,7 +499,7 @@ async function fluxShareRename(req, res) {
  */
 async function fluxShareRemoveFile(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -545,7 +545,7 @@ async function fluxShareRemoveFile(req, res) {
  */
 async function fluxShareRemoveFolder(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder;
@@ -587,7 +587,7 @@ async function fluxShareRemoveFolder(req, res) {
  */
 async function fluxShareGetFolder(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
@@ -659,7 +659,7 @@ async function fluxShareGetFolder(req, res) {
  */
 async function fluxShareCreateFolder(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
@@ -690,7 +690,7 @@ async function fluxShareCreateFolder(req, res) {
  */
 async function fluxShareFileExists(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
@@ -762,7 +762,7 @@ async function getSpaceAvailableForFluxShare() {
  */
 async function fluxShareStorageStats(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized) {
       const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
       let spaceUsedByFluxShare = getFluxShareSize();
@@ -792,7 +792,7 @@ async function fluxShareStorageStats(req, res) {
  */
 async function fluxShareUpload(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }

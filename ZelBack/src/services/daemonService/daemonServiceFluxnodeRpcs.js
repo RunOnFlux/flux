@@ -2,7 +2,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -64,7 +64,7 @@ async function listFluxNodes(req, res) {
  * @returns {object} Message.
  */
 async function listFluxNodeConf(req, res) { // practically useless
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   let { filter } = req.params;
   filter = filter || req.query.filter;
   if (authorized !== true) {
@@ -89,7 +89,7 @@ async function listFluxNodeConf(req, res) { // practically useless
  * @returns {object} Message.
  */
 async function createFluxNodeKey(req, res) { // practically useless
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized === true) {
     const rpccall = 'createzelnodekey'; // createfluxnodekey
 
@@ -150,7 +150,7 @@ async function getStartList(req, res) {
  * @returns {object} Message.
  */
 async function getFluxNodeOutputs(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -172,7 +172,7 @@ async function startDeterministicFluxNode(req, res) {
   alias = alias || req.query.alias;
   lockwallet = lockwallet ?? req.query.lockwallet ?? false;
   lockwallet = serviceHelper.ensureBoolean(lockwallet);
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized === true) {
     const rpccall = 'startdeterministiczelnode'; // startdeterministicfluxnode
     const rpcparameters = [];
@@ -198,7 +198,7 @@ async function startFluxNode(req, res) {
   set = set || req.query.set;
   lockwallet = lockwallet ?? req.query.lockwallet;
   alias = alias || req.query.alias;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized === true) {
     const rpccall = 'startzelnode'; // startfluxnode
     const rpcparameters = [];

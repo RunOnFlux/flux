@@ -6,7 +6,7 @@ const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
 const { isReservedName } = require('../appSystem/volumeReservedNames');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 /**
  * To get apps folder contents.
@@ -17,7 +17,7 @@ async function getAppsFolder(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname || '';
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';

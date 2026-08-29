@@ -1,6 +1,8 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { Readable } = require('stream');
 const config = require('config');
 
@@ -166,7 +168,7 @@ describe('appHashSyncService tests', () => {
       await appHashSyncService.triggerAppHashesCheckAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith('adminandfluxteam', req)).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req))).to.be.true;
     });
 
     it('should deny unauthorized access', async () => {

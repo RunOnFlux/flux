@@ -1,5 +1,7 @@
 const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 const sinon = require('sinon');
 
@@ -7,101 +9,91 @@ const verificationHelperUtils = require('../../ZelBack/src/services/verification
 const {
   verifyPrivilege, verifyZelID, verifyMessage, signMessage,
 } = require('../../ZelBack/src/services/verificationHelper');
+const { Privilege, APP_SCOPED, authOf } = require('../../ZelBack/src/services/utils/privileges');
 
-// placeholders - verification functions are mocked, they have already been tested in verificationHelperUtils.test
-const req = {
-  headers: {
-    zelidauth: {
-      zelid: 'testing1',
-      loginPhrase: 'testing2',
-      signature: 'testing3',
-    },
-  },
-};
+// The verifiers are stubbed here - they are covered in verificationHelperUtils.test.
+// zelidauth is a string because a header value always is: node folds duplicates
+// into one comma-joined string, so no caller can make it anything else.
+const zelidauth = 'zelid=testing1&loginPhrase=testing2&signature=testing3';
+const req = { headers: { zelidauth } };
 const appName = 'myTestAppName';
 
 describe('verificationHelper tests', () => {
   describe('verifyPrivilege tests', () => {
-    it('should call verifyAdminSession when flag "admin" is passed', async () => {
-      const privilege = 'admin';
-      const stub = sinon.stub(verificationHelperUtils, 'verifyAdminSession').resolves(true);
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
+    afterEach(() => sinon.restore());
 
-      sinon.assert.calledOnceWithExactly(stub, req.headers);
-      expect(verifyPrivilegeResult).to.be.true;
-      stub.reset();
+    // Each privilege, the verifier that answers it, and whether it reads an app
+    // name. A member missing from this table is a member nothing dispatches.
+    const table = [
+      [Privilege.USER, 'verifyUserSession', false],
+      [Privilege.NODE_OPERATOR, 'verifyNodeOperatorSession', false],
+      [Privilege.FLUX_TEAM, 'verifyFluxTeamSession', false],
+      [Privilege.NODE_OPERATOR_OR_FLUX_TEAM, 'verifyNodeOperatorOrFluxTeamSession', false],
+      [Privilege.APP_OWNER, 'verifyAppOwnerSession', true],
+      [Privilege.APP_OWNER_OR_FLUX_TEAM, 'verifyAppOwnerOrFluxTeamSession', true],
+    ];
+
+    table.forEach(([privilege, verifier, scoped]) => {
+      it(`${privilege} is answered by ${verifier}`, async () => {
+        const stub = sinon.stub(verificationHelperUtils, verifier).resolves(true);
+
+        const result = scoped
+          ? await verifyPrivilege(privilege, authOf(req), { appName })
+          : await verifyPrivilege(privilege, authOf(req));
+
+        expect(result).to.be.true;
+        if (scoped) sinon.assert.calledOnceWithExactly(stub, zelidauth, appName);
+        else sinon.assert.calledOnceWithExactly(stub, zelidauth);
+      });
     });
 
-    it('should call verifyFluxTeamSession when flag "fluxteam" is passed', async () => {
-      const privilege = 'fluxteam';
-      const stub = sinon.stub(verificationHelperUtils, 'verifyFluxTeamSession').resolves(true);
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
-
-      sinon.assert.calledOnceWithExactly(stub, req.headers);
-      expect(verifyPrivilegeResult).to.be.true;
-      stub.reset();
+    // The table above is only exhaustive if it names every privilege there is.
+    it('covers every privilege, so none can be added without a home here', () => {
+      expect(table.map(([p]) => p).sort()).to.deep.equal(Object.values(Privilege).sort());
+      expect(table.filter(([, , scoped]) => scoped).map(([p]) => p).sort())
+        .to.deep.equal([...APP_SCOPED].sort());
     });
 
-    it('should call verifyAdminAndFluxTeamSession when flag "adminandfluxteam" is passed', async () => {
-      const privilege = 'adminandfluxteam';
-      const stub = sinon.stub(verificationHelperUtils, 'verifyAdminAndFluxTeamSession').resolves(true);
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
-
-      sinon.assert.calledOnceWithExactly(stub, req.headers);
-      expect(verifyPrivilegeResult).to.be.true;
-      stub.reset();
+    // A privilege nothing recognises is not a refusal, it is a miswired call
+    // site. Answering false would let it reach a caller as an ordinary 401 and
+    // sit there - which is what 'appownerabove' would have done, having been a
+    // real privilege that admitted the node operator.
+    ['appownerabove', 'test', true, undefined].forEach((privilege) => {
+      it(`refuses to answer for ${JSON.stringify(privilege)}, which is not a privilege`, async () => {
+        await expect(verifyPrivilege(privilege, authOf(req))).to.be.rejectedWith(TypeError, 'is not a Privilege');
+      });
     });
 
-    it('should call verifyAppOwnerOrFluxTeamSession when flag "appownerorfluxteam" is passed', async () => {
-      const privilege = 'appownerorfluxteam';
-      const stub = sinon.stub(verificationHelperUtils, 'verifyAppOwnerOrFluxTeamSession').resolves(true);
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req, appName);
-
-      sinon.assert.calledOnceWithExactly(stub, req.headers, appName);
-      expect(verifyPrivilegeResult).to.be.true;
-      stub.reset();
+    // The guard that carries the migration: every call site hands over the
+    // header's value, and anything else came from our own code rather than from
+    // a caller. Answering false would make a miswired route a permanent 401
+    // indistinguishable from a real refusal.
+    [req, { zelid: 'x' }, ['a'], 7].forEach((wrong) => {
+      it(`refuses ${JSON.stringify(wrong)} in place of the header value`, async () => {
+        await expect(verifyPrivilege(Privilege.USER, wrong))
+          .to.be.rejectedWith(TypeError, 'not the request');
+      });
     });
 
-    // 'appownerabove' admitted the node operator, and nothing asks for it. The
-    // string is not a privilege any more, and an unknown privilege authorises
-    // nobody - so a handler that reached for it again would refuse every caller
-    // rather than quietly admit the operator.
-    it('authorises nobody for "appownerabove", which is not a privilege', async () => {
-      expect(await verifyPrivilege('appownerabove', req, appName)).to.be.false;
+    // An absent credential is not a miswiring - it is every unauthenticated
+    // request there has ever been, and it answers like any other refusal.
+    [null, undefined, authOf({ headers: {} }), authOf({})].forEach((absent) => {
+      it(`answers false, not an error, when the caller carries ${JSON.stringify(absent)}`, async () => {
+        const stub = sinon.stub(verificationHelperUtils, 'verifyUserSession').resolves(false);
+
+        expect(await verifyPrivilege(Privilege.USER, absent)).to.be.false;
+
+        // handed on as given: authOf is what normalises an absent credential
+        // to null, and it is the way in that every route uses.
+        sinon.assert.calledOnceWithExactly(stub, absent);
+      });
     });
 
-    it('should call verifyAppOwnerSession when flag "appowner" is passed', async () => {
-      const privilege = 'appowner';
-      const stub = sinon.stub(verificationHelperUtils, 'verifyAppOwnerSession').resolves(true);
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req, appName);
-
-      sinon.assert.calledOnceWithExactly(stub, req.headers, appName);
-      expect(verifyPrivilegeResult).to.be.true;
-      stub.reset();
-    });
-
-    it('should call verifyUserSession when flag "user" is passed', async () => {
-      const privilege = 'user';
-      const stub = sinon.stub(verificationHelperUtils, 'verifyUserSession').resolves(true);
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
-
-      sinon.assert.calledOnceWithExactly(stub, req.headers);
-      expect(verifyPrivilegeResult).to.be.true;
-      stub.reset();
-    });
-
-    it('should return false when a wrong flag - string "test" is passed', async () => {
-      const privilege = 'test';
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
-
-      expect(verifyPrivilegeResult).to.be.false;
-    });
-
-    it('should return false when a wrong flag - bool true is passed', async () => {
-      const privilege = true;
-      const verifyPrivilegeResult = await verifyPrivilege(privilege, req);
-
-      expect(verifyPrivilegeResult).to.be.false;
+    // The nit that started this: a privilege resolving an identity was being
+    // handed an app name it discarded, which read as app-scoped and was not.
+    it('refuses an app name for a privilege that resolves an identity', async () => {
+      await expect(verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req), { appName }))
+        .to.be.rejectedWith(TypeError, 'reads no app name');
     });
   });
 

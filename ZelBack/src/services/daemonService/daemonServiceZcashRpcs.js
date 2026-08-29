@@ -2,7 +2,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -15,7 +15,7 @@ let response = messageHelper.createErrorMessage();
 async function zExportKey(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -40,7 +40,7 @@ async function zExportKey(req, res) {
 async function zExportViewingKey(req, res) {
   let { zaddr } = req.params;
   zaddr = zaddr || req.query.zaddr;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -66,7 +66,7 @@ async function zGetBalance(req, res) {
   let { address, minconf } = req.params;
   address = address || req.query.address;
   minconf = minconf ?? req.query.minconf ?? 1;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -90,7 +90,7 @@ async function zGetBalance(req, res) {
  * @returns {object} Message.
  */
 async function zGetMigrationStatus(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -111,7 +111,7 @@ async function zGetMigrationStatus(req, res) {
 async function zGetNewAddress(req, res) {
   let { type } = req.params;
   type = type || req.query.type || 'sapling';
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -133,7 +133,7 @@ async function zGetNewAddress(req, res) {
 async function zGetOperationResult(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -156,7 +156,7 @@ async function zGetOperationResult(req, res) {
 async function zGetOperationStatus(req, res) {
   let { operationid } = req.params;
   operationid = operationid || req.query.operationid || [];
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -180,7 +180,7 @@ async function zGetTotalBalance(req, res) {
   let { minconf, includewatchonly } = req.params;
   minconf = minconf ?? req.query.minconf ?? 1;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -206,7 +206,7 @@ async function zImportKey(req, res) {
   zkey = zkey || req.query.zkey;
   rescan = rescan || req.query.rescan || 'whenkeyisnew';
   startheight = startheight || req.query.startheight || 0;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -234,7 +234,7 @@ async function zImportViewingKey(req, res) {
   vkey = vkey || req.query.vkey;
   rescan = rescan || req.query.rescan || 'whenkeyisnew';
   startheight = startheight || req.query.startheight || 0;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -260,7 +260,7 @@ async function zImportViewingKey(req, res) {
 async function zImportWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -285,7 +285,7 @@ async function zImportWallet(req, res) {
 async function zListAddresses(req, res) {
   let { includewatchonly } = req.params;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -306,7 +306,7 @@ async function zListAddresses(req, res) {
  * @returns {object} Message.
  */
 async function zListOperationIds(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -328,7 +328,7 @@ async function zListReceivedByAddress(req, res) {
   let { address, minconf } = req.params;
   address = address || req.query.address;
   minconf = minconf ?? req.query.minconf ?? 1;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -360,7 +360,7 @@ async function zListUnspent(req, res) {
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   addresses = addresses || req.query.addresses;
 
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -396,7 +396,7 @@ async function zMergeToAddress(req, res) {
   transparentlimit = transparentlimit ?? req.query.transparentlimit ?? 50; // 0 for as many as can fit
   shieldedlimit = shieldedlimit ?? req.query.shieldedlimit ?? 20; // 0 for as many as can fit
   memo = memo || req.query.memo || '';
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -429,7 +429,7 @@ async function zSendMany(req, res) {
   amounts = amounts || req.query.amounts;
   minconf = minconf ?? req.query.minconf ?? 1;
   fee = fee || req.query.fee || 0.0001;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -464,7 +464,7 @@ async function zSendManyPost(req, res) {
     let { amounts, minconf, fee } = processedBody;
     minconf = minconf || 1;
     fee = fee || 0.0001;
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);
@@ -492,7 +492,7 @@ async function zSendManyPost(req, res) {
 async function zSetMigration(req, res) {
   let { enabled } = req.params;
   enabled = enabled ?? req.query.enabled;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -522,7 +522,7 @@ async function zShieldCoinBase(req, res) {
   toaddress = toaddress || req.query.toaddress;
   fee = fee || req.query.fee || 0.0001;
   limit = limit ?? req.query.limit ?? 50; // 0 for as many as can fit
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -549,7 +549,7 @@ async function zcBenchmark(req, res) {
   let { benchmarktype, samplecount } = req.params;
   benchmarktype = benchmarktype || req.query.benchmarktype;
   samplecount = samplecount || req.query.samplecount;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -580,7 +580,7 @@ async function zcRawJoinSplit(req, res) {
   outputs = outputs || req.query.outputs;
   vpubold = vpubold || req.query.vpubold;
   vpubnew = vpubnew || req.query.vpubnew;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -613,7 +613,7 @@ async function zcRawJoinSplitPost(req, res) {
     const { rawtx, vpubold, vpubnew } = processedBody;
     let { inputs, outputs } = processedBody;
 
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);
@@ -638,7 +638,7 @@ async function zcRawJoinSplitPost(req, res) {
  * @returns {object} Message.
  */
 async function zcRawKeygen(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -659,7 +659,7 @@ async function zcRawReceive(req, res) {
   let { zcsecretkey, encryptednote } = req.params;
   zcsecretkey = zcsecretkey || req.query.zcsecretkey;
   encryptednote = encryptednote || req.query.encryptednote;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -690,7 +690,7 @@ async function zcRawReceivePost(req, res) {
     const { zcsecretkey } = processedBody;
     const { encryptednote } = processedBody;
 
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);
@@ -713,7 +713,7 @@ async function zcRawReceivePost(req, res) {
  * @returns {object} Message.
  */
 async function zcSampleJoinSplit(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;

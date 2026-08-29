@@ -37,7 +37,7 @@ const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require(
 const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 const verifyPool = require('./utils/verifyPool');
-const { Privilege } = require('./utils/privileges');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const DISCOVERY = {
   maxOutbound: 14,
@@ -909,7 +909,7 @@ async function removePeer(req, res) {
     let { ip } = req.params;
     ip = ip || req.query.ip;
 
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
     if (authorized !== true) {
       const message = messageHelper.errUnauthorizedMessage();
@@ -953,7 +953,7 @@ async function removeIncomingPeer(req, res) {
     let { ip } = req.params;
     ip = ip || req.query.ip;
 
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
     if (authorized !== true) {
       const message = messageHelper.errUnauthorizedMessage();
@@ -1198,7 +1198,7 @@ async function addPeer(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege(
       Privilege.NODE_OPERATOR_OR_FLUX_TEAM,
-      req,
+      authOf(req),
     );
 
     if (authorized !== true) {
@@ -1311,7 +1311,7 @@ function startDiscovery() {
 
 async function startDiscoveryApi(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized !== true) {
       return res.json(messageHelper.errUnauthorizedMessage());
     }
@@ -1629,7 +1629,7 @@ function getUnstableNodes(req, res) {
  * @param {object} res Response.
  */
 async function getPeerHistory(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }

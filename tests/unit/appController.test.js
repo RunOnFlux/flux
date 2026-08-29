@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
@@ -286,7 +287,7 @@ describe('appController tests', () => {
       const res = { json: sinon.fake((param) => param) };
       await appController.appStart(req, res);
 
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
   });
 
@@ -488,7 +489,7 @@ describe('appController tests', () => {
       const res = { json: sinon.fake((param) => param) };
       await appController.appStop(req, res);
 
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
   });
 
@@ -661,7 +662,7 @@ describe('appController tests', () => {
       const res = { json: sinon.fake((param) => param) };
       await appController.appRestart(req, res);
 
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
   });
 
@@ -903,7 +904,7 @@ describe('appController tests', () => {
       const res = { json: sinon.fake((param) => param) };
       await appController.appKill(req, res);
 
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
 
     it('refuses a caller the narrower privilege rejects', async () => {
@@ -971,7 +972,7 @@ describe('appController tests', () => {
       // The route answers 410 whatever the caller, so the privilege decides only
       // which refusal they get. It asks for the same one as every other
       // app-scoped endpoint, so no handler asks for a privilege the operator passes.
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'appownerorfluxteam', req, 'TestApp');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
 
     // Express's default extended query parser turns ?appname=a&appname=b into an

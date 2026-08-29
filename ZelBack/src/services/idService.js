@@ -13,7 +13,7 @@ const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appInspector = require('./appManagement/appInspector');
 const signatureVerifier = require('./signatureVerifier');
-const { Privilege } = require('./utils/privileges');
+const { Privilege, authOf } = require('./utils/privileges');
 
 async function deleteLoginPhrase(phrase) {
   try {
@@ -304,7 +304,7 @@ async function verifyLogin(req, res) {
               createdAt,
               expireAt,
             };
-            const adminZelid = verificationHelperUtils.nodeAdminZelid();
+            const adminZelid = verificationHelperUtils.nodeOperatorZelid();
             if (!adminZelid) {
               // The node answers HTTP before it has read its own configuration, so
               // this window is reachable on any restart. Granting 'user' here would
@@ -430,7 +430,7 @@ async function provideSign(req, res) {
  */
 async function activeLoginPhrases(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
 
@@ -463,7 +463,7 @@ async function activeLoginPhrases(req, res) {
  */
 async function loggedUsers(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -495,11 +495,11 @@ async function loggedUsers(req, res) {
  */
 async function loggedSessions(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
 
-      const auth = serviceHelper.ensureObject(req.headers.zelidauth);
+      const auth = serviceHelper.ensureObject(authOf(req));
       const queryFluxID = auth.zelid;
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
@@ -530,9 +530,9 @@ async function loggedSessions(req, res) {
  */
 async function logoutCurrentSession(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized === true) {
-      const auth = serviceHelper.ensureObject(req.headers.zelidauth);
+      const auth = serviceHelper.ensureObject(authOf(req));
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
@@ -565,7 +565,7 @@ async function logoutSpecificSession(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
       if (authorized === true) {
         const processedBody = serviceHelper.ensureObject(body);
         const obtainedLoginPhrase = processedBody.loginPhrase;
@@ -600,9 +600,9 @@ async function logoutSpecificSession(req, res) {
  */
 async function logoutAllSessions(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized === true) {
-      const auth = serviceHelper.ensureObject(req.headers.zelidauth);
+      const auth = serviceHelper.ensureObject(authOf(req));
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
@@ -629,7 +629,7 @@ async function logoutAllSessions(req, res) {
  */
 async function logoutAllUsers(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -685,7 +685,7 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
       });
       if (result) {
         // user is logged, all ok
-        const adminZelid = verificationHelperUtils.nodeAdminZelid();
+        const adminZelid = verificationHelperUtils.nodeOperatorZelid();
         if (!adminZelid) {
           throw new Error('Node is still starting and cannot establish privileges yet');
         }
@@ -831,28 +831,22 @@ async function checkLoggedUser(req, res) {
       if (!signature) {
         throw new Error('No user Flux ID signature specificed');
       }
-      const request = {
-        headers: {
-          zelidauth: {
-            zelid,
-            loginPhrase: loggedPhrase,
-            signature,
-          },
-        },
-      };
-      const isAdmin = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, request);
+      // Serialised because a privilege check takes the header's value, and a
+      // header value is a string. ensureObject parses it back on the other side.
+      const zelidauth = JSON.stringify({ zelid, loginPhrase: loggedPhrase, signature });
+      const isAdmin = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, zelidauth);
       if (isAdmin) {
         const message = messageHelper.createSuccessMessage('admin');
         res.json(message);
         return;
       }
-      const isFluxTeam = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, request);
+      const isFluxTeam = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, zelidauth);
       if (isFluxTeam) {
         const message = messageHelper.createSuccessMessage('fluxteam');
         res.json(message);
         return;
       }
-      const isUser = await verificationHelper.verifyPrivilege(Privilege.USER, request);
+      const isUser = await verificationHelper.verifyPrivilege(Privilege.USER, zelidauth);
       if (isUser) {
         const message = messageHelper.createSuccessMessage('user');
         res.json(message);

@@ -33,7 +33,7 @@ const verificationHelper = require('../verificationHelper');
 const { bareIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const geolocationRule = require('./geolocationRule');
 const ipLocationStore = require('./ipLocationStore');
-const { Privilege } = require('../utils/privileges');
+const { Privilege, authOf } = require('../utils/privileges');
 
 
 // geonames/ip-api continent convention - the same vocabulary the location
@@ -674,7 +674,7 @@ async function placementAdvice(spec) {
  */
 async function placementFeasibilityAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized !== true) {
       res.json(messageHelper.errUnauthorizedMessage());
       return;

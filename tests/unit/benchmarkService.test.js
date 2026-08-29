@@ -4,6 +4,7 @@ const sinon = require('sinon');
 const { PassThrough } = require('stream');
 
 const fluxRpc = require('../../ZelBack/src/services/utils/fluxRpc');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const fs = require('node:fs/promises');
 
 const { expect } = chai;
@@ -147,7 +148,7 @@ describe('benchmarkService tests', () => {
       expect(restartNodeBenchmarksResult).to.be.an('object');
       expect(restartNodeBenchmarksResult.status).to.equal('success');
       expect(restartNodeBenchmarksResult.data).to.equal('called');
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return a sucessful response if called with parameters by an authorized party', async () => {
@@ -174,7 +175,7 @@ describe('benchmarkService tests', () => {
 
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return an access denied response if called without parameters by an unauthorized party', async () => {
@@ -192,7 +193,7 @@ describe('benchmarkService tests', () => {
 
       expect(restartNodeBenchmarksResult).to.be.an('object');
       expect(restartNodeBenchmarksResult.status).to.equal('error');
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
       sinon.assert.notCalled(benchmarkStub);
     });
   });
@@ -230,7 +231,7 @@ describe('benchmarkService tests', () => {
       expect(signFluxTransactionResult).to.be.an('object');
       expect(signFluxTransactionResult.status).to.equal('success');
       expect(signFluxTransactionResult.data).to.equal('called');
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
       sinon.assert.calledOnceWithExactly(benchmarkStub, 'signzelnodetransaction', { params: [req.params.hexstring] });
     });
 
@@ -261,7 +262,7 @@ describe('benchmarkService tests', () => {
 
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
       sinon.assert.calledOnceWithExactly(benchmarkStub, 'signzelnodetransaction', { params: [req.params.hexstring] });
     });
 
@@ -283,7 +284,7 @@ describe('benchmarkService tests', () => {
 
       expect(signFluxTransactionResult).to.be.an('object');
       expect(signFluxTransactionResult.status).to.equal('error');
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
       sinon.assert.notCalled(benchmarkStub);
     });
   });
@@ -464,7 +465,7 @@ describe('benchmarkService tests', () => {
       expect(signFluxTransactionResult).to.be.an('object');
       expect(signFluxTransactionResult.status).to.equal('success');
       expect(signFluxTransactionResult.data).to.equal('called');
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
       sinon.assert.calledOnce(benchmarkStub);
     });
 
@@ -492,7 +493,7 @@ describe('benchmarkService tests', () => {
 
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
     });
 
     it('should return an access denied response if called without parameters by an unauthorized party', async () => {
@@ -510,7 +511,7 @@ describe('benchmarkService tests', () => {
 
       expect(signFluxTransactionResult).to.be.an('object');
       expect(signFluxTransactionResult.status).to.equal('error');
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
       sinon.assert.notCalled(benchmarkStub);
     });
   });

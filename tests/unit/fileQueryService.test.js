@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const fs = require('fs').promises;
 const fileQueryService = require('../../ZelBack/src/services/appQuery/fileQueryService');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const IOUtils = require('../../ZelBack/src/services/IOUtils');
@@ -517,7 +518,7 @@ describe('fileQueryService tests', () => {
 
       await fileQueryService.getAppsFolder(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'TestApp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
   });
 });

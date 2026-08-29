@@ -4,6 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 // The real registry: these tests assert the 202 contract, and a stub would let
 // a broken handle shape through.
 const jobRegistry = require('../../ZelBack/src/services/utils/jobRegistry');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 
 describe('fileSystemManager tests', () => {
   const MOUNT = '/test/apps/folder/fluxcomp_myapp';
@@ -740,7 +741,7 @@ describe('fileSystemManager tests', () => {
 
         await subject[handler](req, res);
 
-        sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
       });
     });
   });
