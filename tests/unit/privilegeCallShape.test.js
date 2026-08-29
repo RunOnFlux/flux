@@ -23,8 +23,8 @@ const ROOT = nodePath.join(__dirname, '../..');
 const MEMBERS = new Set(Object.keys(Privilege));
 const SCOPED = new Set(Object.entries(Privilege).filter(([, v]) => APP_SCOPED.includes(v)).map(([k]) => k));
 
-const sourceFiles = () => execFileSync('git', ['-C', ROOT, 'ls-files', 'ZelBack/src/**/*.js'], { encoding: 'utf8' })
-  .split('\n').filter(Boolean);
+const sourceFiles = () => execFileSync('git', ['-C', ROOT, 'ls-files', 'ZelBack/src'], { encoding: 'utf8' })
+  .split('\n').filter((f) => f.endsWith('.js'));
 
 function callSites() {
   const sites = [];
