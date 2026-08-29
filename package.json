@@ -125,6 +125,7 @@
     "eslint": "~8.57.1",
     "eslint-import-resolver-alias": "~1.1.2",
     "eslint-plugin-import": "~2.32.0",
+    "espree": "^9.6.1",
     "jsdoc": "~4.0.3",
     "mocha": "~11.7.1",
     "nyc": "~17.1.0",
