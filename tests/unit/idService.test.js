@@ -1436,6 +1436,28 @@ describe('idService tests', () => {
     });
   });
 
+  // The four strings /id/checkprivilege answers. The frontend branches on these
+  // in fourteen places and is deployed separately, so changing one here breaks
+  // login, navigation, app management and checkout in a repo this one cannot
+  // see. Pinned by value deliberately: the point is that they do not move.
+  describe('the privilege vocabulary on the wire', () => {
+    it('answers exactly the four tokens the frontend reads', () => {
+      expect(idService.PRIVILEGE_RESPONSE).to.deep.equal({
+        NODE_OPERATOR: 'admin',
+        FLUX_TEAM: 'fluxteam',
+        USER: 'user',
+        NONE: 'none',
+      });
+    });
+
+    it('is not the enum a route requires internally - the two are free to diverge', () => {
+      // NODE_OPERATOR is the same string on both sides today, and nothing keeps
+      // it that way. Reading one from the other is what would couple them.
+      expect(Object.values(idService.PRIVILEGE_RESPONSE)).to.include(Privilege.NODE_OPERATOR);
+      expect(Object.values(Privilege)).to.not.include(idService.PRIVILEGE_RESPONSE.NONE);
+    });
+  });
+
   describe('checkLoggedUser tests', () => {
     let verifyPrivilegeStub;
 

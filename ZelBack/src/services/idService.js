@@ -812,6 +812,22 @@ async function wsRespondSignature(ws, message) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+/**
+ * What /id/checkprivilege answers.
+ *
+ * A published contract, not an internal name: the frontend branches on these
+ * four strings in fourteen places, in a separately deployed repo, and reads them
+ * out of the response body whether the status says success or error. They are
+ * deliberately not Privilege's values - that enum is what a route requires
+ * internally, and the two are free to diverge.
+ */
+const PRIVILEGE_RESPONSE = Object.freeze({
+  NODE_OPERATOR: 'admin',
+  FLUX_TEAM: 'fluxteam',
+  USER: 'user',
+  NONE: 'none',
+});
+
 async function checkLoggedUser(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -836,23 +852,23 @@ async function checkLoggedUser(req, res) {
       const zelidauth = JSON.stringify({ zelid, loginPhrase: loggedPhrase, signature });
       const isAdmin = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, zelidauth);
       if (isAdmin) {
-        const message = messageHelper.createSuccessMessage('admin');
+        const message = messageHelper.createSuccessMessage(PRIVILEGE_RESPONSE.NODE_OPERATOR);
         res.json(message);
         return;
       }
       const isFluxTeam = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, zelidauth);
       if (isFluxTeam) {
-        const message = messageHelper.createSuccessMessage('fluxteam');
+        const message = messageHelper.createSuccessMessage(PRIVILEGE_RESPONSE.FLUX_TEAM);
         res.json(message);
         return;
       }
       const isUser = await verificationHelper.verifyPrivilege(Privilege.USER, zelidauth);
       if (isUser) {
-        const message = messageHelper.createSuccessMessage('user');
+        const message = messageHelper.createSuccessMessage(PRIVILEGE_RESPONSE.USER);
         res.json(message);
         return;
       }
-      const message = messageHelper.createErrorMessage('none');
+      const message = messageHelper.createErrorMessage(PRIVILEGE_RESPONSE.NONE);
       res.json(message);
     } catch (error) {
       log.error(error);
@@ -863,6 +879,7 @@ async function checkLoggedUser(req, res) {
 }
 
 module.exports = {
+  PRIVILEGE_RESPONSE,
   loginPhrase,
   emergencyPhrase,
   verifyLogin,
