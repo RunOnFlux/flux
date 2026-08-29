@@ -64,6 +64,62 @@ if ! "$PWD/../verify-images.sh"; then
 fi
 export E2E_IMAGES_VERIFIED=1
 
+# The kernel neighbor (ARP) table must hold every container across every
+# concurrent fleet. At the default hard cap (gc_thresh3=1024) six 10-node
+# fleets overflow it: new entries are refused, packets to whichever addresses
+# lost the lottery silently drop, and one node per fleet goes dark while the
+# host sits idle - a before-all boot timeout wearing a product bug's clothes
+# (gate-3 suite 1209, and five suites of gate 4, were exactly this;
+# /proc/net/stat/arp_cache table_fulls is the tell). Checked and raised here
+# because a gate on an overflowing host produces false reds by design.
+NEIGH_MIN="${E2E_NEIGH_GC_THRESH3:-8192}"
+neigh_now=$(sysctl -n net.ipv4.neigh.default.gc_thresh3 2>/dev/null || echo 0)
+if [ "$neigh_now" -lt "$NEIGH_MIN" ]; then
+  sudo -n sysctl -q -w \
+    "net.ipv4.neigh.default.gc_thresh1=$((NEIGH_MIN / 4))" \
+    "net.ipv4.neigh.default.gc_thresh2=$((NEIGH_MIN / 2))" \
+    "net.ipv4.neigh.default.gc_thresh3=$NEIGH_MIN" 2>/dev/null
+  neigh_now=$(sysctl -n net.ipv4.neigh.default.gc_thresh3 2>/dev/null || echo 0)
+  if [ "$neigh_now" -lt "$NEIGH_MIN" ]; then
+    echo "###ABORT neighbor table cap too small (gc_thresh3=$neigh_now < $NEIGH_MIN) and could not raise it."
+    echo "Raise it for the run:  sudo sysctl -w net.ipv4.neigh.default.gc_thresh3=$NEIGH_MIN (and thresh1/2 to a quarter/half)"
+    echo "Or lower the bar deliberately with E2E_NEIGH_GC_THRESH3."
+    exit 96
+  fi
+  echo "# neighbor table cap raised to gc_thresh3=$neigh_now for the gate"
+fi
+
+# systemd's first act is to create an inotify instance to watch cgroups, and
+# fs.inotify.max_user_instances is a PER-UID, HOST-WIDE pool that every container
+# draws from as root. Exhaust it and systemd cannot allocate its manager object:
+# PID 1 exits 255, having written the reason to /dev/console, which a container
+# without a TTY does not have. No docker logs, no journal (journald never started)
+# - the silent exit-255 class that went unexplained for three gates and survived
+# six reproduction attempts, because a solo run never exhausts a host-wide pool.
+#
+# The arithmetic is why it was intermittent rather than constant. Measured directly
+# once the gauge existed (gate 10): a full gate peaks at 102 concurrent containers
+# and 221 inotify instances - 2.17 each, not the 1.27 a quieter sample suggested.
+# So the harness has been running at 1.7x the default ceiling of 128, and the wonder
+# is not that gates failed but that any passed: containers hold an instance only
+# briefly, so a boot survived or died on the exact overlap. 1024 is 4.6x the measured
+# peak, which leaves room for wider fleets rather than merely clearing today's number.
+INOTIFY_MIN="${E2E_INOTIFY_MAX_USER_INSTANCES:-1024}"
+ino_now=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
+if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
+  sudo -n sysctl -q -w "fs.inotify.max_user_instances=$INOTIFY_MIN" 2>/dev/null
+  ino_now=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
+  if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
+    echo "###ABORT inotify instance pool too small (max_user_instances=$ino_now < $INOTIFY_MIN) and could not raise it."
+    echo "Every systemd-mode node needs one and the pool is host-wide, so a gate on this host"
+    echo "produces silent exit-255 boot deaths by design."
+    echo "Raise it for the run:  sudo sysctl -w fs.inotify.max_user_instances=$INOTIFY_MIN"
+    echo "Or lower the bar deliberately with E2E_INOTIFY_MAX_USER_INSTANCES."
+    exit 96
+  fi
+  echo "# inotify instance pool raised to max_user_instances=$ino_now for the gate"
+fi
+
 LOGROOT="${E2E_LOG_DIR:-/tmp/e2e-logs}"
 MAXN="${MAXN:-3}"
 MIN_FREE_MB="${MIN_FREE_MB:-15000}"
