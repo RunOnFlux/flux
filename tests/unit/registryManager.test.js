@@ -442,7 +442,7 @@ describe('registryManager tests', () => {
 
       await subjectWithPrivilege(verifyPrivilege).getApplicationComponentNamesAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'fluxteam', req, 'NamesApp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'fluxteam', req);
       expect(res.json.firstCall.args[0].status).to.equal('error');
     });
 

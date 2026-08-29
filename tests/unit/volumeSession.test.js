@@ -137,8 +137,9 @@ describe('volumeSession tests', () => {
     });
 
     it('checks ownership of the app actually named in the request', async () => {
-      await volumeSession.openVolume(reqFor('myapp', 'comp'));
-      expect(verificationHelperStub.verifyPrivilege.calledWith('appownerorfluxteam', sinon.match.any, 'myapp')).to.equal(true);
+      const req = reqFor('myapp', 'comp');
+      await volumeSession.openVolume(req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub.verifyPrivilege, 'appownerorfluxteam', req, 'myapp');
     });
 
     it('carries the authenticated identity as the session owner', async () => {
