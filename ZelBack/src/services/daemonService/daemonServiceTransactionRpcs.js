@@ -3,6 +3,7 @@ const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
+const { Privilege } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -320,7 +321,7 @@ async function signRawTransaction(req, res) {
   sighashtype = sighashtype || req.query.sighashtype || 'ALL';
   branchid = branchid || req.query.branchid;
 
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -363,7 +364,7 @@ async function signRawTransactionPost(req, res) {
     const { hexstring, branchid } = processedBody;
     let { prevtxs, privatekeys, sighashtype } = processedBody;
     sighashtype = sighashtype || 'ALL';
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
     if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
       return res.json(response);

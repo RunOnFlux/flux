@@ -2,6 +2,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
+const { Privilege } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -15,7 +16,7 @@ async function addNode(req, res) {
   let { node, command } = req.params;
   node = node || req.query.node;
   command = command || req.query.command;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
 
@@ -38,7 +39,7 @@ async function addNode(req, res) {
  * @returns {object} Message.
  */
 async function clearBanned(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -58,7 +59,7 @@ async function clearBanned(req, res) {
 async function disconnectNode(req, res) {
   let { node } = req.params;
   node = node || req.query.node;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized === true) {
     const rpccall = 'disconnectNode';
     let rpcparameters = [];
@@ -84,7 +85,7 @@ async function getAddedNodeInfo(req, res) {
   let { dns, node } = req.params;
   dns = dns ?? req.query.dns;
   node = node || req.query.node;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized === true) {
     const rpccall = 'getAddedNodeInfo';
     const rpcparameters = [];
@@ -195,7 +196,7 @@ async function listBanned(req, res) {
  * @returns {object} Message.
  */
 async function ping(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
@@ -220,7 +221,7 @@ async function setBan(req, res) {
   command = command || req.query.command;
   bantime = bantime || req.query.bantime;
   absolute = absolute ?? req.query.absolute;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized === true) {
     const rpccall = 'setBan';
     const rpcparameters = [];

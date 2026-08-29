@@ -33,6 +33,7 @@ const tar = require('tar/create');
 // use non promises stream for node 14.x compatibility
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
+const { Privilege } = require('./utils/privileges');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -161,7 +162,7 @@ async function getCurrentCommitId() {
  * @returns {Promise<object>} Message.
  */
 async function getCurrentCommitIdApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -201,7 +202,7 @@ async function getCurrentBranch() {
  * @returns {Promise<object>} Message.
  */
 async function getCurrentBranchApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -267,7 +268,7 @@ async function enterMaster() {
  * @returns {Promise<object>} Message.
  */
 async function enterMasterApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -301,7 +302,7 @@ async function enterDevelopment() {
  * @returns {Promise<object>} Message.
  */
 async function enterDevelopmentApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -322,7 +323,7 @@ async function enterDevelopmentApi(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -362,7 +363,7 @@ async function softUpdateFlux() {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFluxApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -396,7 +397,7 @@ async function softUpdateFluxInstall() {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFluxInstallApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -417,7 +418,7 @@ async function softUpdateFluxInstallApi(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -444,7 +445,7 @@ async function hardUpdateFlux(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function rebuildHome(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -471,7 +472,7 @@ async function rebuildHome(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function updateDaemon(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -499,7 +500,7 @@ async function updateDaemon(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function updateBenchmark(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -527,7 +528,7 @@ async function updateBenchmark(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function startBenchmark(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -557,7 +558,7 @@ async function startBenchmark(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function restartBenchmark(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -585,7 +586,7 @@ async function restartBenchmark(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function startDaemon(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -615,7 +616,7 @@ async function startDaemon(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function restartDaemon(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -643,7 +644,7 @@ async function restartDaemon(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function reindexDaemon(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -866,7 +867,7 @@ function getMarketplaceURL(req, res) {
  * @returns {Promise<object>} Debug.log file for Flux daemon.
  */
 async function daemonDebug(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -886,7 +887,7 @@ async function daemonDebug(req, res) {
  * @returns {Promise<object>} Debug.log file for Flux benchmark.
  */
 async function benchmarkDebug(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
@@ -910,7 +911,7 @@ async function benchmarkDebug(req, res) {
  * @param {object} res Response.
  */
 async function tailDaemonDebug(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
@@ -941,7 +942,7 @@ async function tailDaemonDebug(req, res) {
  * @param {object} res Response.
  */
 async function tailBenchmarkDebug(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
@@ -993,7 +994,7 @@ async function fluxLog(res, filelog) {
  */
 async function fluxErrorLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1013,7 +1014,7 @@ async function fluxErrorLog(req, res) {
  */
 async function fluxWarnLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1033,7 +1034,7 @@ async function fluxWarnLog(req, res) {
  */
 async function fluxInfoLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1053,7 +1054,7 @@ async function fluxInfoLog(req, res) {
  */
 async function fluxDebugLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1072,7 +1073,7 @@ async function fluxDebugLog(req, res) {
  * @param {Promise<string>} logfile Log file name (excluding `.log`).
  */
 async function tailFluxLog(req, res, logfile) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
@@ -1103,7 +1104,7 @@ async function tailFluxLog(req, res, logfile) {
  */
 async function tailFluxErrorLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized === true) {
       await tailFluxLog(req, res, 'error');
     } else {
@@ -1122,7 +1123,7 @@ async function tailFluxErrorLog(req, res) {
  */
 async function tailFluxWarnLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized === true) {
       await tailFluxLog(req, res, 'warn');
     } else {
@@ -1141,7 +1142,7 @@ async function tailFluxWarnLog(req, res) {
  */
 async function tailFluxInfoLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized === true) {
       await tailFluxLog(req, res, 'info');
     } else {
@@ -1160,7 +1161,7 @@ async function tailFluxInfoLog(req, res) {
  */
 async function tailFluxDebugLog(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
     if (authorized === true) {
       await tailFluxLog(req, res, 'debug');
     } else {
@@ -1413,7 +1414,7 @@ async function getFluxInfo(req, res) {
  */
 async function adjustKadenaAccount(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
     if (authorized === true) {
       let { account } = req.params;
       account = account || req.query.account;
@@ -1470,7 +1471,7 @@ async function adjustKadenaAccount(req, res) {
  */
 async function adjustRouterIP(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
     if (authorized === true) {
       let { routerip } = req.params;
       routerip = routerip || req.query.routerip || '';
@@ -1513,7 +1514,7 @@ async function adjustRouterIP(req, res) {
  * @param {object} res Response.
  */
 async function adjustBlockedPorts(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
 
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1569,7 +1570,7 @@ async function adjustBlockedPorts(req, res) {
  */
 async function adjustAPIPort(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
     if (authorized === true) {
       let { apiport } = req.params;
       apiport = apiport || req.query.apiport || '';
@@ -1619,7 +1620,7 @@ async function adjustAPIPort(req, res) {
  * @param {object} res Response.
  */
 async function adjustBlockedRepositories(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
 
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1716,7 +1717,7 @@ async function getNodeTier(req, res) {
  * @param {object} res Response.
  */
 async function restartFluxOS(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);

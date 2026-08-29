@@ -48,6 +48,7 @@ const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const appNetworkLinker = require('./appNetworkLinker');
+const { Privilege } = require('../utils/privileges');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1706,7 +1707,7 @@ async function redeployComponentAPI(req, res) {
     // unmounts the component's volume and rm -rf's it - the app's data on this
     // node is gone. The same gate appremove asks for, which this would otherwise
     // be the way around.
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1770,7 +1771,7 @@ async function redeployAPI(req, res) {
     // unmounts the component's volume and rm -rf's it - the app's data on this
     // node is gone. The same gate appremove asks for, which this would otherwise
     // be the way around.
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -2390,7 +2391,7 @@ async function appendBackupTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname) : true;
     if (authorized === true) {
       // eslint-disable-next-line global-require
       const registryManager = require('../appDatabase/registryManager');
@@ -2626,7 +2627,7 @@ async function appendRestoreTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerorfluxteam', req, appname) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, appname) : true;
     if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -3385,7 +3386,7 @@ async function updateAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);

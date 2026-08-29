@@ -10,6 +10,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
+const { Privilege } = require('../utils/privileges');
 
 const { globalCmdDelayMs } = config.fluxapps;
 // Guaranteed a finite non-negative integer, so a missing or malformed config
@@ -353,7 +354,7 @@ async function appStart(req, res) {
     // This refuses the node operator, and whether someone
     // else's app runs is not theirs to decide. The same gate appkill and
     // appremove ask for; the argument is on verifyAppOwnerOrFluxTeamSession.
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -439,7 +440,7 @@ async function appStop(req, res) {
     // This refuses the node operator, and whether someone
     // else's app runs is not theirs to decide. The same gate appkill and
     // appremove ask for; the argument is on verifyAppOwnerOrFluxTeamSession.
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -528,7 +529,7 @@ async function appRestart(req, res) {
     // This refuses the node operator, and whether someone
     // else's app runs is not theirs to decide. The same gate appkill and
     // appremove ask for; the argument is on verifyAppOwnerOrFluxTeamSession.
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -599,7 +600,7 @@ async function appKill(req, res) {
     // This refuses the node operator, and a hard kill of
     // someone else's app is not theirs to order. The owner and the flux team
     // only, as for every other verb that decides whether the app runs.
-    const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -668,7 +669,7 @@ async function deprecatedPauseResponse(req, res) {
       const mainAppName = appname.split('_')[1] || appname;
       // eslint-disable-next-line global-require
       const verificationHelper = require('../verificationHelper');
-      const authorized = await verificationHelper.verifyPrivilege('appownerorfluxteam', req, mainAppName);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, req, mainAppName);
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         return res ? res.json(errMessage) : errMessage;

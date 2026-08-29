@@ -3,6 +3,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const jobRegistry = require('../utils/jobRegistry');
 const log = require('../../lib/log');
+const { Privilege } = require('../utils/privileges');
 
 // The one status resource for every long-running operation this node accepts.
 // Endpoints that start work answer 202 with a job handle and point here; this
@@ -14,7 +15,7 @@ const log = require('../../lib/log');
  * the jobId itself as the capability.
  */
 async function callerFluxId(req) {
-  const authorized = await verificationHelper.verifyPrivilege('user', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, req);
   if (!authorized) return null;
   const auth = serviceHelper.ensureObject(req.headers.zelidauth);
   return auth ? auth.zelid : null;

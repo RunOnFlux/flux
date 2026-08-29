@@ -1,6 +1,7 @@
 const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
+const { Privilege } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -36,7 +37,7 @@ async function getInfo(req, res) {
     delete response.data.balance;
     return response;
   }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     delete response.data.balance;
   }
@@ -51,7 +52,7 @@ async function getInfo(req, res) {
  * @returns {object} Message.
  */
 async function stop(req, res) { // practically useless
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;

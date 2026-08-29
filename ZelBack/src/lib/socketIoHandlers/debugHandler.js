@@ -2,6 +2,7 @@ const querystring = require('node:querystring');
 
 const verificationHelper = require('../../services/verificationHelper');
 const log = require('../log');
+const { Privilege } = require('../../services/utils/privileges');
 
 async function debugHandler(socket) {
   const { handshake: { query, address } } = socket;
@@ -19,7 +20,7 @@ async function debugHandler(socket) {
 
   const req = { headers: { zelidauth: parsed } };
 
-  const ok = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const ok = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, req);
 
   if (ok !== true) {
     socket.emit('error', 'Unauthorized');
