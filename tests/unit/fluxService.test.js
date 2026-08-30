@@ -3285,19 +3285,65 @@ describe('fluxService tests', () => {
         expect(res.json.firstCall.args[0].status).to.equal('success');
       });
 
-      it(`${api} refuses ${branch} when the node has it neither locally nor on origin`, async () => {
-        verifyPrivilegeStub.resolves(true);
+      // The ordinary state of an Arcane node: the installer clones
+      // --depth 1 --single-branch, so no other branch is on the box in any
+      // form. Refusing here would refuse every switch such a node could ever
+      // be asked to make.
+      const absent = () => {
         runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] }))
           .resolves({ error: new Error('exit 1'), stdout: '' });
         runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`] }))
           .resolves({ error: new Error('exit 1'), stdout: '' });
+      };
+
+      const shallowIs = (value) => {
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--is-shallow-repository'] }))
+          .resolves({ error: null, stdout: `${value}\n` });
+      };
+
+      it(`${api} fetches ${branch} when the node has no reference to it`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        absent();
+        shallowIs('true');
+        const res = generateResponse();
+
+        await fluxService[api]({}, res);
+
+        // Into the local branch, not a tracking ref: git will not check out a
+        // remote-tracking ref the configured refspec does not map.
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['fetch', '--depth', '1', 'origin', `${branch}:refs/heads/${branch}`] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['config', `branch.${branch}.remote`, 'origin'] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['config', `branch.${branch}.merge`, `refs/heads/${branch}`] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+        expect(res.json.firstCall.args[0].status).to.equal('success');
+      });
+
+      // A --depth fetch turns a FULL clone shallow, so a legacy node would be
+      // quietly truncated by a branch switch.
+      it(`${api} does not shallow a full clone when fetching ${branch}`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        absent();
+        shallowIs('false');
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['fetch', 'origin', `${branch}:refs/heads/${branch}`] });
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: sinon.match.array.contains(['--depth']) });
+      });
+
+      it(`${api} refuses ${branch} when it cannot be fetched either`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        absent();
+        shallowIs('true');
+        runCmdStub.withArgs('git', sinon.match({ params: ['fetch', '--depth', '1', 'origin', `${branch}:refs/heads/${branch}`] }))
+          .resolves({ error: new Error('couldn\'t find remote ref'), stdout: '' });
         const res = generateResponse();
 
         await fluxService[api]({}, res);
 
         sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
         expect(res.json.firstCall.args[0].status).to.equal('error');
-        expect(res.json.firstCall.args[0].data.message).to.contain('not found on this node');
+        expect(res.json.firstCall.args[0].data.message).to.contain('could not be fetched');
       });
 
       it(`${api} does not pull, so a switch changes the branch and nothing else`, async () => {
@@ -3373,20 +3419,28 @@ describe('fluxService tests', () => {
         .resolves({ error: new Error('exit 1'), stdout: '' });
       runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/master'] }))
         .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--is-shallow-repository'] }))
+        .resolves({ error: null, stdout: 'true\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['fetch', '--depth', '1', 'origin', 'master:refs/heads/master'] }))
+        .resolves({ error: new Error("couldn't find remote ref master"), stdout: '' });
       const res = generateResponse();
 
       await fluxService.enterMasterApi({}, res);
 
       expect(res.json.firstCall.args[0].status).to.equal('error');
-      expect(res.json.firstCall.args[0].data.message).to.contain('Branch master not found on this node');
+      expect(res.json.firstCall.args[0].data.message).to.contain('Branch master is not on this node and could not be fetched');
     });
 
-    it('does not check out a branch it could not verify', async () => {
+    it('does not check out a branch it could neither find nor fetch', async () => {
       runCmdStub.resolves({ error: null, stdout: 'ok\n' });
       runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/heads/master'] }))
         .resolves({ error: new Error('exit 1'), stdout: '' });
       runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/master'] }))
         .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--is-shallow-repository'] }))
+        .resolves({ error: null, stdout: 'true\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['fetch', '--depth', '1', 'origin', 'master:refs/heads/master'] }))
+        .resolves({ error: new Error("couldn't find remote ref master"), stdout: '' });
 
       await fluxService.enterMasterApi({}, generateResponse());
 
