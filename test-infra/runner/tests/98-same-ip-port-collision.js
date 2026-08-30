@@ -159,16 +159,23 @@ describe('a port another Flux node at this address holds', function () {
   });
 
   // The control, and it is the point: the refusal above has to be caused by the
-  // blindness rather than by anything else in a fleet this size standing in the
-  // way. The same app, the same node, the same port - peers that actually
-  // connect.
-  it('installs the same app once the peers really connect', async function () {
+  // blindness rather than by anything else a fleet this size puts in the way.
+  //
+  // A FRESH app, not the refused one. An app a node stands down over keeps the
+  // entry every selection takes in the spawn cache, so it is deliberately not
+  // reconsidered - the refusal is durable by design and waiting for a retry
+  // would be waiting for something that should never come. Same node, same
+  // fleet, same port range, peers that now really connect.
+  it('installs an app of the same shape once the peers really connect', async function () {
     this.timeout(420000);
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(false)));
 
+    const app = await appWanting('sightedprobeapp', FREE_PORT);
+    await seedSpawnerApp(env, app);
+
     await waitFor(async () => {
       const res = await env.clients[0].getInstalledApps();
-      return res.status === 'success' && res.data.some((a) => a.name === 'blindprobeapp');
-    }, { timeout: 300000, label: 'blindprobeapp installs once peers connect' });
+      return res.status === 'success' && res.data.some((a) => a.name === 'sightedprobeapp');
+    }, { timeout: 300000, label: 'sightedprobeapp installs once peers connect' });
   });
 });
