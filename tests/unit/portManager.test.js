@@ -8,6 +8,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('portManager tests', () => {
@@ -607,6 +608,143 @@ describe('portManager tests', () => {
 
       expect(portManager.upnpMapFailures.has('App1')).to.be.false;
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+  });
+
+  describe('specifiedPorts tests', () => {
+    it('reads the single port of a version 1 app', () => {
+      expect(portManager.specifiedPorts({ version: 1, port: 31000 })).to.deep.equal([31000]);
+    });
+
+    it('reads the port list of a version 3 app', () => {
+      expect(portManager.specifiedPorts({ version: 3, ports: ['31000', 31001] })).to.deep.equal([31000, 31001]);
+    });
+
+    it('reads every component of a composed app', () => {
+      const spec = {
+        version: 8,
+        compose: [{ ports: [31000] }, { ports: [31001, 31002] }],
+      };
+
+      expect(portManager.specifiedPorts(spec)).to.deep.equal([31000, 31001, 31002]);
+    });
+
+    it('answers empty for a spec that names no port', () => {
+      expect(portManager.specifiedPorts({ version: 1 })).to.deep.equal([]);
+      expect(portManager.specifiedPorts({ version: 3 })).to.deep.equal([]);
+      expect(portManager.specifiedPorts({ version: 8 })).to.deep.equal([]);
+      expect(portManager.specifiedPorts({ version: 8, compose: [{}] })).to.deep.equal([]);
+    });
+  });
+
+  // The router forwards each port to exactly one node, so an install onto a port
+  // a sibling at this address already holds produces an app that is unreachable
+  // from the moment it starts - and every per-node check passes, because each
+  // node has its own docker and its own database.
+  describe('ensureSiblingPortsFree tests', () => {
+    const spec = { version: 8, name: 'App', compose: [{ ports: [31000] }] };
+    const ours = '86.9.47.94:16127';
+
+    const nodesAt = (...addresses) => addresses.map((ip) => ({ ip }));
+
+    const answering = (ports) => ({ data: { status: 'success', data: ports } });
+
+    it('is satisfied when no other Flux node shares our address', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '1.2.3.4:16127'));
+      const get = sinon.stub(serviceHelper, 'axiosGet');
+
+      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      sinon.assert.notCalled(get);
+    });
+
+    it('refuses a port a sibling reports, naming the port and the sibling', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
+      sinon.stub(serviceHelper, 'axiosGet').resolves(answering([31000, 31005]));
+
+      try {
+        await portManager.ensureSiblingPortsFree(spec, ours);
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).to.include('port 31000');
+        expect(error.message).to.include('86.9.47.94:16137');
+      }
+    });
+
+    it('is satisfied when the sibling holds other ports', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
+      sinon.stub(serviceHelper, 'axiosGet').resolves(answering([31005, 31006]));
+
+      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+    });
+
+    it('does not ask ourselves', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours));
+      const get = sinon.stub(serviceHelper, 'axiosGet');
+
+      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      sinon.assert.notCalled(get);
+    });
+
+    // Advisory, not authoritative: this narrows the window cheaply, and the port
+    // test that follows is what decides. A sibling that cannot answer must not
+    // block an install.
+    it('is satisfied when a sibling does not answer', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
+      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('ECONNREFUSED'));
+
+      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+    });
+
+    it('is satisfied when a sibling answers something it cannot read', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'error', data: 'nope' } });
+
+      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+    });
+
+    // networkState() answers an unknown list and a genuinely empty one with the
+    // same value, so an empty result is read as no information rather than as
+    // no siblings - and nothing is asked.
+    it('asks nobody when the node list is not known', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(false);
+      const state = sinon.stub(networkStateService, 'networkState').returns([]);
+      const get = sinon.stub(serviceHelper, 'axiosGet');
+
+      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      sinon.assert.notCalled(state);
+      sinon.assert.notCalled(get);
+    });
+
+    it('asks nobody for a spec that names no port', async () => {
+      const ready = sinon.stub(networkStateService, 'isReady').returns(true);
+      const get = sinon.stub(serviceHelper, 'axiosGet');
+
+      expect(await portManager.ensureSiblingPortsFree({ version: 8, name: 'App', compose: [] }, ours)).to.be.true;
+      sinon.assert.notCalled(ready);
+      sinon.assert.notCalled(get);
+    });
+
+    it('reads one sibling holding the port among several that do not', async () => {
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState')
+        .returns(nodesAt(ours, '86.9.47.94:16137', '86.9.47.94:16147', '86.9.47.94:16157'));
+      const get = sinon.stub(serviceHelper, 'axiosGet');
+      get.onCall(0).resolves(answering([31005]));
+      get.onCall(1).resolves(answering([31000]));
+      get.onCall(2).resolves(answering([31006]));
+
+      try {
+        await portManager.ensureSiblingPortsFree(spec, ours);
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).to.include('port 31000');
+      }
     });
   });
 

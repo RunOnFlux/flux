@@ -144,6 +144,7 @@ describe('route wiring', () => {
       '/apps/heldcomponents',
       '/apps/promotedfolders',
       '/apps/placementlocations',
+      '/flux/portsinuse',
     ];
 
     guarded.forEach((path) => {

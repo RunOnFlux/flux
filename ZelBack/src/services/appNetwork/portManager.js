@@ -8,6 +8,7 @@ const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const upnpService = require('../upnpService');
 const serviceHelper = require('../serviceHelper');
+const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -379,6 +380,148 @@ async function getAllUsedPorts() {
   });
 
   return [...new Set(allPorts)]; // Remove duplicates
+}
+
+/**
+ * The host ports this node's applications hold.
+ *
+ * Answered from this node's own record of what it has installed rather than
+ * from its containers. That record covers an enterprise application like any
+ * other - a node decrypts its own specifications - and it covers an application
+ * that is installed but stopped, which still holds the router's forward.
+ *
+ * @returns {Promise<number[]>} the ports, ascending
+ */
+async function portsInUse() {
+  const ports = await getAllUsedPorts();
+
+  return ports.map(Number).filter(Number.isInteger).sort((a, b) => a - b);
+}
+
+/**
+ * GET /flux/portsinuse - the ports this node holds.
+ *
+ * Read by another Flux node on the same public address, deciding whether a port
+ * it is about to install onto is already spoken for. The router forwards each
+ * port to exactly one node, so two applications wanting the same port at one
+ * address cannot both be reached, whichever applications they are - which is why
+ * the answer is ports alone and names no application.
+ *
+ * Nothing here is withheld elsewhere: a port in use at an address is what a port
+ * scan of that address reports, and this names nothing that would attribute one
+ * to an application.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<void>}
+ */
+async function portsInUseApi(req, res) {
+  try {
+    res.json(messageHelper.createDataMessage(await portsInUse()));
+  } catch (error) {
+    log.error(error);
+    res.json(messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    ));
+  }
+}
+
+/**
+ * The host ports a specification asks for.
+ *
+ * @param {object} appSpecFormatted - App specification
+ * @returns {number[]}
+ */
+function specifiedPorts(appSpecFormatted) {
+  if (appSpecFormatted.version === 1) {
+    return appSpecFormatted.port ? [Number(appSpecFormatted.port)] : [];
+  }
+  if (appSpecFormatted.version <= 3) {
+    return (appSpecFormatted.ports || []).map(Number);
+  }
+
+  return (appSpecFormatted.compose || [])
+    .flatMap((component) => (component.ports || []).map(Number));
+}
+
+/**
+ * The other Flux nodes sharing our public address.
+ *
+ * Taken from the node list rather than from app locations, so a node that is not
+ * running anything yet is still counted - that is the node most likely to be
+ * installing.
+ *
+ * @param {string} localSocketAddress - our own ip:port
+ * @returns {string[]|null} their socket addresses, or null when the node list is
+ *   not known - which is an absence of information, not an absence of siblings
+ */
+function siblingSocketAddresses(localSocketAddress) {
+  const ip = extractIp(localSocketAddress);
+  if (!ip || !networkStateService.isReady()) return null;
+
+  const ownPort = extractPort(localSocketAddress);
+
+  return networkStateService.networkState()
+    .map((node) => node.ip)
+    .filter((address) => address
+      && extractIp(address) === ip
+      && extractPort(address) !== ownPort);
+}
+
+/**
+ * Refuse an install onto a port another Flux node at our public address holds.
+ *
+ * Each node behind a shared address keeps its own database and its own docker,
+ * so every one of them binds the port and only the one the router forwards to
+ * ever receives traffic. The rest run unreachable while still being broadcast as
+ * live instances.
+ *
+ * Runs before the firewall is opened and before any mapping is attempted, so a
+ * refusal costs nothing to unwind.
+ *
+ * Advisory. A sibling that is down, or answers nothing we can read, leaves us no
+ * wiser - and silence is never read as clearance, because the port test that
+ * follows is what decides.
+ *
+ * @param {object} appSpecFormatted - App specification
+ * @param {string} localSocketAddress - our own ip:port
+ * @returns {Promise<boolean>} true when no sibling reported one of these ports
+ * @throws {Error} when one did
+ */
+async function ensureSiblingPortsFree(appSpecFormatted, localSocketAddress) {
+  const wanted = new Set(specifiedPorts(appSpecFormatted).filter(Number.isInteger));
+  if (!wanted.size) return true;
+
+  const siblings = siblingSocketAddresses(localSocketAddress);
+  if (!siblings || !siblings.length) return true;
+
+  const timeout = config.fluxapps.siblingPortsTimeoutMs;
+
+  const answers = await Promise.all(siblings.map(async (address) => {
+    const response = await serviceHelper.axiosGet(
+      `http://${extractIp(address)}:${extractPort(address)}/flux/portsinuse`,
+      { timeout },
+    ).catch(() => null);
+
+    const body = response && response.data;
+    if (!body || body.status !== 'success' || !Array.isArray(body.data)) return null;
+
+    return { address, ports: body.data.map(Number) };
+  }));
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const answer of answers) {
+    if (answer) {
+      const held = answer.ports.find((port) => wanted.has(port));
+      if (held) {
+        throw new Error(`Flux App ${appSpecFormatted.name} port ${held} is held by the Flux node at ${answer.address}, which shares this public address. Installation aborted.`);
+      }
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -795,7 +938,11 @@ module.exports = {
   restoreAppsPortsSupport,
   restorePortsSupport,
   getAllUsedPorts,
+  portsInUse,
+  portsInUseApi,
+  specifiedPorts,
   portNotReached,
+  ensureSiblingPortsFree,
   isPortAvailable,
   findNextAvailablePort,
   signCheckAppData,
