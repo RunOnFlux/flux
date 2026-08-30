@@ -117,6 +117,17 @@ function eventsBuffer(ip) {
 // ips whose /rest/events endpoint is "down" (syncthing restarting); '*' = all
 const eventsOutages = new Set();
 
+// Nodes whose /rest/config/devices answers 500 while every other endpoint keeps
+// working. Syncthing's device configuration and its folder configuration are two
+// reads, and a node that got the folders has what it needs to tell peers which
+// it holds writable - so failing only the second is how a suite proves the pass
+// does not withhold the first.
+const deviceConfigOutages = new Set();
+
+function deviceConfigDown(ip) {
+  return deviceConfigOutages.has(ip) || deviceConfigOutages.has('*');
+}
+
 function lookupSync(ip, folder) {
   return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
 }
@@ -367,7 +378,10 @@ app.delete('/rest/config/folders/:id', (req, res) => {
 // -- Config Devices --
 
 app.get('/rest/config/devices', (req, res) => {
-  res.json(Array.from(reqState(req).devices.values()));
+  if (deviceConfigDown(clientIp(req))) {
+    return res.status(500).json({ error: 'simulated unreadable device configuration' });
+  }
+  return res.json(Array.from(reqState(req).devices.values()));
 });
 
 // Collection PUT (no id): upsert each device by deviceID (see folders above).
@@ -803,11 +817,21 @@ control.post('/events-outage', (req, res) => {
   return res.json({ ok: true });
 });
 
+// Take a node's /rest/config/devices down/up, leaving /rest/config/folders
+// answering. The two are separate reads on the same pass, and a node that read
+// its folders still knows which it holds writable.
+control.post('/device-config-outage', (req, res) => {
+  const { ip = '*', enabled = true } = req.body || {};
+  if (enabled) deviceConfigOutages.add(ip); else deviceConfigOutages.delete(ip);
+  return res.json({ ok: true });
+});
+
 // Back to default always-synced/empty behaviour.
 control.post('/sync-reset', (req, res) => {
   console.log(`[write] sync-reset from=${clientIp(req)}`);
   syncOverrides.clear();
   completionOverrides.clear();
+  deviceConfigOutages.clear();
   nudgeLogs.clear();
   eventsBuffers.clear();
   eventsOutages.clear();

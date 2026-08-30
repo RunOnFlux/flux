@@ -194,6 +194,15 @@ export async function setEventsOutage({ ip = '*', enabled = true }) {
   return post('/events-outage', { ip, enabled });
 }
 
+// Take a node's /rest/config/devices down/up while /rest/config/folders keeps
+// answering. Those are two reads on one monitor pass, and which folders a node
+// holds writable is answered by the folder half alone - so this is how a suite
+// proves a device read it could not complete does not withhold a folder list the
+// node already has.
+export async function setDeviceConfigOutage({ ip = '*', enabled = true }) {
+  return post('/device-config-outage', { ip, enabled });
+}
+
 // The folder status endpoint errors for this folder - the node can verify
 // NOTHING (post-redesign contract: never remove without evidence; wait).
 export async function setStatusUnreadable({ ip = '*', folder }) {
