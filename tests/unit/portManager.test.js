@@ -610,6 +610,53 @@ describe('portManager tests', () => {
     });
   });
 
+  // What the peer's pass is worth. It reports that something answered at our
+  // public address; where several Flux nodes share that address, what answered
+  // can be a sibling's application while our own test server sat unreached.
+  describe('portNotReached tests', () => {
+    const reachedBy = (...callers) => ({ reachedBy: (ip) => callers.includes(ip) });
+    const peer = '203.0.113.9';
+
+    it('proves the ports when the peer reached every server', () => {
+      const servers = [reachedBy(peer), reachedBy(peer)];
+
+      expect(portManager.portNotReached([31000, 31001], servers, peer)).to.equal(null);
+    });
+
+    it('names the port the peer never reached', () => {
+      const servers = [reachedBy(peer), reachedBy()];
+
+      expect(portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31001);
+    });
+
+    it('names the first such port when several were missed', () => {
+      const servers = [reachedBy(), reachedBy()];
+
+      expect(portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31000);
+    });
+
+    // The collision this exists for: something answered the peer, so the peer
+    // passed the port - but it was not us.
+    it('refuses a port reached only by somebody else', () => {
+      const servers = [reachedBy('198.51.100.4')];
+
+      expect(portManager.portNotReached([31000], servers, peer)).to.equal(31000);
+    });
+
+    // The peer skips any port outside the app port range, so a port it never
+    // tried says nothing either way and must not be read as a failure.
+    it('says nothing about a port the peer would not have probed', () => {
+      const servers = [reachedBy()];
+      const outOfRange = config.fluxapps.portMax + 1;
+
+      expect(portManager.portNotReached([outOfRange], servers, peer)).to.equal(null);
+    });
+
+    it('proves nothing and refuses nothing when there are no ports', () => {
+      expect(portManager.portNotReached([], [], peer)).to.equal(null);
+    });
+  });
+
   describe('signCheckAppData tests', () => {
     it('should sign message data', async () => {
       const message = JSON.stringify({ test: 'data' });

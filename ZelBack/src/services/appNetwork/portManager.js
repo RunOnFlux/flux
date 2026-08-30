@@ -382,6 +382,40 @@ async function getAllUsedPorts() {
 }
 
 /**
+ * The first port a peer's pass did not actually prove, or null if it proved them all.
+ *
+ * A peer reports that something answered at our public address. Where several
+ * Flux nodes share that address the router forwards each port to exactly one of
+ * them, so what answered can be a sibling's application while our own test
+ * server sat unreached - and the peer cannot tell the difference, because from
+ * outside there is none.
+ *
+ * Our test servers can. Each records the addresses that reached it, so the
+ * question becomes whether the peer we just asked arrived here. Matching on that
+ * peer, rather than on any caller, keeps an unrelated connection during the test
+ * window from reading as proof the port is ours.
+ *
+ * Only ports the peer would have probed are required to show a connection: it
+ * skips any outside the app port range, and a port it never tried says nothing
+ * either way.
+ *
+ * @param {number[]} portsToTest - the ports, in the order their servers were made
+ * @param {Array<{reachedBy: Function}>} servers - one test server per port
+ * @param {string} askingIP - the peer we sent
+ * @returns {number|null}
+ */
+function portNotReached(portsToTest, servers, askingIP) {
+  const at = servers.findIndex((server, index) => {
+    const port = portsToTest[index];
+    const probed = port >= config.fluxapps.portMin && port <= config.fluxapps.portMax;
+
+    return probed && !server.reachedBy(askingIP);
+  });
+
+  return at === -1 ? null : portsToTest[at];
+}
+
+/**
  * Check if a specific port is available
  * @param {number} port - Port number to check
  * @param {string} excludeApp - App name to exclude from check (for updates)
@@ -576,7 +610,20 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         portsStatus = false;
         finished = true;
       } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-        portsStatus = true;
+        const unreachedPort = portNotReached(portsToTest, beforeAppInstallTestingServers, askingIP);
+
+        if (unreachedPort === null) {
+          portsStatus = true;
+        } else {
+          log.warn(`checkInstallingAppPortAvailable - port ${unreachedPort} answered ${askingIP} from somewhere other than this node`);
+          portsNotWorking.add(unreachedPort);
+          if (!originalPortFailed) {
+            originalPortFailed = unreachedPort;
+            // eslint-disable-next-line no-unused-vars
+            nextTestingPort = unreachedPort < 65535 ? unreachedPort + 1 : unreachedPort - 1;
+          }
+          portsStatus = false;
+        }
         finished = true;
       }
     }
@@ -748,6 +795,7 @@ module.exports = {
   restoreAppsPortsSupport,
   restorePortsSupport,
   getAllUsedPorts,
+  portNotReached,
   isPortAvailable,
   findNextAvailablePort,
   signCheckAppData,
