@@ -3263,8 +3263,41 @@ describe('fluxService tests', () => {
 
         await fluxService[api]({}, generateResponse());
 
-        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['rev-parse', '--verify', branch] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] });
         sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+      });
+
+      // The ordinary state of a node, not an edge case: it carries only the
+      // branch it was installed on, and every other branch is a remote-tracking
+      // ref alone. git checkout creates the local branch from that, so refusing
+      // here would refuse a switch the node can make - and this is the endpoint
+      // the flux team uses to move a node onto development.
+      it(`${api} accepts ${branch} when the node has it only as origin/${branch}`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] }))
+          .resolves({ error: new Error('exit 1'), stdout: '' });
+        const res = generateResponse();
+
+        await fluxService[api]({}, res);
+
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+        expect(res.json.firstCall.args[0].status).to.equal('success');
+      });
+
+      it(`${api} refuses ${branch} when the node has it neither locally nor on origin`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] }))
+          .resolves({ error: new Error('exit 1'), stdout: '' });
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`] }))
+          .resolves({ error: new Error('exit 1'), stdout: '' });
+        const res = generateResponse();
+
+        await fluxService[api]({}, res);
+
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(res.json.firstCall.args[0].data.message).to.contain('not found on this node');
       });
 
       it(`${api} does not pull, so a switch changes the branch and nothing else`, async () => {
@@ -3336,8 +3369,10 @@ describe('fluxService tests', () => {
 
     it('reports the branch it could not find, not just that it failed', async () => {
       runCmdStub.resolves({ error: null, stdout: 'ok\n' });
-      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', 'master'] }))
-        .resolves({ error: new Error('unknown revision'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/heads/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
       const res = generateResponse();
 
       await fluxService.enterMasterApi({}, res);
@@ -3348,8 +3383,10 @@ describe('fluxService tests', () => {
 
     it('does not check out a branch it could not verify', async () => {
       runCmdStub.resolves({ error: null, stdout: 'ok\n' });
-      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', 'master'] }))
-        .resolves({ error: new Error('unknown revision'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/heads/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
 
       await fluxService.enterMasterApi({}, generateResponse());
 

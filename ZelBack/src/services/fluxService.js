@@ -220,11 +220,18 @@ async function getCurrentBranchApi(req, res) {
 }
 
 /**
- * Check out a branch that exists locally.
+ * Check out a branch this node can reach.
  *
  * Each step names itself when it fails, because the caller reports the reason to whoever
  * asked and "could not switch branch" does not distinguish a branch this node has never
  * fetched from a working tree with changes in it.
+ *
+ * The branch is looked for where `git checkout` looks. A node carries only the branch it
+ * was installed on and remote-tracking refs for the rest - the installer clones shallow
+ * but tracks every head - and checkout creates the local branch from origin/<branch> when
+ * there is no local one. `rev-parse --verify <branch>` never resolves a remote-tracking
+ * ref, so asking only that refuses a switch the node can perfectly well make: on an
+ * Arcane node sitting on master, `origin/development` resolves and `development` does not.
  *
  * @param {string} branch The branch to checkout
  * @param {{pull?: Boolean}} options
@@ -232,11 +239,17 @@ async function getCurrentBranchApi(req, res) {
  */
 async function checkoutBranch(branch, options = {}) {
   // ToDo: this will break if multiple remotes
-  const { error: verifyError } = await serviceHelper.runCommand('git', {
-    params: ['rev-parse', '--verify', branch],
+  const { error: localMissing } = await serviceHelper.runCommand('git', {
+    params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
   });
 
-  if (verifyError) throw new Error(`Branch ${branch} not found on this node: ${verifyError.message}`);
+  if (localMissing) {
+    const { error: trackingMissing } = await serviceHelper.runCommand('git', {
+      params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
+    });
+
+    if (trackingMissing) throw new Error(`Branch ${branch} not found on this node, locally or on origin`);
+  }
 
   const { error: checkoutError } = await serviceHelper.runCommand('git', {
     params: ['checkout', branch],
