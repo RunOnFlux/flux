@@ -11,7 +11,11 @@
 // a recording stand-in for express, and the assertions are made against the
 // middleware chain it actually built.
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { expect } = require('chai');
+const espree = require('espree');
 const express = require('express');
 const request = require('supertest');
 const apicache = require('apicache');
@@ -42,16 +46,6 @@ function recordRouteTable() {
   return routes;
 }
 
-/**
- * apicache's middleware factory returns a function named cache carrying its own
- * .options - which is how a chain entry is identified as the cache rather than by
- * position, since routes carry other middleware too.
- * @param {Function} fn - a middleware from a route's chain
- * @returns {boolean}
- */
-function isApicache(fn) {
-  return typeof fn === 'function' && fn.name === 'cache' && typeof fn.options === 'function';
-}
 
 describe('route wiring', () => {
   let table;
@@ -180,79 +174,163 @@ describe('route wiring', () => {
     });
   });
 
+  // apicache answers from its store BEFORE the handler runs, and keys an entry on
+  // the request URL alone - nothing about the caller. So the privilege check
+  // inside the handler never runs for the second caller, who is handed the first
+  // caller's response, and whatever the handler would have DONE never happens.
+  //
+  // Both halves were staged against a node: one user's session row, login phrase
+  // included, was served to a different user, and a second user's logout was
+  // answered from the first user's cached success while their session stayed
+  // live. A cache in front of any of these is wrong however cheap the route is.
+  //
+  // Read from the sources rather than from a list. A list of paths is only ever
+  // as good as the last person to update it: it caught a cache put back on a
+  // route it named and was blind to a new route added with one, which is the
+  // direction this will actually be broken from. The route table alone cannot
+  // say which handler checks a privilege - that lives in the service module
+  // behind the route, and by the time a test sees the route it is a closure - so
+  // the route file and those modules are parsed instead.
   describe('endpoints that decide who is asking', () => {
-    // apicache answers from its store BEFORE the handler runs, and keys an entry on
-    // the request URL alone - nothing about the caller. So the privilege check
-    // inside the handler never runs for the second caller, who is handed the first
-    // caller's response, and whatever the handler would have DONE never happens.
-    //
-    // Both halves were staged against a node: one user's session row, login phrase
-    // included, was served to a different user, and a second user's logout was
-    // answered from the first user's cached success while their session stayed
-    // live. A cache in front of any of these is wrong however cheap the route is.
-    //
-    // The list is explicit because the route table alone cannot say which handler
-    // checks a privilege - that lives in the service module behind it. Add a path
-    // here when a route gains a privilege check.
-    const decidesByCaller = [
-      '/apps/listappsimages',
-      '/daemon/getinfo',
-      '/daemon/validateaddress/:fluxaddress?',
-      '/flux/restart',
-      '/flux/peerhistory',
-      '/flux/currentbranch',
-      '/flux/rebuildui',
-      '/flux/currentcommitid',
-      '/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?',
-      '/daemon/submitblock/:hexdata?/:jsonparametersobject?',
-      '/id/loggedsessions',
-      '/id/logoutcurrentsession',
-      '/id/logoutallsessions',
-      '/zelid/loggedsessions',
-      '/zelid/logoutcurrentsession',
-      '/zelid/logoutallsessions',
-      '/syncthing/system/browse/:current?',
-      '/syncthing/system/debug/:enable?/:disable?',
-      '/syncthing/system/discovery/:device?/:addr?',
-      '/syncthing/system/error/clear',
-      '/syncthing/system/error/:message?',
-      '/syncthing/system/log/:since?',
-      '/syncthing/system/logtxt/:since?',
-      '/syncthing/system/paths',
-      '/syncthing/system/pause/:device?',
-      '/syncthing/system/reset/:folder?',
-      '/syncthing/system/restart',
-      '/syncthing/system/resume/:device?',
-      '/syncthing/system/shutdown',
-      '/syncthing/system/upgrade',
-      '/syncthing/config',
-      '/syncthing/config/gui',
-      '/syncthing/events/disk',
-      '/syncthing/events/:events?/:since?/:limit?/:timeout?',
-      '/syncthing/svc/random/string/:length?',
-      '/syncthing/debug/peercompletion',
-      '/syncthing/debug/httpmetrics',
-      '/syncthing/debug/cpuprof',
-      '/syncthing/debug/heapprof',
-      '/syncthing/debug/support',
-      '/syncthing/debug/file',
-      '/syncthing/metrics',
-      '/syncthing/metrics/health',
-      '/syncthing/metrics/history/:limit?',
-      '/syncthing/peer/diagnostics',
-    ];
+    const SRC_DIR = path.join(__dirname, '../../ZelBack/src');
+    const parse = (src) => espree.parse(src, { ecmaVersion: 2022, sourceType: 'script', range: true });
 
-    // Without this, a renamed or mistyped path would make every assertion below
-    // pass on a route that no longer exists.
-    it('names paths that are all really registered', () => {
-      const missing = decidesByCaller.filter((path) => !table.some((entry) => entry.path === path));
-      expect(missing, 'these paths are not in the route table').to.deep.equal([]);
+    const walk = (node, visit, state) => {
+      if (!node || typeof node.type !== 'string') return;
+      const next = visit(node, state);
+      for (const key of Object.keys(node)) {
+        const value = node[key];
+        if (Array.isArray(value)) value.forEach((child) => walk(child, visit, next));
+        else if (value && typeof value.type === 'string') walk(value, visit, next);
+      }
+    };
+
+    /** Local name -> module path, from routes.js's own requires. */
+    const requiredModules = (ast) => {
+      const found = new Map();
+      walk(ast, (node) => {
+        if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier'
+            && node.init && node.init.type === 'CallExpression'
+            && node.init.callee.name === 'require'
+            && typeof node.init.arguments[0]?.value === 'string') {
+          found.set(node.id.name, node.init.arguments[0].value);
+        }
+        return null;
+      });
+      return found;
+    };
+
+    /**
+     * The functions in one module that reach a privilege check, directly or
+     * through another function of the same module - which is the shape the Api
+     * halves use, the check in one and the work in the one beside it.
+     */
+    const checkersIn = (() => {
+      const memo = new Map();
+
+      return (modulePath) => {
+        if (memo.has(modulePath)) return memo.get(modulePath);
+        const file = path.join(SRC_DIR, `${modulePath.replace(/^\.\//, '')}.js`);
+        if (!fs.existsSync(file)) { memo.set(modulePath, null); return null; }
+
+        const ast = parse(fs.readFileSync(file, 'utf8'));
+        const reaches = new Set();
+        const calls = new Map();
+
+        walk(ast, (node, enclosing) => {
+          const here = (node.type === 'FunctionDeclaration' && node.id) ? node.id.name : enclosing;
+          if (node.type === 'CallExpression' && here) {
+            const { callee } = node;
+            if (callee.type === 'MemberExpression' && callee.property.name === 'verifyPrivilege') reaches.add(here);
+            if (callee.type === 'Identifier') {
+              if (!calls.has(here)) calls.set(here, new Set());
+              calls.get(here).add(callee.name);
+            }
+          }
+          return here;
+        }, null);
+
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const [fn, callees] of calls) {
+            if (reaches.has(fn)) continue;
+            if ([...callees].some((callee) => reaches.has(callee))) { reaches.add(fn); grew = true; }
+          }
+        }
+
+        memo.set(modulePath, reaches);
+        return reaches;
+      };
+    })();
+
+    const METHODS = new Set(['get', 'post', 'put', 'delete', 'ws', 'use']);
+    let registrations;
+
+    before(() => {
+      const ast = parse(fs.readFileSync(path.join(SRC_DIR, 'routes.js'), 'utf8'));
+      const modules = requiredModules(ast);
+      registrations = [];
+
+      walk(ast, (node) => {
+        if (node.type !== 'CallExpression' || node.callee.type !== 'MemberExpression') return null;
+        if (node.callee.object.name !== 'app' || !METHODS.has(node.callee.property.name)) return null;
+        if (typeof node.arguments[0]?.value !== 'string' || node.arguments.length < 2) return null;
+
+        const chain = node.arguments.slice(1);
+        const handlers = [];
+        chain.forEach((arg) => walk(arg, (inner) => {
+          if (inner.type === 'MemberExpression' && inner.object.type === 'Identifier'
+              && modules.has(inner.object.name) && inner.property.type === 'Identifier') {
+            handlers.push({ module: modules.get(inner.object.name), fn: inner.property.name });
+          }
+          return null;
+        }));
+
+        registrations.push({
+          method: node.callee.property.name,
+          path: node.arguments[0].value,
+          cached: chain.some((arg) => arg.type === 'CallExpression' && arg.callee.name === 'cache'),
+          handlers,
+        });
+        return null;
+      });
+    });
+
+    // Everything below reads a handler out of a registration, so a registration
+    // whose handler cannot be read is not a route this covers - and would be
+    // silently exempt from the assertion that matters.
+    it('resolves every route to exactly one handler', () => {
+      const unresolved = registrations
+        .filter((route) => route.handlers.length !== 1)
+        .map((route) => `${route.method} ${route.path} (${route.handlers.length} handlers)`);
+
+      expect(unresolved, 'these routes could not be read').to.deep.equal([]);
+    });
+
+    it('reads every module a route hands off to', () => {
+      const unreadable = [...new Set(registrations
+        .filter((route) => route.handlers.length === 1)
+        .map((route) => route.handlers[0].module)
+        .filter((modulePath) => checkersIn(modulePath) === null))];
+
+      expect(unreadable, 'these modules could not be parsed').to.deep.equal([]);
+    });
+
+    // Without this the assertion below passes on an analysis that resolved
+    // nothing at all.
+    it('finds the privilege checks it is looking for', () => {
+      const checked = registrations.filter((route) => route.handlers.length === 1
+        && (checkersIn(route.handlers[0].module) || new Set()).has(route.handlers[0].fn));
+
+      expect(checked.length).to.be.greaterThan(200);
     });
 
     it('are answered by their handler, never from a cache', () => {
-      const cached = decidesByCaller.filter((path) => table
-        .filter((entry) => entry.path === path)
-        .some((entry) => entry.chain.some(isApicache)));
+      const cached = registrations
+        .filter((route) => route.cached && route.handlers.length === 1)
+        .filter((route) => (checkersIn(route.handlers[0].module) || new Set()).has(route.handlers[0].fn))
+        .map((route) => `${route.method} ${route.path} -> ${route.handlers[0].fn}`);
+
       expect(cached, 'these check a privilege behind a cache that answers first').to.deep.equal([]);
     });
   });
