@@ -364,6 +364,12 @@ module.exports = (app) => {
   // left wrong deliberately: renaming a v1 route is a 404 for every caller, which is
   // a different and louder break than changing what a response contains, and v2 gets
   // the correct names for free in a new URL space. Do not rename them here.
+  // Not a filter of listallapps, whatever the name says. This answers "which containers
+  // should FDM route to", which is the running ones PLUS any stopped container whose app
+  // is mid-backup or mid-restore - a fact that lives in this process's memory and is not
+  // on the container, so no caller can derive this list from the one below. FDM's
+  // checkAppRunning reads it for every app and matches on Names[0] alone, so dropping a
+  // container from here takes that app out of routing.
   app.get('/apps/listrunningapps', cache('15 seconds'), asyncRoute((req, res) => {
     return appQueryService.listRunningApps(req, res);
   }));
