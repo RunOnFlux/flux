@@ -33,20 +33,29 @@ function callSites() {
     if (!src.includes('verifyPrivilege(')) continue;
     const ast = espree.parse(src, { ecmaVersion: 2022, sourceType: 'script', loc: true, range: true });
     const text = (node) => src.slice(node.range[0], node.range[1]);
-    (function walk(node) {
+    (function walk(node, guards) {
       if (!node || typeof node.type !== 'string') return;
       if (node.type === 'CallExpression'
           && node.callee.type === 'MemberExpression'
           && node.callee.property.name === 'verifyPrivilege') {
-        sites.push({ where: `${rel}:${node.loc.start.line}`, args: node.arguments, text });
+        sites.push({
+          where: `${rel}:${node.loc.start.line}`, args: node.arguments, text, guards: [...guards],
+        });
       }
+      // Every condition this node sits inside, so a site can be asked what had
+      // to be true for it to run at all.
+      const inherited = node.type === 'IfStatement' || node.type === 'ConditionalExpression'
+        ? [...guards, node.test]
+        : guards;
       for (const key of Object.keys(node)) {
         if (key === 'loc' || key === 'range') continue;
         const value = node[key];
-        if (Array.isArray(value)) value.forEach(walk);
-        else if (value && typeof value.type === 'string') walk(value);
+        // A condition does not guard itself.
+        const carried = key === 'test' ? guards : inherited;
+        if (Array.isArray(value)) value.forEach((child) => walk(child, carried));
+        else if (value && typeof value.type === 'string') walk(value, carried);
       }
-    }(ast));
+    }(ast, []));
   }
   return sites;
 }
@@ -85,6 +94,19 @@ describe('privilege call shape', () => {
       const member = first.type === 'MemberExpression' ? first.property.name : null;
       const third = args[2];
       if (third && third.type !== 'ObjectExpression') wrong.push(`${where}  third argument is ${text(third)}`);
+      // The KEY, not just the shape. `{ appname: x }` is an object and passes a
+      // shape check, and then `options.appName` is undefined at runtime, the
+      // verifier is handed nothing to look up, and every call to that endpoint
+      // answers 401 - silently, because a refusal is what a refused caller
+      // expects to see.
+      if (third && third.type === 'ObjectExpression') {
+        const keys = third.properties
+          .filter((prop) => prop.type === 'Property' && !prop.computed)
+          .map((prop) => (prop.key.type === 'Identifier' ? prop.key.name : prop.key.value));
+        const named = keys.filter((key) => key !== 'appName');
+        if (named.length) wrong.push(`${where}  app name passed as ${named.join(', ')}, not appName`);
+        if (!keys.length) wrong.push(`${where}  third argument names nothing`);
+      }
       if (member && !SCOPED.has(member) && third) wrong.push(`${where}  ${member} reads no app name`);
       if (member && SCOPED.has(member) && !third) wrong.push(`${where}  ${member} needs an app name`);
     });
@@ -97,14 +119,36 @@ describe('privilege call shape', () => {
     // so a caller who passes nothing is trusted. A handler that serves requests
     // checks; an operation with no caller to check does not exist as a request
     // handler at all.
-    const offenders = [];
-    sourceFiles().forEach((rel) => {
-      const src = fs.readFileSync(nodePath.join(ROOT, rel), 'utf8');
-      src.split('\n').forEach((line, i) => {
-        if (/res \? await verificationHelper/.test(line)) offenders.push(`${rel}:${i + 1} conditional on res`);
-        if (/^\s*if \(req\) \{/.test(line) && /verifyPrivilege/.test(src)) offenders.push(`${rel}:${i + 1} conditional on req`);
+    //
+    // Read from the conditions each call actually sits inside, not from the two
+    // spellings the removed ones happened to use: `if (req && ...)`, `if (res)`,
+    // and a ternary written across lines are the same fault and none of them
+    // looks like the others.
+    const bareArgument = (node) => node.type === 'Identifier' && (node.name === 'req' || node.name === 'res');
+
+    // What a test says about `req`/`res` merely EXISTING. Comparing one to a
+    // value is a question about its content and is not this.
+    const testsPresence = (node) => {
+      if (!node) return false;
+      if (bareArgument(node)) return true;
+      if (node.type === 'UnaryExpression' && node.operator === '!') return testsPresence(node.argument);
+      if (node.type === 'LogicalExpression') return testsPresence(node.left) || testsPresence(node.right);
+      if (node.type === 'BinaryExpression' && ['==', '===', '!=', '!=='].includes(node.operator)) {
+        const nullish = (n) => (n.type === 'Identifier' && n.name === 'undefined')
+          || (n.type === 'Literal' && n.value === null);
+        return (bareArgument(node.left) && nullish(node.right))
+          || (bareArgument(node.right) && nullish(node.left));
+      }
+      return false;
+    };
+
+    const offenders = sites
+      .filter(({ guards }) => guards.some(testsPresence))
+      .map(({ where, guards, text }) => {
+        const guard = guards.find(testsPresence);
+        return `${where}  authorises only when ${text(guard)}`;
       });
-    });
+
     expect(offenders).to.deep.equal([]);
   });
 
