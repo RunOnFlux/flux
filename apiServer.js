@@ -1,3 +1,8 @@
+// First, and above every other require: the environment this process answers from. This
+// file runs as an entry point of its own under `require.main === module`, so it settles
+// the environment rather than relying on whoever required it having done so.
+require('./ZelBack/pinEnvironment');
+
 const configManager = require('./ZelBack/src/services/utils/configManager');
 
 if (typeof AbortController === 'undefined') {
@@ -6,15 +11,6 @@ if (typeof AbortController === 'undefined') {
   const abortControler = require('node-abort-controller');
   globalThis.AbortController = abortControler.AbortController;
 }
-
-process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-// The directory is pinned above so config loads from the one fluxbench
-// hashes. NODE_CONFIG is the same door: the config package merges whatever
-// JSON it holds over every file, after the directory is settled, so leaving
-// it open redirects any endpoint without touching a hashed file - the one
-// redirect tamper detection cannot see. Deleted rather than emptied, because
-// an empty value is parsed and fails rather than being ignored.
-delete process.env.NODE_CONFIG;
 
 const fs = require('node:fs');
 const http = require('node:http');
