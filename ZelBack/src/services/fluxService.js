@@ -38,6 +38,12 @@ const { Privilege, authOf } = require('./utils/privileges');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
+// Where this node's checkout is, named once. Every command below that reads or
+// writes the repository is told it, rather than inheriting whatever directory
+// the process happens to be running in: `git checkout` and `git fetch` write,
+// and a write is not something to leave to the launcher's habits.
+const REPO_ROOT = path.join(__dirname, '../../../');
+
 // Cache for OS distribution information
 let cachedOSDistInfo = null;
 
@@ -148,6 +154,7 @@ async function fluxBackendFolder(req, res) {
 async function getCurrentCommitId() {
   // Fix - this breaks if head in detached state? (or something, can't remember)
   const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     logError: false, params: ['rev-parse', '--short', 'HEAD'],
   });
 
@@ -188,6 +195,7 @@ async function getCurrentCommitIdApi(req, res) {
 async function getCurrentBranch() {
   // ToDo: Fix - this breaks if head in detached state (or something similar)
   const { stdout: branch, error } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     logError: false, params: ['rev-parse', '--abbrev-ref', 'HEAD'],
   });
 
@@ -248,21 +256,25 @@ async function getCurrentBranchApi(req, res) {
  */
 async function fetchBranch(branch) {
   const { stdout: shallow } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     params: ['rev-parse', '--is-shallow-repository'],
   });
 
   const depth = String(shallow).trim() === 'true' ? ['--depth', '1'] : [];
 
   const { error: fetchError } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     params: ['fetch', ...depth, 'origin', `${branch}:refs/heads/${branch}`],
   });
 
   if (fetchError) throw new Error(`Branch ${branch} is not on this node and could not be fetched: ${fetchError.message}`);
 
   const { error: remoteError } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     params: ['config', `branch.${branch}.remote`, 'origin'],
   });
   const { error: mergeError } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     params: ['config', `branch.${branch}.merge`, `refs/heads/${branch}`],
   });
 
@@ -290,11 +302,13 @@ async function fetchBranch(branch) {
 async function checkoutBranch(branch, options = {}) {
   // ToDo: this will break if multiple remotes
   const { error: localMissing } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
   });
 
   if (localMissing) {
     const { error: trackingMissing } = await serviceHelper.runCommand('git', {
+      cwd: REPO_ROOT,
       params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
     });
 
@@ -302,13 +316,14 @@ async function checkoutBranch(branch, options = {}) {
   }
 
   const { error: checkoutError } = await serviceHelper.runCommand('git', {
+    cwd: REPO_ROOT,
     params: ['checkout', branch],
   });
 
   if (checkoutError) throw new Error(`Could not check out ${branch}: ${checkoutError.message}`);
 
   if (options.pull) {
-    const { error: pullError } = await serviceHelper.runCommand('git', { params: ['pull'] });
+    const { error: pullError } = await serviceHelper.runCommand('git', { cwd: REPO_ROOT, params: ['pull'] });
     if (pullError) throw new Error(`Checked out ${branch} but could not pull it: ${pullError.message}`);
   }
 }
@@ -412,9 +427,8 @@ async function updateFlux(req, res) {
     return res.json(errMessage);
   }
 
-  const cwd = path.join(__dirname, '../../../');
 
-  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'updateflux'] });
+  const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'updateflux'] });
 
   if (error) {
     const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${error.message}`, error.name, error.code);
@@ -432,9 +446,8 @@ async function updateFlux(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFlux() {
-  const cwd = path.join(__dirname, '../../../');
 
-  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdate'] });
+  const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'softupdate'] });
 
   if (error) throw error;
 }
@@ -466,9 +479,8 @@ async function softUpdateFluxApi(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFluxInstall() {
-  const cwd = path.join(__dirname, '../../../');
 
-  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdateinstall'] });
+  const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'softupdateinstall'] });
 
   if (error) throw error;
 }
@@ -507,9 +519,8 @@ async function hardUpdateFlux(req, res) {
     return res.json(errMessage);
   }
 
-  const cwd = path.join(__dirname, '../../../');
 
-  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'hardupdateflux'] });
+  const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'hardupdateflux'] });
 
   if (error) {
     const errMessage = messageHelper.createErrorMessage(`Error hard updating Flux: ${error.message}`, error.name, error.code);
