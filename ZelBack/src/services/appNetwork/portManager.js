@@ -471,15 +471,23 @@ function siblingSocketAddresses(localSocketAddress) {
 }
 
 /**
- * Refuse an install onto a port another Flux node at our public address holds.
+ * The Flux node at our public address holding a port this specification wants,
+ * if there is one.
  *
  * Each node behind a shared address keeps its own database and its own docker,
  * so every one of them binds the port and only the one the router forwards to
  * ever receives traffic. The rest run unreachable while still being broadcast as
  * live instances.
  *
- * Runs before the firewall is opened and before any mapping is attempted, so a
+ * Asked before the firewall is opened and before any mapping is attempted, so a
  * refusal costs nothing to unwind.
+ *
+ * Answers rather than throws. This is the same class of fact as "the ports are
+ * not reachable from outside" and belongs on the same path: a node that cannot
+ * host an app right now stands down for one short delay and asks again. A thrown
+ * error is a pre-install fault, which parks the app on this node for six hours -
+ * a timer standing in for a condition that is directly observable, and one the
+ * sibling can clear by uninstalling a minute later.
  *
  * Advisory. A sibling that is down, or answers nothing we can read, leaves us no
  * wiser - and silence is never read as clearance, because the port test that
@@ -487,22 +495,26 @@ function siblingSocketAddresses(localSocketAddress) {
  *
  * @param {object} appSpecFormatted - App specification
  * @param {string} localSocketAddress - our own ip:port
- * @returns {Promise<boolean>} true when no sibling reported one of these ports
- * @throws {Error} when one did
+ * @returns {Promise<{address: string, port: number}|null>} the sibling and the
+ *   port it holds, or null when none of them reported one
  */
-async function ensureSiblingPortsFree(appSpecFormatted, localSocketAddress) {
+async function siblingHoldingPort(appSpecFormatted, localSocketAddress) {
   const wanted = new Set(specifiedPorts(appSpecFormatted).filter(Number.isInteger));
-  if (!wanted.size) return true;
+  if (!wanted.size) return null;
 
   const siblings = siblingSocketAddresses(localSocketAddress);
-  if (!siblings || !siblings.length) return true;
+  if (!siblings || !siblings.length) return null;
 
   const timeout = config.fluxapps.siblingPortsTimeoutMs;
 
   const answers = await Promise.all(siblings.map(async (address) => {
     const response = await serviceHelper.axiosGet(
       `http://${extractIp(address)}:${extractPort(address)}/flux/portsinuse`,
-      { timeout },
+      // A list of port numbers, so the ceiling is generous by orders of
+      // magnitude. Bounded at all because axios does not bound a response body
+      // by default, and this address is only as trustworthy as whatever is
+      // answering on it.
+      { timeout, maxContentLength: 64 * 1024, maxBodyLength: 64 * 1024 },
     ).catch(() => null);
 
     const body = response && response.data;
@@ -515,13 +527,11 @@ async function ensureSiblingPortsFree(appSpecFormatted, localSocketAddress) {
   for (const answer of answers) {
     if (answer) {
       const held = answer.ports.find((port) => wanted.has(port));
-      if (held) {
-        throw new Error(`Flux App ${appSpecFormatted.name} port ${held} is held by the Flux node at ${answer.address}, which shares this public address. Installation aborted.`);
-      }
+      if (held) return { address: answer.address, port: held };
     }
   }
 
-  return true;
+  return null;
 }
 
 /**
@@ -942,7 +952,7 @@ module.exports = {
   portsInUseApi,
   specifiedPorts,
   portNotReached,
-  ensureSiblingPortsFree,
+  siblingHoldingPort,
   isPortAvailable,
   findNextAvailablePort,
   signCheckAppData,

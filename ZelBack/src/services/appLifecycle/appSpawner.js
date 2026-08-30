@@ -505,7 +505,15 @@ async function trySpawningGlobalApplication() {
     // running something. Ask the other Flux nodes at this address directly, here
     // rather than during the port test, so a refusal costs no firewall rule and
     // no port mapping to unwind.
-    await portManager.ensureSiblingPortsFree(appSpecifications, localSocketAddr);
+    //
+    // Stood down for one short delay, exactly as an unreachable port is below,
+    // rather than raised: this node cannot host this app right now, which is not
+    // a fault to park the app over - the sibling can free the port at any time.
+    const sibling = await portManager.siblingHoldingPort(appSpecifications, localSocketAddr);
+    if (sibling) {
+      log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
+      return shortDelayTime;
+    }
 
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
