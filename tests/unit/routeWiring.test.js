@@ -201,6 +201,7 @@ describe('route wiring', () => {
       '/flux/restart',
       '/flux/peerhistory',
       '/flux/currentbranch',
+      '/flux/rebuildui',
       '/flux/currentcommitid',
       '/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?',
       '/daemon/submitblock/:hexdata?/:jsonparametersobject?',

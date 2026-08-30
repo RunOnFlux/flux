@@ -534,9 +534,23 @@ async function rebuildUi(req, res) {
     return res.json(errMessage);
   }
 
+  // Refused on ArcaneOS, where the watchdog owns CloudUI: the periodic check
+  // stands aside there for that reason, and this must not walk under that by
+  // reaching the script directly. Answered rather than done quietly, so the
+  // caller learns which component to ask.
+  if (cloudUIUpdateService.watchdogManagesCloudUI()) {
+    const errMessage = messageHelper.createErrorMessage('CloudUI is managed by the watchdog on ArcaneOS, so it is not rebuilt from here');
+    return res.json(errMessage);
+  }
+
   // The UI is fetched, not built here. It is a published release of a separate
   // repository, so rebuilding it means taking that release again through the one path
   // that knows which host to ask - the same path the periodic check uses.
+  //
+  // Unconditionally, unlike the periodic check: that one stands down when the
+  // installed hash already matches the release, and a CloudUI which is damaged
+  // rather than out of date matches all the same. Repairing one is what this is
+  // for, so it takes the release again whatever is on disk.
   const rebuilt = await cloudUIUpdateService.runUpdateScript();
 
   if (!rebuilt) {
