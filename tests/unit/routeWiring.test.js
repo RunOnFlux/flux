@@ -85,6 +85,29 @@ describe('route wiring', () => {
     });
   });
 
+  // A handler that reads `req.params.appname || req.query.appname` is offering two
+  // forms, and express only matches the second when the parameter is optional.
+  // Registered without the `?`, the query form its own handler implements returns
+  // 404 with nothing to say why - and every sibling under /apps accepts both.
+  describe('endpoints that name an app', () => {
+    const byAppName = [
+      '/apps/appcomponentnames/:appname?',
+      '/apps/appowner/:appname?',
+      '/apps/apporiginalowner/:appname?',
+      '/apps/appinspect/:appname?',
+      '/apps/apptop/:appname?',
+      '/apps/appchanges/:appname?',
+    ];
+
+    byAppName.forEach((path) => {
+      it(`${path} takes the app name in the path or the query`, () => {
+        const route = table.find((entry) => entry.path === path && entry.method === 'get');
+
+        expect(route, `${path} is not registered as a GET - a required :appname would read as a different path`).to.not.equal(undefined);
+      });
+    });
+  });
+
   describe('endpoints held until boot settles', () => {
     // The boot gate is worth exactly what it is wired to, and the file-operation
     // endpoints were the half it missed: ten legacy commands carried
