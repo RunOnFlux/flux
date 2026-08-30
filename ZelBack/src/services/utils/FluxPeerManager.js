@@ -708,9 +708,17 @@ class FluxPeerManager extends EventEmitter {
    * @private
    */
   async #broadcastToGroup(data, direction, exclude, delayMs) {
-    const iter = direction === DIRECTION.INBOUND ? this.inboundValues() : this.outboundValues();
-    for (const peer of iter) {
-      if (exclude && peer.key === exclude) continue;
+    // The keys are taken once, and each is looked up again at the moment it is
+    // sent to. This loop awaits between sends, so the peer map is free to change
+    // under it - a peer dropped by the monitor, a peer this loop evicts itself -
+    // and a live iterator would make the result depend on when that happened.
+    // Looking the key up again keeps the one behaviour that matters: a peer that
+    // has gone while we were delaying is skipped rather than sent to.
+    const keys = direction === DIRECTION.INBOUND ? [...this.#inboundKeys] : [...this.#outboundKeys];
+    for (const key of keys) {
+      if (exclude && key === exclude) continue;
+      const peer = this.#peers.get(key);
+      if (!peer) continue;
       try {
         await serviceHelper.delay(delayMs);
         if (!peer.send(data)) {
@@ -719,7 +727,14 @@ class FluxPeerManager extends EventEmitter {
       } catch (e) {
         try {
           const code = direction === DIRECTION.OUTBOUND ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
-          peer.close(code, 'send failure');
+          // Evicted, not closed. send() returns false only when the socket is
+          // already not open, so this path is reached exactly when close() can
+          // achieve nothing: no frame goes out, onclose has been and gone or
+          // will never come, and ping() skips a non-open socket so the missed
+          // pong that would eventually terminate it is never counted. The peer
+          // would sit in the map holding a place no reconnect is dialled for
+          // and offering itself as a sync source, until ws times the close out.
+          this.evict(peer.key, code, 'send failure');
         } catch (err) {
           log.error(err);
         }

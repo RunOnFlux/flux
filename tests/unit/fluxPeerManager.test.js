@@ -5,7 +5,7 @@ const WebSocket = require('ws');
 
 const { expect } = chai;
 
-const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
@@ -783,6 +783,38 @@ describe('FluxPeerManager tests', () => {
 
     it('should return null for a peer it does not hold', () => {
       expect(manager.evict('1.2.3.4:16127', CLOSE_CODES.NODE_UNCONFIRMED)).to.equal(null);
+    });
+  });
+
+  // A send fails only when the socket is not open, which is exactly when close()
+  // can achieve nothing - so the path that reacts to a failed send has to remove
+  // the peer itself, or the peer stays in the map holding a slot no reconnect is
+  // dialled for and offering itself as a sync source.
+  describe('broadcast to a peer that cannot receive', () => {
+    it('drops the peer from the map, not just from the socket', async () => {
+      const ws = createMockWs('10.0.0.1');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      ws.readyState = WebSocket.CLOSED; // send() refuses, which is how this path is reached
+
+      await manager.broadcast('anything', { direction: DIRECTION.OUTBOUND, delayMs: 0 });
+
+      expect(manager.has('10.0.0.1:16127'), 'peer survived a send it could not receive').to.equal(false);
+      expect(manager.outboundCount).to.equal(0);
+      expect(ws.onclose).to.equal(null);
+    });
+
+    it('keeps sending to the peers that can receive', async () => {
+      const dead = createMockWs('10.0.0.1');
+      const alive = createMockWs('10.1.0.1');
+      manager.add(dead, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(alive, '10.1.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      dead.readyState = WebSocket.CLOSED;
+
+      await manager.broadcast('anything', { direction: DIRECTION.OUTBOUND, delayMs: 0 });
+
+      expect(manager.has('10.0.0.1:16127')).to.equal(false);
+      expect(manager.has('10.1.0.1:16127')).to.equal(true);
+      sinon.assert.called(alive.send);
     });
   });
 

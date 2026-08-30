@@ -737,7 +737,10 @@ async function closeConnection(ip, port) {
   if (!peer || peer.direction !== DIRECTION.OUTBOUND) {
     return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
-  peer.close(CLOSE_CODES.CLOSED_OUTBOUND, 'purposefully closed');
+  // Evicted rather than closed: the caller asked for this peer to be gone, and
+  // until it leaves the map it still fills a slot no reconnect is dialled for
+  // and is still offered as a sync source.
+  peerManager.evict(key, CLOSE_CODES.CLOSED_OUTBOUND, 'purposefully closed');
   log.info(`Connection to ${ip}:${port} closed with code ${CLOSE_CODES.CLOSED_OUTBOUND}`);
   return messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} closed`);
 }
@@ -757,7 +760,7 @@ async function closeIncomingConnection(ip, port) {
   if (!peer || peer.direction !== DIRECTION.INBOUND) {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
-  peer.close(CLOSE_CODES.CLOSED_INBOUND, 'purposefully closed');
+  peerManager.evict(key, CLOSE_CODES.CLOSED_INBOUND, 'purposefully closed');
   log.info(`Connection from ${ip}:${port} closed with code ${CLOSE_CODES.CLOSED_INBOUND}`);
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }

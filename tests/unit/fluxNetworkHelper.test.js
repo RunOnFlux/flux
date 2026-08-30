@@ -541,6 +541,23 @@ describe('fluxNetworkHelper tests', () => {
       expect(closeConnectionResult).to.eql(successMessage);
     });
 
+    // The caller asked for this peer to be gone. Until it leaves the map it
+    // still fills a slot no reconnect is dialled for and is still offered as a
+    // sync source - and the socket cannot be relied on to report the close,
+    // because a peer is most often removed exactly when it has stopped
+    // answering.
+    it('removes the peer, rather than waiting for its socket to report the close', async () => {
+      const ip = '127.9.9.7';
+      const port = '16127';
+      generateWebsocket(ip, port, WebSocket.OPEN);
+      expect(peerManager.has(`${ip}:${port}`)).to.equal(true);
+
+      await fluxNetworkHelper.closeConnection(ip, port);
+
+      expect(peerManager.has(`${ip}:${port}`), 'peer survived its own removal').to.equal(false);
+      expect(peerManager.outboundCount).to.equal(0);
+    });
+
     it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
       const ip = '127.9.9.1';
       const port = '16127';
@@ -616,6 +633,21 @@ describe('fluxNetworkHelper tests', () => {
     afterEach(() => {
       peerManager.reset();
       sinon.restore();
+    });
+
+    it('removes the peer, rather than waiting for its socket to report the close', async () => {
+      const ip = '127.5.5.9';
+      const port = '16127';
+      const ws = {
+        ip, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
+      };
+      peerManager.add(ws, ip, port, { source: PEER_SOURCE.INBOUND });
+      expect(peerManager.has(`${ip}:${port}`)).to.equal(true);
+
+      await fluxNetworkHelper.closeIncomingConnection(ip, port);
+
+      expect(peerManager.has(`${ip}:${port}`), 'peer survived its own removal').to.equal(false);
+      expect(peerManager.inboundCount).to.equal(0);
     });
 
     it('should return warning message if the websocket does not exist', async () => {
