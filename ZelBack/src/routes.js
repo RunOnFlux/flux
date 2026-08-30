@@ -56,10 +56,22 @@ const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
 
+// An error must never be remembered. apicache stores whatever the handler
+// produced and serves it to everyone who asks next, so a transient failure
+// would be pinned for the whole cache window after the condition cleared - up
+// to a day on the longest of them, with a restart the only way to clear it.
+// Every route hands its failures to express now, which is what makes those
+// failures a response rather than a crash.
+//
+// An allowlist, not a blocklist: a status not named here is not cached, so a
+// failure nobody predicted is excluded by default rather than stored until
+// someone notices. It costs nothing today - a handler in this tree answers 200
+// even when it is reporting an error, which it puts in the body - so the only
+// responses this keeps out are the ones express itself writes. A route that
+// ever wants a 201 or a redirect cached names it here, deliberately.
+apicache.options({ statusCodes: { include: [200], exclude: [] } });
+
 const cache = apicache.middleware;
-// caching a transient 503 would pin "unavailable" for the cache window after
-// the data arrives - only successful answers are worth keeping
-const cacheSuccessOnly = (req, res) => res.statusCode === 200;
 
 module.exports = (app) => {
   // GET PUBLIC methods
@@ -501,7 +513,7 @@ module.exports = (app) => {
   app.post('/apps/placementfeasibility', asyncRoute((req, res) => { // fault domains and per-domain instance share for a prospective spec
     return placementFeasibility.placementFeasibilityAPI(req, res);
   }));
-  app.get('/apps/placementlocations', rejectQueryParameters, cache('30 seconds', cacheSuccessOnly), asyncRoute((req, res) => { // node, fault-domain and tier counts per continent/country
+  app.get('/apps/placementlocations', rejectQueryParameters, cache('30 seconds'), asyncRoute((req, res) => { // node, fault-domain and tier counts per continent/country
     return placementFeasibility.placementLocationsAPI(req, res);
   }));
   app.get('/apps/deploymentinformation', cache('30 seconds'), asyncRoute((req, res) => {
