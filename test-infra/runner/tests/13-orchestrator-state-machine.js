@@ -183,25 +183,23 @@ describe('Orchestrator: READY to DEGRADED', function () {
   });
 });
 
+// #onPeersDegraded accepts READY or SYNCING; the block above covers the READY entry
+// and this one covers SYNCING. Losing confirmation reaches it in a single step,
+// because it does both halves at once: #checkReadiness bails at !canSendMessages so
+// the node moves READY → SYNCING, and fluxCommunication's confirmation handler calls
+// peerManager.disconnectAll(), so every peer closes. That is peers dropping during
+// SYNCING, so the test needs no separate disconnect.
 describe('Orchestrator: peer drop during SYNCING', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
   before(async function () {
-    this.timeout(120000);
+    this.timeout(300000);
     env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
-    await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
-    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-    await waitForExplorerReady(env.clients[0]);
-    await waitForOrchestratorStarted(env.clients[0]);
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 20000);
-    await env.startDiscovery();
-    await waitForPeerThreshold(env.clients[0], 120000);
-    await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
-    // Revoke message capability so the orchestrator stays in SYNCING
-    await setNodeStatus(env.clients[0].ip, 'EXPIRED');
-    await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
+    await bootNodes(env, { discover: true });
+    await startTicker();
+    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+    await stopTicker();
   });
 
   after(async function () {
@@ -211,11 +209,20 @@ describe('Orchestrator: peer drop during SYNCING', function () {
   });
 
   it('should transition to DEGRADED when peers drop during SYNCING', async function () {
-    this.timeout(30000);
-    for (let i = 1; i < env.clients.length; i++) {
-      await env.disconnectNode(i);
-    }
-    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 10000);
+    this.timeout(60000);
+    // waitForEvent answers from the buffer of every event since boot, so this anchor is
+    // what makes the wait below describe the transition this test causes.
+    const beforeLoss = env.clients[0].getLastEventId();
+
+    await setNodeStatus(env.clients[0].ip, 'EXPIRED');
+
+    const degraded = await env.clients[0].waitForEvent(
+      'orchestrator:stateChanged', (d) => d.to === 'DEGRADED', 30000, { afterId: beforeLoss },
+    );
+    // Which branch ran is read off the transition rather than asserted by waiting for
+    // SYNCING first: both halves are driven by the same confirmation change, so their
+    // order is the product's and not this test's to fix.
+    expect(degraded.data.from).to.equal('SYNCING');
   });
 });
 
