@@ -745,6 +745,97 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
+  // The mock socket's close() is a stub: readyState never advances and onclose never
+  // fires, which is a socket whose peer does not answer the close frame. Every
+  // assertion below is made in that state, because it is the one where waiting on the
+  // socket and acting on the decision give different answers.
+  describe('evict', () => {
+    it('should remove the peer without waiting for the socket to close', () => {
+      const ws = createMockWs('10.0.0.1');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      const evicted = manager.evict('10.0.0.1:16127', CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+
+      expect(evicted).to.equal(peer);
+      expect(manager.has('10.0.0.1:16127')).to.equal(false);
+      expect(manager.outboundCount).to.equal(0);
+      expect(ws.onclose).to.equal(null);
+    });
+
+    it('should send the close frame, so the remote still decides on the code we sent', () => {
+      const ws = createMockWs('10.0.0.1');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      manager.evict('10.0.0.1:16127', CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+
+      sinon.assert.calledOnceWithExactly(ws.close, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+    });
+
+    it('should leave a late close unable to remove a second time', () => {
+      const ws = createMockWs('10.0.0.1');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.evict('10.0.0.1:16127', CLOSE_CODES.NODE_UNCONFIRMED);
+
+      // The handshake completing later has no handler to run, and the key is gone.
+      expect(ws.onclose).to.equal(null);
+      expect(manager.remove('10.0.0.1:16127')).to.equal(null);
+    });
+
+    it('should return null for a peer it does not hold', () => {
+      expect(manager.evict('1.2.3.4:16127', CLOSE_CODES.NODE_UNCONFIRMED)).to.equal(null);
+    });
+  });
+
+  describe('disconnectAll', () => {
+    /** Twelve peers in distinct /16 groups - the production sync threshold. */
+    function addTwelvePeers(mgr) {
+      const peers = [];
+      for (let i = 0; i < 12; i += 1) {
+        const ip = `10.${i}.0.1`;
+        peers.push(mgr.add(createMockWs(ip), ip, '16127', { source: PEER_SOURCE.RANDOM }));
+      }
+      return peers;
+    }
+
+    it('should empty the peer map even though no socket reports closing', () => {
+      addTwelvePeers(manager);
+      expect(manager.outboundCount).to.equal(12);
+
+      manager.disconnectAll();
+
+      expect(manager.outboundCount).to.equal(0);
+    });
+
+    it('should drop below the degraded threshold as it goes', () => {
+      const belowThreshold = sinon.stub();
+      manager.on('peersBelowThreshold', belowThreshold);
+      addTwelvePeers(manager);
+
+      manager.disconnectAll();
+
+      sinon.assert.calledOnce(belowThreshold);
+      sinon.assert.calledWith(belowThreshold, sinon.match((n) => n < 4));
+    });
+
+    it('should stop accepting connections', () => {
+      addTwelvePeers(manager);
+
+      manager.disconnectAll();
+
+      expect(manager.acceptingConnections).to.equal(false);
+    });
+
+    it('should send every peer the close frame', () => {
+      const peers = addTwelvePeers(manager);
+
+      manager.disconnectAll();
+
+      peers.forEach((peer) => {
+        sinon.assert.calledOnceWithExactly(peer.ws.close, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+      });
+    });
+  });
+
   describe('has / get', () => {
     it('should return true/peer for existing key', () => {
       const ws = createMockWs('10.0.0.1', '16127');
