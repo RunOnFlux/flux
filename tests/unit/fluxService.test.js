@@ -1889,6 +1889,20 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
+    // A container as docker reports it, so what /flux/info publishes of it is
+    // decided by the projection rather than by what the stub was told to say.
+    const runningContainer = {
+      Id: '9f2c1b0e4d3a',
+      Names: ['/fluxwww_App'],
+      Image: 'someregistry.example/private:1.2.3',
+      ImageID: 'sha256:0123456789abcdef',
+      Command: '/entrypoint.sh --serve',
+      Ports: [{ PrivatePort: 8080, PublicPort: 31000, Type: 'tcp' }],
+      Labels: { 'org.opencontainers.image.revision': 'a1b2c3d4' },
+      State: 'running',
+      Status: 'Up 2 hours',
+    };
+
     it('should return flux info no response passed', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
       daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
@@ -1896,7 +1910,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -1926,7 +1940,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -1950,7 +1964,11 @@ describe('fluxService tests', () => {
           },
           apps: {
             fluxusage: 'usage data',
-            runningapps: 'listRunningApps data',
+            // /flux/info carries the same public view /apps/listrunningapps
+            // serves - it embeds the container listing, and a projection
+            // applied at one exit and not the other is the shape it exists
+            // to avoid.
+            runningapps: [{ Names: ['/fluxwww_App'], State: 'running', Status: 'Up 2 hours' }],
             resources: 'appsResources data',
           },
           geolocation: null,
@@ -1960,6 +1978,31 @@ describe('fluxService tests', () => {
       });
     });
 
+    // calledOnceWithMatch is a partial match, so the assertion above would pass
+    // on a runningapps entry that also carried the image. This one reads the key
+    // set, which is the property the projection exists to hold.
+    it('publishes three container fields and no others', async () => {
+      daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
+      benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
+      benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
+      appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
+      explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
+      fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
+      fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
+      const result = await fluxService.getFluxInfo();
+
+      expect(result.data.apps.runningapps).to.have.lengthOf(1);
+      expect(Object.keys(result.data.apps.runningapps[0]).sort())
+        .to.deep.equal(['Names', 'State', 'Status']);
+    });
+
     it('should return error if control rpcs returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'error', data: 'info data' });
       daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
@@ -1967,7 +2010,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -1992,7 +2035,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2017,7 +2060,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2042,7 +2085,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'error', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2067,7 +2110,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'error', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2092,7 +2135,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'error', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2142,7 +2185,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'error', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2167,7 +2210,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'error', data: 'getAppHashes data' });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2192,7 +2235,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'error', data: 'getScannedHeight data' });
@@ -2217,7 +2260,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2242,7 +2285,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });

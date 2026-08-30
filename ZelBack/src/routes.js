@@ -364,6 +364,11 @@ module.exports = (app) => {
   // left wrong deliberately: renaming a v1 route is a 404 for every caller, which is
   // a different and louder break than changing what a response contains, and v2 gets
   // the correct names for free in a new URL space. Do not rename them here.
+  //
+  // Both container listings are public and answer every caller identically, with
+  // {Names, State, Status} built from docker's own fields - which is what lets
+  // them keep a cache that answers before any handler runs.
+  //
   // Not a filter of listallapps, whatever the name says. This answers "which containers
   // should FDM route to", which is the running ones PLUS any stopped container whose app
   // is mid-backup or mid-restore - a fact that lives in this process's memory and is not
@@ -371,7 +376,7 @@ module.exports = (app) => {
   // checkAppRunning reads it for every app and matches on Names[0] alone, so dropping a
   // container from here takes that app out of routing.
   app.get('/apps/listrunningapps', cache('15 seconds'), asyncRoute((req, res) => {
-    return appQueryService.listRunningApps(req, res);
+    return appQueryService.listRunningAppsApi(req, res);
   }));
   // Read by peers mid-election. Both are unauthenticated, and the API has no rate
   // limiting, so neither may do unbounded backend work per request.
@@ -395,7 +400,7 @@ module.exports = (app) => {
     return appQueryService.promotedFolders(req, res);
   }));
   app.get('/apps/listallapps', cache('30 seconds'), asyncRoute((req, res) => {
-    return appQueryService.listAllApps(req, res);
+    return appQueryService.listAllAppsApi(req, res);
   }));
   app.get('/apps/listappsimages', cache('30 seconds'), asyncRoute((req, res) => {
     return appInspector.listAppsImages(req, res);

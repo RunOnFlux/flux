@@ -440,29 +440,107 @@ describe('appQueryService tests', () => {
       }
     });
 
-    it('should return running apps with response passed', async () => {
-      const mockContainers = [
-        {
-          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
-        },
-        {
-          Names: ['/zel_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
-        },
-      ];
-      const expectedApps = [
-        { Names: ['/flux_app1'] },
-        { Names: ['/zel_app2'] },
-      ];
-      const res = {
-        json: sinon.stub(),
-      };
+  });
 
-      dockerServiceStub.dockerListContainers.resolves(mockContainers);
-      messageHelperStub.createDataMessage.returns({ status: 'success', data: expectedApps });
+  // A container docker reports in full, so every assertion below is about what
+  // reaches the caller rather than about what the stub was told to return.
+  const dockerContainer = {
+    Id: '9f2c1b0e4d3a',
+    Names: ['/fluxwww_App'],
+    Image: 'someregistry.example/private:1.2.3',
+    ImageID: 'sha256:0123456789abcdef',
+    Command: '/entrypoint.sh --serve',
+    Created: 1700000000,
+    Ports: [{ PrivatePort: 8080, PublicPort: 31000, Type: 'tcp' }],
+    Labels: { 'org.opencontainers.image.revision': 'a1b2c3d4' },
+    State: 'running',
+    Status: 'Up 2 hours',
+    HostConfig: {},
+    NetworkSettings: {},
+    Mounts: [],
+  };
 
-      await appQueryService.listRunningApps(undefined, res);
+  describe('publicContainerView', () => {
+    // The whole key set, not a list of fields that must be absent: a view built
+    // from three names cannot grow a fourth, and this is the assertion that says
+    // so. A field docker adds in a future version fails here rather than being
+    // published until someone reads a listing and notices.
+    it('carries three fields and nothing else', () => {
+      const [view] = appQueryService.publicContainerView([dockerContainer]);
 
-      expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
+      expect(Object.keys(view).sort()).to.deep.equal(['Names', 'State', 'Status']);
+    });
+
+    it('reports nothing of the image, its entrypoint, its ports or its build', () => {
+      const [view] = appQueryService.publicContainerView([dockerContainer]);
+
+      ['Id', 'Image', 'ImageID', 'Command', 'Ports', 'Labels', 'Created'].forEach((field) => {
+        expect(view, field).to.not.have.property(field);
+      });
+    });
+
+    // FDM builds /flux{component}_{app} and matches Names[0] exactly, failing
+    // closed when it does not - a bare name, or one with the prefix stripped,
+    // takes every g: app out of routing.
+    it("keeps Names as docker's array, verbatim", () => {
+      const [view] = appQueryService.publicContainerView([dockerContainer]);
+
+      expect(view.Names).to.deep.equal(['/fluxwww_App']);
+      expect(view.State).to.equal('running');
+      expect(view.Status).to.equal('Up 2 hours');
+    });
+
+    it('leaves the container it was given untouched', () => {
+      const container = { ...dockerContainer };
+
+      appQueryService.publicContainerView([container]);
+
+      expect(container).to.deep.equal(dockerContainer);
+    });
+
+    it('answers an empty listing with an empty view', () => {
+      expect(appQueryService.publicContainerView([])).to.deep.equal([]);
+    });
+  });
+
+  describe('listRunningAppsApi', () => {
+    it('answers with the public view rather than the container object', async () => {
+      dockerServiceStub.dockerListContainers.resolves([dockerContainer]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      const res = { json: sinon.stub() };
+
+      await appQueryService.listRunningAppsApi({}, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0]).to.deep.equal({
+        status: 'success',
+        data: [{ Names: ['/fluxwww_App'], State: 'running', Status: 'Up 2 hours' }],
+      });
+    });
+
+    // The route is cached, and apicache keys on the request URL alone, so an
+    // answer given to one caller is the answer every later caller gets. Two
+    // different callers therefore have to be handed the same thing.
+    it('answers the same whoever is asking', async () => {
+      dockerServiceStub.dockerListContainers.resolves([dockerContainer]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      const anonymous = { json: sinon.stub() };
+      const authenticated = { json: sinon.stub() };
+
+      await appQueryService.listRunningAppsApi({ headers: {} }, anonymous);
+      await appQueryService.listRunningAppsApi({ headers: { zelidauth: 'zelid=x&signature=y' } }, authenticated);
+
+      expect(authenticated.json.firstCall.args[0]).to.deep.equal(anonymous.json.firstCall.args[0]);
+    });
+
+    it('hands an error envelope back as it is', async () => {
+      dockerServiceStub.dockerListContainers.rejects(new Error('Docker error'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Docker error' } });
+      const res = { json: sinon.stub() };
+
+      await appQueryService.listRunningAppsApi({}, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { message: 'Docker error' } })).to.be.true;
     });
   });
 
@@ -655,44 +733,36 @@ describe('appQueryService tests', () => {
       expect(logStub.error.calledWith(error)).to.be.true;
     });
 
-    it('should return error if dockerService throws, response passed', async () => {
-      const res = {
-        json: sinon.stub(),
-      };
+  });
+
+  describe('listAllAppsApi', () => {
+    it('answers with the public view rather than the container object', async () => {
+      dockerServiceStub.dockerListContainers.resolves([
+        { ...dockerContainer, State: 'exited', Status: 'Exited (0) 5 minutes ago' },
+      ]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      const res = { json: sinon.stub() };
+
+      await appQueryService.listAllAppsApi({}, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0]).to.deep.equal({
+        status: 'success',
+        data: [{ Names: ['/fluxwww_App'], State: 'exited', Status: 'Exited (0) 5 minutes ago' }],
+      });
+    });
+
+    it('hands an error envelope back as it is', async () => {
       const error = new Error('Docker error');
 
       dockerServiceStub.dockerListContainers.rejects(error);
       messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Docker error' } });
+      const res = { json: sinon.stub() };
 
-      await appQueryService.listAllApps(undefined, res);
+      await appQueryService.listAllAppsApi({}, res);
 
-      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.calledOnceWith({ status: 'error', data: { message: 'Docker error' } })).to.be.true;
       expect(logStub.error.calledWith(error)).to.be.true;
-    });
-
-    it('should return all apps with response passed', async () => {
-      const mockContainers = [
-        {
-          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'running',
-        },
-        {
-          Names: ['/flux_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'exited',
-        },
-      ];
-      const expectedApps = [
-        { Names: ['/flux_app1'], State: 'running' },
-        { Names: ['/flux_app2'], State: 'exited' },
-      ];
-      const res = {
-        json: sinon.stub(),
-      };
-
-      dockerServiceStub.dockerListContainers.resolves(mockContainers);
-      messageHelperStub.createDataMessage.returns({ status: 'success', data: expectedApps });
-
-      await appQueryService.listAllApps(undefined, res);
-
-      expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
     });
   });
 
