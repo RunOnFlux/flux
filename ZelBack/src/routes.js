@@ -462,7 +462,7 @@ module.exports = (app) => {
   // Component names and their election mode, for the flux team. Not cached: the
   // answer depends on who is asking, and a shared cache in front of a
   // privilege-checked route serves one caller's answer to the next.
-  app.get('/apps/appcomponentnames/:appname', asyncRoute((req, res) => {
+  app.get('/apps/appcomponentnames/:appname?', asyncRoute((req, res) => {
     return registryManager.getApplicationComponentNamesAPI(req, res);
   }));
   app.get('/apps/appowner/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
