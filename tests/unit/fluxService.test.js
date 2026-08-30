@@ -3401,6 +3401,22 @@ describe('fluxService tests', () => {
         expect(res.json.firstCall.args[0].data.message).to.contain('could not be fetched');
       });
 
+      // Told where to run, not left to inherit whatever directory the process is
+      // in. Two of these read and one writes - a checkout changes files on disk -
+      // and every npm sibling in the file has always passed it.
+      it(`${api} runs every git command in the node's own checkout`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        const gitCalls = runCmdStub.getCalls().filter((call) => call.args[0] === 'git');
+        expect(gitCalls.length, 'no git command ran at all').to.be.greaterThan(0);
+        const unanchored = gitCalls
+          .filter((call) => !call.args[1] || !call.args[1].cwd)
+          .map((call) => (call.args[1]?.params ?? []).join(' '));
+        expect(unanchored, 'these git commands ran wherever the process happened to be').to.deep.equal([]);
+      });
+
       it(`${api} does not pull, so a switch changes the branch and nothing else`, async () => {
         verifyPrivilegeStub.resolves(true);
 
