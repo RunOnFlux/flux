@@ -357,6 +357,13 @@ module.exports = (app) => {
   app.get('/arcane/authchallenge', requireHttps, asyncRoute(arcaneAuthService.authChallengeHandler));
 
   // Apps routes - now directly calling modular services
+  //
+  // Several names below say "apps" and mean something else. listrunningapps and
+  // listallapps return CONTAINERS, listappsimages returns IMAGES, and each repeats
+  // "apps" inside a path that is already under /apps. The names are wrong and are
+  // left wrong deliberately: renaming a v1 route is a 404 for every caller, which is
+  // a different and louder break than changing what a response contains, and v2 gets
+  // the correct names for free in a new URL space. Do not rename them here.
   app.get('/apps/listrunningapps', cache('15 seconds'), asyncRoute((req, res) => {
     return appQueryService.listRunningApps(req, res);
   }));
