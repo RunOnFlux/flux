@@ -441,6 +441,9 @@ module.exports = {
     portTestPropagationDelayMs: 10000,
     portTestPeerTimeoutMs: 30000,
     portTestMaxAttempts: 5,
+    // Scan of other Flux nodes sharing our public IP. Short on purpose: these are LAN-adjacent
+    // hops, and a sibling that does not answer promptly is skipped rather than delaying an install.
+    sameIpScanTimeoutMs: 5000,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,

@@ -321,6 +321,39 @@ async function isPortOpen(ip, port, options = {}) {
 }
 
 /**
+ * Check that a port not only answers, but answers as the node that asked us to test it.
+ *
+ * `isPortOpen` is a bare TCP connect, so it cannot tell "the requester's test server replied" from
+ * "some other process at that address replied". That distinction is invisible on a single-node
+ * host and decisive on a multi-node one: several Flux nodes commonly share one public IP behind a
+ * router that forwards each app port to exactly one of them. A node installing an app whose ports
+ * a sibling already holds gets a passing probe — the sibling answers — and installs an app that is
+ * unreachable from the moment it starts.
+ *
+ * The requester puts a random token on its pre-install test server; we fetch the port over HTTP and
+ * confirm that token comes back. Anything else answering means the address is not the requester's
+ * to use.
+ *
+ * @param {string} ip IP address.
+ * @param {number|string} port Port.
+ * @param {string} token Token the requester published on its test server.
+ * @param {object} options
+ * @returns {Promise<boolean>} True only when the port answered with this exact token.
+ */
+async function isPortOwnedBy(ip, port, token, options = {}) {
+  const timeout = options.timeout || 5_000;
+
+  const res = await serviceHelper.axiosGet(`http://${ip}:${port}/`, { timeout }).catch(() => null);
+  if (!res || !res.data) return false;
+
+  const answered = typeof res.data === 'string'
+    ? res.data
+    : ((res.data.data && res.data.data.token) || '');
+
+  return answered === token;
+}
+
+/**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
@@ -415,7 +448,7 @@ async function checkAppAvailability(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
 
       const {
-        ip, ports, pubKey, signature,
+        ip, ports, pubKey, signature, portTestToken,
       } = processedBody;
 
       const ipPort = processedBody.port;
@@ -439,8 +472,14 @@ async function checkAppAvailability(req, res) {
         const withinRange = portNum >= minPort && portNum <= maxPort;
 
         if (withinRange && !iBP) {
+          // A requester on a recent version publishes a token on its test server, which lets us
+          // prove the port reaches IT rather than merely being open at its address — see
+          // isPortOwnedBy. Requesters that send no token get the old reachability-only check, so
+          // older nodes keep working unchanged.
           // eslint-disable-next-line no-await-in-loop
-          const isOpen = await isPortOpen(ip, port);
+          const isOpen = portTestToken
+            ? await isPortOwnedBy(ip, port, portTestToken)
+            : await isPortOpen(ip, port);
           if (!isOpen) {
             throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
           }
@@ -2341,6 +2380,7 @@ module.exports = {
   lruRateLimit,
   isPortOpen,
   checkAppAvailability,
+  isPortOwnedBy,
   isPortEnterprise,
   isPortBanned,
   isPortUPNPBanned,

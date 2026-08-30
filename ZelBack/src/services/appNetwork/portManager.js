@@ -1,4 +1,5 @@
 const config = require('config');
+const crypto = require('node:crypto');
 const axios = require('axios');
 const dbHelper = require('../dbHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
@@ -188,6 +189,110 @@ async function assignedPortsGlobalApps(appNames) {
   });
 
   return appsWithPorts;
+}
+
+/**
+ * Ports actually published by Flux apps on OTHER Flux nodes sharing our public IP.
+ *
+ * `assignedPortsGlobalApps` derives a sibling's ports from its globally broadcast specification.
+ * For a v8 enterprise app that specification is blanked — `compose` is empty by design, so the app
+ * contributes no ports and is skipped entirely. Every enterprise app is therefore invisible to the
+ * same-IP collision check, which is how several apps holding the same ports end up on one address.
+ *
+ * A node's published host ports are not secret — they are already served by /apps/listrunningapps,
+ * which the redaction leaves intact precisely because ports are needed for routing. So ask the
+ * sibling what it has bound rather than trying to infer it from a spec we cannot read.
+ *
+ * Best effort: a sibling that does not answer is skipped rather than blocking the install, since
+ * the nonce-verified port test still has to pass afterwards.
+ *
+ * @param {string} ip Our public IP address.
+ * @param {number|string} ownApiPort Our own FluxOS API port, excluded from the scan.
+ * @param {Array<{ip: string}>} locations App locations already known for this IP, as
+ *   registryManager.getRunningAppIpList returns them (passed in to avoid a require cycle).
+ * @returns {Promise<Array<{name: string, ports: number[], apiPort: number}>>}
+ */
+async function assignedPortsSameIpNodes(ip, ownApiPort, locations = []) {
+  const siblingApiPorts = new Set();
+  locations.forEach((loc) => {
+    const apiPort = extractPort(loc.ip);
+    if (apiPort && Number(apiPort) !== Number(ownApiPort)) siblingApiPorts.add(Number(apiPort));
+  });
+
+  const found = [];
+
+  await Promise.all([...siblingApiPorts].map(async (apiPort) => {
+    const res = await serviceHelper.axiosGet(
+      `http://${ip}:${apiPort}/apps/listrunningapps`,
+      { timeout: config.fluxapps.sameIpScanTimeoutMs || 5_000 },
+    ).catch(() => null);
+
+    const containers = res && res.data && res.data.status === 'success' && Array.isArray(res.data.data)
+      ? res.data.data
+      : [];
+
+    containers.forEach((container) => {
+      const raw = String((container.Names || [])[0] || '').replace(/^\//, '').replace(/^(zel|flux)/, '');
+      const name = raw.includes('_') ? raw.split('_').slice(1).join('_') : raw;
+      const ports = [...new Set(
+        (container.Ports || []).map((entry) => Number(entry.PublicPort)).filter(Boolean),
+      )];
+      if (name && ports.length) found.push({ name, ports, apiPort });
+    });
+  }));
+
+  return found;
+}
+
+/**
+ * Refuse an install whose ports another Flux node on our own public IP has already published.
+ *
+ * Each node behind a shared address keeps its own app database and its own docker, so nothing in
+ * the per-node checks can see the conflict: every node binds the port successfully on its own
+ * network namespace, and only one of them ever receives the traffic the router forwards. The
+ * losers run permanently unreachable while still being broadcast to the network as live
+ * instances.
+ *
+ * @param {object} appSpecFormatted - App specifications
+ * @param {string} localSocketAddr - Our own "ip:port" socket address
+ * @param {Array<{ip: string}>} locations App locations already known for this IP
+ * @returns {Promise<boolean>} True when no sibling holds any of our ports
+ * @throws {Error} If a sibling node on this IP already publishes one of them
+ */
+async function ensureSameIpPortsFree(appSpecFormatted, localSocketAddr, locations = []) {
+  const ip = extractIp(localSocketAddr);
+  const ownApiPort = extractPort(localSocketAddr);
+  if (!ip) return true;
+
+  const siblings = await assignedPortsSameIpNodes(ip, ownApiPort, locations).catch((error) => {
+    log.warn(`ensureSameIpPortsFree - could not scan sibling nodes on ${ip}: ${error.message}`);
+    return [];
+  });
+  if (!siblings.length) return true;
+
+  const wanted = [];
+  if (appSpecFormatted.version === 1) {
+    if (appSpecFormatted.port) wanted.push(Number(appSpecFormatted.port));
+  } else if (appSpecFormatted.version <= 3) {
+    (appSpecFormatted.ports || []).forEach((port) => wanted.push(Number(port)));
+  } else {
+    (appSpecFormatted.compose || []).forEach((component) => {
+      (component.ports || []).forEach((port) => wanted.push(Number(port)));
+    });
+  }
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const port of wanted) {
+    const holder = siblings.find((sibling) => sibling.ports.includes(port));
+    // A different instance of the SAME app on a sibling node is a separate matter (instance
+    // placement), and rejecting it here would change existing behaviour, so only a different
+    // application counts as a conflict — mirroring ensureApplicationPortsNotUsed.
+    if (holder && holder.name !== appSpecFormatted.name) {
+      throw new Error(`Flux App ${appSpecFormatted.name} port ${port} is already published by ${holder.name} on Flux node ${ip}:${holder.apiPort} sharing this IP. Installation aborted.`);
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -439,6 +544,10 @@ async function signCheckAppData(message) {
  */
 async function checkInstallingAppPortAvailable(portsToTest = []) {
   const beforeAppInstallTestingServers = [];
+  // One token for this whole test run. Peers echo it back from our test servers, which is what
+  // distinguishes "this port reaches us" from "this port is open at our address" — the two are the
+  // same thing only when we are the only Flux node behind our public IP. See isPortOwnedBy.
+  const portTestToken = crypto.randomBytes(16).toString('hex');
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
   const portsNotWorking = new Set();
@@ -491,7 +600,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
           throw new Error('Failed to create map UPNP port');
         }
       }
-      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
+      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer(portTestToken);
 
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(config.fluxapps.portTestBindDelayMs);
@@ -532,6 +641,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       appname: 'appPortsTest',
       ports: portsToTest,
       pubKey,
+      portTestToken,
     };
     const stringData = JSON.stringify(data);
     // eslint-disable-next-line no-await-in-loop
@@ -743,7 +853,9 @@ module.exports = {
   ensureAppUniquePorts,
   assignedPortsInstalledApps,
   assignedPortsGlobalApps,
+  assignedPortsSameIpNodes,
   ensureApplicationPortsNotUsed,
+  ensureSameIpPortsFree,
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
   restorePortsSupport,
