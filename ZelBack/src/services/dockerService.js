@@ -199,8 +199,14 @@ async function getDockerContainerOnly(idOrName) {
  */
 async function getDockerContainerByIdOrName(idOrName) {
   const myContainer = await getDockerContainerOnly(idOrName);
-  // Don't throw error here, let it fail with property access error
-  // to match test expectations
+  // A container that is not there is an expected outcome, not an accident: an
+  // app is removed or redeployed while something else still holds its name.
+  // Dereferencing undefined instead raised `Cannot read properties of undefined
+  // (reading 'Id')` - a message that describes the mistake rather than the
+  // condition, and that callers had to pattern-match on to recognise it.
+  if (!myContainer) {
+    throw new Error(`Container ${idOrName} not found`);
+  }
   const dockerContainer = docker.getContainer(myContainer.Id);
   return dockerContainer;
 }
@@ -348,10 +354,7 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
  */
 async function dockerContainerLogsStream(idOrName, res, callback) {
   try {
-    // container ID or name
-    const containers = await dockerListContainers(true);
-    const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-    const dockerContainer = docker.getContainer(myContainer.Id);
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
     const logStream = new stream.PassThrough();
     logStream.on('data', (chunk) => {
       res.write(serviceHelper.ensureString(chunk.toString('utf8')));
@@ -495,7 +498,13 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
   } catch (error) {
     log.error('Error in dockerContainerLogsPolling:', error);
     if (callback) {
+      // The failure is already delivered. Rethrowing as well rejects the promise
+      // this function returns, and every caller invokes it from inside a `new
+      // Promise` executor without awaiting it - so that rejection has no handler
+      // and Node kills the process. A browser left on an app's log page after
+      // the container went away was enough to restart-loop FluxOS indefinitely.
       callback(error);
+      return;
     }
     throw error;
   }
