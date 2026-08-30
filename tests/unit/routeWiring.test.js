@@ -12,9 +12,12 @@
 // middleware chain it actually built.
 
 const { expect } = require('chai');
+const express = require('express');
+const request = require('supertest');
+const apicache = require('apicache');
 
 const registerRoutes = require('../../ZelBack/src/routes');
-const { rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
+const { asyncRoute, rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
 
 /**
  * The route table routes.js builds, as a list of {method, path, chain}.
@@ -124,6 +127,59 @@ describe('route wiring', () => {
       });
     });
   });
+  // Every route hands its failures to express, which answers 500 - so a failure
+  // is a response now, and apicache stores whatever a handler produced. Without
+  // a bound on what may be stored, one transient rejection is served to every
+  // later caller for the whole window, up to a day on the longest of these, and
+  // only a restart clears it.
+  //
+  // Asserted through a real express stack rather than by reading the option
+  // back: the property is that a failure is not remembered, and the option is
+  // only the mechanism that currently delivers it. Requiring routes.js above is
+  // what applies it.
+  describe('what a cache is allowed to remember', () => {
+    let app;
+    let calls;
+
+    beforeEach(() => {
+      apicache.clear();
+      calls = { boom: 0, fine: 0 };
+      app = express();
+      app.get('/boom', apicache.middleware('30 seconds'), asyncRoute(async () => {
+        calls.boom += 1;
+        throw new Error('transient');
+      }));
+      app.get('/fine', apicache.middleware('30 seconds'), asyncRoute(async (req, res) => {
+        calls.fine += 1;
+        res.json({ status: 'success', data: 42 });
+      }));
+    });
+
+    afterEach(() => {
+      apicache.clear();
+    });
+
+    it('does not answer a later caller from a handler that failed', async () => {
+      const first = await request(app).get('/boom');
+      const second = await request(app).get('/boom');
+
+      expect(first.status).to.equal(500);
+      expect(second.status).to.equal(500);
+      expect(calls.boom, 'the second caller was served the first one\'s failure').to.equal(2);
+    });
+
+    // The control: without it the assertion above passes on a cache that is
+    // simply not working at all.
+    it('still answers a later caller from a handler that succeeded', async () => {
+      await request(app).get('/fine');
+      const second = await request(app).get('/fine');
+
+      expect(second.status).to.equal(200);
+      expect(second.body).to.deep.equal({ status: 'success', data: 42 });
+      expect(calls.fine, 'the cache did not serve the second caller').to.equal(1);
+    });
+  });
+
   describe('endpoints that decide who is asking', () => {
     // apicache answers from its store BEFORE the handler runs, and keys an entry on
     // the request URL alone - nothing about the caller. So the privilege check
