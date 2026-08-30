@@ -1266,28 +1266,31 @@ async function getConfigOptionsApi(req, res) {
 }
 
 /**
- * Returns the gui object
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
+ * The syncthing GUI's own configuration.
+ * @returns {Promise<object>} The gui configuration.
  */
 async function getConfigGui() {
-  return performRequest('get', '/rest/config/gui');
+  return request('get', '/rest/config/gui');
 }
 
 /**
- * To show the GUI configuration. Only accessible by the node operator and Flux
- * team members.
+ * To show the GUI configuration. Flux team only.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message
+ * @returns {Promise<void>}
  */
 async function getConfigGuiApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized !== true) {
-    return res.json(messageHelper.errUnauthorizedMessage());
+    res.json(messageHelper.errUnauthorizedMessage());
+    return;
   }
-  return res.json(await getConfigGui());
+  try {
+    res.json(messageHelper.createDataMessage(await getConfigGui()));
+  } catch (error) {
+    log.error(error);
+    res.json(errorEnvelope(error));
+  }
 }
 
 /**
@@ -1362,7 +1365,7 @@ async function postConfigGui(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/gui', newConfig);

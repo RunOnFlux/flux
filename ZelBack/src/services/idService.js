@@ -15,6 +15,22 @@ const appInspector = require('./appManagement/appInspector');
 const signatureVerifier = require('./signatureVerifier');
 const { Privilege, authOf } = require('./utils/privileges');
 
+/**
+ * What /id/checkprivilege answers.
+ *
+ * A published contract, not an internal name: the frontend branches on these
+ * four strings in fourteen places, in a separately deployed repo, and reads them
+ * out of the response body whether the status says success or error. They are
+ * deliberately not Privilege's values - that enum is what a route requires
+ * internally, and the two are free to diverge.
+ */
+const PRIVILEGE_RESPONSE = Object.freeze({
+  NODE_OPERATOR: 'admin',
+  FLUX_TEAM: 'fluxteam',
+  USER: 'user',
+  NONE: 'none',
+});
+
 async function deleteLoginPhrase(phrase) {
   try {
     const db = dbHelper.databaseConnection();
@@ -312,11 +328,11 @@ async function verifyLogin(req, res) {
               // indication why; refusing says what is true and costs one retry.
               throw new Error('Node is still starting and cannot establish privileges yet');
             }
-            let privilage = 'user';
+            let privilage = PRIVILEGE_RESPONSE.USER;
             if (address === config.fluxTeamFluxID || address === config.fluxSupportTeamFluxID) {
-              privilage = 'fluxteam';
+              privilage = PRIVILEGE_RESPONSE.FLUX_TEAM;
             } else if (address === adminZelid) {
-              privilage = 'admin';
+              privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;
             }
             const loggedUsersCollection = config.database.local.collections.loggedUsers;
             const value = newLogin;
@@ -689,11 +705,11 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
         if (!adminZelid) {
           throw new Error('Node is still starting and cannot establish privileges yet');
         }
-        let privilage = 'user';
+        let privilage = PRIVILEGE_RESPONSE.USER;
         if (result.zelid === config.fluxTeamFluxID || result.zelid === config.fluxSupportTeamFluxID) {
-          privilage = 'fluxteam';
+          privilage = PRIVILEGE_RESPONSE.FLUX_TEAM;
         } else if (result.zelid === adminZelid) {
-          privilage = 'admin';
+          privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;
         }
         const resData = {
           message: 'Successfully logged in',
@@ -812,21 +828,6 @@ async function wsRespondSignature(ws, message) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
-/**
- * What /id/checkprivilege answers.
- *
- * A published contract, not an internal name: the frontend branches on these
- * four strings in fourteen places, in a separately deployed repo, and reads them
- * out of the response body whether the status says success or error. They are
- * deliberately not Privilege's values - that enum is what a route requires
- * internally, and the two are free to diverge.
- */
-const PRIVILEGE_RESPONSE = Object.freeze({
-  NODE_OPERATOR: 'admin',
-  FLUX_TEAM: 'fluxteam',
-  USER: 'user',
-  NONE: 'none',
-});
 
 async function checkLoggedUser(req, res) {
   let body = '';

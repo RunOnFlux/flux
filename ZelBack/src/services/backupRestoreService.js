@@ -287,7 +287,8 @@ async function downloadLocalFile(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    // The route is its only caller, so there is always a response to write to.
+    return res.json(errorResponse);
   }
 }
 
