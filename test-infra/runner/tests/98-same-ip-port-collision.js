@@ -1,0 +1,172 @@
+// weight: heavy
+import { describe, it, before, after } from 'mocha';
+import { expect } from 'chai';
+import { createTestEnv } from '../framework/test-env.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+import {
+  bootAndPeer, installOnNodes, seedSpawnerApp, seedSimpleApp,
+} from '../framework/reconciler-suite.js';
+import { pushImage } from '../framework/registry-helper.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import {
+  setNodeAddress, clearNodeAddress, removeFromNodeList, restoreToNodeList,
+} from '../framework/daemon-control.js';
+import { waitFor } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+
+// Several Flux nodes commonly share one public IP - four behind one home router
+// is an ordinary setup. Each is its own machine with its own docker and its own
+// app database, so each binds a host port successfully and nothing local
+// objects. The router forwards that port to exactly one of them.
+//
+// Every other node's app is then unreachable from the moment it starts, and
+// nothing reports it: the container binds fine in its own namespace, its
+// healthchecks pass, and the instance is broadcast to the network as live.
+//
+// Two things stop it here, and this suite drives both through a real fleet.
+//
+// The FRONT DOOR asks the other Flux nodes at this address which ports they
+// hold, before the firewall is opened or anything is mapped, so a refusal costs
+// nothing to unwind. That is /flux/portsinuse.
+//
+// The DECIDER is the pre-install port test. A peer reports that something
+// answered at this node's public address; where the address is shared, what
+// answered can be a sibling's application while this node's own test server sat
+// unreached. The peer cannot tell - from outside there is nothing to tell - so
+// the node reads its own test server instead.
+//
+// The topology is REAL, not simulated. setNodeAddress moves what benchmark tells
+// a node about itself and what the network carries for it, leaving the container
+// where it is - so a node genuinely reports itself at another node's address on
+// its own api port, which is exactly the production shape (several nodes, one
+// address, different api ports). Its sibling is a real FluxOS answering the real
+// endpoint.
+const SIBLING_API_PORT = 16137;
+
+// The port the sibling holds, and the one the spawner is then offered.
+const HELD_PORT = 31111;
+const FREE_PORT = 31222;
+
+const STUB_PEERS = [2, 3, 4];
+
+describe('a port another Flux node at this address holds', function () {
+  let env;
+  let subnet;
+  let askerIp;
+  let siblingIp;
+  dumpLogsOnFailure(() => env);
+
+  // Log lines this node has produced since its container was created.
+  const linesFor = (index) => env.nodeDiagnostics().find((n) => n.index === index)?.lines ?? [];
+
+  const sawLine = (index, pattern, timeout = 180000) => waitFor(
+    () => linesFor(index).some((line) => pattern.test(line)),
+    { timeout, label: `node ${index} logs ${pattern}` },
+  );
+
+  // An app the spawner will try to place, wanting one named port.
+  const spawnerAppWanting = async (name, port) => {
+    await pushImage(name, 'v1');
+    return buildSeedableApp({
+      name,
+      compose: [{
+        name,
+        description: 'test container',
+        repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
+        ports: [port],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        containerData: '/tmp',
+        cpu: 0.1,
+        ram: 100,
+        hdd: 1,
+        repoauth: '',
+      }],
+    });
+  };
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({ hookCtx: this, nodes: 5, stubPeers: STUB_PEERS });
+    subnet = getSubnetConfig();
+    askerIp = subnet.nodeIp(1);
+    siblingIp = subnet.nodeIp(2);
+    await bootAndPeer(env);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await clearNodeAddress(askerIp).catch(() => {});
+    await restoreToNodeList(siblingIp).catch(() => {});
+    await env?.teardown();
+  });
+
+  it('reports the ports the node has installed', async function () {
+    this.timeout(300000);
+    const { app } = await seedSimpleApp(env, 'heldportapp', { port: HELD_PORT });
+    await installOnNodes(env, app, [1]);
+
+    const answer = await env.clients[1].get('/flux/portsinuse');
+
+    expect(answer.status).to.equal('success');
+    expect(answer.data).to.be.an('array');
+    expect(answer.data).to.include(HELD_PORT);
+  });
+
+  // Unauthenticated and reachable by anyone, and a cold answer can reach
+  // fluxbenchd to decrypt a specification - so the cache in front of it must
+  // stay a cache. Without the guard a caller varies a parameter and every
+  // request is a fresh miss, because apicache keys on the whole URL.
+  it('takes no query parameters', async function () {
+    this.timeout(30000);
+    const answer = await env.clients[1].get('/flux/portsinuse?whatever=1');
+
+    expect(answer.status).to.equal('error');
+    expect(answer.data.message).to.match(/no query parameters/i);
+  });
+
+  // The front door. The asker reports itself at the sibling's address on a
+  // different api port, which is what a second node behind one router does.
+  it('refuses an install onto a port a Flux node at this address holds', async function () {
+    this.timeout(420000);
+    await setNodeAddress(askerIp, `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
+
+    const app = await spawnerAppWanting('siblingheldapp', HELD_PORT);
+    await seedSpawnerApp(env, app);
+
+    await sawLine(0, new RegExp(`port ${HELD_PORT} is held by the Flux node at ${siblingIp.replace(/\./g, '\\.')}`));
+  });
+
+  // The decider. Every peer that could be asked answers a pass without ever
+  // connecting, which is what the asker receives when the router forwarded its
+  // port to a sibling: something answered, and it was not this node.
+  it('refuses a port test the peer passed without reaching this node', async function () {
+    this.timeout(420000);
+    await clearNodeAddress(askerIp);
+    // Only the stubs may be drawn, so every possible answer is the blind one.
+    await removeFromNodeList(siblingIp);
+    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(true)));
+
+    const app = await spawnerAppWanting('blindprobeapp', FREE_PORT);
+    await seedSpawnerApp(env, app);
+
+    await sawLine(0, /are not available publicly/);
+  });
+
+  // The control, and it is the point: the refusal above has to be caused by the
+  // blindness rather than by anything else in a fleet this size standing in the
+  // way. The same app, the same node, the same port - peers that actually
+  // connect.
+  it('installs the same app once the peers really connect', async function () {
+    this.timeout(420000);
+    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(false)));
+
+    await waitFor(async () => {
+      const res = await env.clients[0].getInstalledApps();
+      return res.status === 'success' && res.data.some((a) => a.name === 'blindprobeapp');
+    }, { timeout: 300000, label: 'blindprobeapp installs once peers connect' });
+  });
+});

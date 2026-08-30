@@ -47,6 +47,19 @@ let promotedFoldersStatus = 200;
 // holder which is alive but unanswerable has to be able to produce it.
 let promotedFoldersRefuse = false;
 
+// Whether this peer passes a port test WITHOUT connecting to the asker.
+//
+// This is what a shared public address looks like from the asker's side. Several
+// Flux nodes commonly sit behind one router, which forwards each port to exactly
+// one of them, so a peer probing the shared address can reach a sibling node's
+// application while the asker's own test server sits unreached behind the same
+// NAT. The peer is not lying and cannot tell: something genuinely answered.
+//
+// The stub cannot reproduce the NAT, but it can reproduce what the asker
+// receives - a pass for a port the asker was never reached on - which is the
+// only part of it the asker can act on.
+let portProbeAnswersBlind = false;
+
 // The nodes currently connected to this peer. Held so the stub can SAY things
 // rather than only answer them: a suite that needs a rival claim, a stale
 // broadcast or a message a real node would never send gets a real peer sending
@@ -187,6 +200,12 @@ const wsServer = http.createServer(async (req, res) => {
       // one timeout, and a serial walk of several ports spends that budget before
       // it can answer.
       const ports = Array.isArray(asked.ports) ? asked.ports : [];
+      if (portProbeAnswersBlind) {
+        // Passed without connecting: see portProbeAnswersBlind.
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'success', data: { message: 'Ports are available' } }));
+        return;
+      }
       const reachable = await Promise.all(ports.map((port) => portAnswers(asked.ip, port)));
       const failedAt = reachable.indexOf(false);
       if (failedAt !== -1) {
@@ -339,6 +358,14 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/port-probe-blind') {
+      const body = await readBody(req);
+      portProbeAnswersBlind = JSON.parse(body).blind !== false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', portProbeAnswersBlind }));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/load-message') {
       const body = await readBody(req);
       const msg = JSON.parse(body);
@@ -366,6 +393,7 @@ const controlServer = http.createServer(async (req, res) => {
       promotedFolders = { ready: true, folders: [] };
       promotedFoldersStatus = 200;
       promotedFoldersRefuse = false;
+      portProbeAnswersBlind = false;
       broadcastsSent = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
