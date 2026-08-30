@@ -823,24 +823,54 @@ async function appChanges(req, res) {
 }
 
 /**
- * List Docker images used by apps
- * @param {object} req - Request object
- * @param {object} res - Response object
- * @returns {Promise<object>} List of Docker images
+ * Every docker image on this node.
+ * @returns {Promise<object>} Message carrying the image list
  */
-async function listAppsImages(req, res) {
+async function listAppsImages() {
   try {
     const apps = await dockerService.dockerListImages();
-    const appsResponse = messageHelper.createDataMessage(apps);
-    return res ? res.json(appsResponse) : appsResponse;
+    return messageHelper.createDataMessage(apps);
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
+    return messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * GET /apps/listappsimages - the image list, for the flux team.
+ *
+ * An image entry cannot be attributed to the application that uses it: nothing
+ * in a row names one, and the field that would - Containers - reads -1, because
+ * docker does not compute it for a plain list. So the row is the smallest thing
+ * this can answer with, and the whole list is either given or it is not.
+ *
+ * The route carries no cache. apicache answers from its store before the
+ * handler runs and keys on the request URL alone, so a privilege checked here
+ * would be checked for the first caller and no one after them.
+ *
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>}
+ */
+async function listAppsImagesApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+    if (!authorized) {
+      res.json(messageHelper.errUnauthorizedMessage());
+      return;
+    }
+    res.json(await listAppsImages());
+  } catch (error) {
+    log.error(error);
+    res.json(messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    ));
   }
 }
 
@@ -1243,6 +1273,7 @@ module.exports = {
   ensureAppMonitoring,
   stopAppMonitoring,
   listAppsImages,
+  listAppsImagesApi,
   getAppsDOSState,
   checkApplicationsCpuUSage,
   monitorSharedDBApps,

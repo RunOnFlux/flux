@@ -9,6 +9,7 @@ describe('appInspector tests', () => {
   let dockerServiceStub;
   let messageHelperStub;
   let logStub;
+  let verificationHelperStub;
   let configStub;
   let globalStateStub;
   let cpuBurstHelperStub;
@@ -62,6 +63,10 @@ describe('appInspector tests', () => {
       appsMonitored: {},
     };
 
+    verificationHelperStub = {
+      verifyPrivilege: sinon.stub().resolves(true),
+    };
+
     appInspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
       config: configStub,
       '../utils/globalState': globalStateStub,
@@ -77,9 +82,7 @@ describe('appInspector tests', () => {
       '../dbHelper': {
         databaseConnection: sinon.stub(),
       },
-      '../verificationHelper': {
-        verifyPrivilege: sinon.stub().resolves(true),
-      },
+      '../verificationHelper': verificationHelperStub,
       '../utils/appConstants': {
         appConstants: {},
       },
@@ -1941,27 +1944,7 @@ describe('appInspector tests', () => {
       expect(logStub.error.called).to.be.true;
     });
 
-    it('should return error if dockerService throws, response passed', async () => {
-      const res = {
-        json: sinon.stub(),
-      };
-      dockerServiceStub.dockerListImages = sinon.stub().rejects(new Error('Error'));
-      messageHelperStub.createErrorMessage.returns({
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'Error',
-        },
-      });
-
-      await appInspector.listAppsImages(undefined, res);
-
-      expect(res.json.calledOnce).to.be.true;
-      expect(logStub.error.called).to.be.true;
-    });
-
-    it('should return running apps, no response passed', async () => {
+    it('should return the images, no response passed', async () => {
       const mockImages = [{ RepoTags: ['image1:latest'] }, { RepoTags: ['image2:latest'] }];
       dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
       messageHelperStub.createDataMessage.returns({
@@ -1973,21 +1956,70 @@ describe('appInspector tests', () => {
 
       expect(result).to.have.property('status', 'success');
     });
+  });
 
-    it('should return running apps, response passed', async () => {
-      const mockImages = [{ RepoTags: ['image1:latest'] }, { RepoTags: ['image2:latest'] }];
-      const res = {
-        json: sinon.stub(),
-      };
+  describe('listAppsImagesApi tests', () => {
+    const mockImages = [{ RepoTags: ['image1:latest'] }, { RepoTags: ['image2:latest'] }];
+    const req = { headers: { zelidauth: 'zelid=x&signature=y' } };
+
+    it('answers the flux team with the image list', async () => {
       dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
-      messageHelperStub.createDataMessage.returns({
-        status: 'success',
-        data: mockImages,
-      });
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: mockImages });
+      const res = { json: sinon.stub() };
 
-      await appInspector.listAppsImages(undefined, res);
+      await appInspector.listAppsImagesApi(req, res);
 
-      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.calledOnceWith({ status: 'success', data: mockImages })).to.be.true;
+    });
+
+    // An image row names no application, so there is no smaller answer to give
+    // and nothing here to scope to one app. The question is only whether the
+    // caller is the flux team.
+    it('asks for the flux team, and asks nothing about an application', async () => {
+      dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: mockImages });
+
+      await appInspector.listAppsImagesApi(req, { json: sinon.stub() });
+
+      expect(verificationHelperStub.verifyPrivilege.calledOnce).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[0]).to.equal('fluxteam');
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[1]).to.equal('zelid=x&signature=y');
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[2]).to.equal(undefined);
+    });
+
+    it('refuses a caller who is not the flux team, and reads no images', async () => {
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { code: 401 } });
+      const res = { json: sinon.stub() };
+
+      await appInspector.listAppsImagesApi(req, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { code: 401 } })).to.be.true;
+      expect(dockerServiceStub.dockerListImages.called).to.be.false;
+    });
+
+    it('answers an unauthenticated caller the same refusal', async () => {
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { code: 401 } });
+      const res = { json: sinon.stub() };
+
+      await appInspector.listAppsImagesApi({ headers: {} }, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { code: 401 } })).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[1]).to.equal(null);
+    });
+
+    it('reports a docker failure rather than throwing', async () => {
+      dockerServiceStub.dockerListImages = sinon.stub().rejects(new Error('Error'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Error' } });
+      const res = { json: sinon.stub() };
+
+      await appInspector.listAppsImagesApi(req, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { message: 'Error' } })).to.be.true;
+      expect(logStub.error.called).to.be.true;
     });
   });
 
@@ -2353,6 +2385,7 @@ describe('appInspector tests', () => {
       expect(appInspector.appMonitor).to.be.a('function');
       expect(appInspector.appChanges).to.be.a('function');
       expect(appInspector.listAppsImages).to.be.a('function');
+      expect(appInspector.listAppsImagesApi).to.be.a('function');
     });
   });
 
