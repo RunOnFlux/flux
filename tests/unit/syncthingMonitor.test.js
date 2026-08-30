@@ -235,6 +235,66 @@ describe('syncthingMonitor tests', () => {
     clock.restore();
   });
 
+  // Which folders this node holds writable is answered by the FOLDER
+  // configuration. The device configuration is a second read on the same pass
+  // and answers a different question - so a device read that fails must not
+  // withhold a folder list the pass already has. Sharing one try did exactly
+  // that: peers asking before promoting a folder of their own were told to wait,
+  // and kept being told, for as long as the device read failed.
+  describe('publishing the folders it holds when the device read fails', () => {
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+    const runOnePass = async () => {
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(10000);
+    };
+
+    beforeEach(() => {
+      globalState.promotedFolderIds = null;
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'fluxcomp_heldapp', path: '/apps/fluxcomp_heldapp', type: 'sendreceive' },
+        { id: 'fluxcomp_followed', path: '/apps/fluxcomp_followed', type: 'receiveonly' },
+      ]);
+    });
+
+    it('publishes them even though the device read threw', async () => {
+      syncthingServiceMock.getConfigDevices.rejects(new Error('simulated unreadable device configuration'));
+
+      await runOnePass();
+
+      expect(globalState.promotedFolderIds, 'the pass withheld folders it had read').to.not.equal(null);
+      expect([...globalState.promotedFolderIds]).to.deep.equal(['fluxcomp_heldapp']);
+    });
+
+    // The control: without it the assertion above passes on a pass that publishes
+    // regardless of anything, including one that never reads a folder at all.
+    it('publishes the same folders when the device read succeeds', async () => {
+      syncthingServiceMock.getConfigDevices.resolves([]);
+
+      await runOnePass();
+
+      expect([...globalState.promotedFolderIds]).to.deep.equal(['fluxcomp_heldapp']);
+    });
+
+    // A folder read it could not complete is different: there is then nothing to
+    // publish, and the last good answer must stand rather than be replaced by a
+    // claim that this node holds nothing.
+    it('leaves the previous answer alone when the folder read itself threw', async () => {
+      globalState.promotedFolderIds = new Set(['fluxcomp_heldapp']);
+      syncthingServiceMock.getConfigFolders.rejects(new Error('simulated unreadable folder configuration'));
+
+      await runOnePass();
+
+      expect([...globalState.promotedFolderIds]).to.deep.equal(['fluxcomp_heldapp']);
+    });
+  });
+
   describe('syncthingApps tests', () => {
     it('should return control object with stop and isActive methods', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: [] });

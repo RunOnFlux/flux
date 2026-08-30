@@ -484,16 +484,21 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // what stops data deletion in that window. An unreadable configuration now
     // THROWS, so it can no longer be mistaken for an empty one - an EMPTY
     // folders array is legal data, and a failed read is not an array at all.
+    // Read one at a time, and in this order. What this node holds writable is
+    // answered by the FOLDER configuration alone, and the peers that ask before
+    // promoting a folder of their own read that answer - so a device read this
+    // pass could not complete must not withhold a folder list it already has.
+    // Sharing one try did exactly that: the device read throws, the pass returns,
+    // and the folders published below never happen, so every peer asking is told
+    // to wait for as long as the device read keeps failing.
     let allFolders;
-    let allDevices;
     try {
       allFolders = await syncthingService.getConfigFolders();
-      allDevices = await syncthingService.getConfigDevices();
     } catch (error) {
       if (state.syncthingAppsFirstRun) {
         log.warn('syncthingAppsCore - Syncthing configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
       } else {
-        log.error(`syncthingAppsCore - Failed to get Syncthing configuration: ${error.message}`);
+        log.error(`syncthingAppsCore - Failed to get Syncthing folder configuration: ${error.message}`);
       }
       return;
     }
@@ -522,6 +527,18 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // observed at scan time. Aliased, the local name silently changes meaning
     // mid-pass and external readers (appQueryService) see a half-updated scan.
     globalState.promotedFolderIds = new Set(sendingFolderIds);
+
+    let allDevices;
+    try {
+      allDevices = await syncthingService.getConfigDevices();
+    } catch (error) {
+      if (state.syncthingAppsFirstRun) {
+        log.warn('syncthingAppsCore - Syncthing device configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
+      } else {
+        log.error(`syncthingAppsCore - Failed to get Syncthing devices configuration: ${error.message}`);
+      }
+      return;
+    }
 
     if (!Array.isArray(allDevices)) {
       if (state.syncthingAppsFirstRun) {
