@@ -1465,7 +1465,10 @@ async function getFluxInfo(req, res) {
     if (appsResources.status === 'error') {
       throw appsResources.data;
     }
-    info.apps.resources = appsResources.data;
+    // The same three numbers /apps/appsresources publishes. This endpoint embeds
+    // them, and a field kept from one exit and not the other is the shape that
+    // catches this file out.
+    info.apps.resources = resourceQueryService.publicResourceView(appsResources.data);
     // eslint-disable-next-line global-require
     const registryManager = require('./appDatabase/registryManager');
     const appHashes = await registryManager.getAppHashes();

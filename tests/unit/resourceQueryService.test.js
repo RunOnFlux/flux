@@ -114,6 +114,84 @@ describe('resourceQueryService tests', () => {
     });
   });
 
+  // An enterprise app is stored with its components emptied - they are the
+  // customer's decrypted configuration and do not belong in a local database -
+  // so counting the stored row credits it with nothing at all. That total is
+  // what the node subtracts from its capacity before accepting more work.
+  describe('appsResources on an app whose components are not in the stored row', () => {
+    const enterpriseRow = {
+      name: 'EnterpriseApp',
+      version: 8,
+      enterprise: 'AAAAencryptedblobAAAA',
+      hash: 'deadbeefcafe',
+      compose: [],
+    };
+
+    const decrypted = {
+      ...enterpriseRow,
+      compose: [
+        {
+          name: 'api', cpu: 2, ram: 4000, hdd: 20,
+        },
+        {
+          name: 'db', cpu: 1, ram: 2000, hdd: 10,
+        },
+      ],
+    };
+
+    let database;
+    const collection = config.database.appslocal.collections.appsInformation;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+      sinon.stub(generalService, 'nodeTier').resolves('stratus');
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) { /* collection does not exist */ }
+      await dbHelper.insertManyToDatabase(database, collection, [enterpriseRow]);
+      sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
+    });
+
+    it('counts what the app really reserves, once its specification is read', async () => {
+      sinon.stub(appQueryService, 'decryptEnterpriseApps')
+        .resolves({ readable: [decrypted], unreadable: [], inPlace: [decrypted] });
+
+      const result = await resourceQueryService.appsResources();
+
+      expect(result.data.appsCpusLocked).to.equal(3);
+      expect(result.data.appsRamLocked).to.equal(6000);
+      // 30gb across the two components, plus the fixed overhead each one carries
+      expect(result.data.appsHddLocked).to.equal(30 + 2 * (config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap));
+      expect(result.data.unreadable).to.deep.equal([]);
+    });
+
+    // The whole point of reporting it: an app that contributes nothing because it
+    // could not be read is indistinguishable from one that reserves nothing, and
+    // the caller has to be able to tell those apart.
+    it('names an app it could not read, rather than counting it as nothing', async () => {
+      sinon.stub(appQueryService, 'decryptEnterpriseApps')
+        .resolves({ readable: [], unreadable: [enterpriseRow], inPlace: [enterpriseRow] });
+
+      const result = await resourceQueryService.appsResources();
+
+      expect(result.data.unreadable).to.deep.equal(['EnterpriseApp']);
+      expect(result.data.appsCpusLocked).to.equal(0);
+    });
+
+    it('does not publish that list to a caller outside the node', async () => {
+      sinon.stub(appQueryService, 'decryptEnterpriseApps')
+        .resolves({ readable: [], unreadable: [enterpriseRow], inPlace: [enterpriseRow] });
+      const res = { json: sinon.stub() };
+
+      await resourceQueryService.appsResourcesApi({}, res);
+
+      expect(Object.keys(res.json.firstCall.args[0].data).sort())
+        .to.deep.equal(['appsCpusLocked', 'appsHddLocked', 'appsRamLocked']);
+    });
+  });
+
   describe('appsResources tests', () => {
     let db;
     let database;
@@ -161,7 +239,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
@@ -200,7 +278,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
@@ -240,7 +318,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
@@ -291,7 +369,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
@@ -311,7 +389,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      const result = await resourceQueryService.appsResources(null, null);
+      const result = await resourceQueryService.appsResources();
 
       expect(result.status).to.equal('success');
       expect(result.data.appsCpusLocked).to.equal(0);
@@ -334,7 +412,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
@@ -371,7 +449,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
@@ -388,7 +466,7 @@ describe('resourceQueryService tests', () => {
       sinon.stub(dbHelper, 'databaseConnection').throws(new Error('Database connection error'));
       sinon.stub(messageHelper, 'createErrorMessage').returns({ status: 'error' });
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       expect(res.json.firstCall.args[0].status).to.equal('error');
@@ -425,7 +503,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
@@ -460,7 +538,7 @@ describe('resourceQueryService tests', () => {
 
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
-      await resourceQueryService.appsResources(req, res);
+      await resourceQueryService.appsResourcesApi(req, res);
 
       sinon.assert.calledOnce(res.json);
       const response = res.json.firstCall.args[0];
