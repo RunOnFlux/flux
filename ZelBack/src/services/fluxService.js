@@ -220,6 +220,56 @@ async function getCurrentBranchApi(req, res) {
 }
 
 /**
+ * Bring a branch onto a node that has no reference to it, without widening what the
+ * clone tracks.
+ *
+ * The installer clones `--depth 1 --single-branch`, so a node carries exactly the branch
+ * it was installed on: no local branch for any other, and no remote-tracking ref either,
+ * because `remote.origin.fetch` maps only the one. Nothing on such a node can check out
+ * another branch, and that is not a state a switch should refuse - it is the ordinary
+ * state of every node.
+ *
+ * Fetched into `refs/heads/<branch>` rather than a tracking ref, because git decides what
+ * counts as a remote branch from the configured refspec: with a single-branch mapping it
+ * refuses to check out or track a `refs/remotes/origin/<branch>` this fetch created,
+ * saying it "is not a branch". Fetching the local branch directly sidesteps that, and
+ * leaves `remote.origin.fetch` exactly as the installer set it - the clone stays
+ * single-branch and stays shallow.
+ *
+ * The upstream is then written by hand for the same reason, and it is not optional: the
+ * update paths run `git pull`, which has nothing to pull without it.
+ *
+ * The depth is conditional. Passing `--depth` to a fetch on a FULL clone makes that
+ * repository shallow - a legacy node would be quietly truncated by a branch switch - so
+ * it is passed only where the repository already is.
+ *
+ * @param {string} branch The branch to bring down
+ * @returns {Promise<void>}
+ */
+async function fetchBranch(branch) {
+  const { stdout: shallow } = await serviceHelper.runCommand('git', {
+    params: ['rev-parse', '--is-shallow-repository'],
+  });
+
+  const depth = String(shallow).trim() === 'true' ? ['--depth', '1'] : [];
+
+  const { error: fetchError } = await serviceHelper.runCommand('git', {
+    params: ['fetch', ...depth, 'origin', `${branch}:refs/heads/${branch}`],
+  });
+
+  if (fetchError) throw new Error(`Branch ${branch} is not on this node and could not be fetched: ${fetchError.message}`);
+
+  const { error: remoteError } = await serviceHelper.runCommand('git', {
+    params: ['config', `branch.${branch}.remote`, 'origin'],
+  });
+  const { error: mergeError } = await serviceHelper.runCommand('git', {
+    params: ['config', `branch.${branch}.merge`, `refs/heads/${branch}`],
+  });
+
+  if (remoteError || mergeError) throw new Error(`Fetched ${branch} but could not set it to track origin`);
+}
+
+/**
  * Check out a branch this node can reach.
  *
  * Each step names itself when it fails, because the caller reports the reason to whoever
@@ -248,7 +298,7 @@ async function checkoutBranch(branch, options = {}) {
       params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
     });
 
-    if (trackingMissing) throw new Error(`Branch ${branch} not found on this node, locally or on origin`);
+    if (trackingMissing) await fetchBranch(branch);
   }
 
   const { error: checkoutError } = await serviceHelper.runCommand('git', {
