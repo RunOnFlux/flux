@@ -483,11 +483,9 @@ function siblingSocketAddresses(localSocketAddress) {
  * refusal costs nothing to unwind.
  *
  * Answers rather than throws. This is the same class of fact as "the ports are
- * not reachable from outside" and belongs on the same path: a node that cannot
- * host an app right now stands down for one short delay and asks again. A thrown
- * error is a pre-install fault, which parks the app on this node for six hours -
- * a timer standing in for a condition that is directly observable, and one the
- * sibling can clear by uninstalling a minute later.
+ * not reachable from outside" and is handled on the same path. A thrown error
+ * would file the app in the pre-install error cache, and a port that belongs to
+ * a neighbour is an ordinary answer rather than a fault.
  *
  * Advisory. A sibling that is down, or answers nothing we can read, leaves us no
  * wiser - and silence is never read as clearance, because the port test that
