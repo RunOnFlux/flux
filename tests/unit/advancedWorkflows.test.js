@@ -4066,6 +4066,41 @@ describe('advancedWorkflows tests', () => {
 
   // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
   // stopSyncthingApp are complex integration functions or HTTP request handlers
+  describe('softRedeploy failure handling tests', () => {
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('leaves the installation intact when the redeploy fails before removing the app', async () => {
+      // A soft redeploy that never got past taking the app down: the app is
+      // still installed and running. Uninstalling it here - forced, and
+      // broadcast to the network - loses a healthy application over a
+      // transient failure.
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null); // softRemoveAppLocally throws 'Flux App not found'
+
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy({ name: 'TestApp', version: 7 }, null);
+
+      expect(removeAppLocally.called).to.be.false;
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
+  });
+
   // that require extensive mocking of database connections, HTTP requests, and
   // external services. These should be tested in integration tests rather than
   // unit tests. masterSlaveApps is included above with basic tests, but full
