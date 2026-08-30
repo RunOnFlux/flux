@@ -103,6 +103,16 @@ async function setFields(rawIdentifier, fields) {
  * deliberate (re)start (operatorStopped=false, also install/redeploy) clears
  * the crash-recovery backoff so the component gets a fresh start.
  *
+ * "Operator" here is the human working the app, not the node operator. The
+ * distinction the name draws is a person deciding this component stays down
+ * against the reconciler, the master/slave election or crash recovery bringing
+ * it back up — so it still reads correctly now that the node operator is not
+ * one of the people who can ask for it.
+ *
+ * The field is persisted and queried by name (`{ operatorStopped: true }`), so
+ * renaming it is a migration: without one, that query stops matching on upgrade
+ * and every live stop lock releases at once.
+ *
  * @param {string} identifier
  * @param {boolean} stopped
  */
