@@ -157,7 +157,7 @@ async function getCurrentCommitId() {
 }
 
 /**
- * To show the current short commit id. Only accessible by admins and Flux team members.
+ * To show the current short commit id. Flux team only: which code a node runs is not the operator's to choose or to read.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
@@ -197,7 +197,7 @@ async function getCurrentBranch() {
 }
 
 /**
- * To show the currently selected branch. Only accessible by admins and Flux team members.
+ * To show the currently selected branch. Flux team only: which code a node runs is not the operator's to choose or to read.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
@@ -333,7 +333,7 @@ async function currentCheckout() {
 }
 
 /**
- * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * To switch to master branch of FluxOS. Flux team only: an operator updates along the branch their node is on, and does not choose a different one.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
@@ -343,7 +343,7 @@ async function enterMaster() {
 }
 
 /**
- * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * To switch to master branch of FluxOS. Flux team only: an operator updates along the branch their node is on, and does not choose a different one.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
@@ -366,7 +366,7 @@ async function enterMasterApi(req, res) {
 }
 
 /**
- * To switch to development branch of FluxOS. Only accessible by admins and Flux team members.
+ * To switch to development branch of FluxOS. Flux team only: an operator updates along the branch their node is on, and does not choose a different one.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
@@ -376,7 +376,7 @@ async function enterDevelopment() {
 }
 
 /**
- * To switch to development branch of FluxOS. Only accessible by admins and Flux team members.
+ * To switch to development branch of FluxOS. Flux team only: an operator updates along the branch their node is on, and does not choose a different one.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
