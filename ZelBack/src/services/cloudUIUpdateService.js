@@ -215,6 +215,7 @@ async function checkAndUpdateCloudUI() {
 module.exports = {
   checkAndUpdateCloudUI,
   cloudUIExists,
+  runUpdateScript,
   getLocalVersionHash,
   getRemoteVersionInfo,
   // Exported for testing

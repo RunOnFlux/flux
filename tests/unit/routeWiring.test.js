@@ -143,6 +143,8 @@ describe('route wiring', () => {
       '/daemon/validateaddress/:fluxaddress?',
       '/flux/restart',
       '/flux/peerhistory',
+      '/flux/currentbranch',
+      '/flux/currentcommitid',
       '/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?',
       '/daemon/submitblock/:hexdata?/:jsonparametersobject?',
       '/id/loggedsessions',

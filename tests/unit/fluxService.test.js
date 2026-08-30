@@ -18,6 +18,7 @@ const proxyquire = require('proxyquire');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const cloudUIUpdateService = require('../../ZelBack/src/services/cloudUIUpdateService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
@@ -425,12 +426,19 @@ describe('fluxService tests', () => {
     });
   });
 
-  describe('rebuildHome tests', () => {
+  // The UI is fetched from a published release, so this asserts the fetch was asked for
+  // rather than that some package script was spawned. The script this used to name was
+  // deleted with the UI it built, and a stubbed runCommand cannot tell a script that is
+  // missing from one that succeeded - so the endpoint returned an error in the field
+  // while its tests stayed green.
+  describe('rebuildUi tests', () => {
     let verifyPrivilegeStub;
+    let runUpdateScriptStub;
     let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      runUpdateScriptStub = sinon.stub(cloudUIUpdateService, 'runUpdateScript');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
@@ -438,7 +446,7 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is not an admin or flux team', async () => {
+    it('should refuse a caller who is not an admin or flux team', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
       const expectedResponse = {
@@ -450,60 +458,44 @@ describe('fluxService tests', () => {
         status: 'error',
       };
 
-      const response = await fluxService.rebuildHome(undefined, res);
+      await fluxService.rebuildUi(undefined, res);
 
-      expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(runUpdateScriptStub);
     });
 
-    it('should return success message if cmd exec does not return error', async () => {
+    it('should report success when the UI is fetched', async () => {
       verifyPrivilegeStub.returns(true);
-      runCmdStub.resolves({ error: null });
-      const nodedpath = path.join(__dirname, '../../');
-
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'Flux UI successfully rebuilt',
-          name: undefined,
-        },
-        status: 'success',
-      };
+      runUpdateScriptStub.resolves(true);
       const res = generateResponse();
 
-      await fluxService.rebuildHome(undefined, res);
-      await serviceHelper.delay(200);
+      await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'homebuild'] });
+      sinon.assert.calledOnce(runUpdateScriptStub);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(res.json.firstCall.args[0].data.message).to.equal('Flux UI successfully rebuilt');
     });
 
-    it('should return error if cmd exec throws error ', async () => {
+    it('should report an error when the fetch fails', async () => {
       verifyPrivilegeStub.returns(true);
-      runCmdStub.resolves({
-        error: {
-          message: 'This is an error',
-          code: 403,
-          name: 'testing error',
-        },
-      });
-      const nodedpath = path.join(__dirname, '../../');
-
-      const expectedResponse = {
-        data: {
-          code: 403,
-          message: 'Error rebuilding Flux UI: This is an error',
-          name: 'testing error',
-        },
-        status: 'error',
-      };
+      runUpdateScriptStub.resolves(false);
       const res = generateResponse();
 
-      await fluxService.rebuildHome(undefined, res);
-      await serviceHelper.delay(200);
+      await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'homebuild'] });
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('Error rebuilding Flux UI');
+    });
+
+    // The regression this replaced: a package script named here is one more thing that can
+    // be deleted somewhere else without anything failing until a node runs it.
+    it('should not spawn a package script of its own', async () => {
+      verifyPrivilegeStub.returns(true);
+      runUpdateScriptStub.resolves(true);
+
+      await fluxService.rebuildUi(undefined, generateResponse());
+
+      sinon.assert.notCalled(runCmdStub);
     });
   });
 
@@ -3179,11 +3171,15 @@ describe('fluxService tests', () => {
   // scheduler that passed none was trusted, and so was anyone who arrived in a
   // way that left it undefined.
   describe('the command is behind the privilege check, not beside it', () => {
-    const pairs = [
-      ['enterMasterApi', 'entermaster'],
-      ['enterDevelopmentApi', 'enterdevelopment'],
+    // Two kinds of operation under one rule. The update pair runs a package script; the
+    // branch switch drives git directly, so it is asserted on the git it runs.
+    const npmPairs = [
       ['softUpdateFluxApi', 'softupdate'],
       ['softUpdateFluxInstallApi', 'softupdateinstall'],
+    ];
+    const gitPairs = [
+      ['enterMasterApi', 'master'],
+      ['enterDevelopmentApi', 'development'],
     ];
 
     let verifyPrivilegeStub;
@@ -3191,14 +3187,14 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'master\n' });
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    pairs.forEach(([api, script]) => {
+    [...npmPairs, ...gitPairs].forEach(([api]) => {
       it(`${api} runs nothing when the caller is refused`, async () => {
         verifyPrivilegeStub.resolves(false);
 
@@ -3206,7 +3202,9 @@ describe('fluxService tests', () => {
 
         sinon.assert.notCalled(runCmdStub);
       });
+    });
 
+    npmPairs.forEach(([api, script]) => {
       it(`${api} runs npm ${script} once the caller is admitted`, async () => {
         verifyPrivilegeStub.resolves(true);
 
@@ -3216,17 +3214,103 @@ describe('fluxService tests', () => {
       });
     });
 
+    gitPairs.forEach(([api, branch]) => {
+      it(`${api} verifies ${branch} exists before checking it out`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['rev-parse', '--verify', branch] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+      });
+
+      it(`${api} does not pull, so a switch changes the branch and nothing else`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['pull'] });
+      });
+    });
+
     // The operation itself takes no request and consults nobody. If one of
     // these ever asks a privilege question again, the endpoint above stops
     // being the only door and this fails.
-    pairs.forEach(([api]) => {
+    [...npmPairs, ...gitPairs].forEach(([api]) => {
       const operation = api.replace(/Api$/, '');
       it(`${operation} authorises nobody - that is the endpoint's job`, async () => {
         await fluxService[operation]();
 
         sinon.assert.notCalled(verifyPrivilegeStub);
-        sinon.assert.calledOnce(runCmdStub);
+        sinon.assert.called(runCmdStub);
       });
+    });
+  });
+
+  // The branch switch reports what git says the node is on, rather than repeating the
+  // branch it was asked for. The two are not the same thing when the checkout only
+  // half worked, which is the case the old npm route could not tell apart.
+  describe('switching branch says where the node actually ended up', () => {
+    let runCmdStub;
+
+    beforeEach(() => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('names the branch and commit read back from git', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--abbrev-ref', 'HEAD'] }))
+        .resolves({ error: null, stdout: 'master\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--short', 'HEAD'] }))
+        .resolves({ error: null, stdout: 'abc1234\n' });
+      const res = generateResponse();
+
+      await fluxService.enterMasterApi({}, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(res.json.firstCall.args[0].data.message).to.contain('master at abc1234');
+    });
+
+    // A detached HEAD, or a node not deployed from a checkout at all, leaves nothing to
+    // name. The switch still happened, so it must still be reported as success - failing
+    // to describe an operation is not the same as the operation failing.
+    it('still reports success when git cannot name the checkout', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--abbrev-ref', 'HEAD'] }))
+        .resolves({ error: new Error('not a git repository'), stdout: '' });
+      const res = generateResponse();
+
+      await fluxService.enterMasterApi({}, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(res.json.firstCall.args[0].data.message).to.equal('Master branch successfully entered');
+    });
+
+    it('reports the branch it could not find, not just that it failed', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', 'master'] }))
+        .resolves({ error: new Error('unknown revision'), stdout: '' });
+      const res = generateResponse();
+
+      await fluxService.enterMasterApi({}, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('Branch master not found on this node');
+    });
+
+    it('does not check out a branch it could not verify', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', 'master'] }))
+        .resolves({ error: new Error('unknown revision'), stdout: '' });
+
+      await fluxService.enterMasterApi({}, generateResponse());
+
+      sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', 'master'] });
     });
   });
 });

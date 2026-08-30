@@ -67,8 +67,6 @@
     "flux": "nodemon app.js",
     "start": "npm install --omit=dev --legacy-peer-deps && node init.js && npm run flux",
     "dev": "node init.js && npm run fluxdev",
-    "enterdevelopment": "git checkout development",
-    "entermaster": "git checkout master",
     "softupdate": "git checkout .; git pull",
     "softupdateinstall": "git checkout .; git pull; npm install --omit=dev --legacy-peer-deps",
     "updateflux": "git pull; git reset --hard; rm -rf .git/index.lock; git reset --hard; git pull",

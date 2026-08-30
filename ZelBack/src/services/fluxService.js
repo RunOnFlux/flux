@@ -17,6 +17,7 @@ const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockc
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
+const cloudUIUpdateService = require('./cloudUIUpdateService');
 const generalService = require('./generalService');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -162,7 +163,7 @@ async function getCurrentCommitId() {
  * @returns {Promise<object>} Message.
  */
 async function getCurrentCommitIdApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -202,7 +203,7 @@ async function getCurrentBranch() {
  * @returns {Promise<object>} Message.
  */
 async function getCurrentBranchApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
@@ -219,10 +220,15 @@ async function getCurrentBranchApi(req, res) {
 }
 
 /**
- * Check out branch if it exists locally
+ * Check out a branch that exists locally.
+ *
+ * Each step names itself when it fails, because the caller reports the reason to whoever
+ * asked and "could not switch branch" does not distinguish a branch this node has never
+ * fetched from a working tree with changes in it.
+ *
  * @param {string} branch The branch to checkout
  * @param {{pull?: Boolean}} options
- * @returns {Promise<Boolean>}
+ * @returns {Promise<void>}
  */
 async function checkoutBranch(branch, options = {}) {
   // ToDo: this will break if multiple remotes
@@ -230,20 +236,37 @@ async function checkoutBranch(branch, options = {}) {
     params: ['rev-parse', '--verify', branch],
   });
 
-  if (verifyError) return false;
+  if (verifyError) throw new Error(`Branch ${branch} not found on this node: ${verifyError.message}`);
 
   const { error: checkoutError } = await serviceHelper.runCommand('git', {
     params: ['checkout', branch],
   });
 
-  if (checkoutError) return false;
+  if (checkoutError) throw new Error(`Could not check out ${branch}: ${checkoutError.message}`);
 
   if (options.pull) {
     const { error: pullError } = await serviceHelper.runCommand('git', { params: ['pull'] });
-    if (pullError) return false;
+    if (pullError) throw new Error(`Checked out ${branch} but could not pull it: ${pullError.message}`);
   }
+}
 
-  return true;
+/**
+ * Where the working tree actually sits, read back from git.
+ *
+ * Returns null rather than throwing. This describes an operation that has already
+ * succeeded, so a tree it cannot name - a detached HEAD, or a node not deployed from a
+ * checkout at all - must not turn a completed switch into a reported failure.
+ *
+ * @returns {Promise<string|null>}
+ */
+async function currentCheckout() {
+  try {
+    const [branch, commitId] = await Promise.all([getCurrentBranch(), getCurrentCommitId()]);
+    return `${branch} at ${commitId}`;
+  } catch (error) {
+    log.warn(`Could not read the current checkout: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -253,12 +276,7 @@ async function checkoutBranch(branch, options = {}) {
  * @returns {Promise<object>} Message.
  */
 async function enterMaster() {
-  // why use npm for this?
-  const cwd = path.join(__dirname, '../../../');
-
-  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'entermaster'] });
-
-  if (error) throw error;
+  await checkoutBranch('master');
 }
 
 /**
@@ -268,14 +286,17 @@ async function enterMaster() {
  * @returns {Promise<object>} Message.
  */
 async function enterMasterApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
 
   try {
     await enterMaster();
-    return res.json(messageHelper.createSuccessMessage('Master branch successfully entered'));
+    const at = await currentCheckout();
+    return res.json(messageHelper.createSuccessMessage(
+      at ? `Master branch successfully entered, now on ${at}` : 'Master branch successfully entered',
+    ));
   } catch (error) {
     return res.json(messageHelper.createErrorMessage(`Error entering master branch of Flux: ${error.message}`, error.name, error.code));
   }
@@ -288,11 +309,7 @@ async function enterMasterApi(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function enterDevelopment() {
-  const cwd = path.join(__dirname, '../../../');
-
-  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'enterdevelopment'] });
-
-  if (error) throw error;
+  await checkoutBranch('development');
 }
 
 /**
@@ -302,14 +319,17 @@ async function enterDevelopment() {
  * @returns {Promise<object>} Message.
  */
 async function enterDevelopmentApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
 
   try {
     await enterDevelopment();
-    return res.json(messageHelper.createSuccessMessage('Development branch successfully entered'));
+    const at = await currentCheckout();
+    return res.json(messageHelper.createSuccessMessage(
+      at ? `Development branch successfully entered, now on ${at}` : 'Development branch successfully entered',
+    ));
   } catch (error) {
     return res.json(messageHelper.createErrorMessage(`Error entering development branch of Flux: ${error.message}`, error.name, error.code));
   }
@@ -438,30 +458,31 @@ async function hardUpdateFlux(req, res) {
 }
 
 /**
- * To rebuild FluxOS (executes the command `npm run homebuild` on the node machine). Only accessible by admins and Flux team members.
+ * To rebuild the Flux UI by fetching the published CloudUI release again. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
-async function rebuildHome(req, res) {
+async function rebuildUi(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
 
-  const cwd = path.join(__dirname, '../../../');
+  // The UI is fetched, not built here. It is a published release of a separate
+  // repository, so rebuilding it means taking that release again through the one path
+  // that knows which host to ask - the same path the periodic check uses.
+  const rebuilt = await cloudUIUpdateService.runUpdateScript();
 
-  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'homebuild'] });
-
-  if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux UI: ${error.message}`, error.name, error.code);
-    return res ? res.json(errMessage) : errMessage;
+  if (!rebuilt) {
+    const errMessage = messageHelper.createErrorMessage('Error rebuilding Flux UI, see the node log for what the fetch reported');
+    return res.json(errMessage);
   }
 
   const message = messageHelper.createSuccessMessage('Flux UI successfully rebuilt');
-  return res ? res.json(message) : message;
+  return res.json(message);
 }
 
 /**
@@ -2178,7 +2199,7 @@ module.exports = {
   getRouterIP,
   hardUpdateFlux,
   isStaticIPapi,
-  rebuildHome,
+  rebuildUi,
   reindexDaemon,
   restartBenchmark,
   restartDaemon,
