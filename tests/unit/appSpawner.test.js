@@ -180,7 +180,7 @@ describe('appSpawner tests', () => {
       },
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
-        ensureSiblingPortsFree: sinon.stub().resolves(true),
+        siblingHoldingPort: sinon.stub().resolves(null),
         checkInstallingAppPortAvailable: sinon.stub().resolves(true),
       },
       '../appQuery/resourceQueryService': {

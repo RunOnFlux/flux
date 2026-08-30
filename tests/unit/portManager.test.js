@@ -641,7 +641,7 @@ describe('portManager tests', () => {
   // a sibling at this address already holds produces an app that is unreachable
   // from the moment it starts - and every per-node check passes, because each
   // node has its own docker and its own database.
-  describe('ensureSiblingPortsFree tests', () => {
+  describe('siblingHoldingPort tests', () => {
     const spec = { version: 8, name: 'App', compose: [{ ports: [31000] }] };
     const ours = '86.9.47.94:16127';
 
@@ -649,35 +649,31 @@ describe('portManager tests', () => {
 
     const answering = (ports) => ({ data: { status: 'success', data: ports } });
 
-    it('is satisfied when no other Flux node shares our address', async () => {
+    it('answers null when no other Flux node shares our address', async () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '1.2.3.4:16127'));
       const get = sinon.stub(serviceHelper, 'axiosGet');
 
-      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      expect(await portManager.siblingHoldingPort(spec, ours)).to.equal(null);
       sinon.assert.notCalled(get);
     });
 
-    it('refuses a port a sibling reports, naming the port and the sibling', async () => {
+    it('names the port a sibling reports, and which sibling', async () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
       sinon.stub(serviceHelper, 'axiosGet').resolves(answering([31000, 31005]));
 
-      try {
-        await portManager.ensureSiblingPortsFree(spec, ours);
-        expect.fail('Should have thrown an error');
-      } catch (error) {
-        expect(error.message).to.include('port 31000');
-        expect(error.message).to.include('86.9.47.94:16137');
-      }
+      const held = await portManager.siblingHoldingPort(spec, ours);
+
+      expect(held).to.deep.equal({ address: '86.9.47.94:16137', port: 31000 });
     });
 
-    it('is satisfied when the sibling holds other ports', async () => {
+    it('answers null when the sibling holds other ports', async () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
       sinon.stub(serviceHelper, 'axiosGet').resolves(answering([31005, 31006]));
 
-      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      expect(await portManager.siblingHoldingPort(spec, ours)).to.equal(null);
     });
 
     it('does not ask ourselves', async () => {
@@ -685,27 +681,27 @@ describe('portManager tests', () => {
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours));
       const get = sinon.stub(serviceHelper, 'axiosGet');
 
-      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      expect(await portManager.siblingHoldingPort(spec, ours)).to.equal(null);
       sinon.assert.notCalled(get);
     });
 
     // Advisory, not authoritative: this narrows the window cheaply, and the port
     // test that follows is what decides. A sibling that cannot answer must not
     // block an install.
-    it('is satisfied when a sibling does not answer', async () => {
+    it('answers null when a sibling does not answer', async () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
       sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('ECONNREFUSED'));
 
-      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      expect(await portManager.siblingHoldingPort(spec, ours)).to.equal(null);
     });
 
-    it('is satisfied when a sibling answers something it cannot read', async () => {
+    it('answers null when a sibling answers something it cannot read', async () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
       sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'error', data: 'nope' } });
 
-      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      expect(await portManager.siblingHoldingPort(spec, ours)).to.equal(null);
     });
 
     // networkState() answers an unknown list and a genuinely empty one with the
@@ -716,7 +712,7 @@ describe('portManager tests', () => {
       const state = sinon.stub(networkStateService, 'networkState').returns([]);
       const get = sinon.stub(serviceHelper, 'axiosGet');
 
-      expect(await portManager.ensureSiblingPortsFree(spec, ours)).to.be.true;
+      expect(await portManager.siblingHoldingPort(spec, ours)).to.equal(null);
       sinon.assert.notCalled(state);
       sinon.assert.notCalled(get);
     });
@@ -725,12 +721,12 @@ describe('portManager tests', () => {
       const ready = sinon.stub(networkStateService, 'isReady').returns(true);
       const get = sinon.stub(serviceHelper, 'axiosGet');
 
-      expect(await portManager.ensureSiblingPortsFree({ version: 8, name: 'App', compose: [] }, ours)).to.be.true;
+      expect(await portManager.siblingHoldingPort({ version: 8, name: 'App', compose: [] }, ours)).to.equal(null);
       sinon.assert.notCalled(ready);
       sinon.assert.notCalled(get);
     });
 
-    it('reads one sibling holding the port among several that do not', async () => {
+    it('finds the one sibling holding the port among several that do not', async () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState')
         .returns(nodesAt(ours, '86.9.47.94:16137', '86.9.47.94:16147', '86.9.47.94:16157'));
@@ -739,12 +735,9 @@ describe('portManager tests', () => {
       get.onCall(1).resolves(answering([31000]));
       get.onCall(2).resolves(answering([31006]));
 
-      try {
-        await portManager.ensureSiblingPortsFree(spec, ours);
-        expect.fail('Should have thrown an error');
-      } catch (error) {
-        expect(error.message).to.include('port 31000');
-      }
+      const held = await portManager.siblingHoldingPort(spec, ours);
+
+      expect(held).to.deep.equal({ address: '86.9.47.94:16147', port: 31000 });
     });
   });
 
