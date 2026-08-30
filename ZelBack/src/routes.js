@@ -1066,6 +1066,16 @@ module.exports = (app) => {
   app.get('/flux/restartdaemon', asyncRoute((req, res) => {
     return fluxService.restartDaemon(req, res);
   }));
+  // What this node reports it is running, read from the working tree it was deployed
+  // from. A diagnostic for whoever switches the branch below, and only that: it is the
+  // node's own account of itself, so it answers what is on disk rather than settling
+  // whether that is what should be there.
+  app.get('/flux/currentbranch', asyncRoute((req, res) => {
+    return fluxService.getCurrentBranchApi(req, res);
+  }));
+  app.get('/flux/currentcommitid', asyncRoute((req, res) => {
+    return fluxService.getCurrentCommitIdApi(req, res);
+  }));
   app.get('/flux/entermaster', asyncRoute((req, res) => {
     return fluxService.enterMasterApi(req, res);
   }));
@@ -1084,8 +1094,8 @@ module.exports = (app) => {
   app.get('/flux/hardupdateflux', asyncRoute((req, res) => { // method shall be called only if flux version is obsolete and updatezeflux is not working correctly
     return fluxService.hardUpdateFlux(req, res);
   }));
-  app.get('/flux/rebuildhome', asyncRoute((req, res) => {
-    return fluxService.rebuildHome(req, res);
+  app.get('/flux/rebuildui', asyncRoute((req, res) => {
+    return fluxService.rebuildUi(req, res);
   }));
   app.get('/flux/updatedaemon', asyncRoute((req, res) => { // method shall be called only if daemon version is obsolete
     return fluxService.updateDaemon(req, res);
