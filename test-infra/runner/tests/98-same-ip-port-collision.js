@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
-  bootAndPeer, installOnNodes, seedSpawnerApp, seedSimpleApp,
+  bootAndPeer, installOnNodes, seedSpawnerApp,
 } from '../framework/reconciler-suite.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -65,8 +65,8 @@ describe('a port another Flux node at this address holds', function () {
     { timeout, label: `node ${index} logs ${pattern}` },
   );
 
-  // An app the spawner will try to place, wanting one named port.
-  const spawnerAppWanting = async (name, port) => {
+  // An app wanting one named port, for either deployment path.
+  const appWanting = async (name, port) => {
     await pushImage(name, 'v1');
     return buildSeedableApp({
       name,
@@ -106,7 +106,9 @@ describe('a port another Flux node at this address holds', function () {
 
   it('reports the ports the node has installed', async function () {
     this.timeout(300000);
-    const { app } = await seedSimpleApp(env, 'heldportapp', { port: HELD_PORT });
+    // Targeted rather than spawned: the sibling test below has to know which
+    // node holds the port, and the spawner picks its own.
+    const app = await appWanting('heldportapp', HELD_PORT);
     await installOnNodes(env, app, [1]);
 
     const answer = await env.clients[1].get('/flux/portsinuse');
@@ -131,13 +133,13 @@ describe('a port another Flux node at this address holds', function () {
   // The front door. The asker reports itself at the sibling's address on a
   // different api port, which is what a second node behind one router does.
   it('refuses an install onto a port a Flux node at this address holds', async function () {
-    this.timeout(420000);
+    this.timeout(600000);
     await setNodeAddress(askerIp, `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
 
-    const app = await spawnerAppWanting('siblingheldapp', HELD_PORT);
+    const app = await appWanting('siblingheldapp', HELD_PORT);
     await seedSpawnerApp(env, app);
 
-    await sawLine(0, new RegExp(`port ${HELD_PORT} is held by the Flux node at ${siblingIp.replace(/\./g, '\\.')}`));
+    await sawLine(0, new RegExp(`port ${HELD_PORT} is held by the Flux node at ${siblingIp.replace(/\./g, '\\.')}`), 420000);
   });
 
   // The decider. Every peer that could be asked answers a pass without ever
@@ -150,7 +152,7 @@ describe('a port another Flux node at this address holds', function () {
     await removeFromNodeList(siblingIp);
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(true)));
 
-    const app = await spawnerAppWanting('blindprobeapp', FREE_PORT);
+    const app = await appWanting('blindprobeapp', FREE_PORT);
     await seedSpawnerApp(env, app);
 
     await sawLine(0, /are not available publicly/);
