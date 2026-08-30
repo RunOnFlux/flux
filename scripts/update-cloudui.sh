@@ -29,11 +29,10 @@ REPO="RunOnFlux/fluxos-frontend"
 CLOUDUI_DIR="$PROJECT_ROOT/CloudUI"
 
 # The API host is supplied by the caller, which reads it from ZelBack's config. It is
-# deliberately NOT defaulted and NOT read from the environment: config lives in the
-# directory fluxbench hashes, so a node cannot be pointed somewhere else without the
-# tampering being detected, and an environment variable would hand that back to whoever
-# starts the process. A caller that forgets the argument gets a failure, never a silent
-# fetch from the public internet.
+# deliberately NOT defaulted and NOT read from the environment: config is the single source
+# of truth for every endpoint a node reaches, and an environment variable would hand that
+# choice back to whoever starts the process. A caller that forgets the argument gets a
+# failure, never a silent fetch from the public internet.
 API_BASE_URL="${1:-}"
 if [ -z "$API_BASE_URL" ]; then
     echo "Error: no API base URL given."

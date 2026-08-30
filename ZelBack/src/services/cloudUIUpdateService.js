@@ -110,9 +110,9 @@ function runUpdateScript() {
     log.info('CloudUI: Running update script...');
 
     // The script is handed the API host rather than knowing one. Config is the single
-    // source of truth for every endpoint a node reaches, and it lives in the directory
-    // fluxbench hashes - a hardcoded URL in the script, or one taken from the
-    // environment, would be outside that protection and unreachable by the harness.
+    // source of truth for every endpoint a node reaches, so a hardcoded URL in the script,
+    // or one taken from the environment, would sit outside it and be unreachable by the
+    // harness.
     execFile('npm', ['run', 'update:cloudui', '--', config.github.apiBaseUrl], { cwd: PROJECT_ROOT, timeout: 300000 }, (error, stdout, stderr) => {
       if (error) {
         log.error(`CloudUI update script error: ${error.message}`);
