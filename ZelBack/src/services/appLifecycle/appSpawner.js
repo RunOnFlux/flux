@@ -500,6 +500,13 @@ async function trySpawningGlobalApplication() {
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
+    // The check above reads a sibling's ports from its broadcast specification,
+    // which an enterprise app does not carry, and it can only see nodes already
+    // running something. Ask the other Flux nodes at this address directly, here
+    // rather than during the port test, so a refusal costs no firewall rule and
+    // no port mapping to unwind.
+    await portManager.ensureSiblingPortsFree(appSpecifications, localSocketAddr);
+
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
     const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);

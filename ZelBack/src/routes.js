@@ -50,6 +50,7 @@ const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
+const portManager = require('./services/appNetwork/portManager');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
@@ -363,6 +364,16 @@ module.exports = (app) => {
   }));
   app.post('/flux/keepupnpportsopen', asyncRoute((req, res) => {
     return fluxNetworkHelper.keepUPNPPortsOpen(req, res);
+  }));
+  // Read by another Flux node at this public address, before it installs onto a
+  // port. Unauthenticated and reachable by anyone, and a cold answer can reach
+  // fluxbenchd to decrypt a specification, so it takes the same treatment as its
+  // neighbours under /apps: no parameters, and a cache short enough to be
+  // meaningless against an install yet long enough to bound a caller to one pass
+  // a second. The cache keys on the request URL, so that bound holds only while
+  // the URL is the endpoint and nothing else.
+  app.get('/flux/portsinuse', rejectQueryParameters, cache('1 second'), asyncRoute((req, res) => {
+    return portManager.portsInUseApi(req, res);
   }));
 
   // ArcaneOS Authentication Endpoints (HTTPS only)

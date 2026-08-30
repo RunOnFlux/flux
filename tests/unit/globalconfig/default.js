@@ -298,6 +298,7 @@ module.exports = {
     portTestPropagationDelayMs: 10000,
     portTestPeerTimeoutMs: 30000,
     portTestMaxAttempts: 5,
+    siblingPortsTimeoutMs: 5000,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
