@@ -430,7 +430,7 @@ module.exports = (app) => {
     return resourceQueryService.fluxUsage(req, res);
   }));
   app.get('/apps/appsresources', cache('30 seconds'), asyncRoute((req, res) => {
-    return resourceQueryService.appsResources(req, res);
+    return resourceQueryService.appsResourcesApi(req, res);
   }));
   app.get('/apps/registrationinformation', cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.registrationInformation(req, res);
