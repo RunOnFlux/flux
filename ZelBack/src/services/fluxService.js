@@ -1380,7 +1380,10 @@ async function getFluxInfo(req, res) {
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
-    info.apps.runningapps = appsRunning.data;
+    // The same public view /apps/listrunningapps serves, from the same function.
+    // This endpoint carries the container listing too, and a projection applied
+    // at one exit and not the other is the shape it exists to avoid.
+    info.apps.runningapps = appQueryService.publicContainerView(appsRunning.data);
     const appsResources = await resourceQueryService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
