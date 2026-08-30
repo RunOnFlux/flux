@@ -137,9 +137,7 @@ class FluxPeerManager extends EventEmitter {
     if (existing) {
       log.warn(`Replacing existing ${existing.direction} peer ${key}`);
       // Detach old handlers so its onclose doesn't remove the new peer
-      existing.ws.onclose = null;
-      existing.ws.onerror = null;
-      existing.ws.onmessage = null;
+      existing.detachHandlers();
       try { existing.ws.close(CLOSE_CODES.DUPLICATE_PEER, 'replaced'); } catch (_e) { /* noop */ }
       this.#removeTracking(existing);
     }
@@ -282,11 +280,41 @@ class FluxPeerManager extends EventEmitter {
     else this.#uniqueIps.set(ipKey, ipCount);
   }
 
+  /**
+   * Retire a peer this node has decided to drop.
+   *
+   * Membership of the peer map is this node's own account of who it peers with, so a
+   * decision to drop a peer takes effect here rather than when the remote gets round to
+   * answering. The close frame still goes out first, because the code it carries is what
+   * tells the remote whether to reconnect; the socket then finishes closing, or not, on
+   * its own time with nothing depending on it.
+   *
+   * The alternative - waiting for onclose - makes the count that drives the degraded
+   * threshold a function of the remote's cooperation. A peer that never answers stays
+   * counted until ws destroys the socket 30 seconds later, and neither route out of the
+   * map can reach it in the meantime: onclose has not fired, and ping() skips a socket
+   * that is not OPEN, so the missed-pong path cannot fire either.
+   *
+   * @param {string} key
+   * @param {number} [closeCode]
+   * @param {string} [reason]
+   * @returns {FluxPeerSocket|null} the peer removed, or null if it was not held
+   */
+  evict(key, closeCode, reason) {
+    const peer = this.#peers.get(key);
+    if (!peer) return null;
+    try { peer.close(closeCode, reason); } catch (_e) { /* noop */ }
+    // After this the socket can neither deliver a frame nor call remove() a second time.
+    peer.detachHandlers();
+    return this.remove(key, closeCode);
+  }
+
   disconnectAll() {
     this.acceptingConnections = false;
     const count = this.#peers.size;
-    for (const peer of this.#peers.values()) {
-      try { peer.close(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed'); } catch (_e) { /* noop */ }
+    // Snapshot the keys: evict() deletes from the map being walked.
+    for (const key of [...this.#peers.keys()]) {
+      this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
     }
     log.info(`Disconnected all ${count} peers, no longer accepting connections`);
   }

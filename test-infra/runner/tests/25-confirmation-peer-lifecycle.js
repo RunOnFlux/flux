@@ -60,7 +60,10 @@ describe('Peers disconnect on confirmation loss (4019)', function () {
     await setNodeStatus(nodeIp, 'EXPIRED');
     await waitForNodeStatus(client, (d) => d.confirmed === false, 30000);
 
-    await waitForPeersRemoved(client, (d) => d.total === 0, 30000, { afterId: beforeLoss });
+    // Tight on purpose. Losing confirmation evicts each peer, so the count reaches zero
+    // in the same turn as the decision rather than as each remote answers its close
+    // frame. A window the length of ws's own 30s close timeout would pass either way.
+    await waitForPeersRemoved(client, (d) => d.total === 0, 10000, { afterId: beforeLoss });
   });
 });
 
