@@ -139,6 +139,7 @@ describe('route wiring', () => {
     // checks a privilege - that lives in the service module behind it. Add a path
     // here when a route gains a privilege check.
     const decidesByCaller = [
+      '/apps/listappsimages',
       '/daemon/getinfo',
       '/daemon/validateaddress/:fluxaddress?',
       '/flux/restart',

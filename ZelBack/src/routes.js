@@ -402,8 +402,11 @@ module.exports = (app) => {
   app.get('/apps/listallapps', cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.listAllAppsApi(req, res);
   }));
-  app.get('/apps/listappsimages', cache('30 seconds'), asyncRoute((req, res) => {
-    return appInspector.listAppsImages(req, res);
+  // Answers the flux team, so it takes no cache: apicache keys an entry on the
+  // request URL alone and serves it before the handler runs, which would hand
+  // one authorised answer to every caller after it.
+  app.get('/apps/listappsimages', asyncRoute((req, res) => {
+    return appInspector.listAppsImagesApi(req, res);
   }));
   app.get('/apps/installedapps/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.installedApps(req, res);
