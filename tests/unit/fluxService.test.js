@@ -435,10 +435,12 @@ describe('fluxService tests', () => {
     let verifyPrivilegeStub;
     let runUpdateScriptStub;
     let runCmdStub;
+    let watchdogOwnsStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runUpdateScriptStub = sinon.stub(cloudUIUpdateService, 'runUpdateScript');
+      watchdogOwnsStub = sinon.stub(cloudUIUpdateService, 'watchdogManagesCloudUI').returns(false);
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
@@ -485,6 +487,22 @@ describe('fluxService tests', () => {
 
       expect(res.json.firstCall.args[0].status).to.equal('error');
       expect(res.json.firstCall.args[0].data.message).to.contain('Error rebuilding Flux UI');
+    });
+
+    // The script removes the served directory before it copies the new one in.
+    // On ArcaneOS the watchdog owns CloudUI, which is why the periodic check
+    // stands aside there - reaching the script directly from here would walk
+    // under that and tear down a directory this node does not manage.
+    it('refuses on ArcaneOS, where the watchdog owns CloudUI', async () => {
+      verifyPrivilegeStub.returns(true);
+      watchdogOwnsStub.returns(true);
+      const res = generateResponse();
+
+      await fluxService.rebuildUi(undefined, res);
+
+      sinon.assert.notCalled(runUpdateScriptStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('managed by the watchdog');
     });
 
     // The regression this replaced: a package script named here is one more thing that can

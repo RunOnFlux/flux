@@ -38,6 +38,12 @@ describe('cloudUIUpdateService tests', () => {
   });
 
   function loadService(envOverrides = {}) {
+    // Both halves of the original state, because the variable being ABSENT is
+    // one of the two states this switches between. Recording only its value
+    // left a load that set it unable to put it back, and the next load then
+    // restored the leak faithfully - which reaches every later test file in the
+    // run, since process.env outlives the module.
+    const hadEnv = 'FLUXOS_PATH' in process.env;
     const originalEnv = process.env.FLUXOS_PATH;
 
     if (envOverrides.FLUXOS_PATH !== undefined) {
@@ -61,8 +67,10 @@ describe('cloudUIUpdateService tests', () => {
     );
 
     // Restore original env after loading
-    if (originalEnv !== undefined) {
+    if (hadEnv) {
       process.env.FLUXOS_PATH = originalEnv;
+    } else {
+      delete process.env.FLUXOS_PATH;
     }
 
     return service;
@@ -264,6 +272,55 @@ describe('cloudUIUpdateService tests', () => {
 
       expect(result).to.equal(null);
       sinon.assert.calledOnce(logStub.error);
+    });
+  });
+
+  // The script removes the served directory before it copies the new one into
+  // place, so two runs at once means the second one's removal lands inside the
+  // first one's copy - and the run that wrote the version file is then not the
+  // run that wrote the files beside it.
+  describe('runUpdateScript tests', () => {
+    it('runs one script for two overlapping callers', async () => {
+      const service = loadService();
+      let finish;
+      execFileStub.callsFake((file, args, opts, callback) => {
+        finish = () => callback(null, 'done', '');
+      });
+
+      const first = service.runUpdateScript();
+      const second = service.runUpdateScript();
+      finish();
+
+      expect(await first).to.equal(true);
+      expect(await second, 'the second caller got its own answer').to.equal(true);
+      sinon.assert.calledOnce(execFileStub);
+    });
+
+    it('runs again once the one in flight has finished', async () => {
+      const service = loadService();
+      execFileStub.callsFake((file, args, opts, callback) => callback(null, 'done', ''));
+
+      await service.runUpdateScript();
+      await service.runUpdateScript();
+
+      sinon.assert.calledTwice(execFileStub);
+    });
+
+    // A failed run must not leave the guard set, or nothing can rebuild until
+    // the process restarts.
+    it('releases the guard when the script fails', async () => {
+      const service = loadService();
+      execFileStub.callsFake((file, args, opts, callback) => callback(new Error('boom'), '', 'stderr'));
+
+      expect(await service.runUpdateScript()).to.equal(false);
+      expect(await service.runUpdateScript()).to.equal(false);
+
+      sinon.assert.calledTwice(execFileStub);
+    });
+
+    it('names the watchdog as the owner of CloudUI on ArcaneOS alone', () => {
+      expect(loadService({ FLUXOS_PATH: '/dat/usr/lib/fluxos' }).watchdogManagesCloudUI()).to.equal(true);
+      expect(loadService().watchdogManagesCloudUI()).to.equal(false);
     });
   });
 
