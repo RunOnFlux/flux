@@ -1315,6 +1315,9 @@ async function softRemoveAppLocally(app, res) {
  * @param {object} res - Response object
  */
 async function softRedeploy(appSpecs, res) {
+  // Whether this redeploy actually took the app down. Until it has, the existing
+  // installation is still whole and a failure has nothing to clean up.
+  let softRemoved = false;
   try {
     if (globalState.removalInProgress) {
       log.warn('Another application is undergoing removal');
@@ -1387,6 +1390,7 @@ async function softRedeploy(appSpecs, res) {
     log.info('Starting softRedeploy');
     try {
       await softRemoveAppLocally(appSpecs.name, res);
+      softRemoved = true;
     } catch (error) {
       log.error(error);
       globalState.softRedeployInProgress = false;
@@ -1410,8 +1414,17 @@ async function softRedeploy(appSpecs, res) {
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
-    log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     globalState.softRedeployInProgress = false;
+    if (!softRemoved) {
+      // The app was never taken down, so it is still installed and intact.
+      // Uninstalling it here - forced, and broadcast to the network - turned a
+      // transient failure (a concurrent reconcile racing the removal, a docker
+      // call finding no container) into the loss of a running application.
+      // Leave it alone; the reconciler converges whatever it finds.
+      log.warn(`Soft redeploy of ${appSpecs.name} failed before the app was removed - the installation is left intact`);
+      return;
+    }
+    log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
     await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
