@@ -165,7 +165,7 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves(null);
 
       await availabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,
@@ -192,7 +192,7 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves(null);
 
       await availabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,
@@ -225,7 +225,7 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves(null);
 
       await availabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,
@@ -346,7 +346,7 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves(null);
 
       await availabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,
@@ -371,7 +371,7 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves('192.168.1.200:16127');
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
 
       await availabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,
@@ -400,7 +400,7 @@ describe('availabilityChecker tests', () => {
       // and the run returns before it ever reaches mapUpnpPort.
       sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves('192.168.1.200:16127');
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
       sinon.stub(upnpService, 'mapUpnpPort').resolves(false); // Failed
@@ -435,7 +435,7 @@ describe('availabilityChecker tests', () => {
       // and the run returns before it ever reaches mapUpnpPort.
       sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves('192.168.1.200:16127');
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
       sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
@@ -479,7 +479,7 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves(null);
 
       await availabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,
@@ -506,7 +506,7 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
-      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves(null);
 
       await availabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,

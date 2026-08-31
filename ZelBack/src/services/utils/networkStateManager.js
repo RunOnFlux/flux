@@ -1,6 +1,6 @@
 const { EventEmitter } = require('node:events');
 const { FluxController } = require('./fluxController');
-const { normalizeSocketAddress } = require('./socketAddressUtils');
+const { normalizeSocketAddress, ipsMatch } = require('./socketAddressUtils');
 
 const log = require('../../lib/log');
 
@@ -328,45 +328,89 @@ class NetworkStateManager extends EventEmitter {
   }
 
   /**
-   * Gets a random node from the network state. Ensures that the connection is
-   * not to this node. When we build the indexes, we could also store the node
-   * keys in an array, however, that is another array we have to keep in memory.
-   * It may pay to do that though, as this is O(n), vs O(1) for array index. CPU
-   * tradeoff for memory is probably good though.
-   * @param {string} localSocketAddress The ip:port of this node
+   * Walks the socketAddress index from a random offset and answers with the
+   * first node the rule accepts, or null when none does.
+   *
+   * One walk, because the two questions callers ask differ only in what they
+   * exclude: "another node", and "a node that can see me from outside". When we
+   * build the indexes we could also store the keys in an array, but that is
+   * another array to keep in memory - O(n) here against O(1) for an array index
+   * is probably the right trade.
+   *
+   * It answers null rather than reaching for a neighbouring entry when nothing
+   * qualifies. The previous form took "the one before, or else the next" without
+   * checking either existed, so a single-node fleet threw where it should have
+   * said absent - and absent is a case every caller already handles, because an
+   * empty index has always returned it.
+   *
+   * @param {(socketAddress: string) => boolean} acceptable
    * @returns {Promise<string | null>} A random socketAddress from the map
    */
-  async getRandomSocketAddress(localSocketAddress) {
+  async #randomSocketAddressWhere(acceptable) {
     await this.#waitAnswerable();
 
     const indexSize = this.#socketAddressIndex.size;
 
     if (!indexSize) return null;
 
-    let stepsRemaining = Math.floor(Math.random() * indexSize);
-    const iterator = this.#socketAddressIndex.values();
+    const offset = Math.floor(Math.random() * indexSize);
 
-    let previous = null;
+    let position = 0;
+    let firstAcceptable = null;
 
     // eslint-disable-next-line no-restricted-syntax
-    for (const node of iterator) {
+    for (const node of this.#socketAddressIndex.values()) {
       const { ip: socketAddress } = node;
 
-      if (!stepsRemaining) {
-        const match = localSocketAddress === socketAddress;
-        // if we've been unlucky (or lucky however you look at it) enough to hit
-        // this node, we just take the value before, or if it's the initial index,
-        // the next value from the iterator
-        if (match) return previous || iterator.next().value.ip;
-        return socketAddress;
+      if (acceptable(socketAddress)) {
+        if (position >= offset) return socketAddress;
+        if (firstAcceptable === null) firstAcceptable = socketAddress;
       }
 
-      previous = socketAddress;
-      stepsRemaining -= 1;
+      position += 1;
     }
 
-    // this should never happen, should probably log it
-    return this.socketAddressIndex.values().next().value.ip;
+    // Everything acceptable sat before the offset, so wrap to the first of them.
+    return firstAcceptable;
+  }
+
+  /**
+   * A random node that is not this one.
+   *
+   * For talking to a peer or fetching from one, where a Flux node behind our own
+   * router is a perfectly good answer.
+   *
+   * @param {string} localSocketAddress The ip:port of this node
+   * @returns {Promise<string | null>} A random socketAddress from the map
+   */
+  async getRandomSocketAddress(localSocketAddress) {
+    return this.#randomSocketAddressWhere(
+      (socketAddress) => socketAddress !== localSocketAddress,
+    );
+  }
+
+  /**
+   * A random node that can observe this one from OUTSIDE its address.
+   *
+   * For asking a peer what our address looks like from where it stands. A node
+   * sharing our public address is not outside it: reaching us means leaving the
+   * router and being sent straight back in, which most consumer routers do not
+   * do - so it reports a closed port and we refuse an install that was fine.
+   * Excluded here rather than at each caller, because the callers that need it
+   * are not the only ones drawing a peer and one of them already had to write
+   * the check by hand.
+   *
+   * Answers null when every other node shares our address, which is the honest
+   * answer: there is nobody who could tell us. The caller decides what that
+   * means; for the port test it means nothing was learned.
+   *
+   * @param {string} localSocketAddress The ip:port of this node
+   * @returns {Promise<string | null>} A random socketAddress from the map
+   */
+  async getRandomExternalObserver(localSocketAddress) {
+    return this.#randomSocketAddressWhere(
+      (socketAddress) => !ipsMatch(socketAddress, localSocketAddress),
+    );
   }
 
   /**

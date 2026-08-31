@@ -54,6 +54,7 @@ const HELD_PORT = 31111;
 const FREE_PORT = 31122;      // test 4: refused, never installs
 const OLD_PEER_PORT = 31123;  // test 5: installs and stays
 const SIGHTED_PORT = 31124;   // test 6: installs and stays
+const LONE_DISSENT_PORT = 31125; // test 5: installs, one peer dissenting
 
 const STUB_PEERS = [2, 3, 4];
 
@@ -191,6 +192,50 @@ describe('a port another Flux node at this address holds', function () {
     await sawLine(0, /is answered by something other than this node at this address/);
     await sawLine(0, /are not available publicly/);
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(false)));
+  });
+
+  // One peer's word does not stop an install, and this is the case the rule was
+  // written for. Our own token coming back is PROOF - only this node could have
+  // produced it - so one peer settles an acceptance. Anything else is one
+  // observer's report about a third party, and a report can be wrong: a
+  // truncated read, something in the path, a peer having a bad moment. Refusing
+  // on the first of those leaves a node that quietly installs nothing.
+  //
+  // Exactly one peer is drawable here, and it dissents on every attempt. So the
+  // node spends its whole retry budget on a single witness and must still
+  // proceed - which also proves the tally counts WITNESSES rather than readings,
+  // since the same peer answering five times is still one peer.
+  it('does not refuse on one peer\'s reading when no second peer can be asked', async function () {
+    this.timeout(420000);
+    const [lone, ...silenced] = STUB_PEERS;
+
+    // Deterministic rather than probabilistic: with three peers and one
+    // dissenting, the draw decides whether the old rule refused, and a test that
+    // is only sometimes red is not evidence. Leaving one drawable peer makes the
+    // old behaviour fail every time and the new one pass every time.
+    const afterRemoval = env.clients[0].getLastEventId();
+    await Promise.all(silenced.map((i) => removeFromNodeList(subnet.nodeIp(i + 1))));
+    await env.clients[0].waitForEvent('networkstate:updated', () => true, 60000, { afterId: afterRemoval });
+
+    await env.stubPeerClients.get(lone).answerPortProbeForeign(true);
+
+    const app = await appWanting('lonedissentapp', LONE_DISSENT_PORT);
+    await seedSpawnerApp(env, app);
+
+    await waitFor(async () => {
+      const res = await env.clients[0].getInstalledApps();
+      return res.status === 'success' && res.data.some((a) => a.name === 'lonedissentapp');
+    }, { timeout: 300000, label: 'lonedissentapp installs despite a single dissenting peer' });
+
+    // Asserted on the reasoning as well as the outcome: an install that went
+    // ahead because nothing disagreed would look identical here.
+    await sawLine(0, /asking another peer before refusing/);
+    await sawLine(0, /no second peer could be asked; proceeding on reachability alone/);
+
+    await env.stubPeerClients.get(lone).answerPortProbeForeign(false);
+    const afterRestore = env.clients[0].getLastEventId();
+    await Promise.all(silenced.map((i) => restoreToNodeList(subnet.nodeIp(i + 1))));
+    await env.clients[0].waitForEvent('networkstate:updated', () => true, 60000, { afterId: afterRestore });
   });
 
   // The early adopter, and it is the case that decides whether this can ship in

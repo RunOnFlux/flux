@@ -872,7 +872,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkMyFluxAvailability tests', () => {
-    let getRandomSocketAddress;
+    let getRandomExternalObserver;
 
     before(requireMongo);
 
@@ -902,7 +902,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicFluxnodeListResponse);
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
-      getRandomSocketAddress = sinon.stub(networkStateService, 'getRandomSocketAddress');
+      getRandomExternalObserver = sinon.stub(networkStateService, 'getRandomExternalObserver');
       // An IP change hands off to the geolocation service, which reschedules
       // itself every ten seconds for as long as no IP is detected - and logs an
       // error on each pass. Left real, the first of these tests starts a loop
@@ -935,7 +935,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should return false if axsiosGet throws error', async () => {
       sinon.stub(serviceHelper, 'axiosGet').rejects();
 
-      getRandomSocketAddress.resolves('1.2.3.4:16127');
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -945,7 +945,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should return false if axsiosGet resolves null', async () => {
       sinon.stub(serviceHelper, 'axiosGet').resolves(null);
 
-      getRandomSocketAddress.resolves('1.2.3.4:16127');
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -962,7 +962,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
 
-      getRandomSocketAddress.resolves('1.2.3.4:16127');
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
@@ -1005,7 +1005,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
 
-      getRandomSocketAddress.resolves('1.2.3.4:16127');
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();

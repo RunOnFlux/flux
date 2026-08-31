@@ -453,6 +453,34 @@ async function checkFluxAvailability(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
+/**
+ * Whether a request body carries a signature from a Fluxnode on the deterministic
+ * list, over its own contents.
+ *
+ * Extracted rather than written twice. Two copies of a signature check is the
+ * one duplication that must not drift - whichever copy is corrected, the other
+ * keeps accepting what it always did, and nothing points at it.
+ *
+ * The body is verified as it arrived minus the signature itself, which is how
+ * the sender built the message it signed.
+ *
+ * @param {object} processedBody The parsed request body, carrying pubKey and signature
+ * @returns {Promise<boolean>} True when a listed Fluxnode signed this body
+ */
+async function verifySignedFluxnodeRequest(processedBody) {
+  if (!processedBody || !processedBody.pubKey || !processedBody.signature) return false;
+
+  const { pubKey, signature } = processedBody;
+
+  const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
+  if (!nodes.length) return false;
+
+  const dataToVerify = { ...processedBody };
+  delete dataToVerify.signature;
+
+  return verificationHelper.verifyMessage(JSON.stringify(dataToVerify), pubKey, signature) === true;
+}
+
 async function checkAppAvailability(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -464,19 +492,13 @@ async function checkAppAvailability(req, res) {
 
       const processedBody = serviceHelper.ensureObject(body);
 
-      const {
-        ip, ports, pubKey, signature,
-      } = processedBody;
+      const { ip, ports } = processedBody;
 
       const ipPort = processedBody.port;
 
       // pubkey of the message has to be on the list
-      const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
-      const dataToVerify = processedBody;
-      delete dataToVerify.signature;
-      const messageToVerify = JSON.stringify(dataToVerify);
-      const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-      if ((verified !== true || !nodes.length) && authorized !== true) {
+      const verified = await verifySignedFluxnodeRequest(processedBody);
+      if (!verified && authorized !== true) {
         throw new Error('Unable to verify request authenticity');
       }
 
@@ -1404,11 +1426,22 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
 
-  const randomSocketAddress = await networkStateService.getRandomSocketAddress(
+  // An external observer. This asks a peer whether it can reach US, and a Flux
+  // node sharing our public address cannot answer: reaching us means leaving the
+  // router and being sent straight back in, which most consumer routers do not
+  // do. Asking one produced a false "unreachable" and two points of dosState,
+  // on exactly the shared-address topology this release is about.
+  const randomSocketAddress = await networkStateService.getRandomExternalObserver(
     localSocketAddress,
   );
 
-  if (!randomSocketAddress) return false;
+  // Nobody outside this address to ask, so nothing is learned and nothing is
+  // concluded - dosState is deliberately untouched here, unlike every failure
+  // path below it. The next cycle asks again.
+  if (!randomSocketAddress) {
+    log.warn('checkMyFluxAvailability - no Flux node outside this address could be asked; skipping this pass');
+    return false;
+  }
 
   const remoteIp = extractIp(randomSocketAddress);
   const remotePort = extractPort(randomSocketAddress);
@@ -2421,6 +2454,7 @@ module.exports = {
   isPortOpen,
   portAnswered,
   checkAppAvailability,
+  verifySignedFluxnodeRequest,
   isPortEnterprise,
   isPortBanned,
   isPortUPNPBanned,

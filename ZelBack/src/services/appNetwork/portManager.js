@@ -12,9 +12,14 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
+const { Privilege, authOf } = require('../utils/privileges');
+const fluxCaching = require('../utils/cacheManager');
 
 // Global cache for failed nodes
 const failedNodesTestPortsCache = new Map();
+
+// One entry: this answers what THIS node holds, so there is nothing to key on.
+const PORTS_IN_USE_KEY = 'portsInUse';
 
 // A single UPnP map failure is routine on consumer routers (busy router, a
 // node network blip) and the app itself keeps running regardless - it must
@@ -395,13 +400,26 @@ async function getAllUsedPorts() {
  * @returns {Promise<number[]>} the ports, ascending
  */
 async function portsInUse() {
-  const ports = await getAllUsedPorts();
+  // Cached as a VALUE rather than as a response. A route cache stores whatever
+  // the handler produced, so a transient failure answered with a 200 and an
+  // error body was pinned for the whole window after the condition cleared -
+  // which routes.js says in as many words must never happen. A throw produces
+  // no value, so there is nothing here to remember.
+  const cache = fluxCaching.default.portsInUseCache;
 
-  return ports.map(Number).filter(Number.isInteger).sort((a, b) => a - b);
+  const cached = cache.get(PORTS_IN_USE_KEY);
+  if (cached) return cached;
+
+  const ports = await getAllUsedPorts();
+  const answer = ports.map(Number).filter(Number.isInteger).sort((a, b) => a - b);
+
+  cache.set(PORTS_IN_USE_KEY, answer);
+  return answer;
 }
 
 /**
- * GET /flux/portsinuse - the ports this node holds.
+ * POST /flux/portsinuse - the ports this node holds, to a Fluxnode that signed
+ * the question.
  *
  * Read by another Flux node on the same public address, deciding whether a port
  * it is about to install onto is already spoken for. The router forwards each
@@ -409,44 +427,52 @@ async function portsInUse() {
  * address cannot both be reached, whichever applications they are - which is why
  * the answer is ports alone and names no application.
  *
- * Nothing here is withheld elsewhere: a port in use at an address is what a port
- * scan of that address reports, and this names nothing that would attribute one
- * to an application.
+ * SIGNED, not open. What it discloses is small - port numbers, no application
+ * identity, and a port scan of the address finds most of it anyway. The reason
+ * is the other half: answering means reading this node's own specifications,
+ * decrypting the enterprise ones, and an anonymous caller could ask for that as
+ * often as it liked. The only real caller is a sibling Fluxnode, and this
+ * codebase already verifies exactly that on /flux/checkappavailability - the
+ * endpoint this feature's own port test posts to. Same check, same list, same
+ * signature.
+ *
+ * An operator asking by hand is accepted on the usual privilege, so the endpoint
+ * stays usable directly.
  *
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<void>}
  */
 async function portsInUseApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await portsInUse()));
-  } catch (error) {
-    log.error(error);
-    res.json(messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    ));
-  }
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+
+      const signed = await fluxNetworkHelper.verifySignedFluxnodeRequest(processedBody);
+      const authorized = signed
+        ? true
+        : await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+
+      if (signed !== true && authorized !== true) {
+        throw new Error('Unable to verify request authenticity');
+      }
+
+      res.json(messageHelper.createDataMessage(await portsInUse()));
+    } catch (error) {
+      log.error(error);
+      res.json(messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      ));
+    }
+  });
 }
 
-/**
- * The host ports a specification asks for.
- *
- * @param {object} appSpecFormatted - App specification
- * @returns {number[]}
- */
-function specifiedPorts(appSpecFormatted) {
-  if (appSpecFormatted.version === 1) {
-    return appSpecFormatted.port ? [Number(appSpecFormatted.port)] : [];
-  }
-  if (appSpecFormatted.version <= 3) {
-    return (appSpecFormatted.ports || []).map(Number);
-  }
-
-  return (appSpecFormatted.compose || [])
-    .flatMap((component) => (component.ports || []).map(Number));
-}
 
 /**
  * The other Flux nodes sharing our public address.
@@ -498,8 +524,8 @@ function siblingSocketAddresses(localSocketAddress) {
  * @returns {Promise<{address: string, port: number}|null>} the sibling and the
  *   port it holds, or null when none of them reported one
  */
-async function siblingHoldingPort(appSpecFormatted, localSocketAddress) {
-  const wanted = new Set(specifiedPorts(appSpecFormatted).filter(Number.isInteger));
+async function siblingHoldingPort(appPorts, localSocketAddress) {
+  const wanted = new Set((appPorts || []).map(Number).filter(Number.isInteger));
   if (!wanted.size) return null;
 
   const siblings = siblingSocketAddresses(localSocketAddress);
@@ -507,9 +533,28 @@ async function siblingHoldingPort(appSpecFormatted, localSocketAddress) {
 
   const timeout = config.fluxapps.siblingPortsTimeoutMs;
 
+  // Signed for the sibling to verify, the same way the port test signs what it
+  // sends to /flux/checkappavailability.
+  const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+  const ask = { pubKey, asking: 'portsInUse' };
+  const signature = await signCheckAppData(JSON.stringify(ask));
+
+  // signMessage catches its own failures and answers with nothing, so an
+  // unsigned ask is a real possibility rather than a throw. Sending it anyway
+  // would have every sibling refuse it and read back as "no sibling holds the
+  // port" - the advisory check failing open, silently, on a node whose key is
+  // briefly unavailable. Say what happened and answer no information instead.
+  if (!signature || typeof signature !== 'string') {
+    log.warn('siblingHoldingPort - could not sign the request; no sibling was asked');
+    return null;
+  }
+
+  const signedAsk = { ...ask, signature };
+
   const answers = await Promise.all(siblings.map(async (address) => {
-    const response = await serviceHelper.axiosGet(
+    const response = await axios.post(
       `http://${extractIp(address)}:${extractPort(address)}/flux/portsinuse`,
+      signedAsk,
       // A list of port numbers, so the ceiling is generous by orders of
       // magnitude. Bounded at all because axios does not bound a response body
       // by default, and this address is only as trustworthy as whatever is
@@ -553,6 +598,43 @@ async function siblingHoldingPort(appSpecFormatted, localSocketAddress) {
  * @param {string} token - the secret this node published on its test servers
  * @returns {number|null}
  */
+/**
+ * How many independent peers must agree before a port test refuses an install.
+ * Not config: it is a property of what counts as evidence, not a tuning knob,
+ * and a fluxapps key has to be added in two places to be visible under test.
+ */
+const PORT_TEST_CORROBORATION = 2;
+
+/**
+ * The port to refuse on once enough independent readings agree the ports are
+ * not ours, or null while the evidence is still one peer's word.
+ *
+ * Proof and report are not the same kind of evidence. Our own token coming back
+ * PROVES the port reaches this node - a secret cannot be manufactured, so one
+ * peer settles it and a second adds nothing. Anything else is one observer's
+ * report about a third party, and a report can be wrong: a truncated read,
+ * something in the path, a peer having a bad moment. Refusing on the first of
+ * those stops the node installing anything at all, quietly, until somebody goes
+ * looking for it.
+ *
+ * A real collision corroborates itself for free. Behind a shared address the
+ * router forwards that port to one node, and every peer that reads it sees the
+ * same thing; an anomaly does not reproduce on a different peer. So: one witness
+ * to accept, two to refuse.
+ *
+ * Keyed by peer, because the draw is random and can return the same peer twice -
+ * one peer asked twice is one witness, whatever the count of readings says.
+ *
+ * @param {Map<string, number>} disagreements Peer address -> the port its
+ *   reading said was not ours.
+ * @param {number} corroboration How many distinct peers must agree.
+ * @returns {number | null} The first port to refuse on, or null.
+ */
+function refusedPort(disagreements, corroboration) {
+  if (disagreements.size < corroboration) return null;
+  return disagreements.values().next().value;
+}
+
 function portNotOurs(portsToTest, answered, token) {
   if (!token) return null;
 
@@ -634,9 +716,6 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   const portTestToken = crypto.randomBytes(16).toString('hex');
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
-  const portsNotWorking = new Set();
-  let originalPortFailed = null;
-  let nextTestingPort = 0;
 
   try {
     const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
@@ -736,16 +815,27 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     data.signature = signature;
     let i = 0;
     let finished = false;
+    // Peer address -> the port its reading said was not ours. Keyed by peer so
+    // that redrawing the same one does not read as a second opinion.
+    const disagreements = new Map();
     while (!finished && i < config.fluxapps.portTestMaxAttempts) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
-      const randomSocketAddress = await networkStateService.getRandomSocketAddress(
+      const randomSocketAddress = await networkStateService.getRandomExternalObserver(
         localSocketAddress,
       );
 
-      // this should never happen as the list should be populated here
+      // Nobody outside this address to ask. A Flux node sharing our public
+      // address cannot answer the question: reaching us means leaving the
+      // router and being sent straight back in, which most consumer routers do
+      // not do, so it would report a closed port and we would refuse an install
+      // that was fine. Answering nothing is honest, and it takes the same
+      // "nothing was learned" path the older-peer case below takes - which is
+      // exactly what this node did before the check existed.
       if (!randomSocketAddress) {
-        throw new Error('Unable to get random test connection');
+        log.warn('checkInstallingAppPortAvailable - no Flux node outside this address could be asked; proceeding on reachability alone');
+        portsStatus = true;
+        break;
       }
 
       const askingIP = extractIp(randomSocketAddress);
@@ -758,18 +848,17 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         log.error(error);
       });
       if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        if (resMyAppAvailability.data.data && resMyAppAvailability.data.data.message && resMyAppAvailability.data.data.message.includes('Failed port: ')) {
-          const portToRetest = serviceHelper.ensureNumber(resMyAppAvailability.data.data.message.split('Failed port: ')[1]);
-          if (portToRetest > 0) {
-            portsNotWorking.add(portToRetest);
-            // if we aren't already testing ports, we set it here, otherwise, just continue
-            if (!originalPortFailed) {
-              originalPortFailed = portToRetest;
-              // eslint-disable-next-line no-unused-vars
-              nextTestingPort = portToRetest < 65535 ? portToRetest + 1 : portToRetest - 1;
-            }
-          }
-        }
+        // The peer names the port it could not reach, when it knows which. That
+        // detail was parsed out and thrown away - it fed nothing but bookkeeping
+        // no one read - and it is the one thing that makes a refused install
+        // debuggable without going to the peer's own logs.
+        const failure = resMyAppAvailability.data.data && resMyAppAvailability.data.data.message;
+        const failedPort = typeof failure === 'string' && failure.includes('Failed port: ')
+          ? serviceHelper.ensureNumber(failure.split('Failed port: ')[1])
+          : null;
+
+        log.warn(`checkInstallingAppPortAvailable - ${askingIP} could not reach `
+          + `${failedPort > 0 ? `port ${failedPort}` : 'the ports'}. Installation aborted.`);
         portsStatus = false;
         finished = true;
       } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
@@ -797,21 +886,35 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
           const notOurs = portNotOurs(portsToTest, answered, portTestToken);
 
           if (notOurs === null) {
+            // Our own token came back. Proof, not report - only this node could
+            // have produced it - so one peer settles it.
             portsStatus = true;
+            finished = true;
           } else {
-            // Something answered that port and it was not us. Behind a shared
-            // address that is a neighbour's application holding the router's
-            // forward, which is exactly what this refuses.
-            log.warn(`checkInstallingAppPortAvailable - port ${notOurs} is answered by something other than this node at this address, as read by ${askingIP}. Installation aborted.`);
-            portsNotWorking.add(notOurs);
-            if (!originalPortFailed) {
-              originalPortFailed = notOurs;
-              // eslint-disable-next-line no-unused-vars
-              nextTestingPort = notOurs < 65535 ? notOurs + 1 : notOurs - 1;
+            disagreements.set(askingIP, notOurs);
+            const refused = refusedPort(disagreements, PORT_TEST_CORROBORATION);
+
+            if (refused === null && i < config.fluxapps.portTestMaxAttempts) {
+              log.info(`checkInstallingAppPortAvailable - ${askingIP} read something other than this node on port ${notOurs}; asking another peer before refusing`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
-            portsStatus = false;
+
+            if (refused === null) {
+              // One peer's word, and nobody left to ask. Not enough to stop this
+              // node installing: it takes the same "nothing was learned" path an
+              // older peer produces.
+              log.warn(`checkInstallingAppPortAvailable - only ${askingIP} read a port that was not ours and no second peer could be asked; proceeding on reachability alone`);
+              portsStatus = true;
+            } else {
+              // Behind a shared address that is a neighbour's application
+              // holding the router's forward, which is exactly what this
+              // refuses - and now more than one peer has seen it.
+              log.warn(`checkInstallingAppPortAvailable - port ${refused} is answered by something other than this node at this address, as read by ${disagreements.size} peers (${[...disagreements.keys()].join(', ')}). Installation aborted.`);
+              portsStatus = false;
+            }
+            finished = true;
           }
-          finished = true;
         }
       }
     }
@@ -888,18 +991,20 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       return;
     }
 
-    const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddr);
+    // An external observer, for the same reason the install-time port test wants
+    // one: a node behind our own router cannot tell us what our address looks
+    // like from outside it. This used to redraw by hand on a same-IP match; the
+    // picker guarantees it now, for every caller that asks this question.
+    const randomSocketAddress = await networkStateService.getRandomExternalObserver(localSocketAddr);
 
     if (!randomSocketAddress) return;
 
     const askingIP = extractIp(randomSocketAddress);
     const askingIpPort = extractPort(randomSocketAddress);
+    // Still needed below: this node's own address is what it asks the peer to
+    // keep open. It is no longer used to reject a same-address peer - the
+    // picker does that.
     const localIp = extractIp(localSocketAddr);
-
-    if (localIp === askingIP) {
-      callOtherNodeToKeepUpnpPortsOpen();
-      return;
-    }
     if (failedNodesTestPortsCache.has(askingIP)) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
@@ -985,8 +1090,8 @@ module.exports = {
   getAllUsedPorts,
   portsInUse,
   portsInUseApi,
-  specifiedPorts,
   portNotOurs,
+  refusedPort,
   siblingHoldingPort,
   isPortAvailable,
   findNextAvailablePort,

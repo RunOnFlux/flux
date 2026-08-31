@@ -473,6 +473,33 @@ describe('appUtilities tests', () => {
   });
 
   describe('getAppPorts tests', () => {
+    // The guards live here now, with the one function that derives this. They
+    // came from a second extraction in portManager that has been deleted: two
+    // answers to one question is a drift nobody notices until they disagree.
+    it('answers empty rather than throwing for a shape with no ports', () => {
+      expect(appUtilities.getAppPorts({ version: 3 })).to.deep.equal([]);
+      expect(appUtilities.getAppPorts({ version: 8 })).to.deep.equal([]);
+      expect(appUtilities.getAppPorts({ version: 8, compose: [{}] })).to.deep.equal([]);
+      expect(appUtilities.getAppPorts()).to.deep.equal([]);
+    });
+
+    it('answers empty rather than NaN for a version 1 app with no port', () => {
+      // `+undefined` is NaN, and NaN is worse than an exception here: it is a
+      // number that compares unequal to everything and fails far from home.
+      expect(appUtilities.getAppPorts({ version: 1 })).to.deep.equal([]);
+    });
+
+    it('reads string ports as numbers', () => {
+      expect(appUtilities.getAppPorts({ version: 3, ports: ['31000', 31001] })).to.deep.equal([31000, 31001]);
+    });
+
+    it('reads every component of a composed app', () => {
+      const appSpecs = { version: 8, compose: [{ ports: [31000] }, { ports: [31001, 31002] }] };
+
+      expect(appUtilities.getAppPorts(appSpecs)).to.deep.equal([31000, 31001, 31002]);
+    });
+
+
     it('should extract port from version 1 app', () => {
       const appSpecs = {
         version: 1,

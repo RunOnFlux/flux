@@ -513,7 +513,7 @@ async function trySpawningGlobalApplication() {
     // in the spawn cache, so this node stops considering it until that expires -
     // which is right, because nothing changes here until the sibling gives the
     // port up.
-    const sibling = await portManager.siblingHoldingPort(appSpecifications, localSocketAddr);
+    const sibling = await portManager.siblingHoldingPort(appPorts, localSocketAddr);
     if (sibling) {
       log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
       return shortDelayTime;
