@@ -10,6 +10,7 @@ import {
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
 import { appOwnerKey } from '../framework/keys.js';
+import { assignPorts } from '../framework/port-allocator.js';
 import { signBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -48,7 +49,7 @@ const GATE_IMAGE = 'e2e-region-probe';
 // before it proves anything about placement (the registration-gate suite's
 // gateSpec, with the probe image and port this suite pushes).
 function gateSpec({ name, instances = 3, geolocation = [] }) {
-  return {
+  const spec = {
     version: 8,
     name,
     description: `region pin probe ${name}`,
@@ -76,6 +77,12 @@ function gateSpec({ name, instances = 3, geolocation = [] }) {
     staticip: false,
     enterprise: '',
   };
+
+  // Hand-rolled rather than built, so it goes to the allocator itself -
+  // the one place a seeded port comes from. Stable per app name, so every
+  // spec built for one app here carries the same port.
+  assignPorts(spec.compose, name);
+  return spec;
 }
 
 // buildSeedableApp signs the spec it builds and takes no geolocation, so a

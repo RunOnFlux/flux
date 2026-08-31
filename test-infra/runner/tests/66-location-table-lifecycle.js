@@ -9,7 +9,7 @@ import { restartFluxos } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { appOwnerKey } from '../framework/keys.js';
-import { allocatePortFor } from '../framework/port-allocator.js';
+import { assignPorts } from '../framework/port-allocator.js';
 import { signBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -77,7 +77,7 @@ const FLOOR_NODE = 3;
 // proves anything about placement (the registration-gate suite's gateSpec, with
 // this suite's probe image, port and owner).
 function gateSpec({ name, instances, geolocation = [] }) {
-  return {
+  const spec = {
     version: 8,
     name,
     description: `location table lifecycle probe ${name}`,
@@ -86,11 +86,7 @@ function gateSpec({ name, instances, geolocation = [] }) {
       name: 'probe',
       description: 'probe component',
       repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
-      // This suite builds and signs its own spec rather than going through a
-      // builder, so it asks the allocator directly - the one place a port comes
-      // from. Stable per app name, so the several specs built for one app here
-      // all carry the same port.
-      ports: [allocatePortFor(name)],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -109,6 +105,12 @@ function gateSpec({ name, instances, geolocation = [] }) {
     staticip: false,
     enterprise: '',
   };
+
+  // Hand-rolled rather than built, so it goes to the allocator itself -
+  // the one place a seeded port comes from. Stable per app name, so every
+  // spec built for one app here carries the same port.
+  assignPorts(spec.compose, name);
+  return spec;
 }
 
 // The permanent registration message an update is validated against. The update
