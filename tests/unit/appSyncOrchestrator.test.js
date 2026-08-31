@@ -12,6 +12,7 @@ describe('AppSyncOrchestrator', () => {
   let peerEmitter;
   let clock;
   let getEligibleSyncPeersStub;
+  let syncRequested;
   let logStub;
   let syncMissingHashesStub;
   let getMissingHashesStub;
@@ -45,13 +46,25 @@ describe('AppSyncOrchestrator', () => {
     firstBoot: false,
   };
 
+  // Asked-ness lives with the peers, exactly as it does in production: the peer
+  // manager holds the set and drops a peer's mark when the peer is removed. The
+  // orchestrator reads it rather than keeping a copy, and a copy that outlived
+  // the peer is what made a lost request permanent.
   function makePeerOptions(overrides = {}) {
     return {
       getEligibleSyncPeers: getEligibleSyncPeersStub,
       onPeerEvent: (event, cb) => peerEmitter.on(event, cb),
       offPeerEvent: (event, cb) => peerEmitter.removeListener(event, cb),
+      markSyncRequested: (key) => syncRequested.add(key),
+      isSyncRequested: (key) => syncRequested.has(key),
+      clearSyncRequested: () => syncRequested.clear(),
       ...overrides,
     };
+  }
+
+  // What FluxPeerManager.remove() does: the peer goes and its mark goes with it.
+  function removePeer(key) {
+    syncRequested.delete(key);
   }
 
   function makeOrchestrator(overrides = {}) {
@@ -65,6 +78,7 @@ describe('AppSyncOrchestrator', () => {
     blockEmitter = new EventEmitter();
     peerEmitter = new EventEmitter();
     getEligibleSyncPeersStub = sinon.stub().returns([]);
+    syncRequested = new Set();
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
@@ -286,6 +300,39 @@ describe('AppSyncOrchestrator', () => {
       for (const peer of peers) {
         expect(peer.send.called).to.be.false;
       }
+    });
+
+    // A node asks one peer, the connection dies before the bytes leave, and the
+    // request is lost silently - a send into a closing socket does not throw. The
+    // peer was recorded as asked, so every later pass filtered it out, logged
+    // "No new eligible sync peers to ask" and asked nobody. The node stayed
+    // SYNCING and never reached READY, permanently, from one lost message.
+    //
+    // Seen on a real fleet: 74ms for one direction of the same 3-node fleet, 30s
+    // and zero completions for the other, and that log line 15 times in another
+    // suite's node.
+    it('asks a peer again when its connection went away before it answered', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      const asked = peers.filter((p) => p.send.called);
+      expect(asked.length).to.be.greaterThan(0);
+
+      // The peer goes, which is what drops its mark. The request it was sent is
+      // gone with it and no answer will ever arrive.
+      asked.forEach((p) => removePeer(p.key));
+      asked.forEach((p) => p.send.resetHistory());
+
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      // Asked again rather than filtered out forever.
+      expect(asked.some((p) => p.send.called), 'a peer that went away was never asked again').to.equal(true);
     });
 
     it('should not ask the same peer twice in the same cycle', async () => {

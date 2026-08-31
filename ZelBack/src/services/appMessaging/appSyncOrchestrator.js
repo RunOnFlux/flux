@@ -36,6 +36,8 @@ class AppSyncOrchestrator {
   #onPeerEvent = null;
   #offPeerEvent = null;
   #markSyncRequested = null;
+
+  #isSyncRequested = null;
   #clearSyncRequested = null;
   #isEnterprise = null;
   #waitForNetworkState = null;
@@ -55,7 +57,6 @@ class AppSyncOrchestrator {
   #broadcastStarted = null;
   #started = false;
   #syncInProgress = false;
-  #askedPeers = new Set();
   #syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
   #stateSyncComplete = false;
   #syncTimeout = null;
@@ -75,6 +76,10 @@ class AppSyncOrchestrator {
     this.#onPeerEvent = options.onPeerEvent;
     this.#offPeerEvent = options.offPeerEvent;
     this.#markSyncRequested = options.markSyncRequested ?? (() => {});
+    // The peer manager owns the peers, so it owns which of them have been asked.
+    // Keeping a second set here was the defect: remove() deletes its copy when a
+    // peer goes, and nothing deleted this one.
+    this.#isSyncRequested = options.isSyncRequested ?? (() => false);
     this.#clearSyncRequested = options.clearSyncRequested ?? (() => {});
     this.#isEnterprise = options.isEnterprise ?? (() => false);
     this.#peerCountIfAboveThreshold = options.peerCountIfAboveThreshold ?? (() => 0);
@@ -210,9 +215,14 @@ class AppSyncOrchestrator {
 
   async #requestSyncs() {
     const eligible = this.#getEligibleSyncPeers(MIN_UPTIME_SECONDS);
-    const fresh = eligible.filter((p) => !this.#askedPeers.has(p.key));
+    // Asked-ness is read from the peer manager rather than remembered here. A
+    // peer whose connection dies between being marked and the bytes leaving is
+    // removed, which drops its mark with it - so it becomes askable again
+    // instead of being permanently recorded as asked and never retried.
+    const fresh = eligible.filter((p) => !this.#isSyncRequested(p.key));
+    const askedAny = eligible.some((p) => this.#isSyncRequested(p.key));
 
-    if (fresh.length < MIN_SYNC_COMPLETIONS && this.#askedPeers.size === 0) {
+    if (fresh.length < MIN_SYNC_COMPLETIONS && !askedAny) {
       log.info(`AppSyncOrchestrator - Only ${fresh.length} eligible sync peers (need ${MIN_SYNC_COMPLETIONS}), falling back to block timer`);
       return;
     }
@@ -241,7 +251,6 @@ class AppSyncOrchestrator {
     }
 
     for (const peer of peersToAsk) {
-      this.#askedPeers.add(peer.key);
       this.#markSyncRequested(peer.key);
     }
 
@@ -294,7 +303,6 @@ class AppSyncOrchestrator {
   }
 
   #resetSyncState() {
-    this.#askedPeers.clear();
     this.#clearSyncRequested();
     this.#syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
     this.#stateSyncComplete = false;

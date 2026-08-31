@@ -477,6 +477,7 @@ async function startFluxFunctions() {
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
       markSyncRequested: (key) => peerManager.markSyncRequested(key),
+      isSyncRequested: (key) => peerManager.isSyncRequested(key),
       clearSyncRequested: () => peerManager.clearSyncRequested(),
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
       networkStateReady: () => networkStateService.waitStarted(),
