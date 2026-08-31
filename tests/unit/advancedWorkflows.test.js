@@ -975,7 +975,7 @@ describe('advancedWorkflows tests', () => {
       };
       const namesThisNode = { data: { status: 'success', data: { ips: ['192.168.1.5'] } } };
       const namesAnotherNode = { data: { status: 'success', data: { ips: ['192.168.1.90'] } } };
-      const namesNobody = { data: [] };
+      const namesNobody = { data: { status: 'success', data: { ips: [] } } };
 
       it('is true when the election named this node', async () => {
         await runElection('electedhereapp', namesThisNode);
