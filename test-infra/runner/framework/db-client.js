@@ -195,36 +195,6 @@ export function dbClient(nodeNum) {
       );
     },
 
-    async seedGeolocation(ip) {
-      const localDb = await db('local');
-      await localDb.collection('geolocation').updateOne(
-        { _id: 'nodeGeolocation' },
-        {
-          $set: {
-            geolocation: {
-              ip,
-              continent: 'Europe',
-              continentCode: 'EU',
-              country: 'Germany',
-              countryCode: 'DE',
-              region: 'HE',
-              regionName: 'Hesse',
-              lat: 50.1109,
-              lon: 8.6821,
-              org: 'Test Network',
-              static: true,
-              dataCenter: true,
-            },
-            staticIp: true,
-            dataCenter: true,
-            lastIpChangeDate: null,
-            updatedAt: Date.now(),
-          },
-        },
-        { upsert: true },
-      );
-    },
-
     async seedAppHash(hash, height, resolved = false) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').insertOne({
@@ -346,15 +316,6 @@ export function dbClient(nodeNum) {
         broadcastedAt: new Date(ts),
         expireAt: new Date(ts + 24 * 60 * 60 * 1000),
       });
-    },
-
-    async dropAndReseed(ip, height) {
-      const client = await getClient();
-      for (const name of Object.values(dbNames)) {
-        await client.db(name).dropDatabase();
-      }
-      await this.seedScannedHeight(height);
-      await this.seedGeolocation(ip);
     },
 
     async failpointFind(collection, { times = 1, errorCode = 50 } = {}) {
