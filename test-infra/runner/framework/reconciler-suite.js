@@ -107,7 +107,7 @@ function assignPorts(app, allowPortReuse) {
     // nothing, and Number(null) is 0 - a port that would look real here and
     // fail somewhere far away.
     const declared = (component.ports ?? (component.port == null ? [] : [component.port]))
-      .filter((port) => port != null && port !== '');
+      .filter((port) => port != null && port !== '' && Number.isFinite(Number(port)));
 
     if (!declared.length) {
       const port = allocatePort();

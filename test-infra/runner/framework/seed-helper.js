@@ -222,7 +222,7 @@ export async function buildSeedableSyncthingApp({
     name,
     description: `${mode}: sync component`,
     repotag,
-    ports: [ports[0]],
+    ports: ports.length ? [ports[0]] : [],
     domains: [''],
     environmentParameters: [],
     commands: [],
@@ -239,7 +239,9 @@ export async function buildSeedableSyncthingApp({
       name: `${name}sib`,
       description: 'plain sibling component',
       repotag,
-      ports: [ports[0] + 1],
+      // Absent means the funnel gives each component its own; only derive a
+      // neighbouring port when the caller actually named one.
+      ports: ports.length ? [ports[0] + 1] : [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -310,7 +312,7 @@ export async function buildSeedableMixedMountApp({
     name,
     description: `mixed plain + ${mode}: component`,
     repotag,
-    ports: [ports[0]],
+    ports: ports.length ? [ports[0]] : [],
     domains: [''],
     environmentParameters: [],
     commands: [],
