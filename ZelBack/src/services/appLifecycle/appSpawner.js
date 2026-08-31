@@ -516,6 +516,16 @@ async function trySpawningGlobalApplication() {
     const sibling = await portManager.siblingHoldingPort(appPorts, localSocketAddr);
     if (sibling) {
       log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
+      // A deferral, published as one: this stands the node down and returns
+      // shortDelayTime exactly as the seven reasons below it do, so it belongs
+      // in that vocabulary rather than in an event of its own.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'sibling_holds_port',
+        delayMs: shortDelayTime,
+        port: sibling.port,
+        address: sibling.address,
+      });
       return shortDelayTime;
     }
 
@@ -524,6 +534,14 @@ async function trySpawningGlobalApplication() {
     const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
+      // This stand-down published nothing, so a suite could only read it as a
+      // log line. Its cause lives in portManager, which says which port and
+      // which peers; this says the spawner deferred, which is the decision.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'ports_not_available',
+        delayMs: shortDelayTime,
+      });
       return shortDelayTime;
     }
 

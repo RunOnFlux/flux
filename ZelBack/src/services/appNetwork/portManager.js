@@ -14,6 +14,7 @@ const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
 const { Privilege, authOf } = require('../utils/privileges');
 const fluxCaching = require('../utils/cacheManager');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // Global cache for failed nodes
 const failedNodesTestPortsCache = new Map();
@@ -853,6 +854,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         } else {
           log.warn('checkInstallingAppPortAvailable - no Flux node outside this address could be asked; proceeding on reachability alone');
         }
+        fluxEventBus.publish('ports:unproven', {
+          reason: disagreements.size ? 'noOtherObserver' : 'noObserver',
+          peers: [...disagreements.keys()],
+        });
         portsStatus = true;
         break;
       }
@@ -900,6 +905,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
             continue;
           }
           log.warn('checkInstallingAppPortAvailable - no peer could read the ports back; proceeding on reachability alone');
+          fluxEventBus.publish('ports:unproven', { reason: 'noReader', peers: asked.map(extractIp) });
           portsStatus = true;
           finished = true;
         } else {
@@ -925,12 +931,21 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
               // node installing: it takes the same "nothing was learned" path an
               // older peer produces.
               log.warn(`checkInstallingAppPortAvailable - only ${askingIP} read a port that was not ours and no second peer could be asked; proceeding on reachability alone`);
+              fluxEventBus.publish('ports:unproven', {
+                reason: 'singleWitness',
+                port: notOurs,
+                peers: [...disagreements.keys()],
+              });
               portsStatus = true;
             } else {
               // Behind a shared address that is a neighbour's application
               // holding the router's forward, which is exactly what this
               // refuses - and now more than one peer has seen it.
               log.warn(`checkInstallingAppPortAvailable - port ${refused} is answered by something other than this node at this address, as read by ${disagreements.size} peers (${[...disagreements.keys()].join(', ')}). Installation aborted.`);
+              fluxEventBus.publish('ports:notOurs', {
+                port: refused,
+                peers: [...disagreements.keys()],
+              });
               portsStatus = false;
             }
             finished = true;

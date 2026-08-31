@@ -67,14 +67,6 @@ describe('a port another Flux node at this address holds', function () {
   let siblingIp;
   dumpLogsOnFailure(() => env);
 
-  // Log lines this node has produced since its container was created.
-  const linesFor = (index) => env.nodeDiagnostics().find((n) => n.index === index)?.lines ?? [];
-
-  const sawLine = (index, pattern, timeout = 180000) => waitFor(
-    () => linesFor(index).some((line) => pattern.test(line)),
-    { timeout, label: `node ${index} logs ${pattern}` },
-  );
-
   // An app wanting one named port, for either deployment path.
   // The whole suite rests on two apps wanting one port, which is exactly what
   // buildSeedableApp refuses by default. Said out loud, once, here.
@@ -158,10 +150,23 @@ describe('a port another Flux node at this address holds', function () {
     this.timeout(600000);
     await setNodeAddress(askerIp, `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
 
+    // Anchored before the seed: an unanchored wait answers from the buffer, and
+    // this suite publishes these same names in more than one test.
+    const siblingAfter = env.clients[0].getLastEventId();
     const app = await appWanting('siblingheldapp', HELD_PORT);
     await seedSpawnerApp(env, app);
 
-    await sawLine(0, new RegExp(`port ${HELD_PORT} is held by the Flux node at ${siblingIp.replace(/\./g, '\\.')}`), 420000);
+    const held = await env.clients[0].waitForEvent(
+      'spawner:deferred',
+      (d) => d.reason === 'sibling_holds_port' && d.appName === 'siblingheldapp',
+      420000,
+      { afterId: siblingAfter },
+    );
+
+    // The sibling and the port are named, so this cannot pass on a deferral for
+    // one of the seven other reasons the spawner stands down for.
+    expect(held.data.port).to.equal(HELD_PORT);
+    expect(held.data.address).to.contain(siblingIp);
   });
 
   // The decider. Every peer that could be asked answers a pass without ever
@@ -189,6 +194,7 @@ describe('a port another Flux node at this address holds', function () {
     await env.clients[0].waitForEvent('networkstate:updated', () => true, 60000, { afterId });
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(true)));
 
+    const foreignAfter = env.clients[0].getLastEventId();
     const app = await appWanting('foreignanswerapp', FREE_PORT);
     await seedSpawnerApp(env, app);
 
@@ -200,8 +206,17 @@ describe('a port another Flux node at this address holds', function () {
     // connection instead of reading a token back, could not see it at all
     // because the peer resets the connection, and refused real installs across
     // a whole fleet while logging exactly that generic line.
-    await sawLine(0, /is answered by something other than this node at this address/);
-    await sawLine(0, /are not available publicly/);
+    const refused = await env.clients[0].waitForEvent(
+      'ports:notOurs',
+      (d) => d.port === FREE_PORT,
+      420000,
+      { afterId: foreignAfter },
+    );
+
+    // Two distinct peers, not one asked twice: the rule is corroboration and the
+    // event carries who, so the test asserts that rather than a count in prose.
+    expect(refused.data.peers).to.have.length.greaterThanOrEqual(2);
+    expect(new Set(refused.data.peers).size).to.equal(refused.data.peers.length);
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(false)));
   });
 
@@ -230,6 +245,7 @@ describe('a port another Flux node at this address holds', function () {
 
     await env.stubPeerClients.get(lone).answerPortProbeForeign(true);
 
+    const loneAfter = env.clients[0].getLastEventId();
     const app = await appWanting('lonedissentapp', LONE_DISSENT_PORT);
     await seedSpawnerApp(env, app);
 
@@ -238,14 +254,18 @@ describe('a port another Flux node at this address holds', function () {
       return res.status === 'success' && res.data.some((a) => a.name === 'lonedissentapp');
     }, { timeout: 300000, label: 'lonedissentapp installs despite a single dissenting peer' });
 
-    // Asserted on the reasoning as well as the outcome: an install that went
-    // ahead because nothing disagreed would look identical here.
-    await sawLine(0, /asking another peer before refusing/);
-    // The peer WAS asked and did disagree - so the line has to say that, not the
-    // one meaning nobody outside this address exists at all. Two different
-    // states, and a log that cannot tell them apart is one an operator would
-    // read the wrong way.
-    await sawLine(0, /1 peer\(s\) read a port that was not ours .* no other Flux node outside this address to ask/);
+    // Asserted on the reason, not on a sentence. The peer WAS asked and did
+    // disagree, so this is not the same state as there being nobody outside this
+    // address at all - and the event says which, where a log line saying
+    // "proceeding on reachability alone" covers both.
+    const unproven = await env.clients[0].waitForEvent(
+      'ports:unproven',
+      (d) => d.reason === 'noOtherObserver',
+      420000,
+      { afterId: loneAfter },
+    );
+
+    expect(unproven.data.peers).to.have.length(1);
 
     await env.stubPeerClients.get(lone).answerPortProbeForeign(false);
     const afterRestore = env.clients[0].getLastEventId();
