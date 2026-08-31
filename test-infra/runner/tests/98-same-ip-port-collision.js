@@ -160,8 +160,20 @@ describe('a port another Flux node at this address holds', function () {
   it('refuses a port answered by an application that is not this node\'s', async function () {
     this.timeout(420000);
     await clearNodeAddress(askerIp);
-    // Only the stubs may be drawn, so every possible answer is the foreign one.
+    // Only the stubs may be drawn, so every possible answer is the foreign one -
+    // and node 0 has to have READ the removal before anything is seeded. The
+    // list is polled on a timer, so removing the sibling and seeding straight
+    // after leaves a window in which node 0 still draws it. It is a real node:
+    // it reads node 0's port honestly, finds node 0's own test server, returns
+    // the true token, and the install proceeds. The test then fails saying the
+    // refusal never came, which is true and entirely misleading.
+    //
+    // networkstate:updated exists for this, and is anchored because an
+    // unanchored wait answers from the buffer on a refresh that happened before
+    // the removal.
+    const afterId = env.clients[0].getLastEventId();
     await removeFromNodeList(siblingIp);
+    await env.clients[0].waitForEvent('networkstate:updated', () => true, 60000, { afterId });
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(true)));
 
     const app = await appWanting('foreignanswerapp', FREE_PORT);
