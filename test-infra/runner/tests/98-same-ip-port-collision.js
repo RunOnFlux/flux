@@ -6,6 +6,8 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   bootAndPeer, installOnNodes, seedSpawnerApp,
 } from '../framework/reconciler-suite.js';
+import { authenticate } from '../auth.js';
+import { fluxTeamKey } from '../framework/keys.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -122,23 +124,32 @@ describe('a port another Flux node at this address holds', function () {
     const app = await appWanting('heldportapp', HELD_PORT);
     await installOnNodes(env, app, [1]);
 
-    const answer = await env.clients[1].get('/flux/portsinuse');
+    // A POST carrying operator auth. The endpoint answers a Fluxnode that signed
+    // the question or an operator that is entitled to ask; a test is the latter.
+    const auth = await authenticate(env.clients[1].url, fluxTeamKey());
+    const answer = await env.clients[1].post('/flux/portsinuse', {}, { zelidauth: auth.zelidauth });
 
     expect(answer.status).to.equal('success');
     expect(answer.data).to.be.an('array');
     expect(answer.data).to.include(HELD_PORT);
   });
 
-  // Unauthenticated and reachable by anyone, and a cold answer can reach
-  // fluxbenchd to decrypt a specification - so the cache in front of it must
-  // stay a cache. Without the guard a caller varies a parameter and every
-  // request is a fresh miss, because apicache keys on the whole URL.
-  it('takes no query parameters', async function () {
+  // Answering is not free: it reads this node's own specifications and decrypts
+  // the enterprise ones. Open, an anonymous caller could ask for that as often
+  // as it liked, so the question has to come from a Fluxnode that signed it or
+  // an operator entitled to ask.
+  //
+  // This replaces a test that asserted the endpoint took no query parameters.
+  // That guard existed because the route was an unauthenticated cached GET, and
+  // it went when the route did - a POST has no URL to vary and no response cache
+  // to poison. Asserting the guard that exists now rather than deleting the test
+  // and leaving the new contract uncovered.
+  it('refuses a caller that neither signed nor is entitled to ask', async function () {
     this.timeout(30000);
-    const answer = await env.clients[1].get('/flux/portsinuse?whatever=1');
+    const answer = await env.clients[1].post('/flux/portsinuse', {});
 
     expect(answer.status).to.equal('error');
-    expect(answer.data.message).to.match(/no query parameters/i);
+    expect(answer.data.message).to.match(/verify request authenticity/i);
   });
 
   // The front door. The asker reports itself at the sibling's address on a
