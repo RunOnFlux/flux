@@ -1944,8 +1944,11 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      // The shapes the projection actually reads, not placeholder strings: a
+      // string here leaves result.data undefined and the assertion below fails
+      // on the projection rather than on the field it is about.
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
