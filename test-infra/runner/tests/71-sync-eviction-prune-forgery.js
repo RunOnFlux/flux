@@ -2,6 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import { nodeKey } from '../framework/keys.js';
 import { signBtcMessage } from '../auth.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
@@ -213,6 +214,23 @@ describe('Sync response: eviction, pruning and forged events', function () {
     await env.healPartition([10], RUNNING);
     await env.startDiscovery([10]);
     await waitForOrchestratorState(joiner, 'READY', 180000);
+
+    // THE GUARD, not decoration. Every assertion below rests on the seeded
+    // broadcasts still being inside their acceptance window when the joiner
+    // reads them, and this suite has twice failed by spending that window on
+    // setup instead - the second time with the boot inside it, measured at 24.6s
+    // of 63s idle and ~83s under a six-way gate.
+    //
+    // Without this, moving the boot back inside the window reads as green on any
+    // idle box and red only on a loaded one, which is how it got here. Asserted
+    // against the live knob rather than a literal, so compressing locationTtlS
+    // further tightens this too, and a third of it is the margin: the gate must
+    // be able to treble what an idle box costs and still fit.
+    const windowMs = loadSharedConfig().fluxapps.locationTtlS * 1000;
+    const spent = Date.now() - stamp;
+    expect(spent, `setup spent ${spent}ms of the ${windowMs}ms acceptance window - `
+      + 'the seeded broadcasts expire before the joiner reads them under any load')
+      .to.be.lessThan(windowMs / 3);
   });
 
   after(async function () {
