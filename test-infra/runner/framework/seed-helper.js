@@ -213,7 +213,7 @@ export async function buildSeedableSyncthingApp({
   name,
   mode = 'g',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [31111],
+  ports = [],
   containerPorts = [80],
   sibling = false,
   ...rest
@@ -263,7 +263,7 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, port = 31111, ...rest
+  name, exitCode = 0, exitAfterS = null, port = null, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
@@ -272,7 +272,9 @@ export async function buildSeedableTestApp({
     name,
     description: 'configurable exit test container',
     repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
-    ports: [port],
+    // Absent rather than null: seedGlobalSpec allocates for a component with
+    // no port, and [null] would read as a declared one.
+    ports: port ? [port] : [],
     domains: [''],
     environmentParameters,
     commands: [],
@@ -300,7 +302,7 @@ export async function buildSeedableMixedMountApp({
   plainPath = '/data',
   syncPath = '/db',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [31111],
+  ports = [],
   containerPorts = [80],
   ...rest
 }) {
