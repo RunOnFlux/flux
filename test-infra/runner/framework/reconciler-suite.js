@@ -63,8 +63,78 @@ function assertAliveOnThisChain(env, app) {
   }
 }
 
-async function seedGlobalSpec(env, app, indices) {
+/**
+ * Ports claimed by this suite, and the next one free to hand out.
+ *
+ * A port is a property of the FLEET, not of whoever wrote the test, and the
+ * only invariant that matters is that no two apps in a suite want the same one:
+ * satisfy that and no node can end up holding two apps on one port, however the
+ * suite places them. Each suite is its own process, so this is per suite.
+ *
+ * Kept here rather than in the builders because there are nine builders and
+ * four suites that hand-write their compose and never call one - a rule in the
+ * builders would have holes by construction. Everything reaches the fleet
+ * through this function.
+ */
+const claimedPorts = new Map();
+let nextFreePort = 31200;
+
+function allocatePort() {
+  do { nextFreePort += 1; } while (claimedPorts.has(nextFreePort));
+  return nextFreePort;
+}
+
+/**
+ * Gives every component a port of its own, and refuses an accidental collision
+ * at the moment it is created.
+ *
+ * Two apps on one port surface minutes later as "already used with different
+ * application" - an install refusal that reads like a product fault and has
+ * cost two gates in one day. Named here instead, with both apps in the message,
+ * at the point where it can still be fixed by looking at the suite.
+ *
+ * A suite that means it passes allowPortReuse: suite 98 puts two apps on one
+ * port deliberately, because that is the collision it exists to test.
+ */
+function assignPorts(app, allowPortReuse) {
+  const { spec } = app;
+  const components = Array.isArray(spec.compose) && spec.compose.length
+    ? spec.compose
+    : [spec];
+
+  for (const component of components) {
+    // Nulls filtered, not trusted: a builder that emits [null] has declared
+    // nothing, and Number(null) is 0 - a port that would look real here and
+    // fail somewhere far away.
+    const declared = (component.ports ?? (component.port == null ? [] : [component.port]))
+      .filter((port) => port != null && port !== '');
+
+    if (!declared.length) {
+      const port = allocatePort();
+      claimedPorts.set(port, spec.name);
+      if (component.ports !== undefined || spec.compose?.length) component.ports = [port];
+      else component.port = port;
+      continue;
+    }
+
+    if (allowPortReuse) continue;
+
+    for (const port of declared.map(Number)) {
+      const owner = claimedPorts.get(port);
+      if (owner && owner !== spec.name) {
+        throw new Error(
+          `Two apps in this suite want port ${port}: '${owner}' already has it and '${spec.name}' asks for it too. `
+          + 'Give one of them a different port, or pass allowPortReuse if the collision is the point.',
+        );
+      }
+      claimedPorts.set(port, spec.name);
+    }
+  }
+}
+
+async function seedGlobalSpec(env, app, indices, { allowPortReuse = false } = {}) {
   assertAliveOnThisChain(env, app);
+  assignPorts(app, allowPortReuse);
   await Promise.all(indices.map(async (i) => {
     const dc = dbClient(i + 1);
     await dc.seedGlobalAppSpec(app.spec);
@@ -78,8 +148,8 @@ async function seedGlobalSpec(env, app, indices) {
 // + syncthing config). Deterministic and fast — no spawner-placement timing. Auth
 // as the flux team (adminandfluxteam) since these are seeded global specs.
 // Returns the indices it installed on.
-export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
-  await seedGlobalSpec(env, app, indices);
+export async function installOnNodes(env, app, indices, { timeout = 120000, allowPortReuse = false } = {}) {
+  await seedGlobalSpec(env, app, indices, { allowPortReuse });
   const teamKey = fluxTeamKey();
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];
@@ -281,9 +351,9 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
 // over) so each node's spawner sees it as missing-instances and self-selects. No
 // running/installing locations are seeded, so `actual` starts at 0 and the spawner
 // drives real placement + collision-resolution. The app image must be pushed first.
-export async function seedSpawnerApp(env, app) {
+export async function seedSpawnerApp(env, app, { allowPortReuse = false } = {}) {
   const all = env.clients.map((_, i) => i);
-  await seedGlobalSpec(env, app, all);
+  await seedGlobalSpec(env, app, all, { allowPortReuse });
 }
 
 // Ground-truth count of where an app is actually installed across the fleet
@@ -393,44 +463,15 @@ export async function waitForInstanceCount(env, appName, target, {
 // then writes sync-scoped disk data, so a folder any test later pins synced already
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
-/**
- * DELETE THIS when flux#1784's allocateAppPort() lands in seed-helper.js.
- *
- * That is the same mechanism one layer down, where the builders live, and it is
- * the one to keep: it covers every builder rather than this one caller. It does
- * not exist on this branch yet - buildSeedableSyncthingApp still defaults to a
- * hardcoded 31111 here - so removing this before that merges reopens the fault.
- * On the merged tree, drop nextSeededPort and portForSeededApp and pass ports
- * only when the caller named one; the builder's own default then allocates.
- *
- * A port of this app's own, handed out in order.
- *
- * Counted rather than derived from the name: a hash would collide once in a
- * while and put two apps back on one port, which is the fault this exists to
- * remove - and a fault that appears occasionally is worse than one that appears
- * always. Each suite is its own process, so the count is per suite. Starts
- * clear of 31111, which suites building their own specs still use.
- */
-let nextSeededPort = 31200;
-function portForSeededApp() {
-  nextSeededPort += 1;
-  return nextSeededPort;
-}
-
 export async function seedSyncthingApp(env, {
   name, mode = 'r', forceNonLeader = false, index = 0, port = null,
 }) {
   await pushImage(name, 'v1');
-  // A port of this app's own, unless the caller names one.
-  //
-  // Every seeded syncthing app took the same default port, and forceNonLeader
-  // puts one app on a node as its subject and the next one on that same node as
-  // its peer - so two of them met on one node holding one port, and the install
-  // was refused with "already used with different application". It only showed
-  // when the first install finished registering before the second started, so
-  // the suite passed or failed on the gap between them.
-  const ports = [port ?? portForSeededApp()];
-  const app = await buildSeedableSyncthingApp({ name, mode, ports });
+  // No port of its own to invent: seedGlobalSpec gives every component one and
+  // refuses an accidental collision. A caller that names one still wins.
+  const app = await buildSeedableSyncthingApp({
+    name, mode, ...(port ? { ports: [port] } : { ports: [] }),
+  });
   const folder = `flux${name}_${name}`;
   const identifier = `${name}_${name}`;
 

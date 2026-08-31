@@ -115,8 +115,10 @@ describe('a port another Flux node at this address holds', function () {
     this.timeout(300000);
     // Targeted rather than spawned: the sibling test below has to know which
     // node holds the port, and the spawner picks its own.
+    // The whole suite rests on two apps wanting one port, which is exactly what
+    // seedGlobalSpec refuses by default. Said out loud here.
     const app = await appWanting('heldportapp', HELD_PORT);
-    await installOnNodes(env, app, [1]);
+    await installOnNodes(env, app, [1], { allowPortReuse: true });
 
     const answer = await env.clients[1].get('/flux/portsinuse');
 
@@ -144,7 +146,7 @@ describe('a port another Flux node at this address holds', function () {
     await setNodeAddress(askerIp, `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
 
     const app = await appWanting('siblingheldapp', HELD_PORT);
-    await seedSpawnerApp(env, app);
+    await seedSpawnerApp(env, app, { allowPortReuse: true });
 
     await sawLine(0, new RegExp(`port ${HELD_PORT} is held by the Flux node at ${siblingIp.replace(/\./g, '\\.')}`), 420000);
   });
