@@ -15,6 +15,7 @@ import {
   waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
   waitForResidentialDecision,
 } from '../framework/wait.js';
+import { waitForLocationTable } from '../framework/reconciler-suite.js';
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
@@ -339,6 +340,16 @@ describe('Residential node evacuation', function () {
       },
     });
     await bootToReady(env);
+    // The verdict this suite rests on needs the PUBLISHED table, not only the
+    // node's own evidence: getNetworkClassification returns null while
+    // publishedClassification reports consulted:false, and the two arrive at
+    // different times. The veto test waited for networkEvidence alone and then
+    // asked for a classification, so on the bc5d86154 gate node 5 spent all 24 of
+    // its ticks logging "no network verdict to act on yet" and the test timed out
+    // against classification:null, source:null - a decision that could not be
+    // reached rather than one that went the wrong way. Waited for on every node,
+    // because the table is the authority the whole suite runs on.
+    await Promise.all(env.clients.map((c) => waitForLocationTable(c, { domains: 2 })));
   });
 
   after(async function () {
