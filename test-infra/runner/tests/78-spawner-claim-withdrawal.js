@@ -255,6 +255,18 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     const stoodDown = [...withdrawnIps()];
     expect(stoodDown, 'fixture: a node must have stood down first').to.not.be.empty;
 
+    // ANCHORED, and the mutation is why. Every one of these nodes was a candidate
+    // for this app before it claimed - that is how it came to stand down - so an
+    // unanchored wait is answered from the buffer by that earlier verdict and
+    // passes before the rival has withdrawn anything. Proven: with a mutant that
+    // writes a stood-down node off entirely, the unanchored form still passed
+    // 6/6. The baseline is taken per node, before the withdrawal, so only a
+    // verdict reached AFTER it counts.
+    const baselines = new Map(stoodDown.map((ip) => {
+      const index = env.clients.findIndex((_, i) => getSubnetConfig().nodeIp(i + 1) === ip);
+      return [ip, { index, afterId: env.clients[index].getLastEventId() }];
+    }));
+
     const rival = env.stubPeerClients.get(STUB_INDEX);
     await rival.withdrawApp(appName);
 
@@ -276,11 +288,12 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     // that would hold a stood-down node out, so surviving it is the property, and
     // the event fires whether or not this node goes on to win.
     const backIn = await Promise.any(stoodDown.map((ip) => {
-      const index = env.clients.findIndex((_, i) => getSubnetConfig().nodeIp(i + 1) === ip);
+      const { index, afterId } = baselines.get(ip);
       return waitForCandidacy(
         env.clients[index],
         (d) => d.name === appName && d.candidate === true,
         240000,
+        { afterId },
       ).then(() => ip);
     }));
 
