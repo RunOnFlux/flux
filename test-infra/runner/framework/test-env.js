@@ -1291,6 +1291,16 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       }));
     },
 
+    // Undo holdOutPendingNode. Per-rule best-effort, like healPartition: a rule
+    // already gone is not an error. The caller re-runs discovery, since the held
+    // node was refused for the whole time the others were dialling.
+    async releasePendingNode(pendingIndex, runningIndices) {
+      const pendingIp = fluxNodes[pendingIndex].ip;
+      await Promise.all(runningIndices.map((node) => fluxNodes[node].container.exec(
+        ['sh', '-c', `iptables -D INPUT -s ${pendingIp} -j DROP || true`],
+      )));
+    },
+
     async partitionGroups(groupA, groupB, { awaitSever = true, severTimeoutMs = 60000 } = {}) {
       const ops = [];
       for (const a of groupA) {
