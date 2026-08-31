@@ -149,6 +149,7 @@ export async function buildSeedableLegacyApp({
   name,
   version = 3,
   containerData = '/appdata',
+  port = allocateAppPort(),
   // Chain-relative, same as buildSeedableApp above and for the same reason its
   // comment gives: a literal height seeds an app already expired on any suite
   // whose chain starts later, and assertAliveOnThisChain refuses it.
@@ -236,8 +237,11 @@ export async function buildSeedableLegacyApp({
 // as a log line on the nodes that refused it. Suite 68 hit this and hand-picked
 // 31111..31115 to escape it; suite 55 hit it again and lost a run to it.
 //
-// Every builder below defaults to a fresh allocation, so a suite has to go out
-// of its way to collide rather than having to remember not to.
+// Every builder in this file defaults to a fresh allocation, so a suite has to
+// go out of its way to collide rather than having to remember not to. That
+// includes every COMPONENT of a multi-component builder: buildSeedableIndexRefApp
+// pinned its second component to a literal, so suite 43 - which builds two of
+// them - gave both apps the same port and could never have placed both.
 const FIRST_APP_PORT = 31111;
 let nextAppPort = FIRST_APP_PORT;
 
@@ -451,7 +455,7 @@ export async function buildSeedableIndexRefApp({
         ...base,
         name: `${name}c1`,
         description: 'component referencing component 0 volume (index 1 -> 0)',
-        ports: [],
+        ports: [allocateAppPort()],
         containerData: '/own|0:/shared',
       },
     ];
@@ -539,7 +543,7 @@ export async function buildSeedableEnterpriseApp({
     name,
     description: 'seeded enterprise component',
     repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-    ports: [],
+    ports: [allocateAppPort()],
     domains: [''],
     environmentParameters: [],
     commands: [],
