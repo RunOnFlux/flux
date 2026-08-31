@@ -185,9 +185,11 @@ async function dockerListImages() {
 async function getDockerContainerOnly(idOrName) {
   const containers = await dockerListContainers(true);
   const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  if (!myContainer) {
-    log.error(`Container ${idOrName} not found`);
-  }
+  // Absence is not logged here. The two direct callers probe with this
+  // deliberately - the reconciler asks whether a container exists at all - so a
+  // miss is an answer, not an incident, and logging it buried the journal in
+  // errors from a healthy node. getDockerContainerByIdOrName, whose contract IS
+  // that the container exists, throws with this same text.
   return myContainer;
 }
 
@@ -382,7 +384,15 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
               mystream.destroy();
             }, 2000);
           } catch (error) {
-            throw new Error('An error obtaining log data of an application has occured');
+            // This runs inside dockerode's callback, not inside the enclosing
+            // `try` - the function has already returned by the time it fires.
+            // A throw here is an uncaught exception, and FluxOS installs no
+            // `uncaughtException` handler, so it kills the process exactly as
+            // the unhandled rejection in dockerContainerLogsPolling did.
+            // Report it through the callback, which is the channel the caller
+            // is actually listening on.
+            log.error('Error obtaining log data of an application:', error);
+            callback(error);
           }
         }
       },
@@ -458,14 +468,14 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
     if (sinceTimestamp) {
       logOptions.since = new Date(sinceTimestamp).getTime() / 1000;
     }
+    // Every failure below rejects and nothing more. The rejection is awaited, so
+    // it lands in this function's catch, which is the one place that reports to
+    // the callback - reporting here as well delivered a single docker error to
+    // the caller twice.
     await new Promise((resolve, reject) => {
       // eslint-disable-next-line consistent-return
       dockerContainer.logs(logOptions, (err, mystream) => {
         if (err) {
-          log.error('Error fetching logs:', err);
-          if (callback) {
-            callback(err);
-          }
           return reject(err);
         }
         try {
@@ -479,18 +489,10 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
           });
 
           mystream.on('error', (error) => {
-            log.error('Stream error:', error);
             logStream.end();
-            if (callback) {
-              callback(error);
-            }
             reject(error);
           });
         } catch (error) {
-          log.error('Error during stream processing:', error);
-          if (callback) {
-            callback(new Error('An error occurred while processing the log stream'));
-          }
           reject(error);
         }
       });
@@ -498,11 +500,13 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
   } catch (error) {
     log.error('Error in dockerContainerLogsPolling:', error);
     if (callback) {
-      // The failure is already delivered. Rethrowing as well rejects the promise
-      // this function returns, and every caller invokes it from inside a `new
-      // Promise` executor without awaiting it - so that rejection has no handler
-      // and Node kills the process. A browser left on an app's log page after
-      // the container went away was enough to restart-loop FluxOS indefinitely.
+      // The callback is the single reporting channel for everything above.
+      // Rethrowing as well rejects the promise this function returns, and the
+      // caller invokes it from inside a `new Promise` executor without awaiting
+      // it - so that rejection had no handler and Node killed the process. A
+      // browser left on an app's log page after the container went away was
+      // enough to restart-loop FluxOS indefinitely. The call site now attaches
+      // its own `.catch` too, so this is a belt as well as braces.
       callback(error);
       return;
     }
