@@ -77,6 +77,11 @@ export async function buildSeedableApp({
     enterprise,
   };
 
+  // Components copied before anything is written into them: assignPorts sets the
+  // allocated port on the component it is given, and a caller that reuses the array
+  // it passed in would get a port stamped into its own object.
+  spec.compose = spec.compose.map((component) => ({ ...component }));
+
   // Before the signature and the hash, never after: both are taken over
   // JSON.stringify(spec), so a port added later leaves the app carrying a hash
   // of a specification that no longer exists. An enterprise app has an empty
@@ -519,9 +524,10 @@ export async function buildSeedableEnterpriseApp({
   }];
   // Ported here, not in buildSeedableApp: once these are encrypted into the
   // blob the spec's own compose is empty and there is nothing left to give a
-  // port to.
-  assignPorts(components, name, { allowPortReuse });
-  const enterprise = buildEnterpriseBlob(components, contacts);
+  // port to. Copied first, for the reason buildSeedableApp copies.
+  const ported = components.map((component) => ({ ...component }));
+  assignPorts(ported, name, { allowPortReuse });
+  const enterprise = buildEnterpriseBlob(ported, contacts);
   return buildSeedableApp({
     name, compose: [], enterprise, ...rest,
   });
