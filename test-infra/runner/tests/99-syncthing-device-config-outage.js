@@ -35,6 +35,13 @@ describe('a node that read its folders publishes them even when the device read 
     return answer?.data ?? { ready: false, folders: [] };
   };
 
+  const linesFor = (index) => env.nodeDiagnostics().find((n) => n.index === index)?.lines ?? [];
+
+  const sawLine = (index, pattern, timeout = 180000) => waitFor(
+    () => linesFor(index).some((line) => pattern.test(line)),
+    { timeout, label: `node ${index} logs ${pattern}` },
+  );
+
   before(async function () {
     this.timeout(420000);
     env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
@@ -56,18 +63,54 @@ describe('a node that read its folders publishes them even when the device read 
     await env?.teardown();
   });
 
-  it('keeps answering ready while its device configuration cannot be read', async function () {
+  // The node is RESTARTED with the device read already failing, and that is the
+  // whole test rather than a detail of it.
+  //
+  // `ready` is `promotedFolderIds !== null`, and that set is assigned on the first
+  // pass that completes and never cleared. So a node which has already published
+  // once goes on publishing its last answer however many later passes fail - with
+  // the fix and without it. Breaking the device read on a node that has already
+  // answered therefore proves nothing: it was green against a build with the fix
+  // reversed out, which is how this was found.
+  //
+  // The state the defect lives in is a node that has NOT published yet and cannot
+  // finish a device read - a node booting, or a fleet-wide restart putting every
+  // holder of an app there at once, which is the case globalState's own comment
+  // describes. Sharing one try then means the folders are never published at all,
+  // `ready` stays false, and every peer asking is told to wait for as long as the
+  // device read keeps failing.
+  it('publishes the folders it read on a node whose device read has never succeeded', async function () {
     this.timeout(300000);
     const before = await promoted(0);
     expect(before.ready, 'precondition: the node was publishing before the outage').to.equal(true);
+    expect(before.folders, 'precondition: the node holds a folder there is something to withhold')
+      .to.have.lengthOf.at.least(1);
 
     await setDeviceConfigOutage({ ip: subnet.nodeIp(1), enabled: true });
+    // Clears promotedFolderIds back to null, so the next pass is a first pass.
+    await env.restartNode(0);
 
-    // Several monitor passes, every one of them failing the device read.
-    await new Promise((resolve) => { setTimeout(resolve, 90000); });
+    // Asserted, not assumed: an outage that silently failed to apply reads exactly
+    // like the fix working.
+    //
+    // Matched on the device read having failed rather than on one wording of it.
+    // A pass that cannot finish never reaches the line clearing
+    // syncthingAppsFirstRun, so on a build without the fix every pass takes the
+    // first-run WARN and the error form is never logged at all - and the two
+    // builds word it differently besides. A pattern that pins one of them fails
+    // the other for its phrasing rather than for its behaviour, which is the
+    // assertion looking right while proving nothing.
+    await sawLine(
+      0,
+      /Syncthing (device )?configuration not ready yet on first run|Failed to get Syncthing (devices )?configuration:/,
+    );
+
+    await waitFor(async () => (await promoted(0)).ready === true, {
+      timeout: 180000,
+      label: 'node 0 publishes its folders with the device read still failing',
+    });
 
     const during = await promoted(0);
-    expect(during.ready, 'the node stopped answering because a device read failed').to.equal(true);
     expect([...during.folders].sort(), 'the folders it holds changed with the device read')
       .to.deep.equal([...before.folders].sort());
   });
