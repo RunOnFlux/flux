@@ -241,7 +241,11 @@ describe('a port another Flux node at this address holds', function () {
     // Asserted on the reasoning as well as the outcome: an install that went
     // ahead because nothing disagreed would look identical here.
     await sawLine(0, /asking another peer before refusing/);
-    await sawLine(0, /no second peer could be asked; proceeding on reachability alone/);
+    // The peer WAS asked and did disagree - so the line has to say that, not the
+    // one meaning nobody outside this address exists at all. Two different
+    // states, and a log that cannot tell them apart is one an operator would
+    // read the wrong way.
+    await sawLine(0, /1 peer\(s\) read a port that was not ours .* no other Flux node outside this address to ask/);
 
     await env.stubPeerClients.get(lone).answerPortProbeForeign(false);
     const afterRestore = env.clients[0].getLastEventId();

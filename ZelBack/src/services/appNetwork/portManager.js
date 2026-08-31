@@ -842,7 +842,17 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // "nothing was learned" path the older-peer case below takes - which is
       // exactly what this node did before the check existed.
       if (!randomSocketAddress) {
-        log.warn('checkInstallingAppPortAvailable - no Flux node outside this address could be asked; proceeding on reachability alone');
+        // Two different things end up here and they should not read the same.
+        // Nobody outside this address at all is one; having asked everyone there
+        // was and run out is the other - and in the second case a peer HAS
+        // disagreed, which anyone reading this log needs to know.
+        if (disagreements.size) {
+          log.warn(`checkInstallingAppPortAvailable - ${disagreements.size} peer(s) read a port that was not ours `
+            + `(${[...disagreements.keys()].join(', ')}) and there is no other Flux node outside this address to ask; `
+            + 'proceeding on reachability alone');
+        } else {
+          log.warn('checkInstallingAppPortAvailable - no Flux node outside this address could be asked; proceeding on reachability alone');
+        }
         portsStatus = true;
         break;
       }
