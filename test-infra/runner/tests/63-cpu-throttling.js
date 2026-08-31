@@ -42,7 +42,7 @@ function burningCompose(appName) {
     name: appName,
     description: 'cpu burning test container',
     repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-    ports: [31131],
+    ports: [],
     domains: [''],
     // docker caps the container at its allocation, so the spin loop below costs
     // the host this app's share of a core and nothing more

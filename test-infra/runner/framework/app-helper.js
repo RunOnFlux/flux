@@ -5,6 +5,7 @@ import { authenticate, signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { buildEnterpriseBlob } from './enterprise-helper.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
+import { assignPorts } from './port-allocator.js';
 import * as daemon from './daemon-control.js';
 import { waitFor } from './wait.js';
 
@@ -25,7 +26,7 @@ const defaultSpec = {
       // suites 07/08/09 in the 2026-07-02 gate). The env registry is seeded
       // with this image at bootstrap (test-env.js).
       repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-      ports: [31111],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -59,7 +60,9 @@ export function assertHermeticRepotags(spec, allowExternalRepotag) {
   }
 }
 
-export function buildAppSpec({ enterprise = false, allowExternalRepotag = false, ...overrides } = {}) {
+export function buildAppSpec({
+  enterprise = false, allowExternalRepotag = false, allowPortReuse = false, ...overrides
+} = {}) {
   const ownerKey = appOwnerKey();
   const spec = { ...defaultSpec, owner: ownerKey.zelid, ...overrides };
   assertHermeticRepotags(spec, allowExternalRepotag);
@@ -67,6 +70,15 @@ export function buildAppSpec({ enterprise = false, allowExternalRepotag = false,
   if (overrides.compose) {
     spec.compose = overrides.compose;
   }
+
+  // Registered rather than seeded, but a port is a port: an app here and a
+  // seeded app in the same suite would otherwise be drawing from two spaces
+  // that nothing keeps apart. Before the blob, because an enterprise spec's
+  // compose is emptied into it - and before registerApp signs, which is the
+  // next thing that happens to this object. The allocation is stable per app
+  // name, so a suite that builds the same app twice to update it does not
+  // hand itself a port change it never asked for.
+  if (spec.compose?.length) assignPorts(spec.compose, spec.name, { allowPortReuse });
 
   if (enterprise) {
     spec.enterprise = buildEnterpriseBlob(spec.compose, spec.contacts);
