@@ -660,6 +660,11 @@ async function keepUPNPPortsOpen(req, res) {
  */
 function setLocalSocketAddress(value) {
   localSocketAddress = value ? normalizeSocketAddress(value) : null;
+  // Told here because this is the one place the node learns what it is. The
+  // peer manager needs it to keep this node out of its own peer draws - a node
+  // that syncs from itself learns nothing, and it spends one of very few
+  // attempts doing so. Optional because the unit suite stubs peerState.
+  peerManager.setOwnSocketAddress?.(localSocketAddress);
 }
 
 /**
