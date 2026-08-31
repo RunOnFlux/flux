@@ -154,11 +154,19 @@ describe('appSpawner tests', () => {
         // opts.finalInstallingLocations (returned from the 4th fetch onwards).
         appInstallingLocation: (() => {
           const stub = sinon.stub();
-          stub.callsFake(() => Promise.resolve(
-            (opts.finalInstallingLocations && stub.callCount > 3)
-              ? opts.finalInstallingLocations
-              : (opts.installingLocations || []),
-          ));
+          stub.callsFake(() => {
+            // The spawner counts twice: once while choosing, and again after it
+            // has selected and cached the app. Between the two, other nodes
+            // claim - which is the only way to reach the second check's decline.
+            // opts.recheckInstallingLocations is the list as it stands by then.
+            if (opts.finalInstallingLocations && stub.callCount > 3) {
+              return Promise.resolve(opts.finalInstallingLocations);
+            }
+            if (opts.recheckInstallingLocations && stub.callCount > 1) {
+              return Promise.resolve(opts.recheckInstallingLocations);
+            }
+            return Promise.resolve(opts.installingLocations || []);
+          });
           return stub;
         })(),
         // Claims held against each candidate, keyed by lowercased name. Empty
@@ -1097,6 +1105,39 @@ describe('appSpawner tests', () => {
         withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true),
         'claimed and then retracted instead of standing aside',
       ).to.have.lengthOf(0);
+    });
+
+    it('stays eligible after standing aside on a count that included a claim', async () => {
+      // Standing aside was right; REMEMBERING it was not. The count that stood
+      // this node aside included nodes that had only CLAIMED to be installing,
+      // and a claim is withdrawn as soon as its node finds the share filled -
+      // seconds later, routinely. Left in the cache, this node holds "the network
+      // has it covered" for the cache's twelve hours and never looks again, so an
+      // app that falls back below its instance count waits out the day on every
+      // node that happened to glance inside that window.
+      //
+      // Observed on a gate: two nodes running an app, two more claimed and
+      // withdrew, and it stayed at two of three because the nodes that should
+      // have supplied the third had already written it off. The claimed-instance
+      // path clears the cache for exactly this reason; this one counted the same
+      // claims and did not.
+      // Short when it looked, covered by the time it re-counted: the app is
+      // selected and cached, and only then do the other claims land. That second
+      // check is the one that must not leave the cache set.
+      const { logged } = await runAttempt({
+        appLocations: [{ ip: '192.168.3.3:16127' }],
+        installingLocations: [],
+        recheckInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.4.4:16127', broadcastedAt: 1001 },
+        ],
+      });
+
+      expect(logged('already spawned or being installed'), 'never reached the decline').to.be.true;
+      expect(
+        globalStateStub.trySpawningGlobalAppCache.has('abc123'),
+        'cached a decline that a withdrawn claim invalidates seconds later',
+      ).to.be.false;
     });
 
     it('still claims when the network is one instance short', async () => {
