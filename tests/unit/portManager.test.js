@@ -10,6 +10,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { requireMongo } = require('./dbTestHelper');
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 
 describe('portManager tests', () => {
   before(requireMongo);
@@ -153,6 +154,53 @@ describe('portManager tests', () => {
       expect(app1).to.exist;
       expect(app1.ports).to.include(30001);
       expect(app1.ports).to.include(30002);
+    });
+
+    // The endpoint reading this is unauthenticated, and the primitive underneath
+    // the wrapper holds no cache of its own: it costs two globalAppsMessages
+    // queries and a benchd RSA decrypt per enterprise app, on every call. Which
+    // of the two is reached is load-bearing rather than a style choice, and
+    // nothing else here would notice it being swapped back.
+    it('decrypts through the cached path, keeping the key that path caches on', async () => {
+      const collection = config.database.appslocal.collections.appsInformation;
+      await database.collection(collection).drop();
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'EnterpriseApp', version: 8, enterprise: 'blob', hash: 'h1',
+      });
+      const decrypt = sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({
+        inPlace: [{ name: 'EnterpriseApp', version: 4, compose: [{ name: 'c', ports: [31000] }] }],
+        readable: [],
+        unreadable: [],
+      });
+
+      const result = await portManager.assignedPortsInstalledApps();
+
+      // formatSpecs false: the formatter strips the hash that path caches on
+      sinon.assert.calledOnceWithExactly(decrypt, sinon.match.array, { formatSpecs: false });
+      expect(result.find((app) => app.name === 'EnterpriseApp').ports).to.include(31000);
+    });
+
+    // A hole in this list reads as "that port is free", and every caller is
+    // asking which ports are taken. Refusing the whole answer is what the
+    // per-spec decrypt this replaced already did, by throwing on the first one
+    // it could not read.
+    it('refuses to answer at all when a specification cannot be read', async () => {
+      const collection = config.database.appslocal.collections.appsInformation;
+      await database.collection(collection).drop();
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'EnterpriseApp', version: 8, enterprise: 'blob', hash: 'h1',
+      });
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({
+        inPlace: [{ name: 'EnterpriseApp', version: 8, enterprise: 'blob', compose: [] }],
+        readable: [],
+        unreadable: [{ name: 'EnterpriseApp' }],
+      });
+
+      let raised = null;
+      await portManager.assignedPortsInstalledApps().catch((error) => { raised = error; });
+
+      expect(raised, 'an unreadable specification was answered as though it held no ports').to.not.equal(null);
+      expect(raised.message).to.match(/could not be read/);
     });
 
     it('should handle version 1 apps', async () => {

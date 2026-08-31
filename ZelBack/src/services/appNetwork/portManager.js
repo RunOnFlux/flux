@@ -10,8 +10,6 @@ const upnpService = require('../upnpService');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
 
 // Global cache for failed nodes
@@ -86,21 +84,24 @@ async function assignedPortsInstalledApps() {
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, localAppsInformation, query, projection);
-  const decryptedApps = [];
-  // ToDo: move the functions around so we can remove no-use-before-define
-  // eslint-disable-next-line no-restricted-syntax
-  for (const spec of results) {
-    const isEnterprise = Boolean(
-      spec.version >= 8 && spec.enterprise,
-    );
-    if (isEnterprise) {
-      // eslint-disable-next-line no-await-in-loop
-      const decrypted = await checkAndDecryptAppSpecs(spec);
-      const formatted = specificationFormatter(decrypted);
-      decryptedApps.push(formatted);
-    } else {
-      decryptedApps.push(spec);
-    }
+  // Through the cached path, not checkAndDecryptAppSpecs directly. That
+  // primitive holds no cache: it costs two globalAppsMessages queries and a
+  // benchd RSA decrypt per enterprise app on every call, and this function is
+  // reached from an unauthenticated endpoint. The wrapper answers from
+  // enterpriseAppDecryptionCache (keyed on spec.hash, seven days), shares one
+  // in-flight attempt between concurrent callers, and remembers a failure
+  // briefly. formatSpecs is false because the formatter strips the hash the
+  // cache keys on.
+  //
+  // An app that cannot be read throws, which is what the per-spec call it
+  // replaces already did. A port list missing an app's ports is worse than no
+  // list: every caller here is asking which ports are taken, and a hole in the
+  // answer reads as "free".
+  // eslint-disable-next-line global-require
+  const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+  const { inPlace: decryptedApps, unreadable } = await decryptEnterpriseApps(results, { formatSpecs: false });
+  if (unreadable.length) {
+    throw new Error(`Cannot list ports in use: ${unreadable.length} of ${results.length} application specifications could not be read`);
   }
   const apps = [];
   decryptedApps.forEach((app) => {
