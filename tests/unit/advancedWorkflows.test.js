@@ -4203,6 +4203,27 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       expect(decision.detail).to.contain('w_a');
     });
 
+    it('reaches the evacuation gate when the newest copy holding the writer is draining', async () => {
+      // The surplus answer here is "stay", and returning it ends the pass - so
+      // an evacuating node never got asked whether it should hand the app back.
+      // It is the same asymmetry the second-newest branch below was fixed for:
+      // the surplus verdict is carried out to the gate, not returned past it.
+      // Left as a return, a draining node that happens to be the newest copy of
+      // an over-served app AND runs its writer stalls on that app indefinitely,
+      // when the gate would have stood it down and let it leave.
+      residentialNodeDosService.isEvacuating.returns(true);
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.reason).to.equal('EVACUATION');
+      expect(decision.giveUp).to.equal(true);
+    });
+
     it('still trims the newest copy when it is not the one writing', async () => {
       const decision = await advancedWorkflows.reasonToGiveUpApp(
         withWriter,
