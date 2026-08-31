@@ -115,6 +115,23 @@ describe('Sync response: eviction, pruning and forged events', function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false,
+      // DECLARED LIKE A MOCHA TIMEOUT, and for the same reason.
+      //
+      // The events below are broadcasts, and messageStore refuses one older than
+      // locationTtlS. The shared harness value is 63s, derived from production's
+      // announce ratio - fine for a suite that only has to outlive a compressed
+      // clock, and not fine here: this hook boots a twelfth node INSIDE that
+      // window, and a node boot is real work the harness does not compress.
+      // Measured at 24.6s of the window on an idle box, 93% of it the boot, and
+      // ~83s under a six-way gate - which is how this suite came to read an empty
+      // location list rather than a rejected message.
+      //
+      // Generous rather than measured, because a wider window costs this suite
+      // nothing: nothing here tests expiry, and a broadcast that does not expire
+      // is simply one the node accepts. The number needs to be comfortably more
+      // than any plausible setup, not accurate - so a slower box moves the real
+      // cost without moving this.
+      configOverrides: { fluxapps: { locationTtlS: 300 } },
     });
     await bootAndPeer(env, Array.from({ length: 10 }, (_, i) => i));
     stamp = Date.now();
