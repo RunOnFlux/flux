@@ -2,7 +2,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { setDeviceConfigOutage, resetSyncState } from '../framework/syncthing-control.js';
+import { setDeviceConfigOutage, resetSyncState, setSynced } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
@@ -47,12 +47,21 @@ describe('a node that read its folders publishes them even when the device read 
     env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootAndPeer(env);
     await resetSyncState();
-    // A folder this node holds writable, so there is something to withhold.
-    await seedSyncthingApp(env, { name: appName, mode: 'g', index: 0 });
+    // A folder this node holds WRITABLE, so there is something to withhold.
+    //
+    // Installing the app is not enough and `ready` does not say it is: a new
+    // install's folder is created receiveonly, and the primary selection that
+    // would promote it is skipped for as long as syncthing reports the app
+    // unsynced - "not ready yet (syncthing not synced), skipping primary
+    // selection for this cycle". So the node answers ready with an EMPTY list,
+    // which is a true answer to a different question, and a suite that waits on
+    // `ready` proceeds with nothing to withhold and can never fail.
+    const seeded = await seedSyncthingApp(env, { name: appName, mode: 'g', index: 0 });
+    await setSynced({ ip: subnet.nodeIp(1), folder: seeded.folder });
 
-    await waitFor(async () => (await promoted(0)).ready === true, {
-      timeout: 180000,
-      label: 'node 0 publishes its promoted folders at all',
+    await waitFor(async () => (await promoted(0)).folders.includes(seeded.folder), {
+      timeout: 240000,
+      label: `node 0 holds ${seeded.folder} writable`,
     });
   });
 
