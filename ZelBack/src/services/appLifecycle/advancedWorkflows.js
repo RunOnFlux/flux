@@ -3604,9 +3604,14 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
       const runsWriter = Boolean(writer) && Boolean(deps.isComponentRunningLocally)
         && await deps.isComponentRunningLocally(writer);
       if (!runsWriter) return { giveUp: true, reason: 'SURPLUS', detail };
-      return {
-        giveUp: false,
-        reason: 'SURPLUS',
+      // Carried out to the evacuation gate rather than returned past it, for the
+      // reason the second-newest branch below is: a node that is also draining
+      // must still be asked whether it should hand this app back. Returned here,
+      // an evacuating node that is the newest copy AND runs the writer answers
+      // "staying" forever - when the gate would have stood it down, let a peer
+      // take the writer, and released it on the next pass.
+      surplusDeclined = {
+        code: 'NEWEST_HOLDS_WRITER',
         detail: `this node is the newest but holds ${writer}; the next copy trims instead`,
       };
     }
