@@ -1123,6 +1123,34 @@ describe('networkStateManager tests', () => {
         await nsm.stop();
       });
 
+      it('skips an observer already asked, so a redraw is another peer', async () => {
+        // "Ask another peer" has to mean another peer. A redraw that can return
+        // the one just asked is not a second opinion, and a caller counting
+        // distinct witnesses never reaches two however often it tries - which is
+        // exactly what happened on a fleet with a two-attempt budget.
+        const nsm = await fleetOf('10.0.0.1:16127', '203.0.113.9:16127', '203.0.113.10:16127');
+
+        for (let i = 0; i < 50; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const drawn = await nsm.getRandomExternalObserver('10.0.0.1:16127', {
+            exclude: ['203.0.113.9:16127'],
+          });
+          expect(drawn).to.equal('203.0.113.10:16127');
+        }
+
+        await nsm.stop();
+      });
+
+      it('is absent when every observer has already been asked', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '203.0.113.9:16127');
+
+        expect(await nsm.getRandomExternalObserver('10.0.0.1:16127', {
+          exclude: ['203.0.113.9:16127'],
+        })).to.equal(null);
+
+        await nsm.stop();
+      });
+
       it('is absent when every other node shares our address', async () => {
         // The answer that matters: not a neighbour drawn anyway, and not a
         // throw - nothing, so the caller can say it learned nothing.

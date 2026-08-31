@@ -233,10 +233,10 @@ async function getRandomSocketAddress(socketAddress) {
  * @param {string} socketAddress
  * @returns {Promise<string | null>}
  */
-async function getRandomExternalObserver(socketAddress) {
+async function getRandomExternalObserver(socketAddress, options = {}) {
   if (!stateManager) return null;
 
-  return stateManager.getRandomExternalObserver(socketAddress);
+  return stateManager.getRandomExternalObserver(socketAddress, options);
 }
 
 /**

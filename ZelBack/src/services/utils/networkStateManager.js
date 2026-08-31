@@ -404,12 +404,18 @@ class NetworkStateManager extends EventEmitter {
    * answer: there is nobody who could tell us. The caller decides what that
    * means; for the port test it means nothing was learned.
    *
+   * `exclude` is how a caller asks for ANOTHER observer rather than another
+   * draw: a redraw that can return the peer just asked is not a second opinion,
+   * and a caller counting distinct witnesses would never reach two.
+   *
    * @param {string} localSocketAddress The ip:port of this node
+   * @param {{exclude?: Array<string>}} [options] Addresses already asked
    * @returns {Promise<string | null>} A random socketAddress from the map
    */
-  async getRandomExternalObserver(localSocketAddress) {
+  async getRandomExternalObserver(localSocketAddress, { exclude = [] } = {}) {
     return this.#randomSocketAddressWhere(
-      (socketAddress) => !ipsMatch(socketAddress, localSocketAddress),
+      (socketAddress) => !ipsMatch(socketAddress, localSocketAddress)
+        && !exclude.some((asked) => ipsMatch(socketAddress, asked)),
     );
   }
 

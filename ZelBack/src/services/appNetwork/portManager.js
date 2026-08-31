@@ -821,11 +821,17 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     // Peer address -> the port its reading said was not ours. Keyed by peer so
     // that redrawing the same one does not read as a second opinion.
     const disagreements = new Map();
+    // Every peer already asked, so a redraw is ANOTHER peer rather than another
+    // draw. Without this the picker can hand back the one just asked - which on
+    // a budget of two attempts it often does - and a check counting distinct
+    // witnesses never reaches two however many times it tries.
+    const asked = [];
     while (!finished && i < config.fluxapps.portTestMaxAttempts) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
       const randomSocketAddress = await networkStateService.getRandomExternalObserver(
         localSocketAddress,
+        { exclude: asked },
       );
 
       // Nobody outside this address to ask. A Flux node sharing our public
@@ -843,6 +849,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
 
       const askingIP = extractIp(randomSocketAddress);
       const askingIpPort = extractPort(randomSocketAddress);
+      asked.push(randomSocketAddress);
 
       // first check against our IP address
       // eslint-disable-next-line no-await-in-loop
