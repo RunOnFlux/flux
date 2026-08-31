@@ -155,6 +155,14 @@ describe('a port another Flux node at this address holds', function () {
     const app = await appWanting('blindprobeapp', FREE_PORT);
     await seedSpawnerApp(env, app);
 
+    // Matched on the OBSERVATION failing, not on the install being refused.
+    // "are not available publicly" is the generic refusal every port failure
+    // ends at, so asserting it proves an install was refused and nothing about
+    // why - and a refusal for the wrong reason wears the same words. It did:
+    // the first version of this check sampled the arrival instead of awaiting
+    // it, refused real installs across a whole fleet under gate load, and
+    // logged exactly that generic line while doing so.
+    await sawLine(0, /answered .* from somewhere other than this node/);
     await sawLine(0, /are not available publicly/);
   });
 

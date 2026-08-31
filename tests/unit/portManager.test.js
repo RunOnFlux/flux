@@ -793,46 +793,76 @@ describe('portManager tests', () => {
   // public address; where several Flux nodes share that address, what answered
   // can be a sibling's application while our own test server sat unreached.
   describe('portNotReached tests', () => {
-    const reachedBy = (...callers) => ({ reachedBy: (ip) => callers.includes(ip) });
+    // The server answers a WAIT, not a question: `reachedByWithin` resolves when
+    // the address arrives, or false when the wait expires.
+    const reachedBy = (...callers) => ({
+      reachedByWithin: async (ip) => callers.includes(ip),
+    });
     const peer = '203.0.113.9';
 
-    it('proves the ports when the peer reached every server', () => {
+    it('proves the ports when the peer reached every server', async () => {
       const servers = [reachedBy(peer), reachedBy(peer)];
 
-      expect(portManager.portNotReached([31000, 31001], servers, peer)).to.equal(null);
+      expect(await portManager.portNotReached([31000, 31001], servers, peer)).to.equal(null);
     });
 
-    it('names the port the peer never reached', () => {
+    it('names the port the peer never reached', async () => {
       const servers = [reachedBy(peer), reachedBy()];
 
-      expect(portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31001);
+      expect(await portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31001);
     });
 
-    it('names the first such port when several were missed', () => {
+    it('names the first such port when several were missed', async () => {
       const servers = [reachedBy(), reachedBy()];
 
-      expect(portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31000);
+      expect(await portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31000);
     });
 
     // The collision this exists for: something answered the peer, so the peer
     // passed the port - but it was not us.
-    it('refuses a port reached only by somebody else', () => {
+    it('refuses a port reached only by somebody else', async () => {
       const servers = [reachedBy('198.51.100.4')];
 
-      expect(portManager.portNotReached([31000], servers, peer)).to.equal(31000);
+      expect(await portManager.portNotReached([31000], servers, peer)).to.equal(31000);
     });
 
     // The peer skips any port outside the app port range, so a port it never
     // tried says nothing either way and must not be read as a failure.
-    it('says nothing about a port the peer would not have probed', () => {
+    it('says nothing about a port the peer would not have probed', async () => {
       const servers = [reachedBy()];
       const outOfRange = config.fluxapps.portMax + 1;
 
-      expect(portManager.portNotReached([outOfRange], servers, peer)).to.equal(null);
+      expect(await portManager.portNotReached([outOfRange], servers, peer)).to.equal(null);
     });
 
-    it('proves nothing and refuses nothing when there are no ports', () => {
-      expect(portManager.portNotReached([], [], peer)).to.equal(null);
+    it('proves nothing and refuses nothing when there are no ports', async () => {
+      expect(await portManager.portNotReached([], [], peer)).to.equal(null);
+    });
+
+    // The defect this shape exists to remove, and the reason it is a wait rather
+    // than a question. A peer resolves its probe on its own `connect` and answers
+    // at once, so the accept it caused can surface here a turn of the event loop
+    // LATER - on a loaded node, later than the reply. Sampled, that refused a real
+    // install and reported a port collision that never happened; a full gate
+    // caught it doing so on every node of a fleet.
+    it('counts a connection that lands after the question was asked', async () => {
+      let land;
+      const late = { reachedByWithin: () => new Promise((resolve) => { land = resolve; }) };
+      const verdict = portManager.portNotReached([31000], [late], peer);
+
+      // nothing has arrived at the moment of asking
+      await new Promise((resolve) => { setImmediate(resolve); });
+      land(true);
+
+      expect(await verdict, 'a connection that arrived late was read as never arriving').to.equal(null);
+    });
+
+    // And the wait expiring is still a refusal - the sibling case, where the
+    // connection never comes at all.
+    it('refuses a port whose connection never arrives', async () => {
+      const never = { reachedByWithin: async () => false };
+
+      expect(await portManager.portNotReached([31000], [never], peer)).to.equal(31000);
     });
   });
 

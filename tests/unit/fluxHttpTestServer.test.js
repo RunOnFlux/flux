@@ -75,4 +75,40 @@ describe('FluxHttpTestServer', () => {
     expect(server.reachedBy(undefined)).to.equal(false);
     expect(server.reachedBy('')).to.equal(false);
   });
+
+  // `reachedBy` is a snapshot, and the thing it asks about is still in flight:
+  // a peer resolves its probe on its own `connect` and answers immediately,
+  // while the accept it caused surfaces here on a later turn of this process's
+  // event loop. Read once, a loaded node refuses an install for a connection
+  // that did arrive. So the arrival is awaited.
+  describe('reachedByWithin', () => {
+    it('answers at once for a connection that already arrived', async () => {
+      await connect();
+
+      expect(await server.reachedByWithin('127.0.0.1', 5000)).to.equal(true);
+    });
+
+    // The defect, directly: the wait is already running when the connection
+    // lands. Nothing polls - the connection handler resolves it.
+    it('answers a connection that arrives while it is waiting', async () => {
+      const waiting = server.reachedByWithin('127.0.0.1', 5000);
+
+      await connect();
+
+      expect(await waiting, 'a connection that landed during the wait was missed').to.equal(true);
+    });
+
+    // And expiring is the answer in the case this exists for: a sibling at the
+    // same address holds the port, so the connection never comes at all.
+    it('gives up when nothing arrives, rather than waiting forever', async () => {
+      const started = Date.now();
+
+      expect(await server.reachedByWithin('198.51.100.4', 150)).to.equal(false);
+      expect(Date.now() - started, 'returned before its own wait was up').to.be.at.least(140);
+    });
+
+    it('answers false for an address it cannot read', async () => {
+      expect(await server.reachedByWithin(undefined, 5000)).to.equal(false);
+    });
+  });
 });
