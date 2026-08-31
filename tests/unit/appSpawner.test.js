@@ -144,11 +144,21 @@ describe('appSpawner tests', () => {
         // The post-install self-check re-reads the running list after this
         // node's own install; tests exercising it provide that view via
         // opts.finalAppLocations (returned once the install stub has run).
-        appLocation: sinon.stub().callsFake(() => Promise.resolve(
-          (opts.finalAppLocations && installStubRef.called)
-            ? opts.finalAppLocations
-            : (opts.appLocations || []),
-        )),
+        appLocation: (() => {
+          const stub = sinon.stub();
+          stub.callsFake(() => {
+            if (opts.finalAppLocations && installStubRef.called) {
+              return Promise.resolve(opts.finalAppLocations);
+            }
+            // The list as it stands by the spawner's SECOND count, for tests that
+            // need running copies to arrive between the two.
+            if (opts.recheckAppLocations && stub.callCount > 1) {
+              return Promise.resolve(opts.recheckAppLocations);
+            }
+            return Promise.resolve(opts.appLocations || []);
+          });
+          return stub;
+        })(),
         // The list after the collision wait includes this node's own claim; tests
         // exercising the post-broadcast share resolver provide it via
         // opts.finalInstallingLocations (returned from the 4th fetch onwards).
@@ -1138,6 +1148,28 @@ describe('appSpawner tests', () => {
         globalStateStub.trySpawningGlobalAppCache.has('abc123'),
         'cached a decline that a withdrawn claim invalidates seconds later',
       ).to.be.false;
+    });
+
+    it('does remember an app the running copies alone already cover', async () => {
+      // The other half, and the reason the clear above is conditional. A running
+      // copy is durable: the app IS covered, and re-deciding that on every pass
+      // is the waste the cache exists to prevent. Cleared unconditionally, an app
+      // at full strength re-enters the candidate pool every pass and is declined
+      // again forever - never cached, because this node never installs it.
+      const { logged } = await runAttempt({
+        appLocations: [{ ip: '192.168.3.3:16127' }],
+        recheckAppLocations: [
+          { ip: '192.168.3.3:16127' },
+          { ip: '192.168.5.5:16127' },
+          { ip: '192.168.6.6:16127' },
+        ],
+      });
+
+      expect(logged('already spawned or being installed'), 'never reached the decline').to.be.true;
+      expect(
+        globalStateStub.trySpawningGlobalAppCache.has('abc123'),
+        'dropped a decline that three running copies fully justify',
+      ).to.be.true;
     });
 
     it('still claims when the network is one instance short', async () => {
