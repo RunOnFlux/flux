@@ -115,25 +115,28 @@ describe('Sync response: eviction, pruning and forged events', function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false,
-      // DECLARED LIKE A MOCHA TIMEOUT, and for the same reason.
-      //
-      // The events below are broadcasts, and messageStore refuses one older than
-      // locationTtlS. The shared harness value is 63s, derived from production's
-      // announce ratio - fine for a suite that only has to outlive a compressed
-      // clock, and not fine here: this hook boots a twelfth node INSIDE that
-      // window, and a node boot is real work the harness does not compress.
-      // Measured at 24.6s of the window on an idle box, 93% of it the boot, and
-      // ~83s under a six-way gate - which is how this suite came to read an empty
-      // location list rather than a rejected message.
-      //
-      // Generous rather than measured, because a wider window costs this suite
-      // nothing: nothing here tests expiry, and a broadcast that does not expire
-      // is simply one the node accepts. The number needs to be comfortably more
-      // than any plausible setup, not accurate - so a slower box moves the real
-      // cost without moving this.
-      configOverrides: { fluxapps: { locationTtlS: 300 } },
     });
-    await bootAndPeer(env, Array.from({ length: 10 }, (_, i) => i));
+    const RUNNING = Array.from({ length: 10 }, (_, i) => i);
+    await bootAndPeer(env, RUNNING);
+
+    // THE READER BOOTS BEFORE THE WINDOW OPENS, AND CANNOT SYNC WHILE IT DOES.
+    //
+    // Everything below is a broadcast, and messageStore refuses one older than
+    // locationTtlS - 63s here. Booting the reader after seeding put a node boot
+    // inside that window: 24.6s of it on an idle box, ~83s under a six-way gate,
+    // so the events expired during their own setup, were skipped in silence, and
+    // the suite read an empty location list rather than a rejected message.
+    //
+    // No number fixes that, because the boot's cost is whatever the box is doing.
+    // So the boot moves OUT of the window instead. The reader is refused by the
+    // running nodes before it starts, boots deaf for as long as it needs, and the
+    // window opens only once it is up - spanning a sync, which is seconds, rather
+    // than a boot, which is unbounded.
+    await env.holdOutPendingNode(10, RUNNING);
+    const joiner = await env.startNode(10);
+    await waitForDaemonReady(joiner);
+    await waitForNodeStatus(joiner, (d) => d.confirmed === true, 30000);
+
     stamp = Date.now();
 
     const events = [];
@@ -204,9 +207,11 @@ describe('Sync response: eviction, pruning and forged events', function () {
       events.map((event) => ({ ...event })),
     )));
 
-    const joiner = await env.startNode(10);
-    await waitForDaemonReady(joiner);
-    await waitForNodeStatus(joiner, (d) => d.confirmed === true, 30000);
+    // Seeded, so let it in. It has never spoken to a peer, so its first sync is
+    // its only one, and it reads records written seconds ago rather than records
+    // written before it started booting.
+    await env.healPartition([10], RUNNING);
+    await env.startDiscovery([10]);
     await waitForOrchestratorState(joiner, 'READY', 180000);
   });
 

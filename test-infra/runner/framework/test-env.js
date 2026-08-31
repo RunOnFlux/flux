@@ -1204,6 +1204,38 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     // compress that interval in its configOverrides the same way it compresses every
     // other cadence. Pass { awaitSever: false } for a caller that only wants packets
     // dropped and is not asserting message loss.
+    // Refuse a node that has NOT STARTED YET, from the side that already exists.
+    //
+    // partitionGroups needs both groups' containers, because it puts a rule inside each.
+    // A node that is about to be started has no container, so the earliest it can be cut
+    // off is just after start() returns - by which point it may already have peered, and
+    // a suite that needed it deaf has no way to know it was not.
+    //
+    // One direction is enough: a connection needs both. The pending node dials out and
+    // its packets are dropped before they are read; the running nodes dial in and the
+    // reply is dropped on the way back. Nothing is established either way.
+    //
+    // The address is known before the node exists - the subnet assigns it, nothing
+    // discovers it - so the refusal can be in place before it draws breath. Undo with
+    // healPartition, whose deletes are best-effort and so tolerate the side that was
+    // never given a rule.
+    //
+    // For a suite that seeds time-stamped fixtures and then boots something to read
+    // them: hold the reader out, boot it, seed once the boot is behind you, then heal.
+    // The acceptance window then spans a sync rather than a boot, and stops depending on
+    // how loaded the box was.
+    async holdOutPendingNode(pendingIndex, runningIndices) {
+      const pendingIp = fluxNodes[pendingIndex].ip;
+      await Promise.all(runningIndices.map(async (node) => {
+        const res = await fluxNodes[node].container.exec(
+          ['sh', '-c', `iptables -I INPUT -s ${pendingIp} -j DROP`],
+        );
+        if (res.exitCode !== 0) {
+          throw new Error(`holdOutPendingNode: drop on node ${node} for ${pendingIp} failed (exit ${res.exitCode}): ${res.output}`);
+        }
+      }));
+    },
+
     async partitionGroups(groupA, groupB, { awaitSever = true, severTimeoutMs = 60000 } = {}) {
       const ops = [];
       for (const a of groupA) {
