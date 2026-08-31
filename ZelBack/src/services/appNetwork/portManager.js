@@ -444,33 +444,36 @@ async function portsInUse() {
  * @returns {Promise<void>}
  */
 async function portsInUseApi(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
+  try {
+    // req.body, not the raw stream. express.json() is global (fluxServer.js), so
+    // for a JSON content type the body is already consumed by the time a handler
+    // runs and a stream read waits for an 'end' that has been and gone - the
+    // request then hangs until the caller times out, which is what it did.
+    //
+    // The older handlers on this path read the stream because the product posts
+    // JSON.stringify(...) as a STRING, which axios does not label as JSON, so
+    // the parser skips it and leaves the stream untouched. Both work; only one
+    // of them works for both kinds of caller.
+    const processedBody = serviceHelper.ensureObject(req.body);
 
-      const signed = await fluxNetworkHelper.verifySignedFluxnodeRequest(processedBody);
-      const authorized = signed
-        ? true
-        : await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const signed = await fluxNetworkHelper.verifySignedFluxnodeRequest(processedBody);
+    const authorized = signed
+      ? true
+      : await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
-      if (signed !== true && authorized !== true) {
-        throw new Error('Unable to verify request authenticity');
-      }
-
-      res.json(messageHelper.createDataMessage(await portsInUse()));
-    } catch (error) {
-      log.error(error);
-      res.json(messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      ));
+    if (signed !== true && authorized !== true) {
+      throw new Error('Unable to verify request authenticity');
     }
-  });
+
+    res.json(messageHelper.createDataMessage(await portsInUse()));
+  } catch (error) {
+    log.error(error);
+    res.json(messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    ));
+  }
 }
 
 

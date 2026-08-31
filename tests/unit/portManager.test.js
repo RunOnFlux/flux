@@ -809,6 +809,62 @@ describe('portManager tests', () => {
   // address, which is why this check exists, so a peer is not in a position to
   // judge - and one that is old, broken or lying cannot manufacture a token it
   // never saw.
+  describe('portsInUseApi tests', () => {
+    // It must ANSWER. The first version read the raw request stream, and
+    // express.json() is global - so for a JSON content type the body was already
+    // consumed, the 'end' event had been and gone, and the handler waited for it
+    // forever. Nothing failed; the caller timed out. A stubbed res is enough to
+    // catch that, and nothing was calling this function at all before.
+    const resStub = () => { const r = { json: sinon.stub() }; return r; };
+
+    it('answers a request that carries operator privilege', async () => {
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(false);
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(portManager, 'portsInUse').resolves([31000]);
+      const res = resStub();
+
+      await portManager.portsInUseApi({ body: {} }, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+    });
+
+    it('answers a Fluxnode that signed the question', async () => {
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(true);
+      const privilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+      const res = resStub();
+
+      await portManager.portsInUseApi({ body: { pubKey: '04', signature: 'sig' } }, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      // The signature settles it; no privilege check is needed or made.
+      sinon.assert.notCalled(privilege);
+    });
+
+    it('refuses a caller that neither signed nor is entitled, and still answers', async () => {
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(false);
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+      const res = resStub();
+
+      await portManager.portsInUseApi({ body: {} }, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.match(/verify request authenticity/i);
+    });
+
+    it('answers rather than hanging when there is no body at all', async () => {
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(false);
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+      const res = resStub();
+
+      await portManager.portsInUseApi({}, res);
+
+      sinon.assert.calledOnce(res.json);
+    });
+  });
+
   describe('refusedPort tests', () => {
     // One witness to accept, two to refuse. Our own token coming back is proof
     // and needs no corroboration; anything else is one peer's report about a
