@@ -394,6 +394,15 @@ export async function waitForInstanceCount(env, appName, target, {
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
 /**
+ * DELETE THIS when flux#1784's allocateAppPort() lands in seed-helper.js.
+ *
+ * That is the same mechanism one layer down, where the builders live, and it is
+ * the one to keep: it covers every builder rather than this one caller. It does
+ * not exist on this branch yet - buildSeedableSyncthingApp still defaults to a
+ * hardcoded 31111 here - so removing this before that merges reopens the fault.
+ * On the merged tree, drop nextSeededPort and portForSeededApp and pass ports
+ * only when the caller named one; the builder's own default then allocates.
+ *
  * A port of this app's own, handed out in order.
  *
  * Counted rather than derived from the name: a hash would collide once in a
