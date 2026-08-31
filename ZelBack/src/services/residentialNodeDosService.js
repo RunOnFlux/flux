@@ -446,8 +446,9 @@ function queueDelayMs(locations, localSocketAddr) {
  *
  * The DOS itself is already reported beside this as `dos`, so the three stages
  * read together: HOLD with no DOS, EVACUATE with no DOS, then EVACUATE with
- * one. An EMPTY node reports HOLD with a DOS, having skipped the window it had
- * no data to need.
+ * one. A node EMPTY FROM THE START reports HOLD with a DOS, having skipped the
+ * window it had no data to need; one that DRAINED to empty has served the whole
+ * window by the time it gets there, so it reports EVACUATE with a DOS.
  * @returns {('HOLD'|'EVACUATE'|null)}
  */
 function getDosStaging() {
