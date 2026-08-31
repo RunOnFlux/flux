@@ -415,6 +415,20 @@ function makeEnvShell(networkName) {
       if (tornDown) return;
       tornDown = true;
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
+      // Every step below is a docker round trip with no timeout of its own, and until
+      // now they printed only on THROW - and being slow is not throwing. The `after`
+      // hook that calls this fails the suite on its own budget: on the bc5d86154 gate
+      // seven suites (36, 45, 46, 47, 48, 51, 53) died on "after all hook: Timeout of
+      // 30000ms exceeded" with every one of their tests green, and nothing anywhere
+      // recorded which step had spent the 30 seconds. So each step reports as it
+      // COMPLETES: the step whose line is missing is the one that ran out of budget.
+      const tStart = Date.now();
+      let tPrev = tStart;
+      const step = (name) => {
+        const now = Date.now();
+        console.log(`# teardown [${networkName}] ${name} ${now - tPrev}ms`);
+        tPrev = now;
+      };
       // Everything stopped below exits on purpose. Silence the death watch BEFORE
       // the first stop so a deliberate exit can never be reported as INFRA-DEAD:
       // the flag covers events already queued on the stream, closing it covers
@@ -432,6 +446,7 @@ function makeEnvShell(networkName) {
       if (infraDeathError()) {
         infraLogSnapshot = await readInfraLogs(infraContainers).catch(() => null);
       }
+      step('infra-snapshot');
       // disconnectEventStream wipes the client's event buffer — snapshot first so
       // a failure dump running after teardown still has the events
       clients.forEach((client, i) => {
@@ -440,6 +455,7 @@ function makeEnvShell(networkName) {
       for (const client of clients) {
         if (client) client.disconnectEventStream();
       }
+      step('streams');
       // FluxOS sets app mountpoints immutable (chattr +i) so an unmounted app
       // dir rejects writes. The flag lives on the BARE dir under the loop mount
       // and survives into the node's named volume - Docker then cannot delete
@@ -453,11 +469,17 @@ function makeEnvShell(networkName) {
           'for d in /mnt/appdata/flux-apps/*/; do umount -l "$d" 2>/dev/null; done; chattr -R -i /mnt/appdata/flux-apps 2>/dev/null; true',
         ).catch((e) => warn('immutable-flag sweep', e));
       }));
+      step(`immutable-sweep(${clients.filter(Boolean).length} nodes)`);
       for (const c of [...started].reverse()) {
         await c.stop().catch((e) => warn('container stop', e));
       }
+      step(`stops(${started.length} containers)`);
       await closeDb();
+      step('db');
       const cleanupClient = await getContainerRuntimeClient();
+      // The EPERM fallback below boots a whole container per volume, so how many times
+      // it fired is the difference between a two-second volume phase and a long one.
+      let helperRuns = 0;
       for (const volName of volumeNames) {
         const volume = cleanupClient.container.dockerode.getVolume(volName);
         try {
@@ -468,6 +490,7 @@ function makeEnvShell(networkName) {
           // volume delete. Strip the flags from the volume side with a
           // throwaway container and retry, so even a wedged fleet cleans up.
           try {
+            helperRuns += 1;
             const helper = await cleanupClient.container.dockerode.createContainer({
               Image: image('flux-e2e-fluxos-01'),
               Entrypoint: ['bash', '-c', 'chattr -R -i /v/flux-apps 2>/dev/null; true'],
@@ -482,11 +505,14 @@ function makeEnvShell(networkName) {
           }
         }
       }
+      step(`volumes(${volumeNames.length}, ${helperRuns} needed the flag-strip helper)`);
       await removeNetwork(networkName);
+      step('network');
       for (const cfg of nodeConfigs) {
         if (cfg.bootIdDir) rmSync(cfg.bootIdDir, { recursive: true, force: true });
       }
       http.globalAgent.destroy();
+      console.log(`# teardown [${networkName}] complete ${Date.now() - tStart}ms`);
     },
   };
   return env;
