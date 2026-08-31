@@ -791,6 +791,40 @@ describe('Residential node evacuation', function () {
     // The restart cost it nothing it had already watched.
     expect(after.observedMs).to.be.at.least(before.observedMs);
   });
+});
+
+// A FLEET OF ITS OWN, for the same arithmetic as the describe below.
+//
+// Both of these need a departure to actually happen, and a node sheds ONE app per
+// departure interval while a node inside that interval accrues nothing towards
+// any other app's turn. Left on the shared fleet these sit behind everything the
+// thirteen tests above them left on node 1, and DEPARTURE_WAIT_MS is two cycles.
+//
+// On the 4fc95ac35 gate that was exactly enough to fail: node 1 held clockapp and
+// sharedapp, sharedapp drew eight AWAITING_TURN and node 3 four DEPARTURE_INTERVAL,
+// neither node ever departed, so the app never went short and the
+// BELOW_INSTANCE_COUNT refusal this test waits for on the OTHER node could not be
+// published. One departure interval plus one full ticket against a budget of two
+// cycles is no headroom at all, which is why it passed until something moved.
+//
+// Splitting rather than widening the budget, for the reason the describe below
+// was split: a budget sized for the queue leaves the queue there for whoever adds
+// the next test.
+describe('Residential node evacuation: one holder at a time', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await bootResidentialFleet(this);
+  });
+
+  after(async function () {
+    this.timeout(120000);
+    await clearSystemSecure().catch(() => {});
+    await stopTicker().catch(() => {});
+    if (env) await env.teardown();
+  });
 
   it('only one residential node gives up an app at a time', async function () {
     this.timeout(900000);
