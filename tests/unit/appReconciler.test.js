@@ -612,8 +612,10 @@ describe('appReconciler tests', () => {
 
     it('recreates a missing container that should run (docker reachable)', async () => {
       // production shape of a genuinely-missing container: getDockerContainerOnly
-      // returns undefined -> docker.getContainer(undefined.Id) throws a TypeError.
-      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      // finds nothing -> getDockerContainerByIdOrName throws `Container <name>
+      // not found`. The handling below is message-agnostic (it probes the
+      // container list), but the fixture should still be what production emits.
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
       stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'container_vanished')).to.be.true;
@@ -622,7 +624,7 @@ describe('appReconciler tests', () => {
     });
 
     it('removes the app locally when recreation fails (docker reachable)', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
       stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('boom'));
       await appReconciler.reconcile('www_App');
@@ -637,7 +639,7 @@ describe('appReconciler tests', () => {
     // container_vanished tamper event and recreate->409->uninstall a healthy
     // app. Defer instead - the next inspect succeeds.
     it('defers when inspect fails but the container appears in the docker list (transient inspect failure)', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
       stubs.dockerService.dockerListContainers.resolves([
         { Names: ['/fluxwww_App'], State: 'running' }, // the "missing" container, alive
         { Names: ['/fluxother_Other'], State: 'running' },
@@ -658,7 +660,7 @@ describe('appReconciler tests', () => {
     // create the container (isManagedElsewhere is only sampled at entry), or
     // our own recreate can fail AFTER creating it (start/network step failed).
     it('does not remove the app when the container exists by the time recreation fails', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
       stubs.dockerService.dockerListContainers.resolves([]); // genuinely missing at classification
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('409 Conflict: name already in use'));
       stubs.dockerService.getDockerContainerOnly.resolves({ Id: 'abc123' }); // exists at re-check
@@ -821,7 +823,7 @@ describe('appReconciler tests', () => {
 
       it('does not recreate or remove a missing container while its app is being restored', async () => {
         stubs.globalState.restoreInProgress.push('App');
-        stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+        stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
         stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
         await appReconciler.reconcile('www_App');
         expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;

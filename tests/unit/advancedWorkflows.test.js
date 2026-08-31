@@ -4064,43 +4064,107 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
-  // stopSyncthingApp are complex integration functions or HTTP request handlers
   describe('softRedeploy failure handling tests', () => {
+    // A v3 app: softRemoveAppLocally takes the simple, non-composed path, so the
+    // only thing between the spec lookup and the container work is
+    // softUninstallApplication - which is where the production failure landed.
+    const v3Spec = {
+      version: 3,
+      name: 'TestApp',
+      description: 'test app',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      repotag: 'nginx:latest',
+      ports: ['31000'],
+      domains: [''],
+      enviromentParameters: [],
+      commands: [],
+      containerPorts: ['80'],
+      containerData: '/data',
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+      tiered: false,
+      instances: 3,
+    };
+
+    let globalState;
+    let appUninstaller;
+    let appInstaller;
+    let serviceHelper;
+
     beforeEach(() => {
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      /* eslint-disable global-require */
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      /* eslint-enable global-require */
       globalState.removalInProgress = false;
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(serviceHelper, 'delay').resolves();
     });
 
     afterEach(() => {
       sinon.restore();
+      globalState.removalInProgress = false;
+      globalState.softRedeployInProgress = false;
     });
 
-    it('leaves the installation intact when the redeploy fails before removing the app', async () => {
-      // A soft redeploy that never got past taking the app down: the app is
-      // still installed and running. Uninstalling it here - forced, and
-      // broadcast to the network - loses a healthy application over a
-      // transient failure.
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null); // softRemoveAppLocally throws 'Flux App not found'
+    it('leaves the app installed when the removal fails part way through', async () => {
+      // The production incident: the reconciler asked to start the component two
+      // seconds earlier, the removal found no container, and the catch answered a
+      // transient race by uninstalling a healthy application - forced, and
+      // broadcast to the network. The removal reached docker and failed there;
+      // nothing about that failure says the app is down.
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      const softUninstall = sinon.stub(appUninstaller, 'softUninstallApplication')
+        .rejects(new Error('Container fluxTestApp not found'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
 
-      // eslint-disable-next-line global-require
-      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      await advancedWorkflows.softRedeploy(v3Spec, null);
+
+      expect(softUninstall.calledOnce, 'the removal must have actually reached docker').to.be.true;
+      expect(removeAppLocally.called, 'a failed removal must not uninstall the app').to.be.false;
+      expect(globalState.softRedeployInProgress).to.be.false;
+      expect(globalState.removalInProgress, 'the removal lease must be released').to.be.false;
+    });
+
+    it('leaves the app installed when the redeploy fails before the removal starts', async () => {
+      // Same gate, earlier failure: the spec lookup throws, so no container was
+      // touched at all.
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
 
       await advancedWorkflows.softRedeploy({ name: 'TestApp', version: 7 }, null);
 
       expect(removeAppLocally.called).to.be.false;
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
+
+    it('still cleans up when the reinstall fails after the app is down', async () => {
+      // The other half of the gate. Once the removal has completed, the app IS
+      // down: a failure from here on leaves a half-installed app that only the
+      // forced uninstall can clear, so it must still run.
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
+      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Not enough space on device'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy(v3Spec, null);
+
+      expect(removeAppLocally.calledOnce, 'the app is down and half-installed - it must be cleaned up').to.be.true;
+      expect(removeAppLocally.calledWith('TestApp', null, true, true, true)).to.be.true;
       expect(globalState.softRedeployInProgress).to.be.false;
     });
   });
 
+  // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
+  // stopSyncthingApp are complex integration functions or HTTP request handlers
   // that require extensive mocking of database connections, HTTP requests, and
   // external services. These should be tested in integration tests rather than
   // unit tests. masterSlaveApps is included above with basic tests, but full
