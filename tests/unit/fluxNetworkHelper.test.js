@@ -3055,8 +3055,10 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('placement hold tests', () => {
+    const { RESIDENTIAL_DOS } = fluxNetworkHelper.PlacementHoldOwner;
+
     afterEach(() => {
-      fluxNetworkHelper.clearPlacementHold();
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
       fluxNetworkHelper.clearStickyDosMessage();
     });
 
@@ -3066,25 +3068,45 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('holds with the reason it was given', () => {
-      fluxNetworkHelper.setPlacementHold('residential node not running ArcaneOS');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
       expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential node not running ArcaneOS');
     });
 
     it('releases', () => {
-      fluxNetworkHelper.setPlacementHold('some reason');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'some reason');
 
-      fluxNetworkHelper.clearPlacementHold();
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    });
+
+    it('refuses an owner it does not know, rather than minting one', () => {
+      // An unknown owner is a caller that was never given an identity. Accepted,
+      // it would hold the node under a name no release path knows about.
+      expect(() => fluxNetworkHelper.setPlacementHold('someFeature', 'a reason')).to.throw('unknown owner');
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    });
+
+    it('does not release a hold it does not own', () => {
+      // The reason this is a map keyed by owner and not a single slot. With one
+      // slot, whoever cleared next released the node outright - including a
+      // caller whose own condition had nothing to do with the hold in place - so
+      // the node resumed taking apps for a condition that had not lifted.
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential');
+
+      fluxNetworkHelper.clearPlacementHold('someOtherOwner');
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential');
     });
 
     it('does NOT put the node into DOS', () => {
       // The whole point of the hold: DOS >= 100 makes nodeStatusMonitor and
       // appStartupManager rm -rf every app on the box. A node that should stop
       // growing but keep its volumes must not cross that line.
-      fluxNetworkHelper.setPlacementHold('residential node not running ArcaneOS');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
     });
@@ -3096,7 +3118,7 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
 
       fluxNetworkHelper.clearStickyDosMessage();
-      fluxNetworkHelper.setPlacementHold('held');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);

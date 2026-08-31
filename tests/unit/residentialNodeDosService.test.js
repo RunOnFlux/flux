@@ -75,16 +75,20 @@ describe('residentialNodeDosService tests', () => {
     // read-back. A getter pinned to null would let a clear that must not happen
     // pass as if it had.
     let sticky = null;
-    let hold = null;
+    // Owner-keyed, like the real one. A double that kept a single slot would
+    // accept a clear from any owner and so could never fail the way the real
+    // module now refuses to.
+    const holds = new Map();
     fluxNetworkHelperStub = {
       setStickyDosMessage: sinon.stub().callsFake((msg) => { sticky = msg; }),
       setStickyDosStateValue: sinon.stub(),
       clearStickyDosMessage: sinon.stub().callsFake(() => { sticky = null; }),
       getStickyDosMessage: sinon.stub().callsFake(() => sticky),
-      setPlacementHold: sinon.stub().callsFake((reason) => { hold = reason; }),
-      clearPlacementHold: sinon.stub().callsFake(() => { hold = null; }),
-      getPlacementHold: sinon.stub().callsFake(() => hold),
-      isPlacementHeld: sinon.stub().callsFake(() => hold !== null),
+      PlacementHoldOwner: Object.freeze({ RESIDENTIAL_DOS: 'residentialDos' }),
+      setPlacementHold: sinon.stub().callsFake((owner, reason) => { holds.set(owner, reason); }),
+      clearPlacementHold: sinon.stub().callsFake((owner) => { holds.delete(owner); }),
+      getPlacementHold: sinon.stub().callsFake(() => (holds.size ? [...holds.values()].join('; ') : null)),
+      isPlacementHeld: sinon.stub().callsFake(() => holds.size > 0),
       getLocalSocketAddress: sinon.stub().resolves(LOCAL),
     };
 

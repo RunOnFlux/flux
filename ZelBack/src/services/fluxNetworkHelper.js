@@ -54,12 +54,28 @@ let dosMessage = null;
 let stickyDosState = 0;
 let stickyDosMessage = null;
 
+// Who may hold this node back from placement. An owner is an IDENTITY, not a
+// message: the reason is what an operator reads, and the owner is what a release
+// is checked against. Adding a feature that holds placement means adding a value
+// here, which is the point - an unknown owner is refused rather than accepted as
+// a new one.
+const PlacementHoldOwner = Object.freeze({
+  RESIDENTIAL_DOS: 'residentialDos',
+});
+
 // Stops the node taking on NEW apps without declaring it unfit for the ones it
 // already runs. DOS conflates those: isNodeDos() makes appSpawner refuse
 // installs AND makes nodeStatusMonitor and appStartupManager delete every app on
 // the box. A node that must stop growing but keep its customer volumes needs
 // only the first, so this is a separate flag whose only consumer is the spawner.
-let placementHold = null;
+//
+// owner -> reason, rather than one slot. A single slot cannot express two
+// owners: a second hold OVERWROTE the first, and whoever cleared next released
+// both - so the node resumed taking apps for a condition that had not lifted.
+// Checking ownership on a single slot only moves the failure, because the
+// overwritten owner can then never clear and the node stays held forever. The
+// node is held while any owner holds it.
+const placementHolds = new Map();
 
 let storedFluxBenchAllowed = null;
 let ipChangeData = null;
@@ -818,36 +834,50 @@ function isNodeDos() {
 }
 
 /**
- * Hold this node back from new placements. Idempotent.
- * @param {string} reason Identifies the owner; logged and reported.
+ * Hold this node back from new placements. Idempotent per owner.
+ * @param {string} owner A PlacementHoldOwner value. An unknown one throws: it is
+ * a caller that was never given an identity, and accepting it would create an
+ * owner nothing can ever release.
+ * @param {string} reason Logged and reported.
  */
-function setPlacementHold(reason) {
-  if (placementHold === reason) return;
-  placementHold = reason;
-  log.info(`Placement hold set: ${reason}`);
+function setPlacementHold(owner, reason) {
+  if (!Object.values(PlacementHoldOwner).includes(owner)) {
+    throw new Error(`setPlacementHold: unknown owner ${owner}`);
+  }
+  if (placementHolds.get(owner) === reason) return;
+  placementHolds.set(owner, reason);
+  log.info(`Placement hold set by ${owner}: ${reason}`);
 }
 
 /**
- * Release the hold. The owner clears it when the condition that set it lifts.
+ * Release one owner's hold. Any other owner's hold stands, and the node stays
+ * held until every one of them has released - so a feature clearing its own
+ * condition can never speak for a condition it knows nothing about.
+ * @param {string} owner A PlacementHoldOwner value.
  */
-function clearPlacementHold() {
-  if (placementHold === null) return;
-  log.info(`Placement hold cleared (was: ${placementHold})`);
-  placementHold = null;
+function clearPlacementHold(owner) {
+  const reason = placementHolds.get(owner);
+  if (reason === undefined) return;
+  placementHolds.delete(owner);
+  log.info(`Placement hold cleared by ${owner} (was: ${reason})`);
 }
 
 /**
  * @returns {string|null} Why the node is held, or null when it is not.
  */
 function getPlacementHold() {
-  return placementHold;
+  if (!placementHolds.size) return null;
+  // Every reason, not an arbitrary one: the spawner logs this to say why the
+  // node is not installing, and naming one of two holds would send an operator
+  // to lift a condition that would not release the node.
+  return [...placementHolds.values()].join('; ');
 }
 
 /**
  * @returns {boolean} True when this node must not take on new apps.
  */
 function isPlacementHeld() {
-  return placementHold !== null;
+  return placementHolds.size > 0;
 }
 
 /**
@@ -2519,6 +2549,7 @@ module.exports = {
   setDosStateValue,
   getDosStateValue,
   isNodeDos,
+  PlacementHoldOwner,
   setPlacementHold,
   clearPlacementHold,
   getPlacementHold,
