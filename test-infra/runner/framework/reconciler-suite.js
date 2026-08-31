@@ -417,11 +417,35 @@ export async function waitForInstanceCount(env, appName, target, {
 // then writes sync-scoped disk data, so a folder any test later pins synced already
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
+/**
+ * A port of this app's own, handed out in order.
+ *
+ * Counted rather than derived from the name: a hash would collide once in a
+ * while and put two apps back on one port, which is the fault this exists to
+ * remove - and a fault that appears occasionally is worse than one that appears
+ * always. Each suite is its own process, so the count is per suite. Starts
+ * clear of 31111, which suites building their own specs still use.
+ */
+let nextSeededPort = 31200;
+function portForSeededApp() {
+  nextSeededPort += 1;
+  return nextSeededPort;
+}
+
 export async function seedSyncthingApp(env, {
-  name, mode = 'r', forceNonLeader = false, index = 0,
+  name, mode = 'r', forceNonLeader = false, index = 0, port = null,
 }) {
   await pushImage(name, 'v1');
-  const app = await buildSeedableSyncthingApp({ name, mode });
+  // A port of this app's own, unless the caller names one.
+  //
+  // Every seeded syncthing app took the same default port, and forceNonLeader
+  // puts one app on a node as its subject and the next one on that same node as
+  // its peer - so two of them met on one node holding one port, and the install
+  // was refused with "already used with different application". It only showed
+  // when the first install finished registering before the second started, so
+  // the suite passed or failed on the gap between them.
+  const ports = [port ?? portForSeededApp()];
+  const app = await buildSeedableSyncthingApp({ name, mode, ports });
   const folder = `flux${name}_${name}`;
   const identifier = `${name}_${name}`;
 
