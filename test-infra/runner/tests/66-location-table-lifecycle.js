@@ -9,6 +9,7 @@ import { restartFluxos } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { appOwnerKey } from '../framework/keys.js';
+import { allocatePortFor } from '../framework/port-allocator.js';
 import { signBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -85,7 +86,11 @@ function gateSpec({ name, instances, geolocation = [] }) {
       name: 'probe',
       description: 'probe component',
       repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
-      ports: [31181],
+      // This suite builds and signs its own spec rather than going through a
+      // builder, so it asks the allocator directly - the one place a port comes
+      // from. Stable per app name, so the several specs built for one app here
+      // all carry the same port.
+      ports: [allocatePortFor(name)],
       domains: [''],
       environmentParameters: [],
       commands: [],

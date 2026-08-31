@@ -29,17 +29,29 @@
 const ALLOCATION_BASE = 31200;
 
 const claimedPorts = new Map();
+const allocatedByApp = new Map();
 let nextFreePort = ALLOCATION_BASE;
 
 /**
- * One port, recorded against the app that now holds it.
+ * One port for a named app's Nth component, stable across repeated builds.
+ *
+ * Stable because a spec is built more than once for one app: an update test
+ * builds the app, registers it, then builds it again with a new image. If the
+ * second build drew a fresh port the update would carry a port change nobody
+ * asked for, and the test would be exercising something other than the image
+ * change it names. The same app asking again gets what it already holds.
  *
  * Exported for the legacy builder, whose specs carry ports as STRINGS - it
  * needs the number before it can spell it the way a v3 spec does.
  */
-export function allocatePortFor(name) {
+export function allocatePortFor(name, index = 0) {
+  const held = allocatedByApp.get(name) ?? [];
+  if (held[index] !== undefined) return held[index];
+
   do { nextFreePort += 1; } while (claimedPorts.has(nextFreePort));
   claimedPorts.set(nextFreePort, name);
+  held[index] = nextFreePort;
+  allocatedByApp.set(name, held);
   return nextFreePort;
 }
 
@@ -59,7 +71,7 @@ export function allocatePortFor(name) {
  * already claimed and keeps them.
  */
 export function assignPorts(components, appName, { allowPortReuse = false } = {}) {
-  for (const component of components) {
+  components.forEach((component, index) => {
     // Nulls filtered, not trusted: a builder that emits [null] has declared
     // nothing, and Number(null) is 0 - a port that would look real here and
     // fail somewhere far away.
@@ -67,8 +79,8 @@ export function assignPorts(components, appName, { allowPortReuse = false } = {}
       .filter((port) => port != null && port !== '' && Number.isFinite(Number(port)));
 
     if (!declared.length) {
-      component.ports = [allocatePortFor(appName)];
-      continue;
+      component.ports = [allocatePortFor(appName, index)];
+      return;
     }
 
     // Checked before allowPortReuse, because that opt-out is about two apps
@@ -84,7 +96,7 @@ export function assignPorts(components, appName, { allowPortReuse = false } = {}
       }
     }
 
-    if (allowPortReuse) continue;
+    if (allowPortReuse) return;
 
     for (const port of declared.map(Number)) {
       const owner = claimedPorts.get(port);
@@ -96,5 +108,5 @@ export function assignPorts(components, appName, { allowPortReuse = false } = {}
       }
       claimedPorts.set(port, appName);
     }
-  }
+  });
 }
