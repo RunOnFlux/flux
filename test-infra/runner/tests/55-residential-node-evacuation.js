@@ -66,7 +66,7 @@ const RESIDENTIAL_PACING = (() => {
 // four minutes driveUntil defaults to, which was written when the interval was
 // four seconds. Two cycles' worth: several of these waits contain a departure
 // AND the pass on which another holder reacts to it.
-const DEPARTURE_WAIT_MS = 2 * departureCycleMs(
+const ONE_DEPARTURE_MS = departureCycleMs(
   {
     ...RESIDENTIAL_PACING,
     removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
@@ -75,6 +75,7 @@ const DEPARTURE_WAIT_MS = 2 * departureCycleMs(
   },
   5,
 );
+const DEPARTURE_WAIT_MS = 2 * ONE_DEPARTURE_MS;
 
 const RESIDENTIAL_GEO = {
   hosting: false,
@@ -940,9 +941,28 @@ describe('Residential node evacuation', function () {
       .then((v) => { standDownVerdict = v; return v; });
     stoodDown.catch(() => {});
 
+    // THE BUDGET IS A DEPARTURE PER APP THIS NODE STILL HOLDS, not two.
+    //
+    // Evacuation gives up ONE app per departure interval, and a node inside that
+    // interval records nothing against any other app's queue ticket - so every
+    // departure restarts the turn of everything still held. By this test the
+    // node has collected an app from most of the fifteen tests ahead of it, and
+    // primaryapp is behind all of them.
+    //
+    // Two cycles was right when this test was written and stopped being right as
+    // tests were added in front of it, silently: on the 2026-08-31 gate the node
+    // held seven apps, shed six inside the window, and ran out one departure
+    // short. primaryapp drew 10 DEPARTURE_INTERVAL and 10 AWAITING_TURN verdicts
+    // and no STAND_DOWN_REQUIRED - not a wrong answer, no answer, which is
+    // indistinguishable in the failure message from the stand-down never firing.
+    //
+    // Read from the node rather than counted by hand here, so adding a test
+    // ahead of this one cannot quietly shorten its budget again. One cycle of
+    // headroom so the last verdict has a pass to land in.
+    const heldBefore = await dbClient(TARGET).localAppCount();
     await stopTicker();
     await driveUntil(env.clients[TARGET - 1], async () => standDownVerdict !== null,
-      { timeoutMs: DEPARTURE_WAIT_MS });
+      { timeoutMs: (heldBefore + 1) * ONE_DEPARTURE_MS });
     await startTicker();
 
     const verdict = await stoodDown;
