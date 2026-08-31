@@ -13,6 +13,44 @@ const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = r
 
 // Import modular services
 const appQueryService = require('../appQuery/appQueryService');
+
+// What this node last concluded about each app: the stage that removed it from
+// the candidate list, or 'candidate' when it survived to the draw.
+//
+// Kept so the verdict can be published on CHANGE ONLY. "This pass passed over
+// that app" is true every pass for every app the fleet already covers - it is a
+// fact about the clock, and fluxEventBus says plainly that a cadence is a
+// counter, not an event. What actually happens, rarely, is a verdict FLIPPING:
+// an app this node was excluded from becoming one it may take again, which is
+// the thing a caller wants to know and the thing no log line makes assertable.
+const lastCandidacy = new Map();
+
+/**
+ * Which stage removed each app, from the survivor snapshots taken through the
+ * filter chain, and publish only the ones whose answer changed since last pass.
+ *
+ * @param {Array<[string, Set<string>]>} stages Ordered [stageName, names still in].
+ */
+function publishCandidacyChanges(stages) {
+  if (!stages.length) return;
+  const [, initial] = stages[0];
+  const verdicts = new Map();
+  for (const name of initial) {
+    let stage = 'candidate';
+    for (let i = 1; i < stages.length; i += 1) {
+      if (!stages[i][1].has(name)) { stage = stages[i][0]; break; }
+    }
+    verdicts.set(name, stage);
+  }
+  for (const [name, stage] of verdicts) {
+    if (lastCandidacy.get(name) === stage) continue;
+    lastCandidacy.set(name, stage);
+    fluxEventBus.publish('spawner:candidacy', { name, stage, candidate: stage === 'candidate' });
+  }
+  for (const name of [...lastCandidacy.keys()]) {
+    if (!verdicts.has(name)) lastCandidacy.delete(name);
+  }
+}
 const resourceQueryService = require('../appQuery/resourceQueryService');
 const messageStore = require('../appMessaging/messageStore');
 const registryManager = require('../appDatabase/registryManager');
@@ -302,6 +340,8 @@ async function trySpawningGlobalApplication() {
       // that is indistinguishable from an app nobody wanted, which is how a port
       // collision looked like a placement failure for a whole day.
       const survivors = { found: globalAppNamesLocation.length };
+      const nameSet = () => new Set(globalAppNamesLocation.map((app) => app.name));
+      const stages = [['found', nameSet()]];
 
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
@@ -309,6 +349,7 @@ async function trySpawningGlobalApplication() {
         && !globalState.trySpawningGlobalAppCache.has(app.hash)
         && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
       survivors.afterAlreadyHeldOrTried = globalAppNamesLocation.length;
+      stages.push(['afterAlreadyHeldOrTried', nameSet()]);
 
       // filter apps that are non enterprise or are marked to install on my node.
       // Enterprise-owned apps that target specific node IPs are strict: only a node
@@ -357,12 +398,15 @@ async function trySpawningGlobalApplication() {
       }
       const myLocation = { continentCode: myContinentCode, countryCode: myCountryCode, region: myTableRegion };
       survivors.afterNodePin = globalAppNamesLocation.length;
+      stages.push(['afterNodePin', nameSet()]);
       globalAppNamesLocation = globalAppNamesLocation.filter(
         (app) => placementFeasibility.nodeLocationMatchesGeolocation(myLocation, app.geolocation),
       );
       survivors.afterGeolocation = globalAppNamesLocation.length;
+      stages.push(['afterGeolocation', nameSet()]);
       globalAppNamesLocation = enterpriseNetwork.filterAppsByOwnership(globalAppNamesLocation, isEnterprise);
       survivors.afterOwnership = globalAppNamesLocation.length;
+      stages.push(['afterOwnership', nameSet()]);
 
       // Drop candidates whose remaining slots are already claimed, before one is
       // picked at random. The pool counts running instances only, so an app that
@@ -382,10 +426,19 @@ async function trySpawningGlobalApplication() {
       ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, appsCountAvailableToInstallOnMyNode));
 
       survivors.afterClaims = globalAppNamesLocation.length;
+      stages.push(['afterClaims', nameSet()]);
+
+      publishCandidacyChanges(stages);
 
       if (globalAppNamesLocation.length === 0) {
         log.info(`trySpawningGlobalApplication - No app currently to be processed (${JSON.stringify(survivors)})`);
-        fluxEventBus.publish('spawner:noCandidates', survivors);
+        // A TALLY, not a stream. This is true on every pass of a fleet whose apps
+        // are all at their instance count - roughly every 240ms per node under
+        // the harness multiplier - and as an event it spent a ring every other
+        // consumer shares, which is why nothing could afford to subscribe to it.
+        // The breakdown stays in the log line above, and what CHANGED went out as
+        // spawner:candidacy.
+        fluxEventBus.count('spawner:noCandidates');
         return delayTime;
       }
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);

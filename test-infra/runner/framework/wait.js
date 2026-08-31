@@ -235,15 +235,18 @@ export async function waitForGiveUpConsidered(node, appName, predicate, timeout 
 }
 
 /**
- * A spawner pass that found candidates and placed none, with the count
- * surviving each filter. `found` is what was short on the network; the rest name
- * where they went. A suite waiting for an app that never arrives reads this to
- * see WHICH filter took it rather than guessing.
+ * This node's verdict on ONE app changing: `{ name, stage, candidate }`, where
+ * stage is 'candidate' or the filter that removed it - afterAlreadyHeldOrTried,
+ * afterNodePin, afterGeolocation, afterOwnership, afterClaims.
+ *
+ * Published on CHANGE only, so it says what happened rather than what is still
+ * true. That is what makes eligibility assertable: a node that stood down and is
+ * later allowed to take the app again reports exactly one of these, whether or
+ * not it goes on to win the draw - which is a lottery among every eligible node
+ * and proves nothing about this one.
  */
-export async function waitForNoCandidates(node, predicate, timeout = 60000, opts) {
-  // The client does not subscribe to this event by default - see node-client.js
-  // for why. Add the name to its list before using this.
-  return node.waitForEvent('spawner:noCandidates', (d) => (!predicate || predicate(d)), timeout, opts);
+export async function waitForCandidacy(node, predicate, timeout = 60000, opts) {
+  return node.waitForEvent('spawner:candidacy', (d) => (!predicate || predicate(d)), timeout, opts);
 }
 
 /**

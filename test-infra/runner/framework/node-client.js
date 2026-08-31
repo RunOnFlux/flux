@@ -254,15 +254,15 @@ export function nodeClient(nodeNum) {
         'giveUp:safety',
         'giveUp:standDown',
         'residential:decided',
-        // NOT subscribed: 'spawner:noCandidates'. Zero candidates is the steady
-        // state of any fleet whose apps are all at their instance count, and at
-        // spawnDelayMultiplier 0.002 it fires roughly every 240ms per node. The
-        // eventBuffer below is an unbounded array that waitForEvent
-        // linear-scans on every call, and FluxOS's replay ring is 1024 entries,
-        // so subscribing shrank the Last-Event-ID window a reconnect can replay
-        // from most of a suite to about four minutes - and no suite waits on it.
-        // waitForNoCandidates in wait.js stays, so re-adding the name here is
-        // all a suite that wants it has to do.
+        // spawner:noCandidates USED to be published here and was not subscribed:
+        // it fires on every pass of a fleet whose apps are all at their instance
+        // count, roughly every 240ms per node, and subscribing shrank the
+        // Last-Event-ID replay window from most of a suite to about four minutes.
+        // An event nothing could afford to receive is not a telemetry surface, so
+        // it is a counter now, and this is the fact it was standing in for: the
+        // pass over an app CHANGING - excluded becoming a candidate, or the
+        // reverse. That happens rarely, which is what makes it an event.
+        'spawner:candidacy',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
