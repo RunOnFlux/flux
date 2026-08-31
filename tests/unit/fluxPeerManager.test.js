@@ -665,6 +665,40 @@ describe('FluxPeerManager tests', () => {
     manager.reset();
   });
 
+  // A node that syncs from itself learns nothing it does not already hold, and
+  // this asks for a fixed small number of peers - so drawing self spends one of
+  // very few attempts on a guaranteed non-answer. On a small fleet that is the
+  // difference between the spawner starting and never starting: observed, a
+  // node asked its own address, timed out at zero completions, and never
+  // published SPAWNER_READY.
+  describe('getEligibleSyncPeers', () => {
+    const eligible = (m, ip) => {
+      const ws = createMockWs(ip, '16127');
+      const peer = m.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
+      peer.remoteCapabilities.add('appStateSync');
+      peer.remoteFluxUptime = 99999;
+      return peer;
+    };
+
+    it('never offers this node its own address', () => {
+      eligible(manager, '10.0.0.1');
+      eligible(manager, '10.0.0.2');
+      manager.setOwnSocketAddress('10.0.0.1:16127');
+
+      const keys = manager.getEligibleSyncPeers(0).map((p) => p.key);
+
+      expect(keys, 'a node was offered itself to sync from').to.not.include('10.0.0.1:16127');
+      expect(keys).to.include('10.0.0.2:16127');
+    });
+
+    it('offers every peer when this node does not know its own address yet', () => {
+      eligible(manager, '10.0.0.1');
+      eligible(manager, '10.0.0.2');
+
+      expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(2);
+    });
+  });
+
   describe('add', () => {
     it('should create FluxPeerSocket, insert into map and correct direction set', () => {
       const ws = createMockWs('10.0.0.1', '16127');
