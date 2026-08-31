@@ -583,6 +583,15 @@ async function trySpawningGlobalApplication() {
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length >= minInstances) {
+      // Cleared, because this count is not a durable fact. It includes nodes that
+      // have only CLAIMED to be installing, and a claim is withdrawn as soon as
+      // its node finds the share already filled - seconds later, routinely. Left
+      // set, a node that looked inside that window remembers "enough copies
+      // exist" for the cache's twelve hours and never reconsiders, so an app that
+      // falls back below its instance count waits out the day on every node that
+      // happened to glance at the wrong moment. The claimed-instance path below
+      // already does this; these two counted the same claims and did not.
+      globalState.trySpawningGlobalAppCache.delete(appHash);
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
     }
@@ -833,6 +842,15 @@ async function trySpawningGlobalApplication() {
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length >= minInstances) {
+      // Cleared, because this count is not a durable fact. It includes nodes that
+      // have only CLAIMED to be installing, and a claim is withdrawn as soon as
+      // its node finds the share already filled - seconds later, routinely. Left
+      // set, a node that looked inside that window remembers "enough copies
+      // exist" for the cache's twelve hours and never reconsiders, so an app that
+      // falls back below its instance count waits out the day on every node that
+      // happened to glance at the wrong moment. The claimed-instance path below
+      // already does this; these two counted the same claims and did not.
+      globalState.trySpawningGlobalAppCache.delete(appHash);
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
     }
