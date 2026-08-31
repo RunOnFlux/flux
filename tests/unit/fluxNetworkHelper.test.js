@@ -37,6 +37,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
+const geolocationService = require('../../ZelBack/src/services/geolocationService');
 
 const net = require('node:net');
 
@@ -902,6 +903,13 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       getRandomSocketAddress = sinon.stub(networkStateService, 'getRandomSocketAddress');
+      // An IP change hands off to the geolocation service, which reschedules
+      // itself every ten seconds for as long as no IP is detected - and logs an
+      // error on each pass. Left real, the first of these tests starts a loop
+      // that outlives the whole suite, writing into every later test file that
+      // counts what was logged. That it is called at all is asserted where it
+      // belongs, in the static IP app handling tests below.
+      sinon.stub(geolocationService, 'setNodeGeolocation');
     });
 
     afterEach(() => {
@@ -1033,6 +1041,7 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(() => {
       writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(geolocationService, 'setNodeGeolocation');
       // Backup original userconfig
       originalUserConfig = globalThis.userconfig;
       // Mock userconfig with expected test values

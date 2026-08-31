@@ -3140,6 +3140,8 @@ describe('advancedWorkflows tests', () => {
     // eslint-disable-next-line global-require
     const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
     // eslint-disable-next-line global-require
+    const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
+    // eslint-disable-next-line global-require
     const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 
     const appname = 'palworld1785719281005';
@@ -3205,6 +3207,14 @@ describe('advancedWorkflows tests', () => {
       // pass or fail on whether the machine running them happens to have docker.
       sinon.stub(dockerService, 'dockerListContainers').resolves([]);
       sinon.stub(dockerService, 'appDockerStart').resolves();
+      // Starting a component arms a sixty-second sampling interval against
+      // docker, and nothing here ever stops it. It outlives the test, wakes on a
+      // container that was never created, and writes an error through the real
+      // log into whichever test the suite happens to be running a minute later -
+      // which is a different one on every machine. Stubbed for the same reason
+      // dockerService.appDockerStart above is: this describe is about the
+      // restore, and docker is a boundary.
+      sinon.stub(appInspector, 'startAppMonitoring');
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(localAddr);
       sinon.stub(appController, 'executeAppGlobalCommand').resolves();
       sinon.stub(appReconciler, 'setControllerDesired');
