@@ -470,10 +470,30 @@ function makeEnvShell(networkName) {
         ).catch((e) => warn('immutable-flag sweep', e));
       }));
       step(`immutable-sweep(${clients.filter(Boolean).length} nodes)`);
-      for (const c of [...started].reverse()) {
-        await c.stop().catch((e) => warn('container stop', e));
-      }
-      step(`stops(${started.length} containers)`);
+      // STOPPED CONCURRENTLY, because this is the step the budget is spent on.
+      // The per-step timing above put 3.6-13.9s of a 3.8-14.4s teardown in here
+      // on a quiet box, with every other step in milliseconds: sixteen
+      // containers at ~200-870ms each, one after another. That is work that
+      // scales with the fleet under an `after` hook budget that is a flat 30s in
+      // 123 of 137 suites, which is how seven suites lost a gate to it with
+      // every one of their tests green. The serial loop bought no politeness
+      // either - the docker daemon serialises stops across every concurrent
+      // suite regardless - only latency.
+      //
+      // The one ordering that means anything is kept: every node goes down
+      // before any infra does, so a node is never left running against a
+      // stopped mongo, writing errors into the dump that read as product
+      // faults. Within each group nothing depends on order - they are all about
+      // to be deleted.
+      const infraIds = new Set(infraContainers.map(({ container }) => container.getId()));
+      const nodeStarted = started.filter((c) => !infraIds.has(c.getId()));
+      const infraStarted = started.filter((c) => infraIds.has(c.getId()));
+      const stopAll = (list) => Promise.all(
+        list.map((c) => c.stop().catch((e) => warn('container stop', e))),
+      );
+      await stopAll(nodeStarted);
+      await stopAll(infraStarted);
+      step(`stops(${nodeStarted.length} nodes, ${infraStarted.length} infra)`);
       await closeDb();
       step('db');
       const cleanupClient = await getContainerRuntimeClient();
