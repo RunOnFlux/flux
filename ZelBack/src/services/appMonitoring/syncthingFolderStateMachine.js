@@ -698,12 +698,16 @@ async function checkIfPeersAreSynced(folderId) {
  */
 async function findSyncedPeer(folderId) {
   try {
-    const configResponse = await syncthingService.getConfig({}, null);
-    if (!configResponse || configResponse.status !== 'success') {
-      return null;
-    }
+    // getConfig takes no request and answers with the config itself, not a
+    // {status, data} envelope - the same call its sibling checkIfPeersAreSynced
+    // makes twenty lines up. Called the old way, this returned early on every
+    // invocation and findSyncedPeer answered null without ever asking a device,
+    // which reads as "no peer holds this data" and is the answer that keeps an
+    // app rather than removing it. Six unit tests caught it; nothing in the
+    // stacking rebase did, because both spellings parse.
+    const config = await syncthingService.getConfig();
 
-    const folder = configResponse.data.folders?.find((f) => f.id === folderId);
+    const folder = config?.folders?.find((f) => f.id === folderId);
     if (!folder) {
       return null;
     }
