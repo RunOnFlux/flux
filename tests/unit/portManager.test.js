@@ -792,77 +792,66 @@ describe('portManager tests', () => {
   // What the peer's pass is worth. It reports that something answered at our
   // public address; where several Flux nodes share that address, what answered
   // can be a sibling's application while our own test server sat unreached.
-  describe('portNotReached tests', () => {
-    // The server answers a WAIT, not a question: `reachedByWithin` resolves when
-    // the address arrives, or false when the wait expires.
-    const reachedBy = (...callers) => ({
-      reachedByWithin: async (ip) => callers.includes(ip),
-    });
-    const peer = '203.0.113.9';
+  // The peer hands back what each port replied; the comparison happens HERE,
+  // against a secret the peer was never given. That direction is the design: a
+  // peer cannot tell this node's application from a neighbour's at the same
+  // address, which is why this check exists, so a peer is not in a position to
+  // judge - and one that is old, broken or lying cannot manufacture a token it
+  // never saw.
+  describe('portNotOurs tests', () => {
+    const token = 'a1b2c3d4e5f6';
+    // What a port really answers is an HTTP response, headers and all, capped
+    // by the peer. The token is in there; equality would never match.
+    const served = (t) => `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"status":"success","data":{"token":"${t}"}}`;
 
-    it('proves the ports when the peer reached every server', async () => {
-      const servers = [reachedBy(peer), reachedBy(peer)];
+    it('proves the ports when every one of them answered with our token', () => {
+      const answered = { 31000: served(token), 31001: served(token) };
 
-      expect(await portManager.portNotReached([31000, 31001], servers, peer)).to.equal(null);
-    });
-
-    it('names the port the peer never reached', async () => {
-      const servers = [reachedBy(peer), reachedBy()];
-
-      expect(await portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31001);
-    });
-
-    it('names the first such port when several were missed', async () => {
-      const servers = [reachedBy(), reachedBy()];
-
-      expect(await portManager.portNotReached([31000, 31001], servers, peer)).to.equal(31000);
+      expect(portManager.portNotOurs([31000, 31001], answered, token)).to.equal(null);
     });
 
     // The collision this exists for: something answered the peer, so the peer
-    // passed the port - but it was not us.
-    it('refuses a port reached only by somebody else', async () => {
-      const servers = [reachedBy('198.51.100.4')];
+    // passed the port - but it was not us, and it cannot produce our token.
+    it('names a port answered by something that is not us', () => {
+      const answered = { 31000: served(token), 31001: served('somebody-elses') };
 
-      expect(await portManager.portNotReached([31000], servers, peer)).to.equal(31000);
+      expect(portManager.portNotOurs([31000, 31001], answered, token)).to.equal(31001);
     });
 
-    // The peer skips any port outside the app port range, so a port it never
-    // tried says nothing either way and must not be read as a failure.
-    it('says nothing about a port the peer would not have probed', async () => {
-      const servers = [reachedBy()];
-      const outOfRange = config.fluxapps.portMax + 1;
+    it('names the first such port when several were not ours', () => {
+      const answered = { 31000: served('nope'), 31001: served('also-nope') };
 
-      expect(await portManager.portNotReached([outOfRange], servers, peer)).to.equal(null);
+      expect(portManager.portNotOurs([31000, 31001], answered, token)).to.equal(31000);
     });
 
-    it('proves nothing and refuses nothing when there are no ports', async () => {
-      expect(await portManager.portNotReached([], [], peer)).to.equal(null);
+    // A port the peer could not read at all is not a port we may install on.
+    it('names a port the peer got nothing back from', () => {
+      const answered = { 31000: served(token) };
+
+      expect(portManager.portNotOurs([31000, 31001], answered, token)).to.equal(31001);
     });
 
-    // The defect this shape exists to remove, and the reason it is a wait rather
-    // than a question. A peer resolves its probe on its own `connect` and answers
-    // at once, so the accept it caused can surface here a turn of the event loop
-    // LATER - on a loaded node, later than the reply. Sampled, that refused a real
-    // install and reported a port collision that never happened; a full gate
-    // caught it doing so on every node of a fleet.
-    it('counts a connection that lands after the question was asked', async () => {
-      let land;
-      const late = { reachedByWithin: () => new Promise((resolve) => { land = resolve; }) };
-      const verdict = portManager.portNotReached([31000], [late], peer);
+    // The peer skips any port outside the app range, so it says nothing either
+    // way and must not read as a failure.
+    it('says nothing about a port the peer would not have read', () => {
+      const answered = { 31000: served(token) };
 
-      // nothing has arrived at the moment of asking
-      await new Promise((resolve) => { setImmediate(resolve); });
-      land(true);
-
-      expect(await verdict, 'a connection that arrived late was read as never arriving').to.equal(null);
+      expect(portManager.portNotOurs([31000, 70000], answered, token)).to.equal(null);
     });
 
-    // And the wait expiring is still a refusal - the sibling case, where the
-    // connection never comes at all.
-    it('refuses a port whose connection never arrives', async () => {
-      const never = { reachedByWithin: async () => false };
+    // Absence of a token is absence of a test, not a failed one - it is how the
+    // node behaves before this rolls out, and it must not refuse.
+    it('refuses nothing when this node published no token', () => {
+      expect(portManager.portNotOurs([31000], {}, null)).to.equal(null);
+    });
 
-      expect(await portManager.portNotReached([31000], [never], peer)).to.equal(31000);
+    it('refuses nothing when there are no ports', () => {
+      expect(portManager.portNotOurs([], {}, token)).to.equal(null);
+    });
+
+    // The peer's answer arrives over JSON, so its keys are strings.
+    it('reads the peer\'s answer whether its keys are numbers or strings', () => {
+      expect(portManager.portNotOurs([31000], { '31000': served(token) }, token)).to.equal(null);
     });
   });
 

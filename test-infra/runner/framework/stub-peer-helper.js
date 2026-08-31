@@ -67,11 +67,24 @@ export function stubPeerClient(ip) {
     // asker. The peer is not lying - something did answer - so the asker cannot
     // learn this from the reply, only from whether anything arrived at its own
     // test server.
+    // An OLD peer: it reaches the ports and passes them, but returns no reading,
+    // so the asker learns nothing it can act on and must ask someone else.
     async answerPortProbeBlind(blind = true) {
       const res = await fetch(`${controlUrl}/port-probe-blind`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ blind }),
+      });
+      return res.json();
+    },
+
+    // A peer that reads the port and finds somebody ELSE on it - which is what
+    // the asker receives when the router forwarded that port to a neighbour.
+    async answerPortProbeForeign(foreign = true) {
+      const res = await fetch(`${controlUrl}/port-probe-foreign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ foreign }),
       });
       return res.json();
     },

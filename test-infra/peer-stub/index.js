@@ -60,6 +60,12 @@ let promotedFoldersRefuse = false;
 // only part of it the asker can act on.
 let portProbeAnswersBlind = false;
 
+// Answers the port test with a reading that is NOT the asker's - what the asker
+// receives when the router forwarded that port to a neighbour and a different
+// application replied. The stub cannot reproduce the NAT; it reproduces what
+// comes back through it, which is the only part the asker can act on.
+let portProbeAnswersForeign = false;
+
 // The nodes currently connected to this peer. Held so the stub can SAY things
 // rather than only answer them: a suite that needs a rival claim, a stale
 // broadcast or a message a real node would never send gets a real peer sending
@@ -157,6 +163,33 @@ wss.on('connection', (ws) => {
 // Whether a TCP connection to the asker's port completes. A timeout answers for
 // a port that is filtered rather than refused - to the node asking, both mean
 // the same thing.
+// Reads what a port replies, capped, the way a node on current code does.
+function portRead(ip, port, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: ip, port });
+    let received = '';
+    let settled = false;
+    const done = (answer) => {
+      if (settled) return;
+      settled = true;
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(answer);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => {
+      socket.write(`GET / HTTP/1.1\r\nHost: ${ip}:${port}\r\nConnection: close\r\n\r\n`);
+    });
+    socket.on('data', (chunk) => {
+      received += chunk.toString('utf8');
+      if (received.length >= 256) done(received.slice(0, 256));
+    });
+    socket.once('end', () => done(received || null));
+    socket.once('timeout', () => done(received || null));
+    socket.once('error', () => done(null));
+  });
+}
+
 function portAnswers(ip, port, timeoutMs = 5000) {
   return new Promise((resolve) => {
     const socket = net.connect({ host: ip, port });
@@ -204,6 +237,31 @@ const wsServer = http.createServer(async (req, res) => {
         // Passed without connecting: see portProbeAnswersBlind.
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'success', data: { message: 'Ports are available' } }));
+        return;
+      }
+      // A requester asking for proof gets what each port actually said. One that
+      // is not - an older node - gets the reachability answer it always got, and
+      // no `answered` field, which is how the asker knows this peer cannot prove
+      // anything either way.
+      if (asked.echo && !portProbeAnswersBlind) {
+        const answered = {};
+        for (const port of ports) {
+          // eslint-disable-next-line no-await-in-loop
+          const reply = portProbeAnswersForeign
+            ? 'HTTP/1.1 200 OK\r\n\r\n{"status":"success","data":{"token":"a-neighbours-application"}}'
+            : await portRead(asked.ip, port);
+          if (reply === null) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'error', data: { message: `Failed port: ${port}` } }));
+            return;
+          }
+          answered[port] = reply;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'success',
+          data: { message: 'Ports are available', answered },
+        }));
         return;
       }
       const reachable = await Promise.all(ports.map((port) => portAnswers(asked.ip, port)));
@@ -358,6 +416,14 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/port-probe-foreign') {
+      const body = await readBody(req);
+      portProbeAnswersForeign = JSON.parse(body).foreign !== false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', portProbeAnswersForeign }));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/port-probe-blind') {
       const body = await readBody(req);
       portProbeAnswersBlind = JSON.parse(body).blind !== false;
@@ -394,6 +460,7 @@ const controlServer = http.createServer(async (req, res) => {
       promotedFoldersStatus = 200;
       promotedFoldersRefuse = false;
       portProbeAnswersBlind = false;
+      portProbeAnswersForeign = false;
       broadcastsSent = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));

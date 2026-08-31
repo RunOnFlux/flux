@@ -1,4 +1,5 @@
 const config = require('config');
+const crypto = require('node:crypto');
 const axios = require('axios');
 const dbHelper = require('../dbHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
@@ -534,64 +535,38 @@ async function siblingHoldingPort(appSpecFormatted, localSocketAddress) {
 }
 
 /**
- * How long to wait for a connection the peer has already told us it made.
+ * The first port whose answer was not ours, or null when every one of them was.
  *
- * Not a network timeout, and deliberately not a config key. By the time we read
- * the peer's reply the handshake is done, so we are waiting only for THIS
- * process to be handed an accept that already happened - microseconds idle,
- * tens of milliseconds on a loaded node. Two seconds is around a hundred times
- * that, and small beside the delays either side of it (bind 5s, propagation
- * 10s, peer 30s). Those vary by deployment; how quickly our own event loop
- * drains does not, so this stays here rather than becoming a knob nobody sets.
+ * The peer read each port and handed back what it found; the comparison is
+ * HERE, against a secret the peer was never given. That direction is the whole
+ * design. A peer cannot tell our application from a neighbour's at the same
+ * address - that is why this check exists - so a peer is not in a position to
+ * judge, and one that is old, broken or lying cannot manufacture a token it
+ * never saw.
  *
- * Expiring is the answer in the case this check exists for: where a sibling at
- * the same address holds the port, the connection never arrives at all.
+ * Only ports the peer would have read are required to carry it: it skips any
+ * outside the app port range, and a port it never tried says nothing either
+ * way.
+ *
+ * @param {number[]} portsToTest - the ports asked about
+ * @param {object} answered - port -> what that port replied, from the peer
+ * @param {string} token - the secret this node published on its test servers
+ * @returns {number|null}
  */
-const PEER_OBSERVATION_WAIT_MS = 2000;
+function portNotOurs(portsToTest, answered, token) {
+  if (!token) return null;
 
-/**
- * The first port a peer's pass did not actually prove, or null if it proved them all.
- *
- * A peer reports that something answered at our public address. Where several
- * Flux nodes share that address the router forwards each port to exactly one of
- * them, so what answered can be a sibling's application while our own test
- * server sat unreached - and the peer cannot tell the difference, because from
- * outside there is none.
- *
- * Our test servers can. Each records the addresses that reached it, so the
- * question becomes whether the peer we just asked arrived here. Matching on that
- * peer, rather than on any caller, keeps an unrelated connection during the test
- * window from reading as proof the port is ours.
- *
- * Only ports the peer would have probed are required to show a connection: it
- * skips any outside the app port range, and a port it never tried says nothing
- * either way.
- *
- * The arrival is AWAITED, not sampled. The peer resolves its probe on its own
- * `connect` and answers at once, so the accept it caused surfaces here on a
- * later turn of this process's event loop - read once, a busy node refuses an
- * install for a connection that did arrive, and reports a port collision that
- * does not exist. Observed doing exactly that under a full gate.
- *
- * @param {number[]} portsToTest - the ports, in the order their servers were made
- * @param {Array<{reachedByWithin: Function}>} servers - one test server per port
- * @param {string} askingIP - the peer we sent
- * @returns {Promise<number|null>}
- */
-async function portNotReached(portsToTest, servers, askingIP) {
-  const verdicts = await Promise.all(servers.map((server, index) => {
-    const port = portsToTest[index];
+  const at = portsToTest.findIndex((port) => {
     const probed = port >= config.fluxapps.portMin && port <= config.fluxapps.portMax;
+    if (!probed) return false;
 
-    // Awaited together: a port the peer never reached costs the whole wait, and
-    // taking them one after another would multiply that by the port count on an
-    // install that is going to be refused either way.
-    return probed
-      ? server.reachedByWithin(askingIP, PEER_OBSERVATION_WAIT_MS)
-      : Promise.resolve(true);
-  }));
+    const reply = answered?.[port] ?? answered?.[String(port)];
 
-  const at = verdicts.indexOf(false);
+    // Substring rather than equality: the peer hands back the raw bytes the
+    // port produced, headers and all, capped. What matters is that our token is
+    // in there and could only have come from us.
+    return typeof reply !== 'string' || !reply.includes(token);
+  });
 
   return at === -1 ? null : portsToTest[at];
 }
@@ -654,6 +629,9 @@ async function signCheckAppData(message) {
  */
 async function checkInstallingAppPortAvailable(portsToTest = []) {
   const beforeAppInstallTestingServers = [];
+  // One secret for this whole test run, published by our own test servers and
+  // never sent to the peer. The peer returns what it read; we compare.
+  const portTestToken = crypto.randomBytes(16).toString('hex');
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
   const portsNotWorking = new Set();
@@ -706,7 +684,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
           throw new Error('Failed to create map UPNP port');
         }
       }
-      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
+      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer(portTestToken);
 
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(config.fluxapps.portTestBindDelayMs);
@@ -747,6 +725,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       appname: 'appPortsTest',
       ports: portsToTest,
       pubKey,
+      // Asks the peer to READ each port and hand back what it found. The token
+      // it should find is deliberately not here: a peer that never learns it
+      // cannot produce it without actually reaching us.
+      echo: true,
     };
     const stringData = JSON.stringify(data);
     // eslint-disable-next-line no-await-in-loop
@@ -791,27 +773,46 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         portsStatus = false;
         finished = true;
       } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-        // eslint-disable-next-line no-await-in-loop
-        const unreachedPort = await portNotReached(portsToTest, beforeAppInstallTestingServers, askingIP);
+        const { answered } = resMyAppAvailability.data.data || {};
 
-        if (unreachedPort === null) {
-          portsStatus = true;
-        } else {
-          // What DID reach us, named. "Not the peer we asked" has two very
-          // different causes - nobody connected, or somebody else did - and a
-          // refusal that cannot tell them apart is unsupportable in the field.
-          const seen = beforeAppInstallTestingServers
-            .flatMap((server) => (server.callersSeen ? server.callersSeen() : []));
-          log.warn(`checkInstallingAppPortAvailable - port ${unreachedPort} answered ${askingIP} from somewhere other than this node; reached by [${[...new Set(seen)].join(', ') || 'nobody'}]`);
-          portsNotWorking.add(unreachedPort);
-          if (!originalPortFailed) {
-            originalPortFailed = unreachedPort;
-            // eslint-disable-next-line no-unused-vars
-            nextTestingPort = unreachedPort < 65535 ? unreachedPort + 1 : unreachedPort - 1;
+        // Three outcomes, and the difference between the last two is the whole
+        // design. NOBODY COULD PROVE IT is not the same as SOMEBODY DISPROVED IT.
+        if (!answered) {
+          // This peer is on older code: it reached the ports but did not read
+          // them, so it has told us nothing we can act on. Ask someone else -
+          // and if nobody can, fall through to the reachability answer below,
+          // which is exactly the check this node made before. That fallback is
+          // what stops the first nodes to upgrade refusing every install while
+          // the rest of the network catches up, and it stops happening on its
+          // own as it does.
+          log.info(`checkInstallingAppPortAvailable - ${askingIP} cannot read ports back, asking another peer`);
+          if (i < config.fluxapps.portTestMaxAttempts) {
+            // eslint-disable-next-line no-continue
+            continue;
           }
-          portsStatus = false;
+          log.warn('checkInstallingAppPortAvailable - no peer could read the ports back; proceeding on reachability alone');
+          portsStatus = true;
+          finished = true;
+        } else {
+          const notOurs = portNotOurs(portsToTest, answered, portTestToken);
+
+          if (notOurs === null) {
+            portsStatus = true;
+          } else {
+            // Something answered that port and it was not us. Behind a shared
+            // address that is a neighbour's application holding the router's
+            // forward, which is exactly what this refuses.
+            log.warn(`checkInstallingAppPortAvailable - port ${notOurs} is answered by something other than this node at this address, as read by ${askingIP}. Installation aborted.`);
+            portsNotWorking.add(notOurs);
+            if (!originalPortFailed) {
+              originalPortFailed = notOurs;
+              // eslint-disable-next-line no-unused-vars
+              nextTestingPort = notOurs < 65535 ? notOurs + 1 : notOurs - 1;
+            }
+            portsStatus = false;
+          }
+          finished = true;
         }
-        finished = true;
       }
     }
     // stop listening on the port, close the port
@@ -985,7 +986,7 @@ module.exports = {
   portsInUse,
   portsInUseApi,
   specifiedPorts,
-  portNotReached,
+  portNotOurs,
   siblingHoldingPort,
   isPortAvailable,
   findNextAvailablePort,
