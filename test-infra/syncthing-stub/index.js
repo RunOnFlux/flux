@@ -124,6 +124,14 @@ const eventsOutages = new Set();
 // does not withhold the first.
 const deviceConfigOutages = new Set();
 
+// How many device reads this stub has actually REFUSED, by caller. A suite that
+// takes the read down needs to know the node reached it and was turned away -
+// an outage that silently failed to apply reads exactly like the behaviour under
+// test working. Counted here rather than read from the node's log, because a
+// suite that restarts a node loses its container log stream and would be
+// asserting on something it can no longer see.
+const deviceConfigRefusals = new Map();
+
 function deviceConfigDown(ip) {
   return deviceConfigOutages.has(ip) || deviceConfigOutages.has('*');
 }
@@ -379,6 +387,8 @@ app.delete('/rest/config/folders/:id', (req, res) => {
 
 app.get('/rest/config/devices', (req, res) => {
   if (deviceConfigDown(clientIp(req))) {
+    const ip = clientIp(req);
+    deviceConfigRefusals.set(ip, (deviceConfigRefusals.get(ip) ?? 0) + 1);
     return res.status(500).json({ error: 'simulated unreadable device configuration' });
   }
   return res.json(Array.from(reqState(req).devices.values()));
@@ -826,12 +836,18 @@ control.post('/device-config-outage', (req, res) => {
   return res.json({ ok: true });
 });
 
+control.get('/device-config-refusals', (req, res) => {
+  const { ip } = req.query;
+  return res.json({ refusals: ip ? (deviceConfigRefusals.get(ip) ?? 0) : Object.fromEntries(deviceConfigRefusals) });
+});
+
 // Back to default always-synced/empty behaviour.
 control.post('/sync-reset', (req, res) => {
   console.log(`[write] sync-reset from=${clientIp(req)}`);
   syncOverrides.clear();
   completionOverrides.clear();
   deviceConfigOutages.clear();
+  deviceConfigRefusals.clear();
   nudgeLogs.clear();
   eventsBuffers.clear();
   eventsOutages.clear();

@@ -2,7 +2,9 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { setDeviceConfigOutage, resetSyncState, setSynced } from '../framework/syncthing-control.js';
+import {
+  setDeviceConfigOutage, resetSyncState, setSynced, getDeviceConfigRefusals,
+} from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
@@ -34,13 +36,6 @@ describe('a node that read its folders publishes them even when the device read 
     const answer = await env.clients[index].get('/apps/promotedfolders');
     return answer?.data ?? { ready: false, folders: [] };
   };
-
-  const linesFor = (index) => env.nodeDiagnostics().find((n) => n.index === index)?.lines ?? [];
-
-  const sawLine = (index, pattern, timeout = 180000) => waitFor(
-    () => linesFor(index).some((line) => pattern.test(line)),
-    { timeout, label: `node ${index} logs ${pattern}` },
-  );
 
   before(async function () {
     this.timeout(420000);
@@ -102,17 +97,17 @@ describe('a node that read its folders publishes them even when the device read 
     // Asserted, not assumed: an outage that silently failed to apply reads exactly
     // like the fix working.
     //
-    // Matched on the device read having failed rather than on one wording of it.
-    // A pass that cannot finish never reaches the line clearing
-    // syncthingAppsFirstRun, so on a build without the fix every pass takes the
-    // first-run WARN and the error form is never logged at all - and the two
-    // builds word it differently besides. A pattern that pins one of them fails
-    // the other for its phrasing rather than for its behaviour, which is the
-    // assertion looking right while proving nothing.
-    await sawLine(
-      0,
-      /Syncthing (device )?configuration not ready yet on first run|Failed to get Syncthing (devices )?configuration:/,
-    );
+    // Read from the stub rather than from the node's log for two reasons. The
+    // restart above ends that container's log stream, so nothing written after it
+    // is visible to this suite at all. And the two builds word the failure
+    // differently - a pass that cannot finish never reaches the line clearing
+    // syncthingAppsFirstRun, so without the fix every pass takes the first-run
+    // warning and the error form is never logged - so a pattern pinning either
+    // one fails the other for its phrasing rather than its behaviour.
+    await waitFor(async () => (await getDeviceConfigRefusals(subnet.nodeIp(1))) > 0, {
+      timeout: 180000,
+      label: 'the stub turned away a device read from node 0',
+    });
 
     await waitFor(async () => (await promoted(0)).ready === true, {
       timeout: 180000,
