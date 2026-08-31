@@ -417,44 +417,11 @@ export async function waitForInstanceCount(env, appName, target, {
 // then writes sync-scoped disk data, so a folder any test later pins synced already
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
-/**
- * DELETE THIS when flux#1784's allocateAppPort() lands in seed-helper.js.
- *
- * That is the same mechanism one layer down, where the builders live, and it is
- * the one to keep: it covers every builder rather than this one caller. It does
- * not exist on this branch yet - buildSeedableSyncthingApp still defaults to a
- * hardcoded 31111 here - so removing this before that merges reopens the fault.
- * On the merged tree, drop nextSeededPort and portForSeededApp and pass ports
- * only when the caller named one; the builder's own default then allocates.
- *
- * A port of this app's own, handed out in order.
- *
- * Counted rather than derived from the name: a hash would collide once in a
- * while and put two apps back on one port, which is the fault this exists to
- * remove - and a fault that appears occasionally is worse than one that appears
- * always. Each suite is its own process, so the count is per suite. Starts
- * clear of 31111, which suites building their own specs still use.
- */
-let nextSeededPort = 31200;
-function portForSeededApp() {
-  nextSeededPort += 1;
-  return nextSeededPort;
-}
-
 export async function seedSyncthingApp(env, {
-  name, mode = 'r', forceNonLeader = false, index = 0, port = null,
+  name, mode = 'r', forceNonLeader = false, index = 0,
 }) {
   await pushImage(name, 'v1');
-  // A port of this app's own, unless the caller names one.
-  //
-  // Every seeded syncthing app took the same default port, and forceNonLeader
-  // puts one app on a node as its subject and the next one on that same node as
-  // its peer - so two of them met on one node holding one port, and the install
-  // was refused with "already used with different application". It only showed
-  // when the first install finished registering before the second started, so
-  // the suite passed or failed on the gap between them.
-  const ports = [port ?? portForSeededApp()];
-  const app = await buildSeedableSyncthingApp({ name, mode, ports });
+  const app = await buildSeedableSyncthingApp({ name, mode });
   const folder = `flux${name}_${name}`;
   const identifier = `${name}_${name}`;
 
