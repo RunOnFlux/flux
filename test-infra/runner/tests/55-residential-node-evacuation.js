@@ -66,7 +66,7 @@ const RESIDENTIAL_PACING = (() => {
 // four minutes driveUntil defaults to, which was written when the interval was
 // four seconds. Two cycles' worth: several of these waits contain a departure
 // AND the pass on which another holder reacts to it.
-const ONE_DEPARTURE_MS = departureCycleMs(
+const DEPARTURE_WAIT_MS = 2 * departureCycleMs(
   {
     ...RESIDENTIAL_PACING,
     removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
@@ -75,7 +75,6 @@ const ONE_DEPARTURE_MS = departureCycleMs(
   },
   5,
 );
-const DEPARTURE_WAIT_MS = 2 * ONE_DEPARTURE_MS;
 
 const RESIDENTIAL_GEO = {
   hosting: false,
@@ -196,161 +195,175 @@ async function runningComponents(env, nodeIndex) {
   return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
 }
 
+// Node 1 is the node under test: on a residential connection from the moment
+// it boots, but ATTESTED, so nothing enforces against it and it takes its
+// share of the work. Attestation is then withdrawn, which is the whole point
+// of the staging - a node that already holds customer data and stops being
+// fit to serve.
+//
+// It has to be done in that order. The placement hold lands within seconds of
+// boot, so a node that is residential AND unattested from the start never
+// takes an app at all: it is empty, and an empty target goes straight to DOS
+// because there is no data at stake. Nothing would ever be evacuated.
+// Attestation is also the only input re-read on every tick - geolocation is
+// looked up once and then not again for three days - so it is the only lever
+// that can flip a running node.
+//
+// Every other node is attested and in a data centre.
+const TARGET = 1;
+// .12 - same published organisation as the target, but with nothing of its own
+// to go on, so the table is the only thing that can decide it.
+const TABLE_DECIDED = 3;
+// .14 - same published organisation again, but its own address carries hosting
+// evidence, so it declines the verdict.
+const VETOING = 5;
+// A second residential node, so the serialisation claim has two holders to
+// serialise. Published residential like node 1, and attested until a test
+// withdraws it.
+const SECOND_TARGET = 3;
+
+/**
+ * The fleet every test here runs on: node 1 residential and attested, the rest
+ * in a data centre, and a published table that decides all of them.
+ *
+ * A FUNCTION rather than one before() hook, because the suite is split across
+ * two fleets. The stand-down tests need a node that holds ONE app; the tests
+ * above them leave a node holding seven, and evacuation sheds one per
+ * departure interval - see the second describe.
+ */
+async function bootResidentialFleet(hookCtx) {
+  const env = await createTestEnv({
+  hookCtx,
+    nodes: 5,
+    tickerAutostart: false,
+    // Seeded through createTestEnv, not POSTed afterwards: a node looks its
+    // address up once during boot, so an override applied after the fleet is
+    // up is never read and the node classifies itself from the stub default.
+    geolocation: { [TARGET]: RESIDENTIAL_GEO, [TABLE_DECIDED]: NEUTRAL_GEO, [VETOING]: HOSTING_GEO },
+    // Two organisations across the fleet's /24, assigned round-robin by last
+    // octet, and the one holding .10/.12/.14 is published residential. This is
+    // the authority the fleet runs on in production - 2,303 of 2,513 hosts are
+    // decided by the table rather than by their own reading - so a suite that
+    // only ever exercised the fallback would be testing the path that decides
+    // almost nothing.
+    locationTable: {
+      domains: 2,
+      subnet: subnet.base,
+      classes: { 0: 'residential', 1: 'hosting' },
+    },
+    configOverrides: {
+      fluxapps: {
+        // Compressed the same way every other suite compresses the interval it
+        // is exercising. The production values are hours; the behaviour under
+        // test is the ordering, not the wall-clock.
+        // A HARNESS WORKAROUND, and deliberately not a fix.
+        //
+        // The node learns the chain height from a cache refreshed on this
+        // interval, and processBlock then chains through every block that
+        // arrived since. Only the LAST of such a burst is still the tip, so
+        // only that one satisfies explorerService's `confirmations < 2` gate
+        // and runs the app maintenance hung off it - including the give-up
+        // pass this suite exercises.
+        //
+        // The harness default is 5000 against a 5000ms block, which is 1:1 -
+        // and so is production, 30s blocks against a 30s poll, post-PON. The
+        // race is real on a live node: blocks periodically arrive two to a
+        // window and the earlier one skips maintenance silently. What the
+        // harness adds is PERMANENCE - a steady two-block burst pins the
+        // surviving block to one parity, and `height % 4 === 0` then never
+        // lands for an entire run, so evacuation could never be observed.
+        //
+        // It is not fixed on this lineage because it cannot be fixed cheaply:
+        // the only chain height a node holds is that same cached value, so
+        // comparing against it is the identical race with an extra step, and
+        // knowing the true tip needs a fresh RPC per block on every node. v9
+        // solves it properly - fluxd's `hashblockheight` is pushed to
+        // chainTipSource, which drives both the cached tip and the explorer
+        // scan, leaving the 30s poll as a fallback only.
+        //
+        // So: shorten the poll here so the suite can see the path at all.
+        daemonInfoIntervalMs: 1000,
+        residentialCheckIntervalMs: 3000,
+        // The give-up pass runs every removeFluxAppsPeriod * 4 blocks, and a
+        // block costs one explorerPollIntervalMs. There is a three-way
+        // relationship here and all three have to hold, or the serialisation
+        // this suite checks cannot happen:
+        //
+        //   propagation  <  pass interval  <  queue step
+        //
+        // A departure has to be VISIBLE to the other holder by its next pass
+        // (propagation < pass), and the two holders' turns have to fall on
+        // different passes (pass < step). Measured: with the pass at 4 blocks
+        // (~1s) the other node evaluated twice more before the
+        // network:appremoved reached it - propagation lost the race, both
+        // holders saw the app at full strength, and both left.
+        //
+        // Set from PASS_PERIOD_BLOCKS at the top of this file, which explains
+        // what it costs and what bounds it from below. What it costs in wall
+        // time is set by explorerPollIntervalMs, not by this number.
+        removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
+        // Left LONG on purpose, and opened by the test when it is ready. A
+        // short window would let evacuation start while the hold is still
+        // being asserted, and the ordering - hold first, deletes nothing, and
+        // only later gives an app up - is the property under test.
+        residentialSettleMs: 600000,
+        residentialQueueBaseMs: 1000,
+        // Position in the instance order sets a wait of base + position*step,
+        // and the step is what stops two holders of the same app leaving
+        // together: the second's turn has to arrive AFTER the first's
+        // departure is visible to it.
+        //
+        // DERIVED, never written as a literal. The step has to outlast a pass
+        // and the pass is a function of explorerPollIntervalMs - a block costs
+        // one poll - so a literal here silently stops tracking the pass the
+        // moment that knob moves. It did: 15000 was chosen against a pass this
+        // comment called "about 4s", the poll went 250ms -> 833ms, the pass
+        // went with it to ~16s, and the step ended up SHORTER than the pass.
+        // Both holders then matured on the same pass and both handed the same
+        // app back - the mechanism intact, the property compressed out of
+        // existence, which is the defect production's own 15-minute step had.
+        //
+        // coupled-knobs.js carries the derivation and test-env asserts the
+        // resulting ratio against production's on every fleet boot.
+        residentialQueueStepMs: RESIDENTIAL_PACING.residentialQueueStepMs,
+        // DERIVED too, and for a reason the 4000ms literal here could not
+        // survive. A node inside its departure interval records nothing
+        // against its queue tickets, so the block is what restarts them - and
+        // that only works if the block outlasts the gap a ticket tolerates,
+        // which IS the step. At 4000ms against a ~29s step the block stopped
+        // reading as a gap: every ticket carried across it, every app was
+        // instantly ready the moment the interval cleared, and two holders
+        // whose blocks expired in the same pass handed back the same app
+        // together. Production holds 6h against 40min and never meets it.
+        //
+        // It costs the suite real time - one departure per interval, and the
+        // interval is now tens of seconds rather than four. That is the price
+        // of the suite being able to see the property at all.
+        residentialEvacuationIntervalMs: RESIDENTIAL_PACING.residentialEvacuationIntervalMs,
+      },
+    },
+  });
+  await bootToReady(env);
+  // The verdict this suite rests on needs the PUBLISHED table, not only the
+  // node's own evidence: getNetworkClassification returns null while
+  // publishedClassification reports consulted:false, and the two arrive at
+  // different times. The veto test waited for networkEvidence alone and then
+  // asked for a classification, so on the bc5d86154 gate node 5 spent all 24 of
+  // its ticks logging "no network verdict to act on yet" and the test timed out
+  // against classification:null, source:null - a decision that could not be
+  // reached rather than one that went the wrong way. Waited for on every node,
+  // because the table is the authority the whole suite runs on.
+  await Promise.all(env.clients.map((c) => waitForLocationTable(c, { domains: 2 })));
+  return env;
+}
+
 describe('Residential node evacuation', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
-  // Node 1 is the node under test: on a residential connection from the moment
-  // it boots, but ATTESTED, so nothing enforces against it and it takes its
-  // share of the work. Attestation is then withdrawn, which is the whole point
-  // of the staging - a node that already holds customer data and stops being
-  // fit to serve.
-  //
-  // It has to be done in that order. The placement hold lands within seconds of
-  // boot, so a node that is residential AND unattested from the start never
-  // takes an app at all: it is empty, and an empty target goes straight to DOS
-  // because there is no data at stake. Nothing would ever be evacuated.
-  // Attestation is also the only input re-read on every tick - geolocation is
-  // looked up once and then not again for three days - so it is the only lever
-  // that can flip a running node.
-  //
-  // Every other node is attested and in a data centre.
-  const TARGET = 1;
-  // .12 - same published organisation as the target, but with nothing of its own
-  // to go on, so the table is the only thing that can decide it.
-  const TABLE_DECIDED = 3;
-  // .14 - same published organisation again, but its own address carries hosting
-  // evidence, so it declines the verdict.
-  const VETOING = 5;
-  // A second residential node, so the serialisation claim has two holders to
-  // serialise. Published residential like node 1, and attested until a test
-  // withdraws it.
-  const SECOND_TARGET = 3;
-
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({
-      hookCtx: this,
-      nodes: 5,
-      tickerAutostart: false,
-      // Seeded through createTestEnv, not POSTed afterwards: a node looks its
-      // address up once during boot, so an override applied after the fleet is
-      // up is never read and the node classifies itself from the stub default.
-      geolocation: { [TARGET]: RESIDENTIAL_GEO, [TABLE_DECIDED]: NEUTRAL_GEO, [VETOING]: HOSTING_GEO },
-      // Two organisations across the fleet's /24, assigned round-robin by last
-      // octet, and the one holding .10/.12/.14 is published residential. This is
-      // the authority the fleet runs on in production - 2,303 of 2,513 hosts are
-      // decided by the table rather than by their own reading - so a suite that
-      // only ever exercised the fallback would be testing the path that decides
-      // almost nothing.
-      locationTable: {
-        domains: 2,
-        subnet: subnet.base,
-        classes: { 0: 'residential', 1: 'hosting' },
-      },
-      configOverrides: {
-        fluxapps: {
-          // Compressed the same way every other suite compresses the interval it
-          // is exercising. The production values are hours; the behaviour under
-          // test is the ordering, not the wall-clock.
-          // A HARNESS WORKAROUND, and deliberately not a fix.
-          //
-          // The node learns the chain height from a cache refreshed on this
-          // interval, and processBlock then chains through every block that
-          // arrived since. Only the LAST of such a burst is still the tip, so
-          // only that one satisfies explorerService's `confirmations < 2` gate
-          // and runs the app maintenance hung off it - including the give-up
-          // pass this suite exercises.
-          //
-          // The harness default is 5000 against a 5000ms block, which is 1:1 -
-          // and so is production, 30s blocks against a 30s poll, post-PON. The
-          // race is real on a live node: blocks periodically arrive two to a
-          // window and the earlier one skips maintenance silently. What the
-          // harness adds is PERMANENCE - a steady two-block burst pins the
-          // surviving block to one parity, and `height % 4 === 0` then never
-          // lands for an entire run, so evacuation could never be observed.
-          //
-          // It is not fixed on this lineage because it cannot be fixed cheaply:
-          // the only chain height a node holds is that same cached value, so
-          // comparing against it is the identical race with an extra step, and
-          // knowing the true tip needs a fresh RPC per block on every node. v9
-          // solves it properly - fluxd's `hashblockheight` is pushed to
-          // chainTipSource, which drives both the cached tip and the explorer
-          // scan, leaving the 30s poll as a fallback only.
-          //
-          // So: shorten the poll here so the suite can see the path at all.
-          daemonInfoIntervalMs: 1000,
-          residentialCheckIntervalMs: 3000,
-          // The give-up pass runs every removeFluxAppsPeriod * 4 blocks, and a
-          // block costs one explorerPollIntervalMs. There is a three-way
-          // relationship here and all three have to hold, or the serialisation
-          // this suite checks cannot happen:
-          //
-          //   propagation  <  pass interval  <  queue step
-          //
-          // A departure has to be VISIBLE to the other holder by its next pass
-          // (propagation < pass), and the two holders' turns have to fall on
-          // different passes (pass < step). Measured: with the pass at 4 blocks
-          // (~1s) the other node evaluated twice more before the
-          // network:appremoved reached it - propagation lost the race, both
-          // holders saw the app at full strength, and both left.
-          //
-          // Set from PASS_PERIOD_BLOCKS at the top of this file, which explains
-          // what it costs and what bounds it from below. What it costs in wall
-          // time is set by explorerPollIntervalMs, not by this number.
-          removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
-          // Left LONG on purpose, and opened by the test when it is ready. A
-          // short window would let evacuation start while the hold is still
-          // being asserted, and the ordering - hold first, deletes nothing, and
-          // only later gives an app up - is the property under test.
-          residentialSettleMs: 600000,
-          residentialQueueBaseMs: 1000,
-          // Position in the instance order sets a wait of base + position*step,
-          // and the step is what stops two holders of the same app leaving
-          // together: the second's turn has to arrive AFTER the first's
-          // departure is visible to it.
-          //
-          // DERIVED, never written as a literal. The step has to outlast a pass
-          // and the pass is a function of explorerPollIntervalMs - a block costs
-          // one poll - so a literal here silently stops tracking the pass the
-          // moment that knob moves. It did: 15000 was chosen against a pass this
-          // comment called "about 4s", the poll went 250ms -> 833ms, the pass
-          // went with it to ~16s, and the step ended up SHORTER than the pass.
-          // Both holders then matured on the same pass and both handed the same
-          // app back - the mechanism intact, the property compressed out of
-          // existence, which is the defect production's own 15-minute step had.
-          //
-          // coupled-knobs.js carries the derivation and test-env asserts the
-          // resulting ratio against production's on every fleet boot.
-          residentialQueueStepMs: RESIDENTIAL_PACING.residentialQueueStepMs,
-          // DERIVED too, and for a reason the 4000ms literal here could not
-          // survive. A node inside its departure interval records nothing
-          // against its queue tickets, so the block is what restarts them - and
-          // that only works if the block outlasts the gap a ticket tolerates,
-          // which IS the step. At 4000ms against a ~29s step the block stopped
-          // reading as a gap: every ticket carried across it, every app was
-          // instantly ready the moment the interval cleared, and two holders
-          // whose blocks expired in the same pass handed back the same app
-          // together. Production holds 6h against 40min and never meets it.
-          //
-          // It costs the suite real time - one departure per interval, and the
-          // interval is now tens of seconds rather than four. That is the price
-          // of the suite being able to see the property at all.
-          residentialEvacuationIntervalMs: RESIDENTIAL_PACING.residentialEvacuationIntervalMs,
-        },
-      },
-    });
-    await bootToReady(env);
-    // The verdict this suite rests on needs the PUBLISHED table, not only the
-    // node's own evidence: getNetworkClassification returns null while
-    // publishedClassification reports consulted:false, and the two arrive at
-    // different times. The veto test waited for networkEvidence alone and then
-    // asked for a classification, so on the bc5d86154 gate node 5 spent all 24 of
-    // its ticks logging "no network verdict to act on yet" and the test timed out
-    // against classification:null, source:null - a decision that could not be
-    // reached rather than one that went the wrong way. Waited for on every node,
-    // because the table is the authority the whole suite runs on.
-    await Promise.all(env.clients.map((c) => waitForLocationTable(c, { domains: 2 })));
+    env = await bootResidentialFleet(this);
   });
 
   after(async function () {
@@ -907,6 +920,43 @@ describe('Residential node evacuation', function () {
       (e) => e.event === 'app:removed' && e.data?.name === remaining && e.id < verdict.id,
     ), `${remaining} left during the departure interval instead of serving a turn`).to.equal(false);
   });
+});
+
+// A FLEET OF ITS OWN, and the reason is arithmetic.
+//
+// Every app this suite seeds asks for five instances on a five-node fleet, so
+// each one lands on every node, and nothing removes them between tests. By the
+// end of the describe above, node 1 holds seven apps. Evacuation gives up ONE
+// app per departure interval, and a node inside that interval records nothing
+// against any other app's queue ticket - so every departure restarts the turn
+// of everything still held.
+//
+// The stand-down tests would therefore be queued behind six unrelated apps, at
+// roughly a hundred seconds each. On the 2026-08-31 gate that suite shed six
+// inside the budget and ran out one departure short of the seventh: primaryapp
+// drew ten DEPARTURE_INTERVAL and ten AWAITING_TURN verdicts and never reached
+// the stand-down check at all - no answer rather than a wrong one, and tests 17
+// and 18 never ran.
+//
+// Budgeting for that queue was the wrong fix: it makes one test wait thirteen
+// minutes and leaves the next person to add a test to discover the same thing.
+// These tests need one node that is the elected primary of one app and is
+// draining. A second fleet costs one boot and gives them exactly that.
+describe('Residential node evacuation: standing down as the elected primary', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await bootResidentialFleet(this);
+  });
+
+  after(async function () {
+    this.timeout(120000);
+    await clearSystemSecure().catch(() => {});
+    await stopTicker().catch(() => {});
+    if (env) await env.teardown();
+  });
 
   it('stands down as the elected primary rather than handing the app back from under itself', async function () {
     this.timeout(900000);
@@ -941,28 +991,14 @@ describe('Residential node evacuation', function () {
       .then((v) => { standDownVerdict = v; return v; });
     stoodDown.catch(() => {});
 
-    // THE BUDGET IS A DEPARTURE PER APP THIS NODE STILL HOLDS, not two.
-    //
-    // Evacuation gives up ONE app per departure interval, and a node inside that
-    // interval records nothing against any other app's queue ticket - so every
-    // departure restarts the turn of everything still held. By this test the
-    // node has collected an app from most of the fifteen tests ahead of it, and
-    // primaryapp is behind all of them.
-    //
-    // Two cycles was right when this test was written and stopped being right as
-    // tests were added in front of it, silently: on the 2026-08-31 gate the node
-    // held seven apps, shed six inside the window, and ran out one departure
-    // short. primaryapp drew 10 DEPARTURE_INTERVAL and 10 AWAITING_TURN verdicts
-    // and no STAND_DOWN_REQUIRED - not a wrong answer, no answer, which is
-    // indistinguishable in the failure message from the stand-down never firing.
-    //
-    // Read from the node rather than counted by hand here, so adding a test
-    // ahead of this one cannot quietly shorten its budget again. One cycle of
-    // headroom so the last verdict has a pass to land in.
-    const heldBefore = await dbClient(TARGET).localAppCount();
+    // Two cycles is enough here BECAUSE this fleet is fresh: the node holds
+    // primaryapp and nothing else, so the stand-down is the first thing its
+    // evacuation reaches rather than the seventh. On the shared fleet above it
+    // would need a departure per app held, which is what the split exists to
+    // avoid rather than to budget for.
     await stopTicker();
     await driveUntil(env.clients[TARGET - 1], async () => standDownVerdict !== null,
-      { timeoutMs: (heldBefore + 1) * ONE_DEPARTURE_MS });
+      { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
 
     const verdict = await stoodDown;
