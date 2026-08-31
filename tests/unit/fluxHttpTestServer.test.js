@@ -4,111 +4,67 @@ const { FluxHttpTestServer } = require('../../ZelBack/src/services/utils/fluxHtt
 
 // The pre-install port test asks a peer whether a port answers at this node's
 // public address. Where several Flux nodes share that address the router
-// forwards the port to one of them, so "something answered" can be a sibling's
-// application - and the peer cannot tell, because from outside there is nothing
-// to tell. This server can: it is the thing that would have been reached.
+// forwards the port to one of them, so "something answered" can be a
+// neighbour's application - and the peer cannot tell, because from outside
+// there is nothing to tell.
+//
+// This server makes it tellable. It answers with a secret the requester never
+// hands out, so only the thing the requester started can produce it.
 describe('FluxHttpTestServer', () => {
   let server;
   let port;
 
-  beforeEach(async () => {
-    server = new FluxHttpTestServer();
-    await new Promise((resolve) => {
-      server.listen(0, '127.0.0.1', resolve);
-    });
+  const start = async (token) => {
+    server = new FluxHttpTestServer(token);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     ({ port } = server.address());
-  });
+  };
 
   afterEach(async () => {
-    await new Promise((resolve) => server.close(resolve));
+    if (server) await new Promise((resolve) => server.close(resolve));
+    server = null;
   });
 
-  // Resolve on the SERVER's connection event, not the client's. The client is
-  // connected as soon as its handshake completes, which is before the server has
-  // necessarily emitted anything - waiting on the client makes every assertion
-  // below a race, and one of these lost it while its neighbour won.
-  const connect = () => new Promise((resolve, reject) => {
-    server.once('connection', () => resolve());
-
-    const socket = net.connect(port, '127.0.0.1');
-    socket.once('connect', () => socket.end());
-    socket.once('error', reject);
-  });
-
-  it('has been reached by nobody before anything connects', () => {
-    expect(server.reachedBy('127.0.0.1')).to.equal(false);
-  });
-
-  it('records the address that reached it', async () => {
-    await connect();
-
-    expect(server.reachedBy('127.0.0.1')).to.equal(true);
-  });
-
-  // The verdict is about the peer we sent, so an unrelated caller arriving
-  // during the test window must not read as proof the port is ours.
-  it('does not answer for an address that never connected', async () => {
-    await connect();
-
-    expect(server.reachedBy('203.0.113.7')).to.equal(false);
-  });
-
-  // A connection over a dual-stack listener arrives as ::ffff:127.0.0.1, which
-  // is the same address written the other way. Reading them as different hosts
-  // would fail every install on a node listening that way.
-  it('reads an IPv4-mapped caller as the address it is', async () => {
-    await connect();
-
-    expect(server.reachedBy('::ffff:127.0.0.1')).to.equal(true);
-  });
-
-  it('remembers a caller after its connection has closed', async () => {
-    await connect();
-    await new Promise((resolve) => { setTimeout(resolve, 50); });
-
-    // The port test reads this after the peer has been and gone, so the record
-    // has to outlive the socket that made it.
-    expect(server.reachedBy('127.0.0.1')).to.equal(true);
-  });
-
-  it('answers false for an address it cannot read', () => {
-    expect(server.reachedBy(undefined)).to.equal(false);
-    expect(server.reachedBy('')).to.equal(false);
-  });
-
-  // `reachedBy` is a snapshot, and the thing it asks about is still in flight:
-  // a peer resolves its probe on its own `connect` and answers immediately,
-  // while the accept it caused surfaces here on a later turn of this process's
-  // event loop. Read once, a loaded node refuses an install for a connection
-  // that did arrive. So the arrival is awaited.
-  describe('reachedByWithin', () => {
-    it('answers at once for a connection that already arrived', async () => {
-      await connect();
-
-      expect(await server.reachedByWithin('127.0.0.1', 5000)).to.equal(true);
+  // Read the way a peer reads it - a raw socket, not an HTTP client - because
+  // that is what has to work, and because the peer caps what it takes.
+  const fetchRaw = () => new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.write('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
     });
+    let received = '';
+    socket.on('data', (chunk) => { received += chunk.toString('utf8'); });
+    socket.on('end', () => resolve(received));
+    socket.on('error', reject);
+  });
 
-    // The defect, directly: the wait is already running when the connection
-    // lands. Nothing polls - the connection handler resolves it.
-    it('answers a connection that arrives while it is waiting', async () => {
-      const waiting = server.reachedByWithin('127.0.0.1', 5000);
+  it('answers with the token it was given', async () => {
+    await start('cafebabe');
 
-      await connect();
+    expect(await fetchRaw()).to.include('cafebabe');
+  });
 
-      expect(await waiting, 'a connection that landed during the wait was missed').to.equal(true);
-    });
+  // Two tests running at once must not be able to satisfy each other, so the
+  // token has to be what distinguishes them rather than the shape of the reply.
+  it('answers with its own token, not another run\'s', async () => {
+    await start('mine');
 
-    // And expiring is the answer in the case this exists for: a sibling at the
-    // same address holds the port, so the connection never comes at all.
-    it('gives up when nothing arrives, rather than waiting forever', async () => {
-      const started = Date.now();
+    expect(await fetchRaw()).to.not.include('theirs');
+  });
 
-      expect(await server.reachedByWithin('198.51.100.4', 150)).to.equal(false);
-      expect(Date.now() - started, 'returned before its own wait was up').to.be.at.least(140);
-    });
+  // Nothing in this codebase constructs it without one today, but a server that
+  // answered a default when it had no secret would prove whatever asked it.
+  it('gives nothing away when it has no token', async () => {
+    await start(null);
+    const answer = await fetchRaw();
 
-    it('answers false for an address it cannot read', async () => {
-      expect(await server.reachedByWithin(undefined, 5000)).to.equal(false);
-    });
+    expect(answer).to.include('204');
+    expect(answer).to.not.include('token');
+  });
+
+  it('answers every request, so a peer that retries still gets it', async () => {
+    await start('twice');
+
+    expect(await fetchRaw()).to.include('twice');
+    expect(await fetchRaw()).to.include('twice');
   });
 });

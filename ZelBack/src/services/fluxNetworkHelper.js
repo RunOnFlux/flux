@@ -280,6 +280,55 @@ function isPortUPNPBanned(port) {
  * @param {{timeout?:Number}} options
  * @returns {Promise<boolean>} Returns true if opened, otherwise false
  */
+/**
+ * What a port answered, capped, for the requester to judge.
+ *
+ * The requester published a secret on its own test server and did NOT tell us
+ * what it is: we fetch whatever is on that port and hand it back verbatim, and
+ * the requester decides. That direction is the point. This check exists because
+ * a peer cannot tell the requester's application from a neighbour's at the same
+ * address - so a peer is not in a position to judge, and one that is old,
+ * broken or lying cannot manufacture a secret it was never given.
+ *
+ * Bounded, because this relays bytes read from a stranger's port: enough for a
+ * token and no more, so nobody can be asked to shuttle a payload.
+ *
+ * @param {string} ip - the requester's address
+ * @param {number} port - the port to read
+ * @param {object} options - { timeout }
+ * @returns {Promise<string|null>} what it answered, or null if nothing did
+ */
+async function portAnswered(ip, port, options = {}) {
+  const timeout = options.timeout || 5_000;
+  const MAX_ECHO_BYTES = 256;
+
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let received = '';
+    let settled = false;
+
+    const done = (answer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(answer);
+    };
+
+    const timer = setTimeout(() => done(received || null), timeout);
+
+    socket.connect(port, ip, () => {
+      socket.write(`GET / HTTP/1.1\r\nHost: ${ip}:${port}\r\nConnection: close\r\n\r\n`);
+    });
+    socket.on('data', (chunk) => {
+      received += chunk.toString('utf8');
+      if (received.length >= MAX_ECHO_BYTES) done(received.slice(0, MAX_ECHO_BYTES));
+    });
+    socket.on('end', () => done(received || null));
+    socket.on('error', () => done(null));
+  });
+}
+
 async function isPortOpen(ip, port, options = {}) {
   const timeout = options.timeout || 5_000;
 
@@ -433,6 +482,11 @@ async function checkAppAvailability(req, res) {
 
       const { fluxapps: { portMin: minPort, portMax: maxPort } } = config;
 
+      // A requester that wants proof asks for it. One that does not - an older
+      // node - gets exactly the check it always got.
+      const echo = processedBody.echo === true;
+      const answered = {};
+
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
@@ -440,16 +494,32 @@ async function checkAppAvailability(req, res) {
         const withinRange = portNum >= minPort && portNum <= maxPort;
 
         if (withinRange && !iBP) {
-          // eslint-disable-next-line no-await-in-loop
-          const isOpen = await isPortOpen(ip, port);
-          if (!isOpen) {
-            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+          if (echo) {
+            // Read rather than merely reached. The requester compares.
+            // eslint-disable-next-line no-await-in-loop
+            const answer = await portAnswered(ip, port);
+            if (answer === null) {
+              throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+            }
+            answered[port] = answer;
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            const isOpen = await isPortOpen(ip, port);
+            if (!isOpen) {
+              throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+            }
           }
         } else {
           log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
+      // `answered` present at all is how the requester knows this peer READ the
+      // ports rather than merely reaching them. Absent means no proof is
+      // available from this peer, which is not the same as the ports being bad.
+      // Added as a field rather than through createSuccessMessage, whose second
+      // and third parameters are name and code.
+      if (echo) successResponse.data.answered = answered;
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
@@ -2344,6 +2414,7 @@ module.exports = {
   isCommunicationEstablished,
   lruRateLimit,
   isPortOpen,
+  portAnswered,
   checkAppAvailability,
   isPortEnterprise,
   isPortBanned,

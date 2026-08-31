@@ -145,25 +145,50 @@ describe('a port another Flux node at this address holds', function () {
   // The decider. Every peer that could be asked answers a pass without ever
   // connecting, which is what the asker receives when the router forwarded its
   // port to a sibling: something answered, and it was not this node.
-  it('refuses a port test the peer passed without reaching this node', async function () {
+  // The collision, as the asker experiences it: every peer that could be drawn
+  // reads the port and finds an application that is not this node's, which is
+  // what comes back when the router forwarded that port to a neighbour.
+  it('refuses a port answered by an application that is not this node\'s', async function () {
     this.timeout(420000);
     await clearNodeAddress(askerIp);
-    // Only the stubs may be drawn, so every possible answer is the blind one.
+    // Only the stubs may be drawn, so every possible answer is the foreign one.
     await removeFromNodeList(siblingIp);
-    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(true)));
+    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(true)));
 
-    const app = await appWanting('blindprobeapp', FREE_PORT);
+    const app = await appWanting('foreignanswerapp', FREE_PORT);
     await seedSpawnerApp(env, app);
 
-    // Matched on the OBSERVATION failing, not on the install being refused.
-    // "are not available publicly" is the generic refusal every port failure
-    // ends at, so asserting it proves an install was refused and nothing about
-    // why - and a refusal for the wrong reason wears the same words. It did:
-    // the first version of this check sampled the arrival instead of awaiting
-    // it, refused real installs across a whole fleet under gate load, and
-    // logged exactly that generic line while doing so.
-    await sawLine(0, /answered .* from somewhere other than this node/);
+    // Matched on the token comparison failing, not on the install being
+    // refused. "are not available publicly" is the generic message every port
+    // failure ends at, so asserting only that proves an install was refused and
+    // nothing about why - and a refusal for the wrong reason wears those same
+    // words. One did: an earlier version of this check watched for the peer's
+    // connection instead of reading a token back, could not see it at all
+    // because the peer resets the connection, and refused real installs across
+    // a whole fleet while logging exactly that generic line.
+    await sawLine(0, /is answered by something other than this node at this address/);
     await sawLine(0, /are not available publicly/);
+    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(false)));
+  });
+
+  // The early adopter, and it is the case that decides whether this can ship in
+  // one go. The first nodes to take this update have almost no peers that can
+  // read a port back yet. If "cannot prove it" were treated as "disproved it",
+  // every one of them would refuse every install until the rest of the network
+  // caught up - so a peer that answers without a reading must leave the node
+  // exactly where it was before, not worse.
+  it('still installs when no peer is new enough to read the port back', async function () {
+    this.timeout(420000);
+    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(true)));
+
+    const app = await appWanting('oldpeersapp', FREE_PORT);
+    await seedSpawnerApp(env, app);
+
+    await waitFor(async () => {
+      const res = await env.clients[0].getInstalledApps();
+      return res.status === 'success' && res.data.some((a) => a.name === 'oldpeersapp');
+    }, { timeout: 300000, label: 'oldpeersapp installs with only old peers to ask' });
+    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(false)));
   });
 
   // The control, and it is the point: the refusal above has to be caused by the
@@ -174,9 +199,10 @@ describe('a port another Flux node at this address holds', function () {
   // reconsidered - the refusal is durable by design and waiting for a retry
   // would be waiting for something that should never come. Same node, same
   // fleet, same port range, peers that now really connect.
-  it('installs an app of the same shape once the peers really connect', async function () {
+  it('installs an app of the same shape once the peers read the real port', async function () {
     this.timeout(420000);
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(false)));
+    await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(false)));
 
     const app = await appWanting('sightedprobeapp', FREE_PORT);
     await seedSpawnerApp(env, app);
