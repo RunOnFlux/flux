@@ -28,6 +28,12 @@ class FluxHttpTestServer extends http.Server {
    */
   #callers = new Set();
 
+  /**
+   * Callers waiting on an address that has not arrived yet: bare IP -> the
+   * resolve functions to call when it does.
+   */
+  #waiters = new Map();
+
   constructor() {
     super(() => { });
 
@@ -40,7 +46,14 @@ class FluxHttpTestServer extends http.Server {
     this.#currentConnectionId += 1;
 
     const caller = bareIp(socket.remoteAddress);
-    if (caller) this.#callers.add(caller);
+    if (caller) {
+      this.#callers.add(caller);
+      const waiting = this.#waiters.get(caller);
+      if (waiting) {
+        this.#waiters.delete(caller);
+        waiting.forEach((resolve) => resolve(true));
+      }
+    }
 
     socket.on('close', () => {
       delete this.#connections[connectionid];
@@ -60,6 +73,50 @@ class FluxHttpTestServer extends http.Server {
     const caller = bareIp(address);
 
     return Boolean(caller) && this.#callers.has(caller);
+  }
+
+  /**
+   * Waits until this address reaches this server, or the wait expires.
+   *
+   * The arrival and the question about it are concurrent, and asking for a
+   * snapshot loses that race: a peer resolves its probe on its own `connect`
+   * and answers immediately, while the accept it caused surfaces here on a
+   * later turn of THIS process's event loop. Read once, a busy node refuses an
+   * install for a connection that did arrive - a port collision reported where
+   * there is none. So the arrival is awaited rather than sampled.
+   *
+   * Already here resolves at once. Otherwise the connection handler resolves
+   * it, and nothing polls.
+   *
+   * A wait that expires is the answer in the case this exists to catch: where
+   * a sibling at the same address holds the port, the connection never arrives
+   * at all.
+   *
+   * @param {string} address - an IP, or a socket's remoteAddress
+   * @param {number} timeoutMs - how long to wait for it
+   * @returns {Promise<boolean>} true if it reached us, false if the wait expired
+   */
+  reachedByWithin(address, timeoutMs) {
+    const caller = bareIp(address);
+    if (!caller) return Promise.resolve(false);
+    if (this.#callers.has(caller)) return Promise.resolve(true);
+
+    return new Promise((resolve) => {
+      const waiting = this.#waiters.get(caller) || [];
+      let settled = false;
+      const settle = (reached) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(reached);
+      };
+      const timer = setTimeout(() => settle(false), timeoutMs);
+      // Never hold the process open for a wait that is only ever about a
+      // connection somebody else has already made.
+      if (timer.unref) timer.unref();
+      waiting.push(settle);
+      this.#waiters.set(caller, waiting);
+    });
   }
 
   close(callback) {

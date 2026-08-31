@@ -534,6 +534,22 @@ async function siblingHoldingPort(appSpecFormatted, localSocketAddress) {
 }
 
 /**
+ * How long to wait for a connection the peer has already told us it made.
+ *
+ * Not a network timeout, and deliberately not a config key. By the time we read
+ * the peer's reply the handshake is done, so we are waiting only for THIS
+ * process to be handed an accept that already happened - microseconds idle,
+ * tens of milliseconds on a loaded node. Two seconds is around a hundred times
+ * that, and small beside the delays either side of it (bind 5s, propagation
+ * 10s, peer 30s). Those vary by deployment; how quickly our own event loop
+ * drains does not, so this stays here rather than becoming a knob nobody sets.
+ *
+ * Expiring is the answer in the case this check exists for: where a sibling at
+ * the same address holds the port, the connection never arrives at all.
+ */
+const PEER_OBSERVATION_WAIT_MS = 2000;
+
+/**
  * The first port a peer's pass did not actually prove, or null if it proved them all.
  *
  * A peer reports that something answered at our public address. Where several
@@ -551,18 +567,31 @@ async function siblingHoldingPort(appSpecFormatted, localSocketAddress) {
  * skips any outside the app port range, and a port it never tried says nothing
  * either way.
  *
+ * The arrival is AWAITED, not sampled. The peer resolves its probe on its own
+ * `connect` and answers at once, so the accept it caused surfaces here on a
+ * later turn of this process's event loop - read once, a busy node refuses an
+ * install for a connection that did arrive, and reports a port collision that
+ * does not exist. Observed doing exactly that under a full gate.
+ *
  * @param {number[]} portsToTest - the ports, in the order their servers were made
- * @param {Array<{reachedBy: Function}>} servers - one test server per port
+ * @param {Array<{reachedByWithin: Function}>} servers - one test server per port
  * @param {string} askingIP - the peer we sent
- * @returns {number|null}
+ * @returns {Promise<number|null>}
  */
-function portNotReached(portsToTest, servers, askingIP) {
-  const at = servers.findIndex((server, index) => {
+async function portNotReached(portsToTest, servers, askingIP) {
+  const verdicts = await Promise.all(servers.map((server, index) => {
     const port = portsToTest[index];
     const probed = port >= config.fluxapps.portMin && port <= config.fluxapps.portMax;
 
-    return probed && !server.reachedBy(askingIP);
-  });
+    // Awaited together: a port the peer never reached costs the whole wait, and
+    // taking them one after another would multiply that by the port count on an
+    // install that is going to be refused either way.
+    return probed
+      ? server.reachedByWithin(askingIP, PEER_OBSERVATION_WAIT_MS)
+      : Promise.resolve(true);
+  }));
+
+  const at = verdicts.indexOf(false);
 
   return at === -1 ? null : portsToTest[at];
 }
@@ -762,7 +791,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         portsStatus = false;
         finished = true;
       } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-        const unreachedPort = portNotReached(portsToTest, beforeAppInstallTestingServers, askingIP);
+        // eslint-disable-next-line no-await-in-loop
+        const unreachedPort = await portNotReached(portsToTest, beforeAppInstallTestingServers, askingIP);
 
         if (unreachedPort === null) {
           portsStatus = true;
