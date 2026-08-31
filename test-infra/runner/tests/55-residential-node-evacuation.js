@@ -1024,30 +1024,36 @@ describe('Residential node evacuation', function () {
     // to act on the first and must not act on the second.
     await startFdmOutage('refuse');
 
-    // THE ORDER HERE IS THE TEST. The verdict has to go stale BEFORE the node
-    // starts draining, and it is the stand-down that makes that so: a draining
-    // node that still remembers being primary now hands the app over and
-    // leaves, so the verdict never survives long enough to expire. Withdrawing
-    // attestation first - which is what this test used to inherit from the
-    // stand-down tests before them - reaches STAND_DOWN_REQUIRED instead, and
-    // ELECTION_UNKNOWN becomes unreachable.
-    //
-    // Waited rather than observed, because staleness has no external signal:
-    // primaryElectionCheckedAt is refreshed only where FDM ANSWERED, so with
-    // no region answering at all nothing touches it and it ages out on wall clock.
-    // Derived from the knob it is a multiple of, never written as a literal -
-    // PRIMARY_ELECTION_STALE_MS is masterSlaveIntervalMs x 10, and the harness
-    // compresses that knob to 3s, so this costs ~30s here and tracks the knob
-    // if it moves. One extra cycle of margin so the expiry is past, not level.
-    const electionCycleMs = loadSharedConfig().fluxapps.masterSlaveIntervalMs;
-    await sleepUnlessInfraDead((electionCycleMs * 10) + electionCycleMs);
-
-    await setSystemSecure(subnet.nodeIp(TARGET), false);
-    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
-      { timeout: 120000, label: 'the settling window starts' });
-    await elapseSettleWindow(TARGET);
-
+    // The try opens HERE rather than after the staging below. Everything between
+    // the outage and the assertions can throw - the settling-marker wait carries a
+    // 120s timeout - and 'refuse' closes the stub's listening socket rather than
+    // answering 503, so an outage left behind is a dead socket for whatever runs
+    // next. Contained today only because this is the last test in the file and the
+    // stub dies with the env, and neither is a property anyone maintains on purpose.
     try {
+      // THE ORDER HERE IS THE TEST. The verdict has to go stale BEFORE the node
+      // starts draining, and it is the stand-down that makes that so: a draining
+      // node that still remembers being primary now hands the app over and
+      // leaves, so the verdict never survives long enough to expire. Withdrawing
+      // attestation first - which is what this test used to inherit from the
+      // stand-down tests before them - reaches STAND_DOWN_REQUIRED instead, and
+      // ELECTION_UNKNOWN becomes unreachable.
+      //
+      // Waited rather than observed, because staleness has no external signal:
+      // primaryElectionCheckedAt is refreshed only where FDM ANSWERED, so with
+      // no region answering at all nothing touches it and it ages out on wall clock.
+      // Derived from the knob it is a multiple of, never written as a literal -
+      // PRIMARY_ELECTION_STALE_MS is masterSlaveIntervalMs x 10, and the harness
+      // compresses that knob to 3s, so this costs ~30s here and tracks the knob
+      // if it moves. One extra cycle of margin so the expiry is past, not level.
+      const electionCycleMs = loadSharedConfig().fluxapps.masterSlaveIntervalMs;
+      await sleepUnlessInfraDead((electionCycleMs * 10) + electionCycleMs);
+
+      await setSystemSecure(subnet.nodeIp(TARGET), false);
+      await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+        { timeout: 120000, label: 'the settling window starts' });
+      await elapseSettleWindow(TARGET);
+
       let unknownRefusal = null;
       const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'lockedapp',
         (d) => d.safe === false && d.code === 'ELECTION_UNKNOWN', 600000)
