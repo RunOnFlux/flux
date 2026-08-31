@@ -147,7 +147,16 @@ async function handleMessage(ws, rawData) {
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('headers', (headers) => {
-  headers.push('X-Flux-Capabilities: peerExchange,appStateSync');
+  // peerExchange only. This stub does NOT implement the app-state sync
+  // endpoints - apprunning, appinstalling and apperrors are all absent - and a
+  // real node picks its sync peers by exactly this capability
+  // (FluxPeerManager.getEligibleSyncPeers). Claiming it made stubs eligible,
+  // so a node would ask one, get nothing, time out, and never publish
+  // SPAWNER_READY - which never starts the spawn loop. A fleet with several
+  // stubs then had a real chance of drawing only stubs, and every test needing
+  // an app to be spawned waited out its whole budget for a spawner that was
+  // never running. Suite 98 lost a gate to it.
+  headers.push('X-Flux-Capabilities: peerExchange');
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
 });
