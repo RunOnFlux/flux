@@ -299,11 +299,6 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
       const url = `${region.baseUrl}/appips/${appName}`;
       // eslint-disable-next-line no-await-in-loop
       const response = await serviceHelper.axiosGet(url, axiosOptions);
-      // axiosGet is bare axios.get and rejects on any non-2xx, so reaching here
-      // at all means the service replied. Whether the body names a primary is a
-      // separate question, answered below: an unparseable 2xx is FDM being
-      // reachable and telling us nothing, not FDM being down.
-      answered = true;
 
       if (response.data && response.data.status === 'success' && response.data.data) {
         answered = true;
