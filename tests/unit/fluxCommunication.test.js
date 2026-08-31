@@ -919,6 +919,42 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('initiateAndHandleConnection refuses this node itself', () => {
+    beforeEach(() => {
+      peerManager.reset();
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').returns('44.192.51.11:16127');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      peerManager.reset();
+    });
+
+    // Every outbound dial arrives here - manual, deterministic, reconnect and
+    // random - and only one of those callers filtered its own address before
+    // calling. The reconnect queue in particular re-dials whatever it holds
+    // without asking whose address it is. A self-connection is not just a wasted
+    // socket: it takes a peer slot, is offered back as a peer to gossip and to
+    // sync from, and answers every question with what this node already knows.
+    it('refuses to connect to this node\'s own address', async () => {
+      peerManager.reset();
+
+      await fluxCommunication.initiateAndHandleConnection('44.192.51.11:16127');
+
+      expect(peerManager.outboundCount).to.equal(0);
+      expect(peerManager.isPending('44.192.51.11:16127'), 'left itself marked pending').to.equal(false);
+    });
+
+    it('still connects to a different node at the same port', async () => {
+      peerManager.reset();
+
+      await fluxCommunication.initiateAndHandleConnection('44.192.51.12:16127').catch(() => {});
+
+      expect(peerManager.has('44.192.51.11:16127')).to.equal(false);
+    });
+
+  });
+
   describe('initiateAndHandleConnection tests', () => {
     before(function () { if (process.platform !== 'linux') this.skip(); });
 
