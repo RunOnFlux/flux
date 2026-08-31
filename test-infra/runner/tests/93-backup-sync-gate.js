@@ -76,7 +76,7 @@ describe('a backup refuses to archive a copy that is not there', function () {
         name: comp,
         description: 'r: sync component',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [32101],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

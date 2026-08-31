@@ -148,7 +148,7 @@ describe('app volume file operations - where the image comes from', function () 
         name: appName,
         description: 'where the file operation image comes from',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31811],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

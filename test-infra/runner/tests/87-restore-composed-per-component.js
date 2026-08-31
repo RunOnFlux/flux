@@ -70,11 +70,11 @@ describe('a restore acts on the components it was asked for, by their own folder
     nodeIp = subnet.nodeIp(1);
 
     await pushImage(appName, 'v1');
-    const component = (name, port) => ({
+    const component = (name) => ({
       name,
       description: 'r: sync component',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -87,7 +87,7 @@ describe('a restore acts on the components it was asked for, by their own folder
     });
     const app = await buildSeedableApp({
       name: appName,
-      compose: [component(compA, 31701), component(compB, 31702)],
+      compose: [component(compA), component(compB)],
     });
 
     const installAfter = env.clients[0].getLastEventId();

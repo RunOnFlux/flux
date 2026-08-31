@@ -104,7 +104,7 @@ describe('a restore fetches its archive from where it was told', function () {
         name: comp,
         description: 'r: sync component',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31801],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

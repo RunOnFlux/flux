@@ -223,7 +223,7 @@ describe('app volume file operations - a peer that does not play fair', function
         name: appName,
         description: 'a peer that does not play fair',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31821],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

@@ -113,7 +113,7 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
       // is what leaves it surplus at the ranking. One real node installs, one
       // stands down, and the rival installs nothing, so the app ends on exactly
       // one real instance.
-      name: appName, mode: 'g', ports: [31171], instances: 2,
+      name: appName, mode: 'g', instances: 2,
     });
     await seedSpawnerApp(env, app);
 

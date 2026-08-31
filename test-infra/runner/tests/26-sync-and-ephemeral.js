@@ -46,7 +46,7 @@ describe('Signed sync completes on late-joining node', function () {
       compose: [{
         name: appName, description: 'sync test',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31111], domains: [''], environmentParameters: [], commands: [],
+        ports: [], domains: [''], environmentParameters: [], commands: [],
         containerPorts: [80], containerData: '/tmp',
         cpu: 0.1, ram: 100, hdd: 1, repoauth: '',
       }],
@@ -121,7 +121,7 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
       compose: [{
         name: appName, description: 'ephemeral test',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31113], domains: [''], environmentParameters: [], commands: [],
+        ports: [], domains: [''], environmentParameters: [], commands: [],
         containerPorts: [80], containerData: '/tmp',
         cpu: 0.1, ram: 100, hdd: 1, repoauth: '',
       }],

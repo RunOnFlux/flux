@@ -37,7 +37,7 @@ function gateSpec({ name, instances = 3, geolocation = [] }) {
       name: 'probe',
       description: 'probe component',
       repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
-      ports: [31151],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],

@@ -85,7 +85,7 @@ describe('app volume file operations - lifecycle', function () {
         name: appName,
         description: 'file operation lifecycle',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31801],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

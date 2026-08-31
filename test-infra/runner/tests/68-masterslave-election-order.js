@@ -53,25 +53,19 @@ describe('primary election under a divergent placement order', function () {
   const placementOrder = [1, 0, 2];
   const stamp = Date.now();
 
-  // One app per scenario, all on the one fleet - and one PORT per app. All five
-  // apps land on the same three holders, and a node can bind a port once: the
-  // spawner would never co-locate two apps declaring the same port, but
-  // placeGAppInOrder force-places and bypasses that check. On the shared default
-  // port the apps play musical chairs - every restart of one fails on the port a
-  // sibling holds, stop-history accumulates, and the restart backoff climbs into
-  // minutes, which reads as an election failure and is nothing of the sort.
+  // One app per scenario, all on the one fleet. All five land on the same three
+  // holders and a node can bind a port once: the spawner would never co-locate
+  // two apps declaring the same port, but placeGAppInOrder force-places and
+  // bypasses that check. Sharing a port, the apps play musical chairs - every
+  // restart of one fails on the port a sibling holds, stop-history accumulates,
+  // and the restart backoff climbs into minutes, which reads as an election
+  // failure and is nothing of the sort. The seeding path hands each app a port
+  // of its own, so none of them names one here.
   const orderApp = `e2eorder${stamp}`;
   const genesisApp = `e2egenloss${stamp}`;
   const fdmApp = `e2efdmling${stamp}`;
   const windowApp = `e2ewindow${stamp}`;
   const pairApp = `e2epair${stamp}`;
-  const appPorts = {
-    [orderApp]: 31111,
-    [genesisApp]: 31112,
-    [fdmApp]: 31113,
-    [windowApp]: 31114,
-    [pairApp]: 31115,
-  };
 
   const countUp = async (appName) => (await Promise.all(
     holders.map((i) => isUp(env.clients[i], appName)),
@@ -91,7 +85,7 @@ describe('primary election under a divergent placement order', function () {
 
   const deploy = async (appName) => {
     await pushImage(appName, 'v1');
-    const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g', ports: [appPorts[appName]] });
+    const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
     await placeGAppInOrder(env, app, {
       placementOrder,
       folder: `flux${appName}_${appName}`,
@@ -326,7 +320,7 @@ describe('primary election under a divergent placement order', function () {
     // and hides every disagreement between them. Placed one at a time the seed is
     // index 1, and with only two holders there is no third opinion to fall back on:
     // whatever the pair decides is the answer.
-    const app = await buildSeedableSyncthingApp({ name: pairApp, mode: 'g', ports: [appPorts[pairApp]] });
+    const app = await buildSeedableSyncthingApp({ name: pairApp, mode: 'g' });
     await pushImage(pairApp, 'v1');
     await placeGAppInOrder(env, app, {
       placementOrder: [1, 0],

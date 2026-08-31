@@ -63,78 +63,8 @@ function assertAliveOnThisChain(env, app) {
   }
 }
 
-/**
- * Ports claimed by this suite, and the next one free to hand out.
- *
- * A port is a property of the FLEET, not of whoever wrote the test, and the
- * only invariant that matters is that no two apps in a suite want the same one:
- * satisfy that and no node can end up holding two apps on one port, however the
- * suite places them. Each suite is its own process, so this is per suite.
- *
- * Kept here rather than in the builders because there are nine builders and
- * four suites that hand-write their compose and never call one - a rule in the
- * builders would have holes by construction. Everything reaches the fleet
- * through this function.
- */
-const claimedPorts = new Map();
-let nextFreePort = 31200;
-
-function allocatePort() {
-  do { nextFreePort += 1; } while (claimedPorts.has(nextFreePort));
-  return nextFreePort;
-}
-
-/**
- * Gives every component a port of its own, and refuses an accidental collision
- * at the moment it is created.
- *
- * Two apps on one port surface minutes later as "already used with different
- * application" - an install refusal that reads like a product fault and has
- * cost two gates in one day. Named here instead, with both apps in the message,
- * at the point where it can still be fixed by looking at the suite.
- *
- * A suite that means it passes allowPortReuse: suite 98 puts two apps on one
- * port deliberately, because that is the collision it exists to test.
- */
-function assignPorts(app, allowPortReuse) {
-  const { spec } = app;
-  const components = Array.isArray(spec.compose) && spec.compose.length
-    ? spec.compose
-    : [spec];
-
-  for (const component of components) {
-    // Nulls filtered, not trusted: a builder that emits [null] has declared
-    // nothing, and Number(null) is 0 - a port that would look real here and
-    // fail somewhere far away.
-    const declared = (component.ports ?? (component.port == null ? [] : [component.port]))
-      .filter((port) => port != null && port !== '' && Number.isFinite(Number(port)));
-
-    if (!declared.length) {
-      const port = allocatePort();
-      claimedPorts.set(port, spec.name);
-      if (component.ports !== undefined || spec.compose?.length) component.ports = [port];
-      else component.port = port;
-      continue;
-    }
-
-    if (allowPortReuse) continue;
-
-    for (const port of declared.map(Number)) {
-      const owner = claimedPorts.get(port);
-      if (owner && owner !== spec.name) {
-        throw new Error(
-          `Two apps in this suite want port ${port}: '${owner}' already has it and '${spec.name}' asks for it too. `
-          + 'Give one of them a different port, or pass allowPortReuse if the collision is the point.',
-        );
-      }
-      claimedPorts.set(port, spec.name);
-    }
-  }
-}
-
-async function seedGlobalSpec(env, app, indices, { allowPortReuse = false } = {}) {
+async function seedGlobalSpec(env, app, indices) {
   assertAliveOnThisChain(env, app);
-  assignPorts(app, allowPortReuse);
   await Promise.all(indices.map(async (i) => {
     const dc = dbClient(i + 1);
     await dc.seedGlobalAppSpec(app.spec);
@@ -148,8 +78,8 @@ async function seedGlobalSpec(env, app, indices, { allowPortReuse = false } = {}
 // + syncthing config). Deterministic and fast — no spawner-placement timing. Auth
 // as the flux team (adminandfluxteam) since these are seeded global specs.
 // Returns the indices it installed on.
-export async function installOnNodes(env, app, indices, { timeout = 120000, allowPortReuse = false } = {}) {
-  await seedGlobalSpec(env, app, indices, { allowPortReuse });
+export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
+  await seedGlobalSpec(env, app, indices);
   const teamKey = fluxTeamKey();
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];
@@ -351,9 +281,9 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
 // over) so each node's spawner sees it as missing-instances and self-selects. No
 // running/installing locations are seeded, so `actual` starts at 0 and the spawner
 // drives real placement + collision-resolution. The app image must be pushed first.
-export async function seedSpawnerApp(env, app, { allowPortReuse = false } = {}) {
+export async function seedSpawnerApp(env, app) {
   const all = env.clients.map((_, i) => i);
-  await seedGlobalSpec(env, app, all, { allowPortReuse });
+  await seedGlobalSpec(env, app, all);
 }
 
 // Ground-truth count of where an app is actually installed across the fleet
@@ -464,14 +394,10 @@ export async function waitForInstanceCount(env, appName, target, {
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
 export async function seedSyncthingApp(env, {
-  name, mode = 'r', forceNonLeader = false, index = 0, port = null,
+  name, mode = 'r', forceNonLeader = false, index = 0,
 }) {
   await pushImage(name, 'v1');
-  // No port of its own to invent: seedGlobalSpec gives every component one and
-  // refuses an accidental collision. A caller that names one still wins.
-  const app = await buildSeedableSyncthingApp({
-    name, mode, ...(port ? { ports: [port] } : { ports: [] }),
-  });
+  const app = await buildSeedableSyncthingApp({ name, mode });
   const folder = `flux${name}_${name}`;
   const identifier = `${name}_${name}`;
 
@@ -514,7 +440,7 @@ export async function seedTestApp(env, { name, exitCode = 0, exitAfterS = null }
   return { app, index, identifier: `${name}_${name}` };
 }
 
-export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
+export async function seedSimpleApp(env, appName) {
   await pushImage(appName, 'v1');
   const app = await buildSeedableApp({
     name: appName,
@@ -522,7 +448,7 @@ export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
       name: appName,
       description: 'test container',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
