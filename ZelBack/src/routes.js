@@ -366,13 +366,19 @@ module.exports = (app) => {
     return fluxNetworkHelper.keepUPNPPortsOpen(req, res);
   }));
   // Read by another Flux node at this public address, before it installs onto a
-  // port. Unauthenticated and reachable by anyone, and a cold answer can reach
-  // fluxbenchd to decrypt a specification, so it takes the same treatment as its
-  // neighbours under /apps: no parameters, and a cache short enough to be
-  // meaningless against an install yet long enough to bound a caller to one pass
-  // a second. The cache keys on the request URL, so that bound holds only while
-  // the URL is the endpoint and nothing else.
-  app.get('/flux/portsinuse', rejectQueryParameters, cache('1 second'), asyncRoute((req, res) => {
+  // port. Unauthenticated and reachable by anyone, and EVERY answer is expensive:
+  // checkAndDecryptAppSpecs holds no cache of its own, so an uncached request
+  // costs two globalAppsMessages queries and a benchd round trip per enterprise
+  // app on this node. The cache is the only thing bounding that rate, which is
+  // why it is thirty seconds and not the one second its neighbours under /apps
+  // take - those list containers, this one decrypts.
+  //
+  // Thirty seconds of staleness costs nothing here. A sibling's ports change
+  // only when it installs or removes an app, and this answer never decides: it
+  // narrows the field before the firewall is opened, and the port test that
+  // follows is what refuses. The cache keys on the request URL, so the bound
+  // holds only while the URL is the endpoint and nothing else - hence the guard.
+  app.get('/flux/portsinuse', rejectQueryParameters, cache('30 seconds'), asyncRoute((req, res) => {
     return portManager.portsInUseApi(req, res);
   }));
 
