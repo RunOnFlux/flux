@@ -627,6 +627,33 @@ describe('dockerService tests', () => {
       expect(errors).to.have.lengthOf(1);
       expect(errors[0].message).to.equal('Container testing1234 not found');
     });
+
+    it('completes the poll and reports the end exactly once', async function test() {
+      // The poll window is 1500ms and the promise must settle when it closes.
+      this.timeout(10000);
+      // `follow: true` holds a docker connection open for the life of the
+      // container. The window used to end the local stream and leave the source
+      // running: the awaited promise had no path to settle from there, so the
+      // function never returned and the connection was never released - once per
+      // poll, on an endpoint a browser hits on a timer. A poll that returns at
+      // all is the observable half of that.
+      const errors = [];
+      const ends = [];
+
+      await dockerService.dockerContainerLogsPolling('website', 10, '', (err, line) => {
+        if (err) {
+          errors.push(err);
+        } else if (line === 'Stream ended') {
+          ends.push(line);
+        }
+      });
+
+      expect(errors).to.have.lengthOf(0);
+      // Emitting this from the stream's own 'end' handler let it follow an error
+      // the caller had already been handed, reporting a clean finish for a poll
+      // that had failed.
+      expect(ends).to.have.lengthOf(1);
+    });
   });
 
   describe('dockerContainerLogsStream tests', () => {

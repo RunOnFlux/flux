@@ -425,6 +425,13 @@ async function dockerContainerLogs(idOrName, lines) {
 }
 
 async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, callback) {
+  // The docker-side log stream, kept out here so the finally can release it on
+  // every exit. `follow: true` opens a connection dockerd holds open for as long
+  // as the container lives, and nothing used to close it: the window below ended
+  // the local PassThrough and left the source streaming into the void. One leaked
+  // connection per poll, and the endpoint is polled by a browser on a timer.
+  let followStream = null;
+
   try {
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
     const logStream = new stream.PassThrough();
@@ -444,19 +451,6 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
       }
     });
 
-    logStream.on('error', (error) => {
-      log.error('Log stream encountered an error:', error);
-      if (callback) {
-        callback(error);
-      }
-    });
-
-    logStream.on('end', () => {
-      if (callback) {
-        callback(null, 'Stream ended'); // Notify end of logs
-      }
-    });
-
     const logOptions = {
       follow: true,
       stdout: true,
@@ -468,35 +462,78 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
     if (sinceTimestamp) {
       logOptions.since = new Date(sinceTimestamp).getTime() / 1000;
     }
-    // Every failure below rejects and nothing more. The rejection is awaited, so
-    // it lands in this function's catch, which is the one place that reports to
-    // the callback - reporting here as well delivered a single docker error to
-    // the caller twice.
+
+    // Every terminal condition settles this promise and nothing reports to the
+    // callback from inside it. The rejection is awaited, so it lands in this
+    // function's catch, which is the one place that reports - reporting here as
+    // well delivered a single docker error to the caller twice. And a path that
+    // reported without settling (the log stream's own `error`) left the await
+    // pending forever, so the function never returned and never released the
+    // docker connection it was holding.
     await new Promise((resolve, reject) => {
       // eslint-disable-next-line consistent-return
       dockerContainer.logs(logOptions, (err, mystream) => {
         if (err) {
           return reject(err);
         }
+        followStream = mystream;
         try {
           dockerContainer.modem.demuxStream(mystream, logStream, logStream);
-          setTimeout(() => {
+
+          // This is a poll, not a subscription: it answers with the logs
+          // available in this window. `follow` is only here so the read does not
+          // race the container writing.
+          let closing = false;
+          const window = setTimeout(() => {
+            // Tear the source down BEFORE ending the sink. demuxStream writes
+            // into logStream, and a write landing after end() surfaces as
+            // ERR_STREAM_WRITE_AFTER_END - a completed poll reported as a
+            // failure.
+            closing = true;
+            mystream.destroy();
             logStream.end();
           }, 1500);
-          mystream.on('end', () => {
-            logStream.end();
+
+          const fail = (error) => {
+            // Once the window is deliberately closing, a stream error is the
+            // teardown, not a failure. 'close' below still settles the promise,
+            // so ignoring it here cannot hang.
+            if (closing) return;
+            clearTimeout(window);
+            reject(error);
+          };
+
+          // 'end' is the success: it fires after the last chunk has been read,
+          // so every line has reached the callback by then. 'close' is the
+          // backstop - a stream that errored may never emit 'end', and an
+          // unsettled promise here is a leaked connection.
+          logStream.on('end', () => {
+            clearTimeout(window);
             resolve();
           });
-
-          mystream.on('error', (error) => {
-            logStream.end();
-            reject(error);
+          logStream.on('close', () => {
+            clearTimeout(window);
+            resolve();
           });
+          logStream.on('error', fail);
+
+          mystream.on('end', () => {
+            clearTimeout(window);
+            logStream.end();
+          });
+          mystream.on('error', fail);
         } catch (error) {
           reject(error);
         }
       });
     });
+
+    if (callback) {
+      // Reported once, here, and only on success. Emitting it from the stream's
+      // own 'end' handler meant it could follow an error the caller had already
+      // been given, telling it the poll had completed cleanly.
+      callback(null, 'Stream ended');
+    }
   } catch (error) {
     log.error('Error in dockerContainerLogsPolling:', error);
     if (callback) {
@@ -511,6 +548,10 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
       return;
     }
     throw error;
+  } finally {
+    if (followStream) {
+      followStream.destroy();
+    }
   }
 }
 
