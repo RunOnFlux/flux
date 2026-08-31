@@ -46,7 +46,14 @@ const SIBLING_API_PORT = 16137;
 
 // The port the sibling holds, and the one the spawner is then offered.
 const HELD_PORT = 31111;
-const FREE_PORT = 31222;
+// A port per test that actually INSTALLS. Only one of the three below is
+// refused, and the two that succeed each leave their app in place on node 0 -
+// so sharing a port between them means the second is refused for holding its
+// own predecessor's port rather than for anything the test is about. That is
+// the same collision suite 37 lost a gate to, one layer over.
+const FREE_PORT = 31222;      // test 4: refused, never installs
+const OLD_PEER_PORT = 31223;  // test 5: installs and stays
+const SIGHTED_PORT = 31224;   // test 6: installs and stays
 
 const STUB_PEERS = [2, 3, 4];
 
@@ -181,7 +188,7 @@ describe('a port another Flux node at this address holds', function () {
     this.timeout(420000);
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(true)));
 
-    const app = await appWanting('oldpeersapp', FREE_PORT);
+    const app = await appWanting('oldpeersapp', OLD_PEER_PORT);
     await seedSpawnerApp(env, app);
 
     await waitFor(async () => {
@@ -204,7 +211,7 @@ describe('a port another Flux node at this address holds', function () {
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeBlind(false)));
     await Promise.all(STUB_PEERS.map((i) => env.stubPeerClients.get(i).answerPortProbeForeign(false)));
 
-    const app = await appWanting('sightedprobeapp', FREE_PORT);
+    const app = await appWanting('sightedprobeapp', SIGHTED_PORT);
     await seedSpawnerApp(env, app);
 
     await waitFor(async () => {
