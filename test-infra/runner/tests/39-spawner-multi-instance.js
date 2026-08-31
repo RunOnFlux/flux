@@ -105,7 +105,7 @@ describe('spawner places the requested number of instances', function () {
     this.timeout(420000);
     const appName = `e2espawnn${Date.now()}`;
     await pushTestApp(appName);
-    const app = await buildSeedableTestApp({ name: appName, instances: 3, port: 31111 });
+    const app = await buildSeedableTestApp({ name: appName, instances: 3 });
     await seedSpawnerApp(env, app);
 
     // The real nodes commit first, on their own. The rivals must not be visible
@@ -192,7 +192,7 @@ describe('spawner places on every node when instances == nodeCount', function ()
     this.timeout(300000);
     const appName = `e2espawnall${Date.now()}`;
     await pushTestApp(appName);
-    const app = await buildSeedableTestApp({ name: appName, instances: env.nodeCount, port: 31112 });
+    const app = await buildSeedableTestApp({ name: appName, instances: env.nodeCount });
     await seedSpawnerApp(env, app);
 
     const placed = await waitForInstanceCount(env, appName, env.nodeCount, { timeout: 240000, stableMs: 10000 });

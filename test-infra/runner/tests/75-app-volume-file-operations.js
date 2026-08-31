@@ -90,7 +90,7 @@ describe('app volume file operations - the contract', function () {
         name: appName,
         description: 'file operations',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31601],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

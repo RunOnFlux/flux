@@ -32,7 +32,7 @@ describe('deliberate stop during an event-stream outage neither wedges nor flaps
     this.timeout(420000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
-    ({ index: idx } = await seedSimpleApp(env, appName, { port: 31127 }));
+    ({ index: idx } = await seedSimpleApp(env, appName));
   });
 
   after(async function () {

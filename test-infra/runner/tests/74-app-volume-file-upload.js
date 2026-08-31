@@ -140,7 +140,7 @@ describe('app volume file upload', function () {
         name: appName,
         description: 'file upload',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31611],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

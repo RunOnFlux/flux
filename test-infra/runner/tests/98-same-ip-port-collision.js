@@ -51,9 +51,9 @@ const HELD_PORT = 31111;
 // so sharing a port between them means the second is refused for holding its
 // own predecessor's port rather than for anything the test is about. That is
 // the same collision suite 37 lost a gate to, one layer over.
-const FREE_PORT = 31222;      // test 4: refused, never installs
-const OLD_PEER_PORT = 31223;  // test 5: installs and stays
-const SIGHTED_PORT = 31224;   // test 6: installs and stays
+const FREE_PORT = 31122;      // test 4: refused, never installs
+const OLD_PEER_PORT = 31123;  // test 5: installs and stays
+const SIGHTED_PORT = 31124;   // test 6: installs and stays
 
 const STUB_PEERS = [2, 3, 4];
 
@@ -73,10 +73,13 @@ describe('a port another Flux node at this address holds', function () {
   );
 
   // An app wanting one named port, for either deployment path.
+  // The whole suite rests on two apps wanting one port, which is exactly what
+  // buildSeedableApp refuses by default. Said out loud, once, here.
   const appWanting = async (name, port) => {
     await pushImage(name, 'v1');
     return buildSeedableApp({
       name,
+      allowPortReuse: true,
       compose: [{
         name,
         description: 'test container',
@@ -115,10 +118,8 @@ describe('a port another Flux node at this address holds', function () {
     this.timeout(300000);
     // Targeted rather than spawned: the sibling test below has to know which
     // node holds the port, and the spawner picks its own.
-    // The whole suite rests on two apps wanting one port, which is exactly what
-    // seedGlobalSpec refuses by default. Said out loud here.
     const app = await appWanting('heldportapp', HELD_PORT);
-    await installOnNodes(env, app, [1], { allowPortReuse: true });
+    await installOnNodes(env, app, [1]);
 
     const answer = await env.clients[1].get('/flux/portsinuse');
 
@@ -146,7 +147,7 @@ describe('a port another Flux node at this address holds', function () {
     await setNodeAddress(askerIp, `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
 
     const app = await appWanting('siblingheldapp', HELD_PORT);
-    await seedSpawnerApp(env, app, { allowPortReuse: true });
+    await seedSpawnerApp(env, app);
 
     await sawLine(0, new RegExp(`port ${HELD_PORT} is held by the Flux node at ${siblingIp.replace(/\./g, '\\.')}`), 420000);
   });

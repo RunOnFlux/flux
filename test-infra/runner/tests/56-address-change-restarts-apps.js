@@ -83,11 +83,11 @@ describe('a node whose address changed restarts the apps that stay', function ()
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
 
     await pushImage(appName, 'v1');
-    const component = (name, port) => ({
+    const component = (name) => ({
       name,
       description: 'address-change component',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -100,7 +100,7 @@ describe('a node whose address changed restarts the apps that stay', function ()
     });
     const app = await buildSeedableApp({
       name: appName,
-      compose: [component(COMPONENT_A, 31801), component(COMPONENT_B, 31802)],
+      compose: [component(COMPONENT_A), component(COMPONENT_B)],
     });
     idx = await seedAndInstall(env, app);
     nodeIp = subnet.nodeIp(idx + 1);

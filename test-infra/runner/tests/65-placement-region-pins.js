@@ -57,7 +57,7 @@ function gateSpec({ name, instances = 3, geolocation = [] }) {
       name: 'probe',
       description: 'probe component',
       repotag: `${REGISTRY_REPO_HOST}/${GATE_IMAGE}:v1`,
-      ports: [31161],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -352,7 +352,7 @@ describe('placement honours region pins on proof from the shared table', functio
     const appName = `e2eregionpin${Date.now()}`;
     await pushTestApp(appName);
     const app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [31171], instances: inRegionA.length,
+      name: appName, mode: 'g', instances: inRegionA.length,
     });
     await seedSpawnerApp(env, await pinGeolocation(app, [allowRegion(regionA)]));
 
@@ -371,7 +371,7 @@ describe('placement honours region pins on proof from the shared table', functio
     const appName = `e2eregiondeny${Date.now()}`;
     await pushTestApp(appName);
     const app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [31172], instances: 3,
+      name: appName, mode: 'g', instances: 3,
     });
     // allowed across the whole fleet's continent, denied in organisation 1's
     // region. The continent is what leaves every organisation a candidate: the
