@@ -57,7 +57,7 @@ export async function buildSeedableApp({
       // pull over live internet (rate-limit flakes); the env registry is
       // seeded with this image at bootstrap (test-env.js)
       repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-      ports: [allocateAppPort()],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -149,7 +149,6 @@ export async function buildSeedableLegacyApp({
   name,
   version = 3,
   containerData = '/appdata',
-  port = allocateAppPort(),
   // Chain-relative, same as buildSeedableApp above and for the same reason its
   // comment gives: a literal height seeds an app already expired on any suite
   // whose chain starts later, and assertAliveOnThisChain refuses it.
@@ -228,12 +227,10 @@ export async function buildSeedableLegacyApp({
  * Pass `sibling: true` to add a plain (non-synced) component so a test can prove
  * the decider only acts on the g:/r: component and leaves siblings running.
  */
-
 export async function buildSeedableSyncthingApp({
   name,
   mode = 'g',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [allocateAppPort()],
   containerPorts = [80],
   sibling = false,
   ...rest
@@ -283,7 +280,7 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, port = allocateAppPort(), ...rest
+  name, exitCode = 0, exitAfterS = null, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
@@ -320,7 +317,6 @@ export async function buildSeedableMixedMountApp({
   plainPath = '/data',
   syncPath = '/db',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [allocateAppPort()],
   containerPorts = [80],
   ...rest
 }) {
@@ -354,7 +350,6 @@ export async function buildSeedableMultiSyncthingApp({
   mode = 'g',
   components = 2,
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  basePort = allocateAppPort(components),
   containerPorts = [80],
   ...rest
 }) {
@@ -413,7 +408,7 @@ export async function buildSeedableIndexRefApp({
       ...base,
       name,
       description: 'invalid self-referencing component (index 0 -> 0)',
-      ports: [allocateAppPort()],
+      ports: [],
       containerData: `${mode}:/appdata|0:/selfref`,
     }]
     : [
@@ -421,14 +416,14 @@ export async function buildSeedableIndexRefApp({
         ...base,
         name: `${name}c0`,
         description: `${mode}: base component (index 0)`,
-        ports: [allocateAppPort()],
+        ports: [],
         containerData: `${mode}:/appdata`,
       },
       {
         ...base,
         name: `${name}c1`,
         description: 'component referencing component 0 volume (index 1 -> 0)',
-        ports: [allocateAppPort()],
+        ports: [],
         containerData: '/own|0:/shared',
       },
     ];
@@ -516,7 +511,7 @@ export async function buildSeedableEnterpriseApp({
     name,
     description: 'seeded enterprise component',
     repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-    ports: [allocateAppPort()],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],
