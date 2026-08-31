@@ -228,33 +228,6 @@ export async function buildSeedableLegacyApp({
  * Pass `sibling: true` to add a plain (non-synced) component so a test can prove
  * the decider only acts on the g:/r: component and leaves siblings running.
  */
-// App ports are ALLOCATED, never chosen.
-//
-// A node refuses to install a second app on a port it already serves - "port
-// already used with different application" - so two apps sharing a number can
-// never both be placed on one fleet. The second silently stalls at one instance
-// while the suite waits for it to spread, and the install failure surfaces only
-// as a log line on the nodes that refused it. Suite 68 hit this and hand-picked
-// 31111..31115 to escape it; suite 55 hit it again and lost a run to it.
-//
-// Every builder in this file defaults to a fresh allocation, so a suite has to
-// go out of its way to collide rather than having to remember not to. That
-// includes every COMPONENT of a multi-component builder: buildSeedableIndexRefApp
-// pinned its second component to a literal, so suite 43 - which builds two of
-// them - gave both apps the same port and could never have placed both.
-const FIRST_APP_PORT = 31111;
-let nextAppPort = FIRST_APP_PORT;
-
-/**
- * The next unused app port for this runner process.
- * @param {number} count How many CONSECUTIVE ports to reserve.
- * @returns {number} The first port of the reserved block.
- */
-export function allocateAppPort(count = 1) {
-  const first = nextAppPort;
-  nextAppPort += count;
-  return first;
-}
 
 export async function buildSeedableSyncthingApp({
   name,

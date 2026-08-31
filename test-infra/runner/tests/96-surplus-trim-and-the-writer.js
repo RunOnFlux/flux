@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { buildSeedableSyncthingApp, allocateAppPort } from '../framework/seed-helper.js';
+import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   bootAndPeer, placeGAppInOrder, electionOrder, installedInstanceIndices,
@@ -115,7 +115,7 @@ describe('a surplus copy that is also the writer', function () {
     // land in the same instant, the ranking falls through to its ip tiebreak,
     // and "the newest" stops meaning anything a test can steer.
     app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [allocateAppPort()], instances: 3,
+      name: appName, mode: 'g', instances: 3,
     });
     identifier = `${appName}_${appName}`;
     folder = `flux${identifier}`;

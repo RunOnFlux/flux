@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { buildSeedableApp, allocateAppPort } from '../framework/seed-helper.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
   advanceBlock, advanceBlocks, driveUntil, startTicker, stopTicker, setSystemSecure, clearSystemSecure,
@@ -113,9 +113,9 @@ async function bootToReady(env) {
 /**
  * Seed a global app the spawner can place. The port is allocated, so seeding a
  * second app on the same fleet cannot collide with the first - see
- * allocateAppPort.
+ * buildSeedableApp, which assigns one where the spec is built.
  */
-async function seedApp(env, appName, { instances = 3, containerData = '/tmp', port = allocateAppPort() } = {}) {
+async function seedApp(env, appName, { instances = 3, containerData = '/tmp' } = {}) {
   await pushImage(appName, 'v1');
   const app = await buildSeedableApp({
     name: appName,
@@ -124,7 +124,7 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp', po
       name: appName,
       description: 'test container',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
