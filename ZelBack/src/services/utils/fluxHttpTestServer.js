@@ -119,6 +119,19 @@ class FluxHttpTestServer extends http.Server {
     });
   }
 
+  /**
+   * Every address that has reached this server, for a refusal to report.
+   *
+   * A check that says only "not the peer we asked" cannot distinguish nobody
+   * having connected from somebody else having connected, and those have
+   * different causes and different fixes.
+   *
+   * @returns {string[]}
+   */
+  callersSeen() {
+    return [...this.#callers];
+  }
+
   close(callback) {
     super.close(callback);
 

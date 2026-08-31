@@ -797,7 +797,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         if (unreachedPort === null) {
           portsStatus = true;
         } else {
-          log.warn(`checkInstallingAppPortAvailable - port ${unreachedPort} answered ${askingIP} from somewhere other than this node`);
+          // What DID reach us, named. "Not the peer we asked" has two very
+          // different causes - nobody connected, or somebody else did - and a
+          // refusal that cannot tell them apart is unsupportable in the field.
+          const seen = beforeAppInstallTestingServers
+            .flatMap((server) => (server.callersSeen ? server.callersSeen() : []));
+          log.warn(`checkInstallingAppPortAvailable - port ${unreachedPort} answered ${askingIP} from somewhere other than this node; reached by [${[...new Set(seen)].join(', ') || 'nobody'}]`);
           portsNotWorking.add(unreachedPort);
           if (!originalPortFailed) {
             originalPortFailed = unreachedPort;
