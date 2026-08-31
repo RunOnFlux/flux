@@ -25,11 +25,15 @@ export function stubPeerClient(ip) {
     // What this peer claims to be holding. A folder named here blocks the asking
     // node's promotion, so it keeps asking every pass instead of promoting once
     // and falling silent.
-    async setPromotedFolders({ ready = true, folders = [] } = {}) {
+    // `resetRequests` clears the arrival log in the SAME request, for a caller
+    // that wants a fresh measurement without ever claiming to hold nothing.
+    // clear() drops the claim too, so clear-then-restate leaves a window in
+    // which a polling node sees the folder free and promotes.
+    async setPromotedFolders({ ready = true, folders = [], resetRequests = false } = {}) {
       const res = await controlFetch(`${controlUrl}/promoted-folders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ready, folders }),
+        body: JSON.stringify({ ready, folders, resetRequests }),
       });
       return res.json();
     },

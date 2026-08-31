@@ -402,6 +402,13 @@ const controlServer = http.createServer(async (req, res) => {
         ready: wanted.ready !== false,
         folders: Array.isArray(wanted.folders) ? wanted.folders : [],
       };
+      // Reset the arrival log HERE, in the same request that states the claim,
+      // because /clear does both and a caller that wants a fresh log without
+      // dropping the claim has to make two calls. Between them this peer claims
+      // to hold nothing, and a node polling in that gap sees the folder free,
+      // promotes, and stops asking - which is the measurement suite 79 exists
+      // to take, ruined by the act of starting it.
+      if (wanted.resetRequests) promotedFolderRequests.length = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', promotedFolders }));
       return;
