@@ -67,9 +67,15 @@ export function buildAppSpec({
   const spec = { ...defaultSpec, owner: ownerKey.zelid, ...overrides };
   assertHermeticRepotags(spec, allowExternalRepotag);
 
-  if (overrides.compose) {
-    spec.compose = overrides.compose;
-  }
+  // Copied, never referenced. `{ ...defaultSpec }` is shallow, so spec.compose IS
+  // defaultSpec.compose - and assignPorts writes the allocated port into the
+  // component it is given. Without this the first build in a process stamps a port
+  // into the module-level default, and the second reads it back as a hand-picked
+  // port inside the allocator's own range and throws. A caller's array is copied
+  // for the same reason: nothing reads a port back out of what it passed in, and a
+  // builder that writes into its caller's input is the same defect waiting for the
+  // first suite that reuses one.
+  spec.compose = (overrides.compose ?? defaultSpec.compose).map((c) => ({ ...c }));
 
   // Registered rather than seeded, but a port is a port: an app here and a
   // seeded app in the same suite would otherwise be drawing from two spaces
