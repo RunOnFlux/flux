@@ -4,6 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { execInContainer } from '../framework/container.js';
 import {
   bootAndPeer, placeGAppInOrder, electionOrder, installedInstanceIndices,
 } from '../framework/reconciler-suite.js';
@@ -297,6 +298,12 @@ describe('a surplus copy that is also the writer', function () {
       ).to.include(folder);
     } finally {
       await env.healPartition([nextIndex], [newestIndex]).catch(() => {});
+      // healPartition's own comment makes this the caller's job - it drops the
+      // iptables rules and leaves the dead cross-group sockets to be re-dialled.
+      // 68, 70 and 71 all do it; this suite was the only one that did not, and
+      // the pair never reconnected: node .12 logged nothing but timed-out
+      // handshakes to .10 from the heal until the test gave up ten minutes later.
+      await env.startDiscovery().catch(() => {});
       await startTicker().catch(() => {});
     }
   });
@@ -305,21 +312,33 @@ describe('a surplus copy that is also the writer', function () {
     this.timeout(900000);
     const { newestIndex, nextIndex } = await establishShape();
 
-    // The probe has to be able to reach the newest copy again after the
-    // partition above, or this spends ten minutes waiting for a trim that is
-    // being declined for the previous test's reason rather than allowed for
-    // this one.
-    // Either direction counts: which side dialled which is not this suite's
-    // business, and checking only outbound waits forever on a pair that
-    // reconnected the other way round.
+    // WAIT FOR THE FACT THE DECISION READS. The trim is allowed only when
+    // peerComponentState confirms the newest copy holds the writer, and it asks
+    // by GETting /apps/heldcomponents on that node - so this waits for exactly
+    // that call to answer, made from the node that will make it.
+    //
+    // It used to wait for the pair to appear in each other's PEER LISTS, which
+    // is a different fact and was satisfied while nothing could actually talk:
+    // the two never reconnected after the partition above, the peer map still
+    // carried the entry, and the one probe this test gets found the newest
+    // silent and correctly declined. The suite then spent ten minutes waiting
+    // for a trim that had already been refused for the right reason.
+    //
+    // It matters that this is the one probe. The give-up pass runs on
+    // `blockHeight % (removeFluxAppsPeriod * speedMultiplier) === 0` - 44 blocks
+    // - and driveUntil below spends about 53, so there is one attempt and no
+    // second. A precondition that is merely usually true is a coin toss here.
     await waitFor(async () => {
-      const [outbound, inbound] = await Promise.all([
-        env.clients[nextIndex].getPeers(),
-        env.clients[nextIndex].getIncomingPeers(),
-      ]);
-      const peers = new Set([...(outbound.data || []), ...(inbound.data || [])]);
-      return peers.has(ipOfIndex(newestIndex));
-    }, { timeout: 180000, interval: 3000, label: 'the second-newest can see the newest again' });
+      const res = await execInContainer(
+        env.clients[nextIndex].container,
+        `curl -sf -m 5 http://${ipOfIndex(newestIndex)}:16127/apps/heldcomponents`,
+      );
+      return res.exitCode === 0 && res.output.includes(folder);
+    }, {
+      timeout: 180000,
+      interval: 3000,
+      label: 'the newest copy answers heldcomponents with the writer, asked from the second-newest',
+    });
 
     await stopTicker();
     await driveUntil(env.clients[nextIndex], async () => {
