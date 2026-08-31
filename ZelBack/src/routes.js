@@ -378,7 +378,12 @@ module.exports = (app) => {
   // narrows the field before the firewall is opened, and the port test that
   // follows is what refuses. The cache keys on the request URL, so the bound
   // holds only while the URL is the endpoint and nothing else - hence the guard.
-  app.get('/flux/portsinuse', rejectQueryParameters, cache('30 seconds'), asyncRoute((req, res) => {
+  // POST and uncached, unlike its neighbours. It carries a signature, so it is
+  // a body rather than a URL - and apicache only caches GETs in any case. The
+  // thirty seconds did not go away: portsInUse caches the VALUE, which is what
+  // was expensive, and which cannot remember an error the way a cached response
+  // could.
+  app.post('/flux/portsinuse', asyncRoute((req, res) => {
     return portManager.portsInUseApi(req, res);
   }));
 

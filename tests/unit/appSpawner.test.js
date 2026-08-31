@@ -180,8 +180,8 @@ describe('appSpawner tests', () => {
       },
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
-        siblingHoldingPort: sinon.stub().resolves(null),
-        checkInstallingAppPortAvailable: sinon.stub().resolves(true),
+        siblingHoldingPort: sinon.stub().resolves(opts.siblingHoldingPort ?? null),
+        checkInstallingAppPortAvailable: sinon.stub().resolves(opts.portsAvailable ?? true),
       },
       '../appQuery/resourceQueryService': {
         appsResources: sinon.stub().resolves({ status: 'success', data: { unreadable: opts.unaccounted ?? [] } }),
@@ -657,6 +657,55 @@ describe('appSpawner tests', () => {
       instances: 3,
       compose: [{ repotag: 'testimage:latest', containerData: '' }],
     };
+
+    // A port a neighbour holds is an ANSWER, not a fault, and the difference is
+    // the whole decision. Raising would file the app in the pre-install error
+    // cache, and an error is what this is not - this node simply cannot host
+    // this application while the sibling holds the port. Nothing asserted that
+    // until now: the stand-down was covered by the fleet suite alone, so a
+    // refactor turning it into a throw would have passed every unit test.
+    it('stands down when a Flux node at this address holds the port', async () => {
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        siblingHoldingPort: { address: '86.9.47.94:16137', port: 31000 },
+      });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+      expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at 86.9.47.94:16137'))).to.be.true;
+    });
+
+    it('does not treat a port a sibling holds as an error against the app', async () => {
+      // The app keeps the ordinary spawn-cache entry every selection takes, so
+      // this node stops considering it until that expires - which is right,
+      // because nothing changes until the sibling gives the port up. What it
+      // must NOT get is the long-term error cache, which is for apps that are
+      // broken rather than apps this node cannot host.
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        siblingHoldingPort: { address: '86.9.47.94:16137', port: 31000 },
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.false;
+    });
+
+    // The control: the same app, same everything, with no sibling holding the
+    // port. Without this the two above would pass on an app that never reached
+    // the check at all.
+    it('does not stand down when no sibling holds the port', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0 });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at'))).to.be.false;
+    });
 
     it('should add to short-term cache when network error count >= 5', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
