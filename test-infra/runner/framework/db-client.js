@@ -301,6 +301,23 @@ export function dbClient(nodeNum) {
       await globalDb.collection('appstateevents').insertOne(event);
     },
 
+    /**
+     * The same, for a whole set, in ONE round trip.
+     *
+     * These events carry `broadcastedAt`, and the window that accepts them is
+     * real - messageStore refuses a broadcast older than locationTtlS, which the
+     * harness compresses to 63s. Seeding a few hundred of them an insertOne at a
+     * time costs more wall-clock than the window itself, so the events expire
+     * during their own seeding and the suite reads an empty location list rather
+     * than a rejected message. Ordered, because a suite that seeds two broadcasts
+     * from one node is usually proving which of them wins.
+     */
+    async seedAppStateEvents(events) {
+      if (!events.length) return;
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('appstateevents').insertMany(events, { ordered: true });
+    },
+
     async seedLocalApp(spec) {
       const localDb = await db('appsLocal');
       await localDb.collection('zelappsinformation').insertOne(spec);

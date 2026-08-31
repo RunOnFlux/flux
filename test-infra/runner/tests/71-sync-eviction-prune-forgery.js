@@ -172,13 +172,20 @@ describe('Sync response: eviction, pruning and forged events', function () {
       signedBy: FORGERY_NODE === 1 ? 2 : 1,
     }));
 
-    for (let i = 1; i <= 10; i++) {
-      const dc = dbClient(i);
-      for (const event of events) {
-        // eslint-disable-next-line no-await-in-loop
-        await dc.seedAppStateEvent({ ...event });
-      }
-    }
+    // Seeded in ONE round trip per node, not one per event.
+    //
+    // These are broadcasts and their acceptance window is live: messageStore
+    // refuses one older than locationTtlS, 63s here. Ten nodes times 326 events
+    // is 3,260 sequential insertOne round trips, which on a gate box outlives
+    // that window - every event then arrives already expired, is skipped without
+    // a word, and the suite reads an empty location list rather than a rejected
+    // message. The `stamp` comment above moved the clock's start into the hook;
+    // this keeps the hook short enough for that start to still mean something.
+    await Promise.all(Array.from({ length: 10 }, (_unused, n) => dbClient(n + 1).seedAppStateEvents(
+      // A copy per node: insertMany stamps _id onto the objects it is given, so
+      // one shared array would carry node 1's ids into every other node's insert.
+      events.map((event) => ({ ...event })),
+    )));
 
     const joiner = await env.startNode(10);
     await waitForDaemonReady(joiner);
