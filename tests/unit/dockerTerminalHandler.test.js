@@ -28,6 +28,9 @@ describe('dockerTerminalHandler tests', () => {
       fire(event, ...args) {
         return Promise.all((listeners[event] || []).map((fn) => fn(...args)));
       },
+      listenerCount(event) {
+        return (listeners[event] || []).length;
+      },
     };
   };
 
@@ -123,6 +126,162 @@ describe('dockerTerminalHandler tests', () => {
   // socket.io listener is one nobody handles: node raises it to apiServer's
   // uncaughtException handler, which exits the process. Emitting exec with no
   // arguments was an unauthenticated restart of the node.
+  // The session belongs to the connection, not to the message that opened it.
+  // Everything below used to live inside the 'exec' listener, so a second 'exec'
+  // brought a second shell and a second set of listeners on the one socket - and
+  // a keystroke was then written into both shells.
+  describe('the session the connection owns', () => {
+    const workingShell = () => {
+      const stream = { on: sinon.stub(), destroy: sinon.stub(), write: sinon.stub() };
+      const execInstance = { start: (options, cb) => cb(null, stream), resize: sinon.stub() };
+      getDockerContainerByIdOrName.resolves({ exec: (cmd, cb) => cb(null, execInstance) });
+      return { stream, execInstance };
+    };
+
+    it('registers its listeners for the connection, before any message', async () => {
+      const socket = makeSocket();
+
+      await dockerTerminalHandler(socket);
+
+      ['exec', 'cmd', 'resize', 'disconnect'].forEach((event) => {
+        expect(socket.listenerCount(event), `${event} is not registered at connection`).to.equal(1);
+      });
+    });
+
+    it('leaves those listeners alone however many times exec is sent', async () => {
+      workingShell();
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+      ['cmd', 'resize', 'disconnect'].forEach((event) => {
+        expect(socket.listenerCount(event), `${event} accumulated on the socket`).to.equal(1);
+      });
+    });
+
+    it('refuses a second terminal rather than opening one beside the first', async () => {
+      workingShell();
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+      socket.emit.resetHistory();
+
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+      sinon.assert.calledOnceWithExactly(socket.emit, 'error', 'This connection already has a terminal.');
+      expect(verifyPrivilege.callCount, 'the refused message still reached docker').to.equal(1);
+      expect(sessionsOfType('open')).to.have.lengthOf(1);
+    });
+
+    // The claim says a terminal exists or is being set up, not that one was ever
+    // attempted. A setup that failed left neither, and telling the next attempt
+    // it already has a terminal would simply be untrue.
+    it('lets the caller try again when the setup failed', async () => {
+      getDockerContainerByIdOrName.resolves(null);
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+      sinon.assert.calledOnceWithExactly(socket.emit, 'error', 'Container not found.');
+
+      workingShell();
+      socket.emit.resetHistory();
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+      sinon.assert.notCalled(socket.emit);
+      expect(verifyPrivilege.callCount, 'the retry was refused a terminal it did not have').to.equal(2);
+      expect(sessionsOfType('open')).to.have.lengthOf(1);
+    });
+
+    // The open is recorded before the exec is created, so a setup that fails
+    // after it has to pair it. It used to hang unpaired until the socket closed.
+    it('pairs the session it recorded when the shell then fails to start', async () => {
+      getDockerContainerByIdOrName.resolves({ exec: (cmd, cb) => cb(new Error('container is not running'), null) });
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+      sinon.assert.calledOnceWithExactly(socket.emit, 'error', 'Error opening a terminal. Is the container running?');
+      expect(sessionsOfType('open')).to.have.lengthOf(1);
+      expect(sessionsOfType('close'), 'the open it recorded was left hanging').to.have.lengthOf(1);
+    });
+
+    it('ignores a keystroke and a resize sent before the shell exists', async () => {
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+
+      await socket.fire('cmd', 'ls\n');
+      await socket.fire('resize', { rows: 10, cols: 20 });
+
+      sinon.assert.notCalled(socket.emit);
+    });
+
+    // The control for the two above: a handler that routed nothing anywhere
+    // would pass both of them.
+    it('routes a keystroke and a resize to the shell once it exists', async () => {
+      const { stream, execInstance } = workingShell();
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+      await socket.fire('cmd', 'ls\n');
+      await socket.fire('resize', { rows: 10, cols: 20 });
+
+      sinon.assert.calledOnceWithExactly(stream.write, 'ls\n');
+      sinon.assert.calledOnce(execInstance.resize);
+      expect(execInstance.resize.firstCall.args[0]).to.deep.equal({ h: 10, w: 20 });
+    });
+  });
+
+  // Both halves of the setup race, which is what the listeners being registered
+  // at connection buys. socket.io emits 'disconnect' exactly once, so a client
+  // that leaves mid-setup has already had it delivered: nothing registered
+  // afterwards can ever run, and whatever the setup goes on to create is left
+  // with nobody to destroy it.
+  describe('a client that leaves while the shell is being set up', () => {
+    it('records no session when it leaves before the shell was opened', async () => {
+      const socket = makeSocket();
+      let releaseAuth;
+      verifyPrivilege.returns(new Promise((resolve) => { releaseAuth = resolve; }));
+
+      dockerTerminalHandler(socket);
+      const exec = socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+      socket.connected = false;
+      await socket.fire('disconnect');
+      releaseAuth(true);
+      await exec;
+
+      expect(sessionsOfType('open')).to.have.lengthOf(0);
+      expect(sessionsOfType('close')).to.have.lengthOf(0);
+    });
+
+    it('destroys the stream and pairs the session when it leaves after the shell was opened', async () => {
+      const stream = { on: sinon.stub(), destroy: sinon.stub(), write: sinon.stub() };
+      let releaseStart;
+      const execInstance = {
+        start: (options, cb) => { releaseStart = () => cb(null, stream); },
+        resize: sinon.stub(),
+      };
+      getDockerContainerByIdOrName.resolves({ exec: (cmd, cb) => cb(null, execInstance) });
+
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+      // Runs as far as exec.start and stops there, which is where the stream
+      // this test is about does not exist yet.
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+      socket.connected = false;
+      await socket.fire('disconnect');
+      releaseStart();
+
+      expect(stream.destroy.calledOnce, 'a stream nobody is attached to was left open').to.equal(true);
+      expect(sessionsOfType('open')).to.have.lengthOf(1);
+      expect(sessionsOfType('close'), 'the open it recorded was never paired').to.have.lengthOf(1);
+    });
+  });
+
   describe('arguments the client chose', () => {
     const malformed = [
       { what: 'no container at all', args: ['zelidauth'], answer: 'No container specified.' },
