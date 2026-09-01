@@ -831,7 +831,7 @@ async function getApplicationComponentNamesAPI(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+      return res.json(errMessage);
     }
 
     const specifications = await getApplicationSpecifications(mainAppName);
@@ -864,7 +864,7 @@ async function getApplicationComponentNamesAPI(req, res) {
       resources,
     });
 
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -872,7 +872,7 @@ async function getApplicationComponentNamesAPI(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 

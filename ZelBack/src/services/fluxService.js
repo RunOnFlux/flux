@@ -427,16 +427,15 @@ async function updateFlux(req, res) {
     return res.json(errMessage);
   }
 
-
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'updateflux'] });
 
   if (error) {
     const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${error.message}`, error.name, error.code);
-    return res ? res.json(errMessage) : errMessage;
+    return res.json(errMessage);
   }
 
   const message = messageHelper.createSuccessMessage('Flux successfully updated');
-  return res ? res.json(message) : message;
+  return res.json(message);
 }
 
 /**
