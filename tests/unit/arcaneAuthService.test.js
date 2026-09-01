@@ -4,7 +4,6 @@ const sinon = require('sinon');
 const { expect } = chai;
 
 const log = require('../../ZelBack/src/lib/log');
-const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const arcaneAuthService = require('../../ZelBack/src/services/arcaneAuthService');
 const fluxConfigdClient = require('../../ZelBack/src/services/utils/fluxConfigdClient');
 

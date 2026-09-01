@@ -485,7 +485,7 @@ describe('FluxPeerSocket tests', () => {
       const ws = createMockWs();
       sinon.spy(manager, 'remove');
       // Add via manager so peer is in the map
-      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(ws.onclose).to.be.a('function');
       ws.onclose({ code: 1000 });

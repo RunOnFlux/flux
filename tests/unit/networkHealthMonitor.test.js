@@ -9,12 +9,8 @@ const {
   NetworkHealthMonitor,
   HEALTH_STATUS,
   isUnexpectedDisconnect,
-  VELOCITY_BUFFER_SIZE,
   VELOCITY_THRESHOLD_COUNT,
-  VELOCITY_WINDOW_MS,
-  MIN_CONNECTION_AGE_MS,
   STEADY_STATE_DELAY_MS,
-  DIAGNOSIS_COOLDOWN_MS,
 } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
 const { CLOSE_CODES } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');

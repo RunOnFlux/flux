@@ -87,8 +87,7 @@ describe('AppSyncOrchestrator', () => {
     signMessageStub = sinon.stub().returns('fakesig==');
 
     const appSyncEventsModule = require('../../ZelBack/src/services/utils/appSyncEvents');
-    appSyncEvents = appSyncEventsModule.appSyncEvents;
-    EVENTS = appSyncEventsModule.EVENTS;
+    ({ appSyncEvents, EVENTS } = appSyncEventsModule);
     appSyncEvents.removeAllListeners();
 
     const mod = proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', {
@@ -118,8 +117,7 @@ describe('AppSyncOrchestrator', () => {
       },
       '../utils/appSyncEvents': appSyncEventsModule,
     });
-    AppSyncOrchestrator = mod.AppSyncOrchestrator;
-    STATES = mod.STATES;
+    ({ AppSyncOrchestrator, STATES } = mod);
   });
 
   afterEach(() => {
