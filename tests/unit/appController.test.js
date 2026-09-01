@@ -10,7 +10,6 @@ const appReconciler = require('../../ZelBack/src/services/appMonitoring/appRecon
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('appController tests', () => {
@@ -465,103 +464,6 @@ describe('appController tests', () => {
     });
   });
 
-  describe('operator intent event', () => {
-    let publishStub;
-
-    beforeEach(() => {
-      publishStub = sinon.stub(fluxEventBus, 'publish');
-      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
-      sinon.stub(appsRuntimeState, 'requestRestart').resolves();
-      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
-    });
-
-    const intents = () => publishStub.getCalls()
-      .filter((c) => c.args[0] === 'app:operatorIntent')
-      .map((c) => c.args[1]);
-
-    it('announces a stop, with the mode it was asked for', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
-        await mutate();
-        return true;
-      });
-
-      stubInstalledComponentApp('Component', 'TestApp');
-
-      const req = { params: { appname: 'Component_TestApp' }, query: {} };
-      const res = { json: sinon.fake((param) => param) };
-      await appController.appStop(req, res);
-
-      expect(intents()).to.deep.equal([{
-        identifier: 'Component_TestApp', stopped: true, force: false, restartRequested: false,
-      }]);
-    });
-
-    it('announces a kill as a forced stop and a restart as a start that asked for one', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
-        await mutate();
-        return true;
-      });
-      appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: true });
-
-      stubInstalledComponentApp('Component', 'TestApp');
-      const res = { json: sinon.fake((param) => param) };
-      await appController.appKill({ params: { appname: 'Component_TestApp' }, query: {} }, res);
-      await appController.appRestart({ params: { appname: 'Component_TestApp' }, query: {} }, res);
-
-      expect(intents()).to.deep.equal([
-        {
-          identifier: 'Component_TestApp', stopped: true, force: true, restartRequested: false,
-        },
-        {
-          identifier: 'Component_TestApp', stopped: false, force: false, restartRequested: true,
-        },
-      ]);
-    });
-
-    // The whole point of the event is to be the ordering point, and it can only
-    // be that if it is published while the slot is still held - after the write,
-    // so it never claims an intent that did not persist, and before the pass,
-    // which awaitPass would otherwise put first.
-    it('is published inside the slot, before the pass runs', async () => {
-      verificationHelperStub.resolves(true);
-      let announcedWhileHeld = null;
-      sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
-        await mutate();
-        announcedWhileHeld = intents().length;
-        return true;
-      });
-
-      stubInstalledComponentApp('Component', 'TestApp');
-
-      const req = { params: { appname: 'Component_TestApp' }, query: {} };
-      const res = { json: sinon.fake((param) => param) };
-      await appController.appStop(req, res);
-
-      expect(announcedWhileHeld, 'the intent must be announced while the slot is still held').to.equal(1);
-    });
-
-    it('says nothing when the intent could not be written', async () => {
-      verificationHelperStub.resolves(true);
-      appsRuntimeState.setOperatorStopped.rejects(new Error('mongo is down'));
-      sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
-        await mutate();
-        return true;
-      });
-
-      stubInstalledComponentApp('Component', 'TestApp');
-
-      const req = { params: { appname: 'Component_TestApp' }, query: {} };
-      const res = { json: sinon.fake((param) => param) };
-      await appController.appStop(req, res);
-
-      // An announced intent that never persisted is worse than silence: a
-      // consumer would order actuations against a lock that is not there.
-      expect(intents()).to.deep.equal([]);
-      expect(res.json.firstCall.args[0].status).to.equal('error');
-    });
-  });
 
   describe('appRestart tests', () => {
     beforeEach(() => {

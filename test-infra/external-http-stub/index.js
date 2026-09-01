@@ -1,4 +1,6 @@
 const zlib = require('zlib');
+const dgram = require('dgram');
+const fs = require('fs');
 const express = require('express');
 
 const PORT = parseInt(process.env.STUB_PORT || '3000', 10);
@@ -301,6 +303,24 @@ function newRouteCounters() {
 const IPLOCATION_JSON_ROUTE = '/iplocation.json';
 const IPLOCATION_BINARY_ROUTE = '/iplocation.bin.gz';
 
+// The apt repository copied out of the node image at build time, served to the fleet
+// so a legacy node installs its packages from here instead of from the internet. It is
+// the same tree the image seeded itself from, so a node that purges and reinstalls gets
+// the file it started with.
+const APT_REPO_DIR = '/repo';
+
+/**
+ * The syncthing version the node image ships, recorded by the repository build.
+ * Absent only if the stub image was built against a node image without one, which is
+ * a build-ordering fault worth failing loudly on rather than papering over with a
+ * default that would quietly make the minimum-version check meaningless.
+ */
+function imageSyncthingVersion() {
+  const recorded = fs.readFileSync(`${APT_REPO_DIR}/syncthing.version`, 'utf8').trim();
+  if (!recorded) throw new Error(`${APT_REPO_DIR}/syncthing.version is empty`);
+  return recorded;
+}
+
 const state = {
   blockedRepositories: [],
   vettedRepositories: [],
@@ -308,6 +328,21 @@ const state = {
   tamperingBlocklist: [],
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
+  // The syncthing the node image ships, read from the repository the image was built
+  // with rather than restated here. Serving the version the fleet already has is what
+  // makes the boot-time check a no-op; a suite that wants the upgrade path raises this
+  // instead of reaching syncthing's own service. A restated version goes stale silently:
+  // it moves whenever the image is rebuilt, and a minimum every node exceeds asserts
+  // nothing at all.
+  moduleMinimumVersions: { syncthing: imageSyncthingVersion(), docker: '26.1.2' },
+  marketplaceApps: [],
+  appSpecsUsdPrice: [],
+  // Fixed rates, so a price assertion is arithmetic rather than a bet on the market.
+  // usdPerBtc * btcPerFlux is what the caller multiplies out, and it must equal usdPerFlux
+  // so the coingecko fallback cannot change an answer.
+  usdPerBtc: 100000,
+  btcPerFlux: 0.000002,
+  usdPerFlux: 0.2,
   // published below; null in either representation serves a 404, which leaves
   // nodes tableless on the /16 arithmetic
   ipLocation: null,
@@ -454,6 +489,61 @@ app.get('/repos/:owner/:repo/releases/latest', (req, res) => {
 
 app.get('/repos/:owner/:repo', (req, res) => {
   res.json({ full_name: `${req.params.owner}/${req.params.repo}` });
+});
+
+// UPnP: a device description with no WANIPConnection service. upnpService is pointed here
+// so its client stops searching for a gateway by SSDP multicast; support verification then
+// fails on the missing service, which is the same verdict a node reaches today, so no node
+// changes its mind about having UPnP.
+app.get('/upnp/device.xml', (req, res) => {
+  res.type('text/xml').send(
+    '<?xml version="1.0"?>'
+    + '<root xmlns="urn:schemas-upnp-org:device-1-0">'
+    + '<device><deviceType>urn:schemas-upnp-org:device:InternetGatewayDevice:1</deviceType>'
+    + '<friendlyName>flux-e2e-stub-gateway</friendlyName><serviceList /></device>'
+    + '</root>',
+  );
+});
+
+// The apt repository a legacy node installs syncthing from. FluxOS writes this source
+// itself (systemService addSyncthingRepository) from config.syncthing.aptSourceUrl, and
+// fetches the keyring from config.syncthing.releaseKeyUrl, so both are pointed here and
+// the keyring fetch, the source write, apt's HTTP transport and signature verification
+// all run exactly as they do on a node - against a repository that never leaves the
+// fleet network.
+app.use('/apt', express.static(APT_REPO_DIR, { fallthrough: false }));
+
+// Stats: the minimum module versions a node checks its own syncthing against at boot.
+// The harness names the version its image ships, so the check is satisfied and no upgrade
+// is attempted; a suite exercising the upgrade path raises it through the control port.
+app.get('/getmodulesminimumversions', (req, res) => {
+  res.json({ status: 'success', data: state.moduleMinimumVersions });
+});
+
+// Stats: marketplace listings. Empty by default - a suite that needs a listed app puts one
+// in through the control port rather than depending on what the live marketplace holds.
+app.get('/marketplace/listapps', (req, res) => {
+  res.json({ status: 'success', data: state.marketplaceApps });
+});
+
+app.get('/marketplace/listdevapps', (req, res) => {
+  res.json({ status: 'success', data: state.marketplaceApps });
+});
+
+// Stats: per-spec USD pricing.
+app.get('/apps/getappspecsusdprice', (req, res) => {
+  res.json({ status: 'success', data: state.appSpecsUsdPrice });
+});
+
+// Pricing: viprates.runonflux.io/rates. The real service answers a two-element array -
+// [fiatRates, coinRates] - and the caller reads USD from the first and FLUX from the second.
+app.get('/rates', (req, res) => {
+  res.json([[{ code: 'USD', rate: state.usdPerBtc }], { FLUX: state.btcPerFlux }]);
+});
+
+// Pricing: the coingecko fallback, reached only when /rates above is unavailable.
+app.get('/api/v3/simple/price', (req, res) => {
+  res.json({ zelcash: { usd: state.usdPerFlux } });
 });
 
 // Geolocation: ip-api.com format (primary)
@@ -626,6 +716,119 @@ control.post('/reset', (req, res) => {
 control.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
+
+// Every name a node asked for that nothing on the fleet could answer, with the
+// node that asked. A suite asserts this is empty; when it is not, the failure
+// names the host and the node instead of describing itself as slow.
+control.get('/dns-attempts', (req, res) => {
+  res.json({ attempts: dnsAttempts });
+});
+
+control.post('/dns-attempts/reset', (req, res) => {
+  dnsAttempts.length = 0;
+  res.json({ ok: true });
+});
+
+// The fleet's resolver.
+//
+// Blocking a network is not the same as failing loudly on it: a blocked packet
+// surfaces as a timeout, and a timeout reads as slowness rather than as a node
+// reaching somewhere it should not. So the nodes resolve here instead, and a name
+// the fleet cannot answer comes back NXDOMAIN at once, recorded against the node
+// that asked for it.
+//
+// Fleet names still resolve, because this relays to its own embedded Docker
+// resolver at 127.0.0.11 - the same one that knows every container alias on this
+// network. Relaying rather than answering means aliases need no list here and
+// cannot drift from the ones the runner actually creates.
+const dnsAttempts = [];
+
+function questionName(query) {
+  // QNAME begins after the 12-byte header, as length-prefixed labels ending in 0.
+  let offset = 12;
+  const labels = [];
+  while (offset < query.length) {
+    const len = query[offset];
+    if (len === 0 || len > 63) break;
+    labels.push(query.subarray(offset + 1, offset + 1 + len).toString('ascii'));
+    offset += len + 1;
+  }
+  return labels.join('.');
+}
+
+function startResolver() {
+  const server = dgram.createSocket('udp4');
+
+  server.on('message', (query, rinfo) => {
+    const name = questionName(query);
+    const upstream = dgram.createSocket('udp4');
+    let settled = false;
+
+    const answer = (response, resolved) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // answer() also runs as the upstream's own error handler, and close()
+      // throws on a socket that never bound - from inside an error handler
+      // nothing catches, so one unlucky query would take the resolver down for
+      // the whole run. An uncloseable socket is left to the garbage collector.
+      try {
+        upstream.close();
+      } catch {
+        // nothing to close
+      }
+      if (!resolved) dnsAttempts.push({ name, node: rinfo.address, at: new Date().toISOString() });
+      server.send(response, rinfo.port, rinfo.address);
+    };
+
+    // NXDOMAIN built from the query: same id and question, QR and RCODE 3 set.
+    const refuse = () => {
+      const response = Buffer.from(query);
+      response[2] |= 0x80;
+      response[3] = (response[3] & 0xf0) | 0x03;
+      answer(response, false);
+    };
+
+    // Short, because this is the whole point: an unanswerable name must fail now
+    // rather than at whatever deadline the caller happens to carry.
+    const timer = setTimeout(refuse, 300);
+
+    upstream.on('error', refuse);
+    upstream.on('message', (response) => {
+      const rcode = response[3] & 0x0f;
+      if (rcode === 0) answer(response, true);
+      else refuse();
+    });
+
+    upstream.send(query, 53, '127.0.0.11');
+  });
+
+  // A dgram socket with no 'error' listener turns any failure into an uncaught
+  // exception. The failure that actually happens is the bind - port 53 already
+  // held, usually by the previous run's container on its way out - and without a
+  // listener the stub dies on a stack trace that mentions neither DNS nor the
+  // port, while every node in the fleet silently fails to resolve anything. That
+  // reads as a fleet-wide product fault and is nothing of the kind.
+  //
+  // Fatal on purpose: a resolver that never bound is not a resolver, and the run
+  // should say so at startup rather than eighty suites later. Errors after the
+  // bind cost one query and are logged, which this handler covers for free.
+  let bound = false;
+  server.on('error', (error) => {
+    if (!bound) {
+      console.error(`External HTTP stub resolver could not bind to 53: ${error.message}`);
+      process.exit(1);
+    }
+    console.error(`External HTTP stub resolver socket error: ${error.message}`);
+  });
+
+  server.bind(53, () => {
+    bound = true;
+    console.log('External HTTP stub resolver on port 53');
+  });
+}
+
+startResolver();
 
 app.listen(PORT, () => {
   console.log(`External HTTP stub listening on port ${PORT}`);

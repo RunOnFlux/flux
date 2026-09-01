@@ -118,7 +118,7 @@ async function setNodeGeolocation() {
           dataCenter: ipRes.data.hosting,
         };
       } else {
-        const statsApiUrl = `${config.geolocation.statsApiBaseUrl}/fluxlocation/${localIp}`;
+        const statsApiUrl = `${config.stats.baseUrl}/fluxlocation/${localIp}`;
         const statsRes = await serviceHelper.axiosGet(statsApiUrl);
         if (statsRes.data.status === 'success' && statsRes.data.data) {
           storedGeolocation = {

@@ -219,9 +219,6 @@ describe('appSpawner tests', () => {
       '../utils/cacheManager': {
         FluxCacheManager: { oneHour: 3600000 },
       },
-      '../utils/fluxEventBus': {
-        publish: sinon.stub(),
-      },
       '../appMessaging/messageStore': {
         storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
         storeAppInstallingErrorMessage: opts.installingErrorStub ?? sinon.stub().resolves(true),

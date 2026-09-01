@@ -35,8 +35,54 @@ if [ -n "$NODE_CONFIG_DIR" ] && [ -d "$NODE_CONFIG_DIR" ]; then
   cp "$(dirname "$NODE_CONFIG_DIR")/shared.js" /flux/ZelBack/ 2>/dev/null || true
 fi
 
-if [ "$FLUX_DISCOVERY_AUTOSTART" = "true" ]; then
-  sed -i 's/discoveryAutostart: false/discoveryAutostart: true/' /flux/ZelBack/shared.js
+# The runner's own overrides arrive as JSON and are merged OVER the per-node file
+# copied above, which is where the per-node database names come from - replacing
+# that file rather than merging would take them with it.
+#
+# They used to arrive as NODE_CONFIG. The config package merges that variable over
+# every file whatever directory is pinned, so it could redirect any endpoint
+# without touching the directory fluxbenchd hashes - the one change tamper
+# detection cannot see. The entry points delete it now, and this carries the same
+# content to the same place through a file instead.
+if [ -n "$FLUX_TEST_CONFIG" ]; then
+  node -e '
+    const fs = require("fs");
+    const target = "/flux/ZelBack/config/local.js";
+    const base = fs.existsSync(target) ? require(target) : {};
+    const isPlain = (v) => v && typeof v === "object" && !Array.isArray(v);
+    const merge = (a, b) => {
+      const out = { ...a };
+      for (const [k, v] of Object.entries(b)) out[k] = isPlain(v) && isPlain(a[k]) ? merge(a[k], v) : v;
+      return out;
+    };
+    const merged = merge(base, JSON.parse(process.env.FLUX_TEST_CONFIG));
+    fs.writeFileSync(target, `module.exports = ${JSON.stringify(merged, null, 2)};\n`);
+  '
+fi
+
+# The image ships these installed, which is the state a node is in on every boot
+# after its first. A suite that wants to exercise the install asks for a node
+# without them, and gets one here - before FluxOS starts, so monitorSystem()
+# meets the same absence a real first boot does.
+#
+# Purge, not remove: a removed package leaves its configuration behind and
+# dpkg-query reports `deinstall ok config-files`, which is neither installed nor
+# absent. getPackageVersion returns '' for that as well as for absent, so the
+# node would behave plausibly while sitting in a state no real node is ever in.
+if [ "$FLUX_APT_SEEDED" = "false" ]; then
+  DEBIAN_FRONTEND=noninteractive apt-get purge -y chrony syncthing netcat-openbsd >/dev/null 2>&1 || true
+fi
+
+# A source apt cannot reach, ALONGSIDE the good one rather than instead of it.
+# apt-get update then exits non-zero exactly as it does on a real node behind an
+# unreachable mirror, an expired key or a DNS blip - while the packages queued
+# behind that failure stay installable from the repository the image built, so a
+# node that survives the failure still finishes its checks. Replacing the good
+# source instead would fail the installs too, and prove only that a broken node
+# stays broken.
+if [ "$FLUX_APT_BAD_SOURCE" = "true" ]; then
+  echo "deb [trusted=yes] file:///opt/flux-apt-repo-does-not-exist ubuntu main" \
+    > /etc/apt/sources.list.d/flux-e2e-unreachable.list
 fi
 
 # Syncthing listens on apiport+2 in production. The availability checker tests
@@ -47,8 +93,8 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # generates its own identity on first run, which is what gives each node a
   # distinct device id, and FluxOS then sets discovery off, NAT off and
   # listenAddresses to apiport+2 through the API exactly as it does on a node.
-  # The endpoint is decided by the runner through NODE_CONFIG, which the config
-  # package merges over the mounted shared.js. No socat either way: whoever
+  # The endpoint is decided by the runner through the local.js written above,
+  # which node-config loads last. No socat either way: whoever
   # starts the daemon, it binds apiport+2 itself.
   #
   # WHO starts it depends on the node type, and SYNCTHING_PATH is the same

@@ -1,5 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire').noCallThru();
 
 const { expect } = chai;
 
@@ -15,6 +16,93 @@ const systemService = require('../../ZelBack/src/services/systemService');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 
 describe('system Services tests', () => {
+  describe('apt queue construction', () => {
+    // The queue is built COMPLETE and LATE. Complete because one that arrives
+    // without its worker silently accepts work it cannot run; late because
+    // importing a module should not start anything - an Arcane node never queues
+    // apt work, and a test or script reaching in for one unrelated function
+    // should not acquire a worker it never asked for.
+    function loadWithSpy() {
+      const instance = {
+        on: sinon.stub(), push: sinon.stub(), resume: sinon.stub(), clear: sinon.stub(),
+      };
+      const FifoQueue = sinon.stub().returns(instance);
+      const service = proxyquire('../../ZelBack/src/services/systemService', {
+        './utils/fifoQueue': { FifoQueue },
+      });
+      return { service, FifoQueue, instance };
+    }
+
+    it('builds nothing merely because the module was imported', () => {
+      const { FifoQueue } = loadWithSpy();
+
+      sinon.assert.notCalled(FifoQueue);
+    });
+
+    it('builds it complete on first use, and only once', () => {
+      const { service, FifoQueue, instance } = loadWithSpy();
+
+      const first = service.getQueue();
+      const second = service.getQueue();
+
+      sinon.assert.calledOnce(FifoQueue);
+      expect(first).to.equal(second);
+      // the worker arrives WITH it, never bolted on afterwards
+      expect(FifoQueue.firstCall.args[0].worker).to.be.a('function');
+      sinon.assert.calledWith(instance.on, 'failed');
+      sinon.assert.calledWith(instance.on, 'abandoned');
+    });
+  });
+
+  // The branch that installs a package the system does not have at all. Its
+  // return value IS the contract - upgradePackage answers whether the install
+  // FAILED, and this branch used to discard that and report the install either
+  // way, so an apt-get that could not find the package read back the same as one
+  // that installed it. The queue is stubbed rather than driven: a real failure
+  // walks five retries a minute apart, which is not what is under test here.
+  describe('ensurePackageVersion tests', () => {
+    function loadWithInstallResult(installError) {
+      const instance = {
+        on: sinon.stub(), push: sinon.stub(), resume: sinon.stub(), clear: sinon.stub(),
+      };
+      instance.push
+        .withArgs(sinon.match({ commandOptions: sinon.match({ command: 'install' }) }), true)
+        .resolves({ error: installError });
+      instance.push.resolves({ error: null });
+      const FifoQueue = sinon.stub().returns(instance);
+      return proxyquire('../../ZelBack/src/services/systemService', {
+        './utils/fifoQueue': { FifoQueue },
+      });
+    }
+
+    beforeEach(() => {
+      // dpkg-query answers empty, so the package is absent and the install runs
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('reports an install apt could not perform as not installed', async () => {
+      const service = loadWithInstallResult(new Error('E: Unable to locate package netcat-openbsd'));
+
+      const installed = await service.ensurePackageVersion('netcat-openbsd', '1.187');
+
+      expect(installed).to.equal(false);
+    });
+
+    it('reports an install that succeeded as installed', async () => {
+      const service = loadWithInstallResult(null);
+
+      const installed = await service.ensurePackageVersion('netcat-openbsd', '1.187');
+
+      expect(installed).to.equal(true);
+    });
+  });
+
   describe('get last cache time update tests', () => {
     let statStub;
     let stubFake;
@@ -71,7 +159,6 @@ describe('system Services tests', () => {
   describe('updateAptCache tests', () => {
     let statStub;
     let runCmdStub;
-    systemService.getQueue().addWorker(systemService.aptRunner);
 
     beforeEach(() => {
       statStub = sinon.stub(fs, 'stat');
@@ -115,7 +202,7 @@ describe('system Services tests', () => {
       const cacheUpdateError = await systemService.updateAptCache();
 
       expect(cacheUpdateError).to.equal(false);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
     });
   });
 
@@ -150,7 +237,7 @@ describe('system Services tests', () => {
       const error = await systemService.upgradePackage('syncthing');
 
       expect(error).to.equal(false);
-      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
   });
 
@@ -266,7 +353,7 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
 
     it('should upgrade syncthing immediately if correct version present but uninstalled', async () => {
@@ -295,7 +382,43 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
+    });
+
+    it('creates the missing apt source before the sources update can give up', async () => {
+      // The node this exists for: syncthing 1.x installed and no
+      // /etc/apt/sources.list.d/syncthing.list at all - a key fetch failed in
+      // some earlier pass, or syncthing came from Ubuntu's archive. The
+      // sources rewrite cannot read a file that does not exist, and its
+      // failure must not stand between this node and the file being created:
+      // that ordering leaves the node warning once a day, forever.
+      const now = 1713858779721;
+      const statsVersion = '2.2.2';
+
+      sinon.stub(axios, 'get').callsFake(async (url) => {
+        if (url.includes('stats.runonflux.io')) {
+          return { data: { status: 'success', data: { syncthing: statsVersion } } };
+        }
+        return { data: Buffer.from('fake-keyring') };
+      });
+
+      const cmdRunner = sinon.fake((cmd) => {
+        if (cmd === 'dpkg-query') return { error: null, stdout: "'1.19.2|install ok installed'" };
+        if (cmd === 'cat') return { error: null, stdout: '' };
+        return { error: null, stdout: '' };
+      });
+      runCmdStub.callsFake(cmdRunner);
+
+      statStub.withArgs('/etc/apt/sources.list.d/syncthing.list').rejects(new Error('ENOENT'));
+      statStub.resolves({ mtimeMs: now });
+      sinon.stub(fs, 'access').resolves();
+      const writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+
+      sinon.useFakeTimers({ now });
+
+      await systemService.monitorSyncthingPackage();
+
+      sinon.assert.calledWith(writeFileStub, '/etc/apt/sources.list.d/syncthing.list', sinon.match('stable-v2'));
     });
 
     it('should not call upgradeSyncthing if on correct version', async () => {
@@ -763,7 +886,7 @@ describe('system Services tests', () => {
       await systemService.addSyncthingRepository();
 
       sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n');
-      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
     });
   });
   describe('enableFluxdZmq tests', () => {
@@ -913,6 +1036,66 @@ describe('system Services tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.calledOnceWithExactly(writeStub, '/home/testuser/.flux/.zmqEnabled', '');
+    });
+  });
+
+  describe('apt hygiene tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('asks apt for what a package needs, not what it suggests', async () => {
+      // Recommends are how shared-mime-info, dbus, glib and python3-gi arrive on a
+      // node that asked for chrony - and how ten of them came to sit in
+      // uninterruptible sleep running update-mime-database during a gate.
+      const runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+
+      await systemService.aptRunner({ command: 'install', params: ['chrony'] });
+
+      const [, options] = runCmdStub.firstCall.args;
+      expect(options.params).to.include('--no-install-recommends');
+    });
+
+    it('does not write an apt source to a node whose syncthing is already current', async () => {
+      // addSyncthingRepository fetches a release key and writes a keyring and a
+      // source. A node that has nothing to install reads neither.
+      const statStub = sinon.stub(fs, 'stat').resolves({ mtimeMs: 0 });
+      sinon.stub(axios, 'get').resolves({ data: { status: 'success', data: { syncthing: '1.0.0' } } });
+      sinon.stub(serviceHelper, 'runCommand').resolves({
+        error: null, stdout: "'2.1.3|install ok installed'",
+      });
+      sinon.stub(log, 'info');
+
+      systemService.resetTimers();
+      await systemService.monitorSyncthingPackage();
+      systemService.resetTimers();
+
+      const touchedSource = statStub.getCalls()
+        .some((call) => String(call.args[0]).includes('sources.list.d/syncthing.list'));
+      expect(touchedSource).to.equal(false);
+    });
+  });
+
+  describe('queueAptGetCommand option forwarding tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('forwards every worker option the caller set, not just retries', async () => {
+      // updateAptCache asks for retainErrors: false precisely so a failed update is
+      // dropped instead of left at the head of the queue. Dropped here, the queue
+      // kept it, and the apt cache monitor's resume() ran it again immediately -
+      // with retries at 0 there is no delay, so the two of them span flat out.
+      sinon.stub(fs, 'stat').resolves({ mtimeMs: 0 });
+      const pushStub = sinon.stub(systemService.getQueue(), 'push').resolves({ error: null });
+
+      await systemService.updateAptCache({ force: true });
+
+      sinon.assert.calledOnce(pushStub);
+      const [payload] = pushStub.firstCall.args;
+      expect(payload.commandOptions.command).to.equal('update');
+      expect(payload.workerOptions.retries).to.equal(0);
+      expect(payload.workerOptions.retainErrors).to.equal(false);
     });
   });
 

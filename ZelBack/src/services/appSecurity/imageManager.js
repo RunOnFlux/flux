@@ -290,7 +290,7 @@ async function getUserBlockedRepositores() {
       return userBlockedRepos;
     }
     const usableUserBlockedRepos = [];
-    const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+    const marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
     const response = await axios.get(marketPlaceUrl);
     console.log(response);
     if (response && response.data && response.data.status === 'success') {

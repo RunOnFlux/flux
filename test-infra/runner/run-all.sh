@@ -16,6 +16,16 @@ set -uo pipefail
 
 cd "$(dirname "$0")" || exit 99
 
+# A targeted run is where a stale image bites hardest: one suite, failing in a
+# way that reads like the product. run-parallel checks once for the whole gate
+# and says so, so this does not repeat it 85 times.
+if [ -z "${E2E_IMAGES_VERIFIED:-}" ]; then
+  if ! "$PWD/../verify-images.sh"; then
+    echo "###ABORT images do not match the tree - see above."
+    exit 96
+  fi
+fi
+
 # A live FluxOS on this host owns BOTH container-name spaces: anything NOT
 # named zel*/flux* is stopped by its 2-hourly stopAllNonFluxRunningApps sweep
 # (killed suite 28's fleet mid-boot in the 2026-06-12 gate), and flux*/zel*
@@ -109,7 +119,7 @@ release_base() { [ -n "${CLAIMED_BASE:-}" ] && rm -rf "${LOCK_ROOT:?}/$CLAIMED_B
 # bare-key pre-gate sweep or the manual pre-run clean.
 cleanup_on_exit() {
   if [ -n "${RUN_LABEL:-}" ]; then
-    docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -f >/dev/null 2>&1
+    docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -fv >/dev/null 2>&1
     # The base lock outlives the network: removal is not instantaneous - a
     # network with detaching endpoints refuses the rm, and one mid-removal
     # can be absent from ls while its subnet is still allocated - so a lock
@@ -149,7 +159,7 @@ for f in "${SUITES[@]}"; do
 
   # drop any orphaned objects THIS run leaked so a leak in one suite can't fail the
   # next — scoped to our own run label so a concurrent run-all's live fleet is untouched
-  docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -f >/dev/null 2>&1
+  docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -fv >/dev/null 2>&1
   docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker network rm >/dev/null 2>&1
   docker volume ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker volume rm >/dev/null 2>&1
 

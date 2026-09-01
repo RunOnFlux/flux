@@ -815,9 +815,9 @@ function getEnterpriseAppOwners(req, res) {
 function getMarketplaceURL(req, res) {
   const userconfig = globalThis.userconfig;
   const development = userconfig.initial.development || false;
-  let marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+  let marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
   if (development) {
-    marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listdevapps';
+    marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listdevapps`;
   }
   const message = messageHelper.createDataMessage(marketPlaceUrl);
   return res ? res.json(message) : message;

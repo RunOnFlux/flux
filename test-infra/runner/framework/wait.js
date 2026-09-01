@@ -1,4 +1,4 @@
-import { getAppContainerStatus } from './container.js';
+import { getAppContainerStatus, restartFluxos } from './container.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 
 export async function waitFor(condition, { timeout = 60000, interval = 2000, label = '' } = {}) {
@@ -39,6 +39,45 @@ export async function waitForDaemonPolled(node, predicate = () => true, timeout 
 
 export async function waitForDaemonReady(node, timeout = 60000, opts) {
   return node.waitForEvent('daemon:polled', () => true, timeout, opts);
+}
+
+export async function waitForFileOpsRecovered(node, predicate = () => true, timeout = 120000, opts) {
+  return node.waitForEvent('fileops:recovered', predicate, timeout, opts);
+}
+
+// The boot's package checks are over, and the payload's `installed` says what
+// they did. A provisioned node has nothing else to go on: the packages are
+// present whether or not the checks ever ran, so presence alone cannot tell a
+// check that ran and found its work done from one that never started.
+export async function waitForPackagesChecked(node, predicate = () => true, timeout = 180000, opts) {
+  return node.waitForEvent('system:packages-checked', predicate, timeout, opts);
+}
+
+// One apt command completing, as a fact rather than as packages turning up on
+// disk later. `opts.afterId` is what makes a second call mean "the NEXT one",
+// which is how a test says "the queue carried on past the one that failed".
+export async function waitForAptCommand(node, predicate = () => true, timeout = 60000, opts) {
+  return node.waitForEvent('system:apt-command', predicate, timeout, opts);
+}
+
+// Restart a node and return only once its boot recovery pass has finished.
+//
+// restartFluxos alone returns when /flux/version answers, and the API is up long
+// before the boot sweep runs - so a test that restarts and asserts immediately is
+// reading the state from BEFORE the thing it restarted for. Two ways that bites: the
+// assertions pass against the pre-sweep state and prove nothing, and the sweep then
+// lands during whatever runs next and eats its fixtures. Both were observed together
+// in suite 72, where the D1 marker regression passed without the sweep having run and
+// the following test lost its fixture to it.
+//
+// The id is snapshotted BEFORE the kill on purpose. The bus seeds its ids from the
+// monotonic clock precisely so they stay monotonic across a restart, which is what
+// makes afterId a sound filter here: the previous boot's event cannot satisfy this
+// wait, and a fresh process cannot mint an id that looks older than one already seen.
+export async function restartFluxosAndAwaitRecovery(node, { readyTimeoutMs, recoveryTimeoutMs = 120000 } = {}) {
+  const afterId = node.getLastEventId();
+  await restartFluxos(node.container, readyTimeoutMs ? { readyTimeoutMs } : {});
+  return waitForFileOpsRecovered(node, () => true, recoveryTimeoutMs, { afterId });
 }
 
 export async function waitForBlockProcessed(node, predicate = () => true, timeout = 30000, opts) {

@@ -4,8 +4,11 @@
 # Downloads the latest dist.tar.gz from fluxos-frontend GitHub releases,
 # verifies the SHA256 checksum, and updates the CloudUI folder.
 #
-# Usage: npm run update:cloudui
-#        or: bash scripts/update-cloudui.sh
+# The API base URL is required - see the note on API_BASE_URL below for why it is
+# an argument rather than a default or an environment variable.
+#
+# Usage: npm run update:cloudui -- <api-base-url>
+#        or: bash scripts/update-cloudui.sh <api-base-url>
 #
 # Output:
 # - CloudUI/ folder with the latest frontend build
@@ -24,7 +27,20 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TEMP_DIR=$(mktemp -d)
 REPO="RunOnFlux/fluxos-frontend"
 CLOUDUI_DIR="$PROJECT_ROOT/CloudUI"
-RELEASE_API="https://api.github.com/repos/$REPO/releases/latest"
+
+# The API host is supplied by the caller, which reads it from ZelBack's config. It is
+# deliberately NOT defaulted and NOT read from the environment: config lives in the
+# directory fluxbench hashes, so a node cannot be pointed somewhere else without the
+# tampering being detected, and an environment variable would hand that back to whoever
+# starts the process. A caller that forgets the argument gets a failure, never a silent
+# fetch from the public internet.
+API_BASE_URL="${1:-}"
+if [ -z "$API_BASE_URL" ]; then
+    echo "Error: no API base URL given."
+    echo "Usage: $0 <api-base-url>    (e.g. https://api.github.com)"
+    exit 1
+fi
+RELEASE_API="$API_BASE_URL/repos/$REPO/releases/latest"
 
 echo "=========================================="
 echo "  FluxOS CloudUI Update Script"

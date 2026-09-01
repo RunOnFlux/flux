@@ -79,7 +79,9 @@ describe('geolocationService tests', () => {
       },
       geolocation: {
         ipApiBaseUrl: 'http://ip-api.com',
-        statsApiBaseUrl: 'https://stats.runonflux.io',
+      },
+      stats: {
+        baseUrl: 'https://stats.runonflux.io',
       },
     };
 

@@ -52,6 +52,18 @@ if [ -z "${E2E_ALLOW_HOST_FLUXOS:-}" ]; then
   done
 fi
 
+# The other way a gate is wrong before it starts: an image built from an older
+# tree runs this branch's suites and fails as though the product were broken. A
+# stale syncthing-stub cost a whole 85-suite gate on 2026-08-11. Decide it once,
+# in a second, rather than let the suites discover it one confusing failure at a
+# time - and tell the per-suite runners it is settled so they do not each repeat
+# a check that walks the whole build context.
+if ! "$PWD/../verify-images.sh"; then
+  echo "###ABORT images do not match the tree - see above."
+  exit 96
+fi
+export E2E_IMAGES_VERIFIED=1
+
 LOGROOT="${E2E_LOG_DIR:-/tmp/e2e-logs}"
 MAXN="${MAXN:-3}"
 MIN_FREE_MB="${MIN_FREE_MB:-15000}"
@@ -88,7 +100,15 @@ load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enou
 sweep_harness_leftovers(){
   # scope to OUR label (key presence, any run id) - org.testcontainers=true would
   # also kill unrelated testcontainers projects sharing the box
-  docker ps -aq --filter label=flux-e2e-run | xargs -r docker rm -f >/dev/null 2>&1
+  #
+  # -v, or every force-removed container orphans its ANONYMOUS volumes. An image
+  # with a VOLUME directive (mongo declares /data/db) gets one per container, and
+  # they carry com.docker.volume.anonymous rather than our label - so the volume
+  # sweep below cannot see them and nothing ever reclaims them. Measured on chud
+  # after a gate: 34 dangling volumes, 8.9GB in local volumes with 2.2GB
+  # reclaimable. testcontainers' own teardown already passes removeVolumes, so this
+  # is only about the containers a sweep takes rather than a suite.
+  docker ps -aq --filter label=flux-e2e-run | xargs -r docker rm -fv >/dev/null 2>&1
   docker network ls --format '{{.ID}} {{.Name}}' | grep ' flux-test-' | awk '{print $1}' | xargs -r docker network rm >/dev/null 2>&1
   docker volume ls -q --filter label=flux-e2e-run | xargs -r docker volume rm >/dev/null 2>&1
   rm -rf /tmp/e2e-base-locks /tmp/e2e-boot-lock
