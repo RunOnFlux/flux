@@ -46,6 +46,83 @@ function recordRouteTable() {
   return routes;
 }
 
+const SRC_DIR = path.join(__dirname, '../../ZelBack/src');
+
+const parse = (src) => espree.parse(src, { ecmaVersion: 2022, sourceType: 'script', range: true });
+
+const walk = (node, visit, state) => {
+  if (!node || typeof node.type !== 'string') return;
+  const next = visit(node, state);
+  for (const key of Object.keys(node)) {
+    const value = node[key];
+    if (Array.isArray(value)) value.forEach((child) => walk(child, visit, next));
+    else if (value && typeof value.type === 'string') walk(value, visit, next);
+  }
+};
+
+/** Local name -> module path, from routes.js's own requires. */
+const requiredModules = (ast) => {
+  const found = new Map();
+  walk(ast, (node) => {
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier'
+        && node.init && node.init.type === 'CallExpression'
+        && node.init.callee.name === 'require'
+        && typeof node.init.arguments[0]?.value === 'string') {
+      found.set(node.id.name, node.init.arguments[0].value);
+    }
+    return null;
+  });
+  return found;
+};
+
+const METHODS = new Set(['get', 'post', 'put', 'delete', 'ws', 'use']);
+
+/**
+ * Every registration routes.js makes, read from its own source.
+ *
+ * The recorded table above answers neither of the two questions this is read
+ * for. By the time express holds a chain entry it is a closure, so the module
+ * function behind it is gone; and the wrapper asyncRoute returns is a
+ * three-argument middleware indistinguishable from any other.
+ * @returns {Array<{method: string, path: string, cached: boolean, wrapped: boolean, handlers: Array<{module: string, fn: string}>}>}
+ */
+function recordRegistrations() {
+  const ast = parse(fs.readFileSync(path.join(SRC_DIR, 'routes.js'), 'utf8'));
+  const modules = requiredModules(ast);
+  const registrations = [];
+
+  walk(ast, (node) => {
+    if (node.type !== 'CallExpression' || node.callee.type !== 'MemberExpression') return null;
+    if (node.callee.object.name !== 'app' || !METHODS.has(node.callee.property.name)) return null;
+    if (typeof node.arguments[0]?.value !== 'string' || node.arguments.length < 2) return null;
+
+    const chain = node.arguments.slice(1);
+    // Whatever is registered last is the handler; everything ahead of it is
+    // middleware express runs first.
+    const handler = chain[chain.length - 1];
+    const handlers = [];
+    chain.forEach((arg) => walk(arg, (inner) => {
+      if (inner.type === 'MemberExpression' && inner.object.type === 'Identifier'
+          && modules.has(inner.object.name) && inner.property.type === 'Identifier') {
+        handlers.push({ module: modules.get(inner.object.name), fn: inner.property.name });
+      }
+      return null;
+    }));
+
+    registrations.push({
+      method: node.callee.property.name,
+      path: node.arguments[0].value,
+      cached: chain.some((arg) => arg.type === 'CallExpression' && arg.callee.name === 'cache'),
+      wrapped: handler.type === 'CallExpression' && handler.callee.type === 'Identifier'
+        && handler.callee.name === 'asyncRoute',
+      handlers,
+    });
+    return null;
+  });
+
+  return registrations;
+}
+
 
 describe('route wiring', () => {
   let table;
@@ -215,34 +292,6 @@ describe('route wiring', () => {
   // behind the route, and by the time a test sees the route it is a closure - so
   // the route file and those modules are parsed instead.
   describe('endpoints that decide who is asking', () => {
-    const SRC_DIR = path.join(__dirname, '../../ZelBack/src');
-    const parse = (src) => espree.parse(src, { ecmaVersion: 2022, sourceType: 'script', range: true });
-
-    const walk = (node, visit, state) => {
-      if (!node || typeof node.type !== 'string') return;
-      const next = visit(node, state);
-      for (const key of Object.keys(node)) {
-        const value = node[key];
-        if (Array.isArray(value)) value.forEach((child) => walk(child, visit, next));
-        else if (value && typeof value.type === 'string') walk(value, visit, next);
-      }
-    };
-
-    /** Local name -> module path, from routes.js's own requires. */
-    const requiredModules = (ast) => {
-      const found = new Map();
-      walk(ast, (node) => {
-        if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier'
-            && node.init && node.init.type === 'CallExpression'
-            && node.init.callee.name === 'require'
-            && typeof node.init.arguments[0]?.value === 'string') {
-          found.set(node.id.name, node.init.arguments[0].value);
-        }
-        return null;
-      });
-      return found;
-    };
-
     /**
      * The functions in one module that reach a privilege check, directly or
      * through another function of the same module - which is the shape the Api
@@ -286,37 +335,10 @@ describe('route wiring', () => {
       };
     })();
 
-    const METHODS = new Set(['get', 'post', 'put', 'delete', 'ws', 'use']);
     let registrations;
 
     before(() => {
-      const ast = parse(fs.readFileSync(path.join(SRC_DIR, 'routes.js'), 'utf8'));
-      const modules = requiredModules(ast);
-      registrations = [];
-
-      walk(ast, (node) => {
-        if (node.type !== 'CallExpression' || node.callee.type !== 'MemberExpression') return null;
-        if (node.callee.object.name !== 'app' || !METHODS.has(node.callee.property.name)) return null;
-        if (typeof node.arguments[0]?.value !== 'string' || node.arguments.length < 2) return null;
-
-        const chain = node.arguments.slice(1);
-        const handlers = [];
-        chain.forEach((arg) => walk(arg, (inner) => {
-          if (inner.type === 'MemberExpression' && inner.object.type === 'Identifier'
-              && modules.has(inner.object.name) && inner.property.type === 'Identifier') {
-            handlers.push({ module: modules.get(inner.object.name), fn: inner.property.name });
-          }
-          return null;
-        }));
-
-        registrations.push({
-          method: node.callee.property.name,
-          path: node.arguments[0].value,
-          cached: chain.some((arg) => arg.type === 'CallExpression' && arg.callee.name === 'cache'),
-          handlers,
-        });
-        return null;
-      });
+      registrations = recordRegistrations();
     });
 
     // Everything below reads a handler out of a registration, so a registration
@@ -355,6 +377,34 @@ describe('route wiring', () => {
         .map((route) => `${route.method} ${route.path} -> ${route.handlers[0].fn}`);
 
       expect(cached, 'these check a privilege behind a cache that answers first').to.deep.equal([]);
+    });
+  });
+
+  // A handler that rejects without express hearing about it is not a 500 - it
+  // is an unhandled rejection, apiServer's handler, and process.exit. asyncRoute
+  // is the wrapper that makes it a 500, and until this nothing said routes.js
+  // used it: two registrations reverted to the bare arrow left every other
+  // assertion in this file green, which is the blindness the header describes.
+  //
+  // Read from the source, because the wrapper asyncRoute returns cannot be told
+  // apart from any other middleware once express holds it.
+  describe('routes whose handler fails', () => {
+    let registrations;
+
+    before(() => {
+      registrations = recordRegistrations();
+    });
+
+    it('are read from a route file that registered something, so an empty read cannot pass', () => {
+      expect(registrations.length).to.be.greaterThan(400);
+    });
+
+    it('answer the caller, rather than taking the node down with them', () => {
+      const dropped = registrations
+        .filter((route) => !route.wrapped)
+        .map((route) => `${route.method} ${route.path}`);
+
+      expect(dropped, 'these discard the promise their handler returns').to.deep.equal([]);
     });
   });
 });
