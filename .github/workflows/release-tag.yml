@@ -11,6 +11,10 @@ name: release-tag
 #
 # A red run here means the release is stuck loudly with no tag -- the fleet is already on the
 # verified merge tree, so nothing is half-made.
+#
+# Tests: tests/ci/release-tag.sh -- runs offline, no secrets. It extracts steps from this file
+# verbatim, so renaming one breaks it loudly rather than silently skipping it. Run it after any
+# change here.
 
 on:
   push:
@@ -47,16 +51,36 @@ jobs:
             echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
           fi
 
-      # Idempotent: a re-run after the tag exists has nothing left to do.
+      # Idempotent on a re-run of THIS commit, loud on anything else. A tag carrying the release
+      # version but pointing somewhere else is not a re-run -- it is a hand-cut tag, or a master
+      # that was rolled back behind one. Treating that as "already done" would skip the merged-tree
+      # verification below, which is the only check covering what master actually holds, and report
+      # the release green with no tag and nothing verified.
       - name: Tag already cut?
         id: existing
         if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.version.outputs.version }}" > /dev/null; then
-            echo "tag v${{ steps.version.outputs.version }} already exists"
+          set -eo pipefail
+          # An annotated tag advertises a peeled ^{} ref holding the commit; a lightweight tag has
+          # no ^{} line and points at the commit directly. Everything this workflow cuts is
+          # annotated; every tag cut by hand is lightweight, and at the time of writing all 312
+          # tags in this repository are lightweight -- so reading only one form finds neither
+          # reliably. ls-remote exits 0 with no output when nothing matches, so an empty answer
+          # means "no such tag" while a genuine transport failure dies here on pipefail.
+          PEELED=$(git ls-remote --tags origin "refs/tags/v${VERSION}^{}" | cut -f1)
+          DIRECT=$(git ls-remote --tags origin "refs/tags/v${VERSION}" | cut -f1)
+          EXISTING=${PEELED:-$DIRECT}
+          if [ -z "$EXISTING" ]; then
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          elif [ "$EXISTING" = "$GITHUB_SHA" ]; then
+            echo "tag v${VERSION} already points at this commit -- re-run, nothing to do"
             echo "done=true" >> "$GITHUB_OUTPUT"
           else
-            echo "done=false" >> "$GITHUB_OUTPUT"
+            echo "tag v${VERSION} already exists at ${EXISTING}, which is not this commit (${GITHUB_SHA})"
+            echo "resolve the tag before re-running: this release has not been verified against the signed document"
+            exit 1
           fi
 
       # The merge tree normally equals the PR head tree the gate already saw signed, so this
