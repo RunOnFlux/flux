@@ -955,6 +955,56 @@ describe('fluxCommunication tests', () => {
 
   });
 
+  // Where the dial gets that address from. Asking benchmark is an uncached RPC
+  // and this runs on every attempt - discovery's deterministic loop, the
+  // reconnect queue, the random draw, the manual add and /flux/addpeer - so it
+  // asks the peer manager, which is told every refresh by the one place the node
+  // learns what it is, and already answers this same question for the sync draw.
+  describe('initiateAndHandleConnection asks the owner for this node\'s address', () => {
+    let fetched;
+
+    beforeEach(() => {
+      peerManager.reset();
+      peerManager.setOwnSocketAddress(null);
+      fetched = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('44.192.51.11:16127');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      peerManager.reset();
+      peerManager.setOwnSocketAddress(null);
+    });
+
+    it('does not ask benchmark once the node has been told its own address', async () => {
+      peerManager.setOwnSocketAddress('44.192.51.11:16127');
+
+      await fluxCommunication.initiateAndHandleConnection('44.192.51.11:16127');
+
+      sinon.assert.notCalled(fetched);
+      expect(peerManager.outboundCount, 'dialled itself').to.equal(0);
+    });
+
+    // The value the owner holds is the one that decides, so a dial refuses
+    // itself on it - not on whatever benchmark would have said.
+    it('refuses this node on the address the owner holds', async () => {
+      peerManager.setOwnSocketAddress('44.192.51.99:16127');
+
+      await fluxCommunication.initiateAndHandleConnection('44.192.51.99:16127');
+
+      sinon.assert.notCalled(fetched);
+      expect(peerManager.isPending('44.192.51.99:16127'), 'left itself marked pending').to.equal(false);
+    });
+
+    // A dial can arrive before the first refresh has happened. Asking once then
+    // is right; asking every time is what this replaces.
+    it('asks once when the node has not been told yet', async () => {
+      await fluxCommunication.initiateAndHandleConnection('44.192.51.11:16127');
+
+      sinon.assert.calledOnce(fetched);
+      expect(peerManager.outboundCount).to.equal(0);
+    });
+  });
+
   describe('initiateAndHandleConnection tests', () => {
     before(function () { if (process.platform !== 'linux') this.skip(); });
 

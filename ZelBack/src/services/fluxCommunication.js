@@ -1040,7 +1040,29 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
     if (peerManager.has(key) || peerManager.isPending(key)) return;
     peerManager.markPending(key);
 
-    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    // This node's own address, asked of the peer manager rather than of
+    // benchmark. That is where the fact lives - fluxNetworkHelper pushes every
+    // refresh into it from the one place the node learns what it is - and the
+    // peer manager already answers this exact question for the sync draw.
+    // Asking benchmark is an uncached RPC (executeCall), and this runs on every
+    // dial: discovery's deterministic loop, the reconnect queue, the random
+    // draw, the manual add and /flux/addpeer. It also made all five hard
+    // dependent on benchd answering, which only discovery already was.
+    //
+    // Fresh enough by construction: fluxDiscovery refreshes it once per cycle
+    // before it dials anything, and so do the availability checker and the
+    // address-change handler. That is a bound the form this replaces did not
+    // have - it read the port once per process and never again, so after an
+    // address change a node announced a stale one for as long as it ran.
+    let localSocketAddr = peerManager.getOwnSocketAddress?.() || null;
+
+    if (!localSocketAddr) {
+      // Never been told, which a dial arriving before the first refresh
+      // genuinely is. Ask once - the answer fills the peer manager's copy on its
+      // way through, so this costs one call rather than one per dial.
+      localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    }
+
     if (!localSocketAddr) {
       peerManager.clearPending(key);
       return;

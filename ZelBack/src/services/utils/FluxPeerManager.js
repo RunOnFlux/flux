@@ -483,6 +483,21 @@ class FluxPeerManager extends EventEmitter {
     this.#ownSocketAddress = socketAddress;
   }
 
+  /**
+   * This node's own socket address, as last learned.
+   *
+   * Answered from here rather than fetched, because this is where the fact
+   * already lives: fluxNetworkHelper pushes every refresh in through
+   * setOwnSocketAddress, from the one place the node learns what it is. The
+   * alternative - asking benchmark - is an RPC with no cache behind it, and the
+   * dial path needs this on every attempt.
+   *
+   * @returns {string|null} ip:port, or null while the node has not been told
+   */
+  getOwnSocketAddress() {
+    return this.#ownSocketAddress;
+  }
+
   getPeerFluxUptime(key) {
     const peer = this.#peers.get(key);
     if (!peer || peer.remoteFluxUptime === null) return null;
