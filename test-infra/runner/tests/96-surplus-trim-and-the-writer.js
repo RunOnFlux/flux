@@ -174,16 +174,29 @@ describe('a surplus copy that is also the writer', function () {
     // not counted" and "the fleet lost a holder" are different faults with one
     // symptom, and a bare deadline separates neither.
     let holders = 0;
+    let seen = [];
     await waitFor(async () => {
       const res = await env.clients[0].getAppLocations(appName);
       holders = Array.isArray(res.data) ? res.data.length : -1;
+      seen = Array.isArray(res.data) ? res.data.map((d) => d.ip) : [];
       return holders >= 4;
     }, {
       timeout: 120000,
       interval: 2000,
       label: 'the stub is counted as a fourth holder',
     }).catch((error) => {
-      throw new Error(`${error.message} - the fleet counted ${holders} holder(s), not 4`);
+      // WHICH holder is missing, not how many there are. Three can mean the
+      // stub's announcement never landed, or that a give-up pass trimmed a real
+      // copy out from under the fixture the moment the surplus appeared - the
+      // second is what happens when the pass period is compressed, and the count
+      // alone cannot tell them apart. It cost a session to find that out once.
+      const stubIp = ipOfIndex(STUB_INDEX);
+      const hasStub = seen.some((ip) => String(ip).startsWith(stubIp));
+      throw new Error(
+        `${error.message} - the fleet counted ${holders} holder(s), not 4. `
+        + `saw [${seen.join(', ')}]; stub ${stubIp} ${hasStub ? 'IS' : 'is NOT'} among them, `
+        + `so ${hasStub ? 'a real copy was trimmed before the fixture was ready' : 'the stub was never counted'}.`,
+      );
     });
   });
 
@@ -328,13 +341,18 @@ describe('a surplus copy that is also the writer', function () {
     // `blockHeight % (removeFluxAppsPeriod * speedMultiplier) === 0` - 44 blocks
     // - and driveUntil below spends about 53, so there is one attempt and no
     // second. A precondition that is merely usually true is a coin toss here.
-    await waitFor(async () => {
+    // Defined once and used twice: to get into the shape, and then to hold the
+    // chain still whenever it lapses. Asked the way the product asks it, from
+    // the node that will make the decision.
+    const newestAnswersHeldComponents = async () => {
       const res = await execInContainer(
         env.clients[nextIndex].container,
         `curl -sf -m 5 http://${ipOfIndex(newestIndex)}:16127/apps/heldcomponents`,
       );
       return res.exitCode === 0 && res.output.includes(folder);
-    }, {
+    };
+
+    await waitFor(newestAnswersHeldComponents, {
       timeout: 180000,
       interval: 3000,
       label: 'the newest copy answers heldcomponents with the writer, asked from the second-newest',
@@ -343,7 +361,27 @@ describe('a surplus copy that is also the writer', function () {
     await stopTicker();
     await driveUntil(env.clients[nextIndex], async () => {
       const installed = await installedInstanceIndices(env, appName);
-      return !installed.includes(nextIndex);
+      if (!installed.includes(nextIndex)) return true;
+      // THE CHAIN DOES NOT ADVANCE WHILE THE DECISION'S PRECONDITION IS FALSE.
+      // The give-up pass runs every removeFluxAppsPeriod * 4 = 44 blocks and
+      // this drive spends about 53, so there is one attempt. The trim is allowed
+      // only when peerComponentState confirms the newest copy holds the writer,
+      // and that is a 10s HTTP probe from this node - so if the newest is quiet
+      // in the moment the pass lands, it declines for entirely the right reason
+      // and there is no second chance. That is how the b22117e5a gate failed
+      // here: the newest answered the identical probe from this test a minute
+      // earlier, then did not answer the product's.
+      //
+      // Waiting HERE rather than widening the budget is the difference between
+      // removing the coin and tossing it again: driveUntil evaluates this before
+      // every block, so a block is only ever driven while the peer is answering,
+      // and the pass therefore cannot land in a window where it must refuse.
+      await waitFor(newestAnswersHeldComponents, {
+        timeout: 120000,
+        interval: 3000,
+        label: 'the newest copy is still answering heldcomponents before another block is driven',
+      });
+      return false;
     }, { timeoutMs: 600000, label: 'the second-newest copy is trimmed' });
     await startTicker();
 
