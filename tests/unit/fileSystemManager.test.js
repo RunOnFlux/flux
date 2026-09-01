@@ -4,6 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 // The real registry: these tests assert the 202 contract, and a stub would let
 // a broken handle shape through.
 const jobRegistry = require('../../ZelBack/src/services/utils/jobRegistry');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 
 describe('fileSystemManager tests', () => {
   const MOUNT = '/test/apps/folder/fluxcomp_myapp';
@@ -712,6 +713,36 @@ describe('fileSystemManager tests', () => {
 
       expect(res.statusCode).to.equal(202);
       expect(acceptedBody().jobId).to.match(/^op_/);
+    });
+  });
+
+  // The eight operations above are gated by openVolume's default privilege, which
+  // volumeSession.test.js pins in one place. These two ask for themselves, so they
+  // are pinned here: taking a customer's files off the node is not their host's to
+  // do, and appownerorfluxteam refuses exactly the node
+  // operator.
+  describe('the node operator is refused a download', () => {
+    ['downloadAppsFolder', 'downloadAppsFile'].forEach((handler) => {
+      it(`${handler} asks for the privilege that refuses the node operator`, async () => {
+        const verifyPrivilege = sinon.stub().resolves(false);
+        const subject = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+          '../messageHelper': messageHelperStub,
+          '../verificationHelper': { verifyPrivilege },
+          '../serviceHelper': serviceHelperStub,
+          '../IOUtils': { getVolumeInfo: sinon.stub() },
+          '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+          '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPath: sinon.stub() },
+          './volumeSession': volumeSessionStub,
+          './volumeExecutor': executorStub,
+          '../utils/jobRegistry': jobRegistry,
+          archiver: sinon.stub(),
+          stream: { PassThrough: sinon.stub() },
+        });
+
+        await subject[handler](req, res);
+
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
+      });
     });
   });
 });

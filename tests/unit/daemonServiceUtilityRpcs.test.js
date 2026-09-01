@@ -25,24 +25,6 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceUtilityRpcs.createMultiSig(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createMultiSig', []);
-    });
-
     it('should trigger rpc, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -63,7 +45,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createMultiSig', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -78,14 +60,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.createMultiSig(req);
+      await daemonServiceUtilityRpcs.createMultiSig(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createMultiSig', [+req.params.n, req.params.keys]);
     });
 
-    it('should trigger rpc, no n param, no response passed', async () => {
+    it('should trigger rpc, no n param, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -99,14 +82,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.createMultiSig(req);
+      await daemonServiceUtilityRpcs.createMultiSig(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createMultiSig', []);
     });
 
-    it('should trigger rpc, no keys param, no response passed', async () => {
+    it('should trigger rpc, no keys param, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -117,14 +101,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.createMultiSig(req);
+      await daemonServiceUtilityRpcs.createMultiSig(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createMultiSig', []);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -139,10 +124,11 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.createMultiSig(req);
+      await daemonServiceUtilityRpcs.createMultiSig(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createMultiSig', [+req.query.n, req.query.keys]);
     });
   });
@@ -246,24 +232,6 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceUtilityRpcs.estimateFee(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimateFee', []);
-    });
-
     it('should trigger rpc, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -284,7 +252,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimateFee', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -295,14 +263,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.estimateFee(req);
+      await daemonServiceUtilityRpcs.estimateFee(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimateFee', [+req.params.nblocks]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -313,10 +282,11 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.estimateFee(req);
+      await daemonServiceUtilityRpcs.estimateFee(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimateFee', [+req.query.nblocks]);
     });
   });
@@ -330,24 +300,6 @@ describe('daemonServiceUtilityRpcs tests', () => {
 
     afterEach(() => {
       sinon.restore();
-    });
-
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceUtilityRpcs.estimatePriority(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimatePriority', []);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -370,7 +322,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimatePriority', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -381,14 +333,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.estimatePriority(req);
+      await daemonServiceUtilityRpcs.estimatePriority(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimatePriority', [+req.params.nblocks]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -399,10 +352,11 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.estimatePriority(req);
+      await daemonServiceUtilityRpcs.estimatePriority(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'estimatePriority', [+req.query.nblocks]);
     });
   });
@@ -539,24 +493,6 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceUtilityRpcs.verifyMessage(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -577,7 +513,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -590,14 +526,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.verifyMessage(req);
+      await daemonServiceUtilityRpcs.verifyMessage(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [req.params.fluxaddress, req.params.signature, req.params.message]);
     });
 
-    it('should trigger rpc, data passed in params, no fluxaddress param,, no response passed', async () => {
+    it('should trigger rpc, data passed in params, no fluxaddress param,, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -609,14 +546,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.verifyMessage(req);
+      await daemonServiceUtilityRpcs.verifyMessage(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', []);
     });
 
-    it('should trigger rpc, data passed in params, no signature param,, no response passed', async () => {
+    it('should trigger rpc, data passed in params, no signature param,, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -628,14 +566,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.verifyMessage(req);
+      await daemonServiceUtilityRpcs.verifyMessage(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', []);
     });
 
-    it('should trigger rpc, data passed in params, no message param,, no response passed', async () => {
+    it('should trigger rpc, data passed in params, no message param,, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -647,14 +586,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.verifyMessage(req);
+      await daemonServiceUtilityRpcs.verifyMessage(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', []);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -667,10 +607,11 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.verifyMessage(req);
+      await daemonServiceUtilityRpcs.verifyMessage(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [req.query.fluxaddress, req.query.signature, req.query.message]);
     });
   });
@@ -684,24 +625,6 @@ describe('daemonServiceUtilityRpcs tests', () => {
 
     afterEach(() => {
       sinon.restore();
-    });
-
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceUtilityRpcs.zValidateAddress(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_validateaddress', []);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -724,7 +647,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_validateaddress', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -735,14 +658,15 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.zValidateAddress(req);
+      await daemonServiceUtilityRpcs.zValidateAddress(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_validateaddress', [req.params.zaddr]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -753,10 +677,11 @@ describe('daemonServiceUtilityRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceUtilityRpcs.zValidateAddress(req);
+      await daemonServiceUtilityRpcs.zValidateAddress(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'z_validateaddress', [req.query.zaddr]);
     });
   });

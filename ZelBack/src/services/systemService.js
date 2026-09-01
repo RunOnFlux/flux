@@ -618,7 +618,7 @@ async function monitorSyncthingPackage() {
       // we only restart if the package was installed (and running) in the first place
       if (currentSyncthingVersion && upgraded) {
         log.info('Syncthing upgraded, restarting to load new binary...');
-        await syncthingService.systemRestart(null, null).catch(() => { });
+        await syncthingService.systemRestart().catch(() => { });
       }
 
       return upgraded;

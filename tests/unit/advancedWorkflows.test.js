@@ -6,6 +6,7 @@ const sinon = require('sinon');
 const axios = require('axios');
 const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const log = require('../../ZelBack/src/lib/log');
@@ -150,7 +151,10 @@ describe('advancedWorkflows tests', () => {
       globalState.finishRestore('myapp');
     });
 
-    it('should return unauthorized error if not authorized', async () => {
+    // The gate IS the policy: appownerorfluxteam refuses the node operator, and a
+    // forced redeploy rm -rf's the component's volume, so admitting them here
+    // would be the way around the appremove gate that already refuses them.
+    it('gates a component redeploy on the privilege that refuses the node operator', async () => {
       req.params.appname = 'myapp';
       req.params.component = 'frontend';
 
@@ -159,7 +163,7 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflows.redeployComponentAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelper.verifyPrivilege.calledWith('appownerabove', req, 'myapp')).to.be.true;
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
 
     it('should handle force parameter from query string', async () => {
@@ -177,6 +181,44 @@ describe('advancedWorkflows tests', () => {
 
       // Should attempt to call hardRedeployComponent but will fail because app not found
       expect(res.json.calledOnce).to.be.true;
+    });
+  });
+
+  // The whole-app gate matters for the same reason the component one does, and
+  // for more of the app: force=true takes every component through a hard
+  // uninstall, so all of the app's data on this node goes with it.
+  describe('redeployAPI tests', () => {
+    let req;
+    let res;
+    let globalState;
+    let verificationHelper;
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.restoreInProgress = [];
+
+      // eslint-disable-next-line global-require
+      verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+
+      req = { params: {}, query: {}, headers: {} };
+      res = {
+        json: sinon.stub(),
+        write: sinon.stub(),
+        flush: sinon.stub(),
+        setHeader: sinon.stub(),
+      };
+    });
+
+    it('gates a redeploy on the privilege that refuses the node operator', async () => {
+      req.params.appname = 'myapp';
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+
+      await advancedWorkflows.redeployAPI(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
 
@@ -486,10 +528,7 @@ describe('advancedWorkflows tests', () => {
 
       const syncthingService = require('../../ZelBack/src/services/syncthingService');
       syncthingServiceStub = sinon.stub(syncthingService, 'getConfigFolders');
-      sinon.stub(syncthingService, 'getHealth').resolves({
-        status: 'success',
-        data: { status: 'OK' },
-      });
+      sinon.stub(syncthingService, 'getHealth').resolves({ status: 'OK' });
 
       // Stub decryptEnterpriseApps to return apps as-is
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
@@ -515,7 +554,7 @@ describe('advancedWorkflows tests', () => {
       // silence acted on has to supply the evidence for it.
       const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
       syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
-      syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves({ status: 'success', data: [] });
+      syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -732,7 +771,7 @@ describe('advancedWorkflows tests', () => {
     // never resolved the peer and cannot say.
     const peerSyncthingSays = (peerSocketAddr, remoteState) => {
       globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
-      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState } });
+      syncthingCompletionStub.resolves({ remoteState });
     };
 
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
@@ -1306,11 +1345,8 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary());
       // nothing cached, but this node's syncthing still has the device configured
       // under the name the monitor gave it, and reports the connection closed
-      syncthingDevicesStub.resolves({
-        status: 'success',
-        data: [{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }],
-      });
-      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState: 'unknown' } });
+      syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }]);
+      syncthingCompletionStub.resolves({ remoteState: 'unknown' });
 
       await runPass();
 
@@ -3060,6 +3096,20 @@ describe('advancedWorkflows tests', () => {
       expect([firstResult, secondResult]).to.have.members([true, false]);
       sinon.assert.calledOnce(IOUtils.createTarGz);
     });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
+    // node operator - so the string this asks for is the whole of the policy. An
+    // archive of a customer's volume is theirs, and taking one off the node is
+    // not their host's to order.
+    it('gates a backup on the privilege that refuses the node operator', async () => {
+      verificationHelper.verifyPrivilege.resolves(false);
+      const req = backupReq();
+
+      await advancedWorkflows.appendBackupTask(req, makeRes());
+
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
+      sinon.assert.notCalled(IOUtils.createTarGz);
+    });
   });
 
   describe('appendRestoreTask tests', () => {
@@ -3089,6 +3139,8 @@ describe('advancedWorkflows tests', () => {
     const appController = require('../../ZelBack/src/services/appManagement/appController');
     // eslint-disable-next-line global-require
     const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+    // eslint-disable-next-line global-require
+    const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
     // eslint-disable-next-line global-require
     const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 
@@ -3143,10 +3195,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
       sinon.stub(registryManager, 'getApplicationSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
-      sinon.stub(syncthingService, 'getConfigFolders').resolves({
-        status: 'success',
-        data: [{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }],
-      });
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }]);
       sinon.stub(dockerService, 'appDockerStop').resolves();
       // The stop is verified by reading the container back, not by the stop
       // call returning - so this stub is what makes the containers actually
@@ -3158,6 +3207,14 @@ describe('advancedWorkflows tests', () => {
       // pass or fail on whether the machine running them happens to have docker.
       sinon.stub(dockerService, 'dockerListContainers').resolves([]);
       sinon.stub(dockerService, 'appDockerStart').resolves();
+      // Starting a component arms a sixty-second sampling interval against
+      // docker, and nothing here ever stops it. It outlives the test, wakes on a
+      // container that was never created, and writes an error through the real
+      // log into whichever test the suite happens to be running a minute later -
+      // which is a different one on every machine. Stubbed for the same reason
+      // dockerService.appDockerStart above is: this describe is about the
+      // restore, and docker is a boundary.
+      sinon.stub(appInspector, 'startAppMonitoring');
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(localAddr);
       sinon.stub(appController, 'executeAppGlobalCommand').resolves();
       sinon.stub(appReconciler, 'setControllerDesired');
@@ -3837,6 +3894,20 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.calledWith(IOUtils.getVolumeInfo, appname, 'null');
+    });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
+    // node operator - so the string this asks for is the whole of the policy. A
+    // restore overwrites a customer's volume from an archive the caller names,
+    // which makes it the most destructive of the file verbs, not the mildest.
+    it('gates a restore on the privilege that refuses the node operator', async () => {
+      verificationHelper.verifyPrivilege.resolves(false);
+      const req = restoreReq();
+
+      await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
+      sinon.assert.notCalled(IOUtils.getVolumeInfo);
     });
   });
 

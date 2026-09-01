@@ -284,6 +284,20 @@ class FluxPeerSocket {
   }
 
   /**
+   * Drop every handler on the underlying socket.
+   *
+   * Used when the manager has already accounted for this peer's departure. onclose is the
+   * only caller of FluxPeerManager.remove(), so a socket that completes its handshake
+   * afterwards would remove an entry that has since been replaced or already retired, and
+   * a frame arriving in the meantime would be processed for a peer no longer held.
+   */
+  detachHandlers() {
+    this.ws.onclose = null;
+    this.ws.onerror = null;
+    this.ws.onmessage = null;
+  }
+
+  /**
    * Send a NAK (negative acknowledgement) back to sender.
    * @param {string} messageHash - 40-char hex hash
    * @param {number} reasonCode - peerCodec.NAK_REASON value

@@ -1,5 +1,7 @@
 const chai = require('chai');
 const sinon = require('sinon');
+
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const chaiAsPromised = require('chai-as-promised');
 const os = require('os');
 const bitcoinMessage = require('bitcoinjs-message');
@@ -1434,6 +1436,28 @@ describe('idService tests', () => {
     });
   });
 
+  // The four strings /id/checkprivilege answers. The frontend branches on these
+  // in fourteen places and is deployed separately, so changing one here breaks
+  // login, navigation, app management and checkout in a repo this one cannot
+  // see. Pinned by value deliberately: the point is that they do not move.
+  describe('the privilege vocabulary on the wire', () => {
+    it('answers exactly the four tokens the frontend reads', () => {
+      expect(idService.PRIVILEGE_RESPONSE).to.deep.equal({
+        NODE_OPERATOR: 'admin',
+        FLUX_TEAM: 'fluxteam',
+        USER: 'user',
+        NONE: 'none',
+      });
+    });
+
+    it('is not the enum a route requires internally - the two are free to diverge', () => {
+      // NODE_OPERATOR is the same string on both sides today, and nothing keeps
+      // it that way. Reading one from the other is what would couple them.
+      expect(Object.values(idService.PRIVILEGE_RESPONSE)).to.include(Privilege.NODE_OPERATOR);
+      expect(Object.values(Privilege)).to.not.include(idService.PRIVILEGE_RESPONSE.NONE);
+    });
+  });
+
   describe('checkLoggedUser tests', () => {
     let verifyPrivilegeStub;
 
@@ -1515,7 +1539,7 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is an admin', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1536,8 +1560,8 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is fluxteam', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1558,9 +1582,9 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is an ordinary user', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.USER, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1581,9 +1605,9 @@ describe('idService tests', () => {
     });
 
     it('should return error message if user has no privileges', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.USER, sinon.match.string).returns(false);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',

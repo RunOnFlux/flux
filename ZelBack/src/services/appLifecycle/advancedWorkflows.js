@@ -48,6 +48,7 @@ const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const appNetworkLinker = require('./appNetworkLinker');
+const { Privilege, authOf } = require('../utils/privileges');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1701,8 +1702,12 @@ async function redeployComponentAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    // Authorization check - must be app owner or above
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    // This refuses the node operator, and a redeploy is an
+    // uninstall followed by a reinstall. With force it is the hard one, which
+    // unmounts the component's volume and rm -rf's it - the app's data on this
+    // node is gone. The same gate appremove asks for, which this would otherwise
+    // be the way around.
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1761,7 +1766,12 @@ async function redeployAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    // This refuses the node operator, and a redeploy is an
+    // uninstall followed by a reinstall. With force it is the hard one, which
+    // unmounts the component's volume and rm -rf's it - the app's data on this
+    // node is gone. The same gate appremove asks for, which this would otherwise
+    // be the way around.
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1771,7 +1781,7 @@ async function redeployAPI(req, res) {
       // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, force); // do not wait
+      appController.executeAppGlobalCommand(appname, 'redeploy', authOf(req), force); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
       res.json(appResponse);
@@ -1834,12 +1844,9 @@ async function stopSyncthingApp(appComponentName, res) {
     // eslint-disable-next-line global-require
     const syncthingService = require('../syncthingService');
     const allSyncthingFolders = await syncthingService.getConfigFolders();
-    if (allSyncthingFolders.status === 'error') {
-      return;
-    }
     let folderId = null;
     // eslint-disable-next-line no-restricted-syntax
-    for (const syncthingFolder of allSyncthingFolders.data) {
+    for (const syncthingFolder of allSyncthingFolders) {
       if (syncthingFolder.path === folder || syncthingFolder.path.includes(`${folder}/`)) {
         folderId = syncthingFolder.id;
       }
@@ -1884,16 +1891,12 @@ async function changeSyncthingFolderType(folderId, folderType) {
     log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
 
     // Get current folder configuration
-    const foldersResponse = await syncthingService.getConfigFolders();
-    if (foldersResponse.status !== 'success') {
-      log.error(`Failed to get syncthing folders: ${JSON.stringify(foldersResponse)}`);
-      return false;
-    }
+    const folders = await syncthingService.getConfigFolders();
 
     // Find the folder by path
     // Syncthing syncs the entire appId folder (includes all subdirectories)
     const folderPath = `${appsFolder}${folderId}`;
-    const folder = foldersResponse.data.find((f) => f.path === folderPath);
+    const folder = folders.find((f) => f.path === folderPath);
 
     if (!folder) {
       log.error(`Syncthing folder not found for path: ${folderPath}`);
@@ -2381,7 +2384,7 @@ async function appendBackupTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized === true) {
       // eslint-disable-next-line global-require
       const registryManager = require('../appDatabase/registryManager');
@@ -2617,7 +2620,7 @@ async function appendRestoreTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -2880,7 +2883,7 @@ async function appendRestoreTask(req, res) {
       await sendChunk(res, 'Restarting other instances...\n');
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'apprestart', req.headers.zelidauth, undefined, true); // do not wait
+      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, true); // do not wait
     }
 
     await sendChunk(res, 'Finalizing...\n');
@@ -3376,7 +3379,7 @@ async function updateAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
@@ -4118,7 +4121,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       // eslint-disable-next-line global-require
       const syncthingService = require('../syncthingService');
       const syncthingHealth = await syncthingService.getHealth();
-      if (syncthingHealth.status !== 'success' || !syncthingHealth.data || syncthingHealth.data.status !== 'OK') {
+      if (syncthingHealth?.status !== 'OK') {
         log.warn('masterSlaveApps: Syncthing is not available or not healthy, skipping this cycle');
         return;
       }
@@ -4297,11 +4300,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const syncthingService = require('../syncthingService');
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
-                    if (allSyncthingFolders.status === 'success') {
+                    if (Array.isArray(allSyncthingFolders)) {
                       // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
-                      for (const syncthingFolder of allSyncthingFolders.data) {
+                      for (const syncthingFolder of allSyncthingFolders) {
                         if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
                           log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
                           isReady = true;
@@ -4682,11 +4685,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const syncthingService = require('../syncthingService');
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
-                    if (allSyncthingFolders.status === 'success') {
+                    if (Array.isArray(allSyncthingFolders)) {
                       // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
-                      for (const syncthingFolder of allSyncthingFolders.data) {
+                      for (const syncthingFolder of allSyncthingFolders) {
                         if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
                           log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
                           isReady = true;

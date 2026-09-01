@@ -2,11 +2,14 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+
 describe('appInspector tests', () => {
   let appInspector;
   let dockerServiceStub;
   let messageHelperStub;
   let logStub;
+  let verificationHelperStub;
   let configStub;
   let globalStateStub;
   let cpuBurstHelperStub;
@@ -60,6 +63,10 @@ describe('appInspector tests', () => {
       appsMonitored: {},
     };
 
+    verificationHelperStub = {
+      verifyPrivilege: sinon.stub().resolves(true),
+    };
+
     appInspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
       config: configStub,
       '../utils/globalState': globalStateStub,
@@ -75,9 +82,7 @@ describe('appInspector tests', () => {
       '../dbHelper': {
         databaseConnection: sinon.stub(),
       },
-      '../verificationHelper': {
-        verifyPrivilege: sinon.stub().resolves(true),
-      },
+      '../verificationHelper': verificationHelperStub,
       '../utils/appConstants': {
         appConstants: {},
       },
@@ -626,7 +631,7 @@ describe('appInspector tests', () => {
   });
 
   describe('appTop tests', () => {
-    it('should return error if no params were passed, response passed', async () => {
+    it('should return error if no params were passed', async () => {
       const req = {
         params: {
           test: 'test',
@@ -654,32 +659,7 @@ describe('appInspector tests', () => {
       expect(logStub.error.called).to.be.true;
     });
 
-    it('should return error if no params were passed, no response passed', async () => {
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-
-      messageHelperStub.createErrorMessage.returns({
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'No Flux App specified',
-        },
-      });
-
-      const result = await appInspector.appTop(req);
-
-      expect(result).to.have.property('status', 'error');
-      expect(logStub.error.called).to.be.true;
-    });
-
-    it('should return error if user has no appowner privileges, response passed', async () => {
+    it('should return error if user has no appowner privileges', async () => {
       const appInspectorWithAuth = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
         config: configStub,
         '../dockerService': dockerServiceStub,
@@ -734,7 +714,7 @@ describe('appInspector tests', () => {
       expect(res.json.calledOnce).to.be.true;
     });
 
-    it('should return error if user has no appowner privileges, no response passed', async () => {
+    it('should return error if user has no appowner privileges, appQueryService unstubbed', async () => {
       const appInspectorWithAuth = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
         config: configStub,
         '../dockerService': dockerServiceStub,
@@ -771,19 +751,24 @@ describe('appInspector tests', () => {
           test2: 'test2',
         },
       };
+      const res = {
+        json: sinon.stub(),
+      };
 
-      messageHelperStub.createErrorMessage.returns({
+      const expected = {
         status: 'error',
         data: {
           code: 401,
           name: 'Unauthorized',
           message: 'Unauthorized. Access denied.',
         },
-      });
+      };
+      messageHelperStub.createErrorMessage.returns(expected);
+      messageHelperStub.errUnauthorizedMessage.returns(expected);
 
-      const result = await appInspectorWithAuth.appTop(req);
+      await appInspectorWithAuth.appTop(req, res);
 
-      expect(result).to.have.property('status', 'error');
+      sinon.assert.calledOnceWithExactly(res.json, expected);
     });
 
     it('should top app, underscore in the name', async () => {
@@ -795,16 +780,20 @@ describe('appInspector tests', () => {
           test2: 'test2',
         },
       };
+      const res = {
+        json: sinon.stub(),
+      };
 
-      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
-      messageHelperStub.createDataMessage.returns({
+      const expected = {
         status: 'success',
         data: 'some data',
-      });
+      };
+      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
+      messageHelperStub.createDataMessage.returns(expected);
 
-      const result = await appInspector.appTop(req);
+      await appInspector.appTop(req, res);
 
-      expect(result).to.have.property('status', 'success');
+      sinon.assert.calledOnceWithExactly(res.json, expected);
       expect(dockerServiceStub.appDockerTop.calledWith('test_myappname')).to.be.true;
     });
 
@@ -817,16 +806,20 @@ describe('appInspector tests', () => {
           test2: 'test2',
         },
       };
+      const res = {
+        json: sinon.stub(),
+      };
 
-      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
-      messageHelperStub.createDataMessage.returns({
+      const expected = {
         status: 'success',
         data: 'some data',
-      });
+      };
+      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
+      messageHelperStub.createDataMessage.returns(expected);
 
-      const result = await appInspector.appTop(req);
+      await appInspector.appTop(req, res);
 
-      expect(result).to.have.property('status', 'success');
+      sinon.assert.calledOnceWithExactly(res.json, expected);
       expect(dockerServiceStub.appDockerTop.calledWith('myappname')).to.be.true;
     });
   });
@@ -1586,7 +1579,7 @@ describe('appInspector tests', () => {
 
       await inspector.appMonitorAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerabove', req, 'myapp');
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
 
@@ -1939,27 +1932,7 @@ describe('appInspector tests', () => {
       expect(logStub.error.called).to.be.true;
     });
 
-    it('should return error if dockerService throws, response passed', async () => {
-      const res = {
-        json: sinon.stub(),
-      };
-      dockerServiceStub.dockerListImages = sinon.stub().rejects(new Error('Error'));
-      messageHelperStub.createErrorMessage.returns({
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'Error',
-        },
-      });
-
-      await appInspector.listAppsImages(undefined, res);
-
-      expect(res.json.calledOnce).to.be.true;
-      expect(logStub.error.called).to.be.true;
-    });
-
-    it('should return running apps, no response passed', async () => {
+    it('should return the images, no response passed', async () => {
       const mockImages = [{ RepoTags: ['image1:latest'] }, { RepoTags: ['image2:latest'] }];
       dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
       messageHelperStub.createDataMessage.returns({
@@ -1971,21 +1944,70 @@ describe('appInspector tests', () => {
 
       expect(result).to.have.property('status', 'success');
     });
+  });
 
-    it('should return running apps, response passed', async () => {
-      const mockImages = [{ RepoTags: ['image1:latest'] }, { RepoTags: ['image2:latest'] }];
-      const res = {
-        json: sinon.stub(),
-      };
+  describe('listAppsImagesApi tests', () => {
+    const mockImages = [{ RepoTags: ['image1:latest'] }, { RepoTags: ['image2:latest'] }];
+    const req = { headers: { zelidauth: 'zelid=x&signature=y' } };
+
+    it('answers the flux team with the image list', async () => {
       dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
-      messageHelperStub.createDataMessage.returns({
-        status: 'success',
-        data: mockImages,
-      });
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: mockImages });
+      const res = { json: sinon.stub() };
 
-      await appInspector.listAppsImages(undefined, res);
+      await appInspector.listAppsImagesApi(req, res);
 
-      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.calledOnceWith({ status: 'success', data: mockImages })).to.be.true;
+    });
+
+    // An image row names no application, so there is no smaller answer to give
+    // and nothing here to scope to one app. The question is only whether the
+    // caller is the flux team.
+    it('asks for the flux team, and asks nothing about an application', async () => {
+      dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: mockImages });
+
+      await appInspector.listAppsImagesApi(req, { json: sinon.stub() });
+
+      expect(verificationHelperStub.verifyPrivilege.calledOnce).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[0]).to.equal('fluxteam');
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[1]).to.equal('zelid=x&signature=y');
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[2]).to.equal(undefined);
+    });
+
+    it('refuses a caller who is not the flux team, and reads no images', async () => {
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { code: 401 } });
+      const res = { json: sinon.stub() };
+
+      await appInspector.listAppsImagesApi(req, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { code: 401 } })).to.be.true;
+      expect(dockerServiceStub.dockerListImages.called).to.be.false;
+    });
+
+    it('answers an unauthenticated caller the same refusal', async () => {
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      dockerServiceStub.dockerListImages = sinon.stub().resolves(mockImages);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { code: 401 } });
+      const res = { json: sinon.stub() };
+
+      await appInspector.listAppsImagesApi({ headers: {} }, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { code: 401 } })).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.firstCall.args[1]).to.equal(null);
+    });
+
+    it('reports a docker failure rather than throwing', async () => {
+      dockerServiceStub.dockerListImages = sinon.stub().rejects(new Error('Error'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Error' } });
+      const res = { json: sinon.stub() };
+
+      await appInspector.listAppsImagesApi(req, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { message: 'Error' } })).to.be.true;
+      expect(logStub.error.called).to.be.true;
     });
   });
 
@@ -2351,6 +2373,93 @@ describe('appInspector tests', () => {
       expect(appInspector.appMonitor).to.be.a('function');
       expect(appInspector.appChanges).to.be.a('function');
       expect(appInspector.listAppsImages).to.be.a('function');
+      expect(appInspector.listAppsImagesApi).to.be.a('function');
+    });
+  });
+
+  // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
+  // operator - so the string a handler asks for is the whole of the policy. What
+  // each privilege admits is pinned in verificationHelperUtils.test.js; these pin
+  // the hop for every endpoint in this module.
+  //
+  // Driven as a table because completeness is the point: one handler left on the
+  // wider privilege is the whole hole, and a per-handler assertion written by
+  // hand is exactly the kind of list that acquires a gap.
+  describe('the node operator is refused every app-scoped endpoint', () => {
+    const handlers = [
+      'appTop', 'appLog', 'appLogStream', 'appLogPolling',
+      'appInspect', 'appStats', 'appMonitorAPI', 'appChanges',
+    ];
+
+    handlers.forEach((handler) => {
+      it(`${handler} asks for the privilege that refuses the node operator`, async () => {
+        const verifyPrivilege = sinon.stub().resolves(false);
+        const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+          config: configStub,
+          '../utils/globalState': globalStateStub,
+          '../dockerService': dockerServiceStub,
+          '../messageHelper': messageHelperStub,
+          '../../lib/log': logStub,
+          '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().returnsArg(0) },
+          '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
+          '../dbHelper': { databaseConnection: sinon.stub() },
+          '../verificationHelper': { verifyPrivilege },
+          '../utils/appConstants': { appConstants: {} },
+          '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+          '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+          'node-cmd': { run: sinon.stub() },
+        });
+
+        const req = { params: { appname: 'myapp' }, query: {} };
+        const res = {
+          json: sinon.stub(),
+          setHeader: sinon.stub(),
+          write: sinon.stub(),
+          end: sinon.stub(),
+          flush: sinon.stub(),
+        };
+
+        await inspector[handler](req, res);
+
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
+      });
+    });
+  });
+
+  // Outside the table above: appExec reads its operands from the request body, so
+  // it needs a request that emits them. The privilege is the container terminal's.
+  describe('appExec', () => {
+    it('asks for the privilege the container terminal asks for', async () => {
+      const verifyPrivilege = sinon.stub().resolves(false);
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: configStub,
+        '../utils/globalState': globalStateStub,
+        '../dockerService': dockerServiceStub,
+        '../messageHelper': messageHelperStub,
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().returnsArg(0) },
+        '../dbHelper': { databaseConnection: sinon.stub() },
+        '../verificationHelper': { verifyPrivilege },
+        '../utils/appConstants': { appConstants: {} },
+        '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+        '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+        'node-cmd': { run: sinon.stub() },
+      });
+
+      // The handler accumulates the body itself, so deliver it the way http does
+      // and await the 'end' listener's own async work.
+      const handlers = {};
+      const req = {
+        on: (event, cb) => { handlers[event] = cb; },
+        headers: {},
+      };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), end: sinon.stub() };
+
+      inspector.appExec(req, res);
+      handlers.data(JSON.stringify({ appname: 'mycomponent_myapp', cmd: ['ls'] }));
+      await handlers.end();
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
 });

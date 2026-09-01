@@ -12,6 +12,7 @@ const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const dockerService = require('../dockerService');
 const benchmarkService = require('../benchmarkService');
+const { Privilege, authOf } = require('../utils/privileges');
 
 /**
  * To get system architecture type (ARM64 or AMD64).
@@ -48,7 +49,7 @@ async function nodeFullGeolocation() {
  */
 async function createFluxNetworkAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);

@@ -11,7 +11,7 @@ const express = require('express');
 const request = require('supertest');
 const apicache = require('apicache');
 
-const { rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
+const { asyncRoute, rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('routeGuards', () => {
@@ -167,6 +167,38 @@ describe('routeGuards', () => {
       const res = await get('/apps/appstart/myapp');
       expect(res.status).to.equal(200);
       expect(handlerCalls).to.equal(1);
+    });
+  });
+  // Every route is registered through this. A handler that rejects must reach
+  // express, because the alternative is not a 500 - it is an unhandled
+  // rejection, apiServer's uncaughtException handler, and process.exit.
+  describe('asyncRoute', () => {
+    it('hands a rejection to express rather than dropping it', async () => {
+      const boom = new Error('handler-exploded');
+      let forwarded;
+
+      await asyncRoute(async () => { throw boom; })({}, {}, (err) => { forwarded = err; });
+
+      expect(forwarded).to.equal(boom);
+    });
+
+    it('answers 500, so the caller is told rather than left waiting', async () => {
+      const app = express();
+      app.get('/boom', asyncRoute(async () => { throw new Error('handler-exploded'); }));
+
+      const res = await request(app).get('/boom');
+
+      expect(res.status).to.equal(500);
+    });
+
+    it('leaves a handler that resolves exactly as it was', async () => {
+      const app = express();
+      app.get('/fine', asyncRoute(async (req, res) => res.status(200).json({ ok: true })));
+
+      const res = await request(app).get('/fine');
+
+      expect(res.status).to.equal(200);
+      expect(res.body).to.deep.equal({ ok: true });
     });
   });
 });

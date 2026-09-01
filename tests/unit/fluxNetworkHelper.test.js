@@ -24,6 +24,7 @@ const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
@@ -36,6 +37,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
+const geolocationService = require('../../ZelBack/src/services/geolocationService');
 
 const net = require('node:net');
 
@@ -540,6 +542,23 @@ describe('fluxNetworkHelper tests', () => {
       expect(closeConnectionResult).to.eql(successMessage);
     });
 
+    // The caller asked for this peer to be gone. Until it leaves the map it
+    // still fills a slot no reconnect is dialled for and is still offered as a
+    // sync source - and the socket cannot be relied on to report the close,
+    // because a peer is most often removed exactly when it has stopped
+    // answering.
+    it('removes the peer, rather than waiting for its socket to report the close', async () => {
+      const ip = '127.9.9.7';
+      const port = '16127';
+      generateWebsocket(ip, port, WebSocket.OPEN);
+      expect(peerManager.has(`${ip}:${port}`)).to.equal(true);
+
+      await fluxNetworkHelper.closeConnection(ip, port);
+
+      expect(peerManager.has(`${ip}:${port}`), 'peer survived its own removal').to.equal(false);
+      expect(peerManager.outboundCount).to.equal(0);
+    });
+
     it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
       const ip = '127.9.9.1';
       const port = '16127';
@@ -615,6 +634,21 @@ describe('fluxNetworkHelper tests', () => {
     afterEach(() => {
       peerManager.reset();
       sinon.restore();
+    });
+
+    it('removes the peer, rather than waiting for its socket to report the close', async () => {
+      const ip = '127.5.5.9';
+      const port = '16127';
+      const ws = {
+        ip, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
+      };
+      peerManager.add(ws, ip, port, { source: PEER_SOURCE.INBOUND });
+      expect(peerManager.has(`${ip}:${port}`)).to.equal(true);
+
+      await fluxNetworkHelper.closeIncomingConnection(ip, port);
+
+      expect(peerManager.has(`${ip}:${port}`), 'peer survived its own removal').to.equal(false);
+      expect(peerManager.inboundCount).to.equal(0);
     });
 
     it('should return warning message if the websocket does not exist', async () => {
@@ -869,6 +903,13 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       getRandomSocketAddress = sinon.stub(networkStateService, 'getRandomSocketAddress');
+      // An IP change hands off to the geolocation service, which reschedules
+      // itself every ten seconds for as long as no IP is detected - and logs an
+      // error on each pass. Left real, the first of these tests starts a loop
+      // that outlives the whole suite, writing into every later test file that
+      // counts what was logged. That it is called at all is asserted where it
+      // belongs, in the static IP app handling tests below.
+      sinon.stub(geolocationService, 'setNodeGeolocation');
     });
 
     afterEach(() => {
@@ -1000,6 +1041,7 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(() => {
       writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(geolocationService, 'setNodeGeolocation');
       // Backup original userconfig
       originalUserConfig = globalThis.userconfig;
       // Mock userconfig with expected test values
@@ -2232,7 +2274,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return a success message if the port number is properly passed in query', async () => {
@@ -2258,7 +2300,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return an unauthorized message if privilege is not right', async () => {
@@ -2281,7 +2323,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should return an error message if allowPort status is false', async () => {
@@ -2309,7 +2351,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPortApi(req, res);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
   });
 

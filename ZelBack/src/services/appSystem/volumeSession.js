@@ -10,6 +10,7 @@ const {
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
 const { STAGING_PREFIX, isReservedName } = require('./volumeReservedNames');
 const { measureTree, BLOCK_UNIT } = require('../utils/treeSize');
+const { Privilege, authOf } = require('../utils/privileges');
 
 /**
  * Where an app's volume is mounted inside the executor container. Operands in
@@ -539,7 +540,12 @@ class VolumeSession {
  * @returns {Promise<VolumeSession>}
  */
 async function openVolume(req, options = {}) {
-  const { privilege = 'appownerabove' } = options;
+  // This default is the gate on eight endpoints that write to a customer's app
+  // volume - create, rename, move, copy, compress, extract, upload and remove -
+  // and no caller overrides it. appownerorfluxteam refuses the node operator,
+  // because uploading into, rewriting or deleting the data of an app you only
+  // host is not the node operator's to do.
+  const { privilege = Privilege.APP_OWNER_OR_FLUX_TEAM } = options;
 
   // ensureObject for url-encoded parity: express.json() populates req.body for
   // application/json, and a form-encoded caller arrives as a string.
@@ -547,7 +553,7 @@ async function openVolume(req, options = {}) {
   const appname = req.params.appname || req.query.appname || body.appname || '';
   const component = req.params.component || req.query.component || body.component || '';
 
-  const authorized = await verificationHelper.verifyPrivilege(privilege, req, appname);
+  const authorized = await verificationHelper.verifyPrivilege(privilege, authOf(req), { appName: appname });
   if (!authorized) {
     // Carries the code so this reaches a client as the body
     // messageHelper.errUnauthorizedMessage() has always produced. Handlers used
@@ -561,7 +567,7 @@ async function openVolume(req, options = {}) {
 
   const { mount, availableBytes, identifier } = await resolveVolumeMount(appname, component);
   // Read after authorisation succeeded, so this is the identity that passed it.
-  const auth = serviceHelper.ensureObject(req.headers && req.headers.zelidauth);
+  const auth = serviceHelper.ensureObject(authOf(req));
   const owner = (auth && auth.zelid) || null;
   return new VolumeSession(mount, availableBytes, identifier, owner, VolumeSession);
 }

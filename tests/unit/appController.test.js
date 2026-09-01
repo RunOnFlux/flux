@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
@@ -274,6 +275,20 @@ describe('appController tests', () => {
       expect(result.status).to.equal('success');
       expect(result.data.message).to.include('global start');
     });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
+    // operator - so which of the two is asked for is the whole of the policy. What
+    // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
+    // calledOnceWithExactly, so a second and wider check beside it fails too.
+    it('gates a start on the privilege that refuses the node operator', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStart(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
+    });
   });
 
   describe('appStop tests', () => {
@@ -462,6 +477,20 @@ describe('appController tests', () => {
 
       sinon.assert.notCalled(clearControllerDesired);
     });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
+    // operator - so which of the two is asked for is the whole of the policy. What
+    // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
+    // calledOnceWithExactly, so a second and wider check beside it fails too.
+    it('gates a stop on the privilege that refuses the node operator', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
+    });
   });
 
 
@@ -620,6 +649,20 @@ describe('appController tests', () => {
       const result = res.json.firstCall.args[0];
       expect(result.data).to.equal('Application Gcomp_ComposedApp will be restarted: waiting for the election');
       sinon.assert.notCalled(dockerService.appDockerRestart);
+    });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the node
+    // operator - so which of the two is asked for is the whole of the policy. What
+    // each admits is pinned in verificationHelperUtils.test.js; this pins the hop.
+    // calledOnceWithExactly, so a second and wider check beside it fails too.
+    it('gates a restart on the privilege that refuses the node operator', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
   });
 
@@ -851,17 +894,17 @@ describe('appController tests', () => {
       expect(result.status).to.equal('error');
     });
 
-    // Narrower than its siblings on purpose: appownerabove admits the node
-    // operator, and ending someone else's app abruptly is not theirs to order.
+    // The same privilege its siblings ask for. It refuses the node
+    // operator, and ending someone else's app abruptly is not theirs to order
+    // any more than starting or stopping it is.
     it('asks for a privilege that excludes the node operator', async () => {
-      verificationHelperStub.resolves(true);
-      stubInstalledApp({ name: 'TestApp', version: 3 });
+      verificationHelperStub.resolves(false);
 
       const req = { params: { appname: 'TestApp' }, query: {} };
       const res = { json: sinon.fake((param) => param) };
       await appController.appKill(req, res);
 
-      expect(verificationHelperStub.firstCall.args[0]).to.equal('appownerorfluxteam');
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
 
     it('refuses a caller the narrower privilege rejects', async () => {
@@ -926,6 +969,10 @@ describe('appController tests', () => {
       // satisfied by any other error name, including one from an unrelated throw
       // that never reached the privilege check at all.
       expect(result.data.name).to.equal('Unauthorized');
+      // The route answers 410 whatever the caller, so the privilege decides only
+      // which refusal they get. It asks for the same one as every other
+      // app-scoped endpoint, so no handler asks for a privilege the operator passes.
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
 
     // Express's default extended query parser turns ?appname=a&appname=b into an

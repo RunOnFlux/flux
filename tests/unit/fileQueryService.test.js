@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const fs = require('fs').promises;
 const fileQueryService = require('../../ZelBack/src/services/appQuery/fileQueryService');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const IOUtils = require('../../ZelBack/src/services/IOUtils');
@@ -504,6 +505,20 @@ describe('fileQueryService tests', () => {
       expect(response.data[0].isFile).to.be.true;
       expect(response.data[1].isDirectory).to.be.true;
       expect(response.data[2].isSymbolicLink).to.be.true;
+    });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
+    // node operator - so the string this asks for is the whole of the policy.
+    // A listing of a customer's app volume is theirs, not their host's.
+    it('gates the listing on the privilege that refuses the node operator', async () => {
+      const req = { params: { appname: 'TestApp', component: 'Component1' }, query: {} };
+      const res = { json: sinon.stub() };
+
+      const verifyPrivilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+
+      await fileQueryService.getAppsFolder(req, res);
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'TestApp' });
     });
   });
 });

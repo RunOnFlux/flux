@@ -2,6 +2,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
 // specific return (e.g. a distinct getAppIdentifier or a shared pruneImages
@@ -288,7 +290,7 @@ describe('appInstaller tests', () => {
       await appInstaller.installAppLocally(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith('user', req)).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.USER, authOf(req))).to.be.true;
     });
 
     it('should handle missing appname parameter', async () => {
@@ -318,8 +320,8 @@ describe('appInstaller tests', () => {
         setHeader: sinon.stub(),
       };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -345,16 +347,16 @@ describe('appInstaller tests', () => {
       const req = nameInstall();
       const res = { json: sinon.stub(), setHeader: sinon.stub() };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
       // the node operator's own privilege - held, and no longer sufficient here
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(false);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
       messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
       messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
 
       await appInstaller.installAppLocally(req, res);
 
-      expect(verificationHelperStub.verifyPrivilege.calledWith('fluxteam', req), 'the gate must ask for fluxteam').to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req)), 'the gate must ask for fluxteam').to.be.true;
       expect(res.json.calledOnce).to.be.true;
       expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
     });
@@ -363,9 +365,9 @@ describe('appInstaller tests', () => {
       const req = nameInstall();
       const res = { json: sinon.stub(), setHeader: sinon.stub() };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(false);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
       messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
       messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
 
@@ -381,9 +383,9 @@ describe('appInstaller tests', () => {
       const req = { params: { appname: 'a1b2c3hash' }, query: {} };
       const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub() };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(false);
-      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(false);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(false);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
       messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
         appSpecifications: { name: 'apptest', version: 3, owner: 'someone' },
       });
@@ -395,7 +397,7 @@ describe('appInstaller tests', () => {
       // privilege was never consulted because a temporary message was found.
       const unauthorized = res.json.getCalls().some((c) => c.args[0]?.data?.message === 'Unauthorized');
       expect(unauthorized, 'a temporary app must not be refused').to.equal(false);
-      expect(verificationHelperStub.verifyPrivilege.calledWith('fluxteam', req), 'the by-name gate must not be reached').to.be.false;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req)), 'the by-name gate must not be reached').to.be.false;
     });
   });
 
@@ -415,7 +417,7 @@ describe('appInstaller tests', () => {
       await appInstaller.testAppInstall(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith('user', req)).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.USER, authOf(req))).to.be.true;
     });
 
     it('should handle missing appname parameter', async () => {
@@ -445,8 +447,8 @@ describe('appInstaller tests', () => {
         setHeader: sinon.stub(),
       };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -493,8 +495,8 @@ describe('appInstaller tests', () => {
         setHeader: sinon.stub(),
       };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('fluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);

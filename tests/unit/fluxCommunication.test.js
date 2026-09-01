@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const WebSocket = require('ws');
 const { expect } = require('chai');
 const log = require('../../ZelBack/src/lib/log');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
@@ -606,7 +607,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
@@ -639,7 +640,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue a warning if a connection does not exist', async () => {
@@ -671,7 +672,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if ip is not provided', async () => {
@@ -703,7 +704,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if user is unauthorized', async () => {
@@ -790,7 +791,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
@@ -823,7 +824,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     }).timeout(5000);
 
     it('should issue a warning if a connection does not exist', async () => {
@@ -853,7 +854,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if ip is not provided', async () => {
@@ -885,7 +886,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if user is unauthorized', async () => {
@@ -914,7 +915,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
   });
 
@@ -1410,7 +1411,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.addPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedMessage);
-      sinon.assert.calledOnceWithExactly(verificationStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
   });
 

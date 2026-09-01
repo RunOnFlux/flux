@@ -212,8 +212,8 @@ describe('syncthingMonitor tests', () => {
     // block it means to exercise and passes on an early bail instead.
     syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
     fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
-    syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
-    syncthingServiceMock.getConfigDevices.resolves({ status: 'success', data: [] });
+    syncthingServiceMock.getConfigFolders.resolves([]);
+    syncthingServiceMock.getConfigDevices.resolves([]);
     syncthingServiceMock.getConfigRestartRequired.resolves({
       status: 'success',
       data: { requiresRestart: false },
@@ -233,6 +233,66 @@ describe('syncthingMonitor tests', () => {
       monitorControl.stop();
     }
     clock.restore();
+  });
+
+  // Which folders this node holds writable is answered by the FOLDER
+  // configuration. The device configuration is a second read on the same pass
+  // and answers a different question - so a device read that fails must not
+  // withhold a folder list the pass already has. Sharing one try did exactly
+  // that: peers asking before promoting a folder of their own were told to wait,
+  // and kept being told, for as long as the device read failed.
+  describe('publishing the folders it holds when the device read fails', () => {
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+    const runOnePass = async () => {
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(10000);
+    };
+
+    beforeEach(() => {
+      globalState.promotedFolderIds = null;
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'fluxcomp_heldapp', path: '/apps/fluxcomp_heldapp', type: 'sendreceive' },
+        { id: 'fluxcomp_followed', path: '/apps/fluxcomp_followed', type: 'receiveonly' },
+      ]);
+    });
+
+    it('publishes them even though the device read threw', async () => {
+      syncthingServiceMock.getConfigDevices.rejects(new Error('simulated unreadable device configuration'));
+
+      await runOnePass();
+
+      expect(globalState.promotedFolderIds, 'the pass withheld folders it had read').to.not.equal(null);
+      expect([...globalState.promotedFolderIds]).to.deep.equal(['fluxcomp_heldapp']);
+    });
+
+    // The control: without it the assertion above passes on a pass that publishes
+    // regardless of anything, including one that never reads a folder at all.
+    it('publishes the same folders when the device read succeeds', async () => {
+      syncthingServiceMock.getConfigDevices.resolves([]);
+
+      await runOnePass();
+
+      expect([...globalState.promotedFolderIds]).to.deep.equal(['fluxcomp_heldapp']);
+    });
+
+    // A folder read it could not complete is different: there is then nothing to
+    // publish, and the last good answer must stand rather than be replaced by a
+    // claim that this node holds nothing.
+    it('leaves the previous answer alone when the folder read itself threw', async () => {
+      globalState.promotedFolderIds = new Set(['fluxcomp_heldapp']);
+      syncthingServiceMock.getConfigFolders.rejects(new Error('simulated unreadable folder configuration'));
+
+      await runOnePass();
+
+      expect([...globalState.promotedFolderIds]).to.deep.equal(['fluxcomp_heldapp']);
+    });
   });
 
   describe('syncthingApps tests', () => {
@@ -348,10 +408,7 @@ describe('syncthingMonitor tests', () => {
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
       });
       syncthingMonitorHelpersMock.requiresSyncing.returns(true);
-      syncthingServiceMock.getConfigFolders.resolves({
-        status: 'success',
-        data: [{ id: 'testapp', path: '/apps/testapp', type: 'sendreceive' }],
-      });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', path: '/apps/testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
       syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, isMounted: true, reason: 'phantom_index_empty_disk' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
@@ -378,13 +435,10 @@ describe('syncthingMonitor tests', () => {
         data: [{ name: 'sending', version: 3, containerData: 'g:/appdata' }, { name: 'receiving', version: 3, containerData: 'g:/appdata' }],
       });
       syncthingMonitorHelpersMock.requiresSyncing.returns(true);
-      syncthingServiceMock.getConfigFolders.resolves({
-        status: 'success',
-        data: [
-          { id: 'sending', path: '/apps/sending', type: 'sendreceive' },
-          { id: 'receiving', path: '/apps/receiving', type: 'receiveonly' },
-        ],
-      });
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'sending', path: '/apps/sending', type: 'sendreceive' },
+        { id: 'receiving', path: '/apps/receiving', type: 'receiveonly' },
+      ]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       monitorControl = syncthingMonitor.syncthingApps(
@@ -413,10 +467,7 @@ describe('syncthingMonitor tests', () => {
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
       syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
-      syncthingServiceMock.getConfigFolders.resolves({
-        status: 'success',
-        data: [{ id: 'testapp', path: '/apps/testapp', type: 'sendreceive' }],
-      });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', path: '/apps/testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       monitorControl = syncthingMonitor.syncthingApps(
@@ -472,10 +523,7 @@ describe('syncthingMonitor tests', () => {
         data: [{ name: 'secretapp', version: 8, compose: [] }],
       });
       appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: [], unreadable: apps, inPlace: [] }));
-      syncthingServiceMock.getConfigFolders.resolves({
-        status: 'success',
-        data: [{ id: 'fluxcomp_secretapp', path: '/apps/fluxcomp_secretapp', type: 'sendreceive' }],
-      });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'fluxcomp_secretapp', path: '/apps/fluxcomp_secretapp', type: 'sendreceive' }]);
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
       syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
@@ -503,10 +551,7 @@ describe('syncthingMonitor tests', () => {
         data: [{ name: 'secretapp', version: 8, compose: [] }],
       });
       appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: [], unreadable: apps, inPlace: [] }));
-      syncthingServiceMock.getConfigFolders.resolves({
-        status: 'success',
-        data: [{ id: 'fluxcomp_secretapp', path: '/apps/fluxcomp_secretapp', type: 'sendreceive' }],
-      });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'fluxcomp_secretapp', path: '/apps/fluxcomp_secretapp', type: 'sendreceive' }]);
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true });
       syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: true, isMounted: true });
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
@@ -540,8 +585,8 @@ describe('syncthingMonitor tests', () => {
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
-      syncthingServiceMock.getConfigDevices.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getConfigFolders.resolves([]);
+      syncthingServiceMock.getConfigDevices.resolves([]);
 
       monitorControl = syncthingMonitor.syncthingApps(
         mockState,
@@ -571,8 +616,8 @@ describe('syncthingMonitor tests', () => {
       syncthingMonitorHelpersMock.requiresSyncing.returns(true);
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'brokenapp', type: 'sendreceive' }] });
-      syncthingServiceMock.getConfigDevices.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', type: 'sendreceive' }]);
+      syncthingServiceMock.getConfigDevices.resolves([]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       monitorControl = syncthingMonitor.syncthingApps(
@@ -601,8 +646,8 @@ describe('syncthingMonitor tests', () => {
       syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['brokenapp']);
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'brokenapp', type: 'receiveonly' }] });
-      syncthingServiceMock.getConfigDevices.resolves({ status: 'success', data: [{ deviceID: 'PEER-DEVICE' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', type: 'receiveonly' }]);
+      syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-DEVICE' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
       syncthingServiceMock.adjustConfigDevices.resolves({ status: 'success', data: {} });
 
@@ -776,7 +821,7 @@ describe('syncthingMonitor tests', () => {
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
       });
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
 
@@ -1059,7 +1104,7 @@ describe('syncthingMonitor tests', () => {
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
       mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getConfigFolders.resolves([]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
     }
 
@@ -1107,7 +1152,7 @@ describe('syncthingMonitor tests', () => {
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
       mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
@@ -1125,7 +1170,7 @@ describe('syncthingMonitor tests', () => {
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
       mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getConfigFolders.resolves([]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
@@ -1143,7 +1188,7 @@ describe('syncthingMonitor tests', () => {
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
       mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
@@ -1184,7 +1229,7 @@ describe('syncthingMonitor tests', () => {
       primaryMountSyncs();
       syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
       mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       await runOnePass();
@@ -1202,7 +1247,7 @@ describe('syncthingMonitor tests', () => {
         cache: { firstEncounterSkipped: true },
         skipProcessing: true,
       });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       await runOnePass();
@@ -1224,7 +1269,7 @@ describe('syncthingMonitor tests', () => {
         inPlace: apps,
       }));
       mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'fluxweb_entapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'fluxweb_entapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       await runOnePass();
@@ -1244,13 +1289,10 @@ describe('syncthingMonitor tests', () => {
         inPlace: apps,
       }));
       mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
-      syncthingServiceMock.getConfigFolders.resolves({
-        status: 'success',
-        data: [
-          { id: 'fluxweb_entapp', type: 'sendreceive' },
-          { id: 'fluxweb_goneapp', type: 'sendreceive' },
-        ],
-      });
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'fluxweb_entapp', type: 'sendreceive' },
+        { id: 'fluxweb_goneapp', type: 'sendreceive' },
+      ]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       await runOnePass();
@@ -1273,7 +1315,7 @@ describe('syncthingMonitor tests', () => {
         syncthingFolder: { id: 'testapp', type: 'sendreceive' },
         cache: { designationPending: true },
       });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'receiveonly' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'receiveonly' }]);
       syncthingMonitorHelpersMock.folderNeedsUpdate.returns(true);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
@@ -1291,7 +1333,7 @@ describe('syncthingMonitor tests', () => {
         syncthingFolder: { id: 'testapp', type: 'sendreceive' },
         cache: { designationPending: true },
       });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'receiveonly' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'receiveonly' }]);
       syncthingMonitorHelpersMock.folderNeedsUpdate.returns(true);
       syncthingServiceMock.adjustConfigFolders
         .withArgs('put', sinon.match.any).resolves({ status: 'error', data: { message: 'apply failed' } });
@@ -1352,7 +1394,7 @@ describe('syncthingMonitor tests', () => {
         status: 'success',
         data: [{ name: 'testapp', version: 3, containerData: '/appdata' }],
       });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       await runOnePass();
@@ -1363,7 +1405,7 @@ describe('syncthingMonitor tests', () => {
     it('deletes the folder of an app that is no longer installed', async () => {
       primaryMountSyncs();
       mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'ghostapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'ghostapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       await runOnePass();
@@ -1379,7 +1421,7 @@ describe('syncthingMonitor tests', () => {
       // folder that is no longer there.
       primaryMountSyncs();
       mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
-      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       mockState.backupInProgress = ['testapp'];

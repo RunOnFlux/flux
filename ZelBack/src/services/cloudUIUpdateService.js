@@ -14,6 +14,14 @@ const VERSION_FILE = path.join(CLOUDUI_DIR, 'version');
 // ArcaneOS nodes have watchdog handling CloudUI updates
 const isArcaneOS = Boolean(process.env.FLUXOS_PATH);
 
+// The run in progress, if there is one. The script removes the served directory
+// before it copies the new one into place, so two runs at once means the second
+// one's removal lands inside the first one's copy - and the run that wrote the
+// version file is then not the run that wrote the files beside it. A second
+// caller joins the run already going rather than starting another, which is
+// also the honest answer: the rebuild it asked for is happening.
+let updateInFlight = null;
+
 /**
  * Checks if CloudUI folder exists and has content
  * @returns {boolean}
@@ -102,17 +110,46 @@ async function getRemoteVersionInfo() {
 }
 
 /**
+ * Whether CloudUI on this node belongs to something else.
+ *
+ * On ArcaneOS the watchdog installs and updates it, so nothing here may touch it -
+ * neither the periodic check nor the operator's rebuild. One definition, because two
+ * paths reach the script and a rule only half of them consult is not a rule.
+ *
+ * @returns {boolean}
+ */
+function watchdogManagesCloudUI() {
+  return isArcaneOS;
+}
+
+/**
  * Executes the update:cloudui script
  * @returns {Promise<boolean>}
  */
 function runUpdateScript() {
+  if (updateInFlight) {
+    log.info('CloudUI: an update is already running, waiting for it rather than starting another');
+    return updateInFlight;
+  }
+
+  updateInFlight = startUpdateScript().finally(() => { updateInFlight = null; });
+
+  return updateInFlight;
+}
+
+/**
+ * Runs the update:cloudui script, unconditionally. Reached only through
+ * runUpdateScript, which is what keeps two of them from overlapping.
+ * @returns {Promise<boolean>}
+ */
+function startUpdateScript() {
   return new Promise((resolve) => {
     log.info('CloudUI: Running update script...');
 
     // The script is handed the API host rather than knowing one. Config is the single
-    // source of truth for every endpoint a node reaches, and it lives in the directory
-    // fluxbench hashes - a hardcoded URL in the script, or one taken from the
-    // environment, would be outside that protection and unreachable by the harness.
+    // source of truth for every endpoint a node reaches, so a hardcoded URL in the script,
+    // or one taken from the environment, would sit outside it and be unreachable by the
+    // harness.
     execFile('npm', ['run', 'update:cloudui', '--', config.github.apiBaseUrl], { cwd: PROJECT_ROOT, timeout: 300000 }, (error, stdout, stderr) => {
       if (error) {
         log.error(`CloudUI update script error: ${error.message}`);
@@ -142,7 +179,7 @@ function runUpdateScript() {
 async function checkAndUpdateCloudUI() {
   try {
     // Skip on ArcaneOS - watchdog handles CloudUI updates
-    if (isArcaneOS) {
+    if (watchdogManagesCloudUI()) {
       log.info('CloudUI: Running on ArcaneOS, skipping update check (handled by watchdog)');
       return;
     }
@@ -215,6 +252,8 @@ async function checkAndUpdateCloudUI() {
 module.exports = {
   checkAndUpdateCloudUI,
   cloudUIExists,
+  runUpdateScript,
+  watchdogManagesCloudUI,
   getLocalVersionHash,
   getRemoteVersionInfo,
   // Exported for testing

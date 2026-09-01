@@ -63,13 +63,14 @@ const mountVerifyPending = new Set();
  * conditions, surface folder activity to the monitor.
  */
 async function pollOnce() {
-  const response = await syncthingService.getEvents({
-    params: {},
-    query: { since, events: SUBSCRIBED_EVENTS, timeout: EVENTS_LONGPOLL_TIMEOUT_S },
+  const events = await syncthingService.getEvents({
+    since,
+    events: SUBSCRIBED_EVENTS,
+    timeout: EVENTS_LONGPOLL_TIMEOUT_S,
     signal: controller.signal,
-  }, null);
+  });
 
-  if (!response || response.status !== 'success' || !Array.isArray(response.data)) {
+  if (!Array.isArray(events)) {
     throw new Error('syncthing events endpoint unavailable');
   }
 
@@ -80,7 +81,6 @@ async function pollOnce() {
     if (callbacks.onResync) callbacks.onResync();
   }
 
-  const events = response.data;
   if (events.length === 0) return; // long-poll timeout with nothing new
 
   const firstId = events[0].id;

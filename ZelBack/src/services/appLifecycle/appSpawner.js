@@ -13,6 +13,7 @@ const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = r
 
 // Import modular services
 const appQueryService = require('../appQuery/appQueryService');
+const resourceQueryService = require('../appQuery/resourceQueryService');
 const messageStore = require('../appMessaging/messageStore');
 const registryManager = require('../appDatabase/registryManager');
 const imageManager = require('../appSecurity/imageManager');
@@ -469,6 +470,20 @@ async function trySpawningGlobalApplication() {
       }
       throw error;
     });
+
+    // Refused before taking on new work, and only here. An application this node
+    // cannot read contributes nothing to the totals the check below subtracts
+    // from its capacity, so the space it believes is free includes space already
+    // spoken for and this node would over-commit. The same refusal on the
+    // maintenance paths would be wrong: a redeploy of an app already counted adds
+    // nothing, and one unreadable application would freeze every other one on the
+    // node. Named, because a node that quietly stops accepting work is a long
+    // afternoon for whoever has to find out why.
+    const unaccounted = resourceQueryService.unaccountedApps(await resourceQueryService.appsResources());
+    if (unaccounted.length) {
+      log.error(`trySpawningGlobalApplication - cannot account for what this node has committed: ${unaccounted.join(', ')} could not be read. Not taking on more.`);
+      return shortDelayTime;
+    }
 
     // verify requirements
     await hwRequirements.checkAppRequirements(appSpecifications);

@@ -1,11 +1,5 @@
-process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-// The directory is pinned above so config loads from the one fluxbench
-// hashes. NODE_CONFIG is the same door: the config package merges whatever
-// JSON it holds over every file, after the directory is settled, so leaving
-// it open redirects any endpoint without touching a hashed file - the one
-// redirect tamper detection cannot see. Deleted rather than emptied, because
-// an empty value is parsed and fails rather than being ignored.
-delete process.env.NODE_CONFIG;
+// First, and above every other require: the environment this process answers from.
+require('./ZelBack/pinEnvironment');
 
 const log = require('./ZelBack/src/lib/log');
 const path = require('path');
@@ -53,4 +47,8 @@ async function initiate() {
   });
 }
 
-initiate();
+// Guarded so the entry point can be loaded without starting a node: the four
+// environment lines above decide what this process discloses, and a test can only
+// read them off the real file. Both launchers - `node app.js` and `nodemon app.js`
+// - enter here as main.
+if (require.main === module) initiate();

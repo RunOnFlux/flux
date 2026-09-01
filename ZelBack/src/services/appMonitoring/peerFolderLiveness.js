@@ -166,9 +166,9 @@ async function peerDeviceId(peerIp) {
   // name while the peer was still up, and that config outlives both processes.
   // Left unread, the node with a perfectly good local record would report itself
   // ignorant and hold a start for as long as the dead peer's location record lives.
-  const response = await syncthingService.getConfigDevices(null, null).catch(() => null);
-  if (response?.status !== 'success' || !Array.isArray(response.data)) return null;
-  return response.data.find((device) => device.name === name)?.deviceID ?? null;
+  const devices = await syncthingService.getConfigDevices().catch(() => null);
+  if (!Array.isArray(devices)) return null;
+  return devices.find((device) => device.name === name)?.deviceID ?? null;
 }
 
 /**
@@ -203,12 +203,13 @@ async function peerSyncthingConnection(folderId, peerIp) {
   const deviceId = await peerDeviceId(peerIp);
   if (!deviceId) return PeerConnection.UNKNOWN;
 
-  const response = await syncthingService.getDbCompletion({
-    query: { folder: folderId, device: deviceId },
-  }, null).catch(() => null);
+  const completion = await syncthingService.getDbCompletion({
+    folder: folderId,
+    device: deviceId,
+  }).catch(() => null);
 
-  if (response?.status !== 'success' || !response.data) return PeerConnection.UNKNOWN;
-  return response.data.remoteState === 'valid' ? PeerConnection.CONNECTED : PeerConnection.DISCONNECTED;
+  if (!completion) return PeerConnection.UNKNOWN;
+  return completion.remoteState === 'valid' ? PeerConnection.CONNECTED : PeerConnection.DISCONNECTED;
 }
 
 /**

@@ -106,7 +106,7 @@ function sortRunningAppList(runningAppList) {
  * @param {Map} deviceCache - Device ID cache
  * @param {Array} devicesConfiguration - Array to populate with devices
  * @param {Array} devicesIds - Array to populate with device IDs
- * @param {Array} allDevicesResp - Existing syncthing devices
+ * @param {Array} allDevices - Existing syncthing devices
  * @returns {Promise<Array>} Array of device objects for folder configuration
  */
 async function buildDeviceConfiguration(
@@ -116,7 +116,7 @@ async function buildDeviceConfiguration(
   deviceCache,
   devicesConfiguration,
   devicesIds,
-  allDevicesResp,
+  allDevices,
 ) {
   const devices = [{ deviceID: myDeviceId }];
 
@@ -171,7 +171,7 @@ async function buildDeviceConfiguration(
       devicesIds.push(deviceID);
 
       if (deviceID !== myDeviceId) {
-        const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+        const syncthingDeviceExists = allDevices.find((device) => device.name === name);
         if (!syncthingDeviceExists) {
           devicesConfiguration.push(newDevice);
         }

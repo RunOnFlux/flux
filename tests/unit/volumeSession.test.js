@@ -2,6 +2,8 @@ const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const os = require('node:os');
 const nodePath = require('node:path');
 const realFs = require('node:fs/promises');
@@ -137,8 +139,9 @@ describe('volumeSession tests', () => {
     });
 
     it('checks ownership of the app actually named in the request', async () => {
-      await volumeSession.openVolume(reqFor('myapp', 'comp'));
-      expect(verificationHelperStub.verifyPrivilege.calledWith('appownerabove', sinon.match.any, 'myapp')).to.equal(true);
+      const req = reqFor('myapp', 'comp');
+      await volumeSession.openVolume(req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
 
     it('carries the authenticated identity as the session owner', async () => {

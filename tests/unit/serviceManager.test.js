@@ -13,7 +13,7 @@ const sinon = require('sinon');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
-const { ensureIndex, dedupeByKey } = require('../../ZelBack/src/services/serviceManager');
+const { ensureIndex, ensureIndexes, dedupeByKey } = require('../../ZelBack/src/services/serviceManager');
 const log = require('../../ZelBack/src/lib/log');
 
 describe('serviceManager ensureIndex', () => {
@@ -176,5 +176,99 @@ describe('serviceManager dedupeByKey', () => {
 
     expect(removed).to.equal(0);
     sinon.assert.notCalled(collection.deleteMany);
+  });
+});
+// ensureIndexes is the same guarantee taken in one command. mongo pays a fixed
+// cost per index BUILD whatever the data size, so a node asserting its schema
+// one index at a time pays it 34 times over 14 collections - and in the
+// integration harness, where ten nodes share one mongod and every database is
+// new, ten nodes do it at once (measured: 938 builds per fleet boot). The batch
+// is the fast path only: anything that fails falls back to ensureIndex, because
+// the healing above has to know WHICH index failed and a batch rejection does
+// not say.
+describe('serviceManager ensureIndexes', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  function stubCollection({ createIndexes, createIndex } = {}) {
+    return {
+      collectionName: 'somecollection',
+      createIndexes: createIndexes || sinon.stub().resolves(['a_1']),
+      createIndex: createIndex || sinon.stub().resolves('a_1'),
+      listIndexes: sinon.stub(),
+      dropIndex: sinon.stub().resolves(),
+    };
+  }
+
+  it('asserts every index in ONE command, not one command per index', async () => {
+    const collection = stubCollection();
+
+    await ensureIndexes(collection, [
+      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+      { key: { name: 1 }, name: 'by name' },
+      { key: { ip: 1, name: 1 } },
+    ]);
+
+    sinon.assert.calledOnce(collection.createIndexes);
+    sinon.assert.notCalled(collection.createIndex);
+    expect(collection.createIndexes.firstCall.args[0]).to.deep.equal([
+      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+      { key: { name: 1 }, name: 'by name' },
+      { key: { ip: 1, name: 1 } },
+    ]);
+  });
+
+  it('never hands mongo the recovery strategy, which is ours', async () => {
+    const collection = stubCollection();
+
+    await ensureIndexes(collection, [
+      { key: { hash: 1 }, unique: true, recover: dedupeByKey },
+    ]);
+
+    const [models] = collection.createIndexes.firstCall.args;
+    expect(models).to.deep.equal([{ key: { hash: 1 }, unique: true }]);
+    expect(models[0]).to.not.have.property('recover');
+  });
+
+  it('falls back to one at a time when the batch is refused, and still heals', async () => {
+    const duplicate = new Error('E11000 duplicate key error collection');
+    duplicate.code = 11000;
+    duplicate.codeName = 'DuplicateKey';
+
+    const createIndex = sinon.stub();
+    createIndex.onFirstCall().resolves('expireAt_1');
+    createIndex.onSecondCall().rejects(duplicate);
+    createIndex.onThirdCall().resolves('hash_1');
+
+    const collection = stubCollection({
+      createIndexes: sinon.stub().rejects(duplicate),
+      createIndex,
+    });
+    const recover = sinon.stub().resolves(2);
+
+    await ensureIndexes(collection, [
+      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+      { key: { hash: 1 }, unique: true, recover },
+    ]);
+
+    // one per index, with the recovery run between the failed build and its retry
+    sinon.assert.calledThrice(createIndex);
+    sinon.assert.calledOnce(recover);
+    sinon.assert.calledWithExactly(createIndex.firstCall, { expireAt: 1 }, { expireAfterSeconds: 0 });
+    sinon.assert.calledWithExactly(createIndex.secondCall, { hash: 1 }, { unique: true });
+    sinon.assert.calledWithExactly(createIndex.thirdCall, { hash: 1 }, { unique: true });
+  });
+
+  it('still rethrows what the per-index path cannot heal', async () => {
+    const fatal = new Error('not authorized on db to execute command');
+    fatal.codeName = 'Unauthorized';
+
+    const collection = stubCollection({
+      createIndexes: sinon.stub().rejects(fatal),
+      createIndex: sinon.stub().rejects(fatal),
+    });
+
+    await expect(ensureIndexes(collection, [{ key: { a: 1 } }])).to.be.rejectedWith('not authorized');
   });
 });
