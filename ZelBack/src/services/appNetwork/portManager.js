@@ -466,6 +466,21 @@ async function portsInUseApi(req, res) {
       throw new Error('Unable to verify request authenticity');
     }
 
+    // A signed ask is good for its window and no longer. Refused as STALE rather
+    // than as unauthentic, because the two want different fixes and a node whose
+    // clock has drifted should be able to read which from one line.
+    //
+    // Not asked of an operator: they authenticated as themselves, and a person
+    // asking by hand has no signature for anyone to capture.
+    const askedAt = signed === true ? Number(processedBody.timestamp) : null;
+
+    if (signed === true) {
+      const drift = Math.abs(Date.now() - askedAt);
+      if (!Number.isFinite(askedAt) || drift > config.fluxapps.siblingAskValidityMs) {
+        throw new Error('Request is stale or carries no timestamp');
+      }
+    }
+
     const ports = await portsInUse();
 
     // Signed, so the answer is bound to the Fluxnode that owns this address
@@ -475,7 +490,9 @@ async function portsInUseApi(req, res) {
     // saying it. The request side has always established who is ASKING; without
     // this the reply established nothing at all.
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
-    const answer = { pubKey, ports };
+    // askedAt is the ASK's time signed back, not this answer's. It is what makes
+    // the answer good for one question rather than for every later one.
+    const answer = { pubKey, ports, askedAt };
     const signature = await signCheckAppData(JSON.stringify(answer));
 
     // signMessage catches its own failures and answers with nothing, so an
@@ -569,7 +586,12 @@ async function siblingHoldingPort(appPorts, localSocketAddress) {
   // Signed for the sibling to verify, the same way the port test signs what it
   // sends to /flux/checkappavailability.
   const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
-  const ask = { pubKey, asking: 'portsInUse' };
+  // Timestamped. Without it the body is constant - a key and a fixed word - so
+  // one captured signature is a bearer token for this endpoint on every node in
+  // the network, for ever. It is also what binds the ANSWER to this question:
+  // the sibling signs the time back, so a captured answer cannot be replayed
+  // into a later ask either. One field, both directions.
+  const ask = { pubKey, asking: 'portsInUse', timestamp: Date.now() };
   const signature = await signCheckAppData(JSON.stringify(ask));
 
   // signMessage catches its own failures and answers with nothing, so an
@@ -596,10 +618,24 @@ async function siblingHoldingPort(appPorts, localSocketAddress) {
     ).catch(() => null);
 
     const body = response && response.data;
-    if (!body || body.status !== 'success') return null;
+    if (!body || body.status !== 'success') {
+      // Said out loud. A sibling refusing the question - a stale ask, a clock
+      // that has drifted, a key it will not accept - is a different thing from a
+      // sibling that holds nothing, and both used to be the same silence.
+      const refusal = body && body.data && body.data.message;
+      if (refusal) log.warn(`siblingHoldingPort - ${address} refused the question: ${refusal}`);
+      return null;
+    }
 
     const answer = body.data;
     if (!answer || !Array.isArray(answer.ports)) return null;
+
+    // The answer names the question it answers. An answer signed for some other
+    // ask is a recording, and a recording says what was true then.
+    if (answer.askedAt !== ask.timestamp) {
+      log.warn(`siblingHoldingPort - ${address} answered a question other than the one asked; ignoring it`);
+      return null;
+    }
 
     // Verified as the answer of the node AT THIS ADDRESS. A listed Fluxnode
     // elsewhere signing a port list says nothing about what is installed here,
@@ -641,25 +677,6 @@ async function siblingHoldingPort(appPorts, localSocketAddress) {
 }
 
 /**
- * The first port whose answer was not ours, or null when every one of them was.
- *
- * The peer read each port and handed back what it found; the comparison is
- * HERE, against a secret the peer was never given. That direction is the whole
- * design. A peer cannot tell our application from a neighbour's at the same
- * address - that is why this check exists - so a peer is not in a position to
- * judge, and one that is old, broken or lying cannot manufacture a token it
- * never saw.
- *
- * Only ports the peer would have read are required to carry it: it skips any
- * outside the app port range, and a port it never tried says nothing either
- * way.
- *
- * @param {number[]} portsToTest - the ports asked about
- * @param {object} answered - port -> what that port replied, from the peer
- * @param {string} token - the secret this node published on its test servers
- * @returns {number|null}
- */
-/**
  * How many independent peers must agree before a port test refuses an install.
  * Not config: it is a property of what counts as evidence, not a tuning knob,
  * and a fluxapps key has to be added in two places to be visible under test.
@@ -696,6 +713,25 @@ function refusedPort(disagreements, corroboration) {
   return disagreements.values().next().value;
 }
 
+/**
+ * The first port whose answer was not ours, or null when every one of them was.
+ *
+ * The peer read each port and handed back what it found; the comparison is
+ * HERE, against a secret the peer was never given. That direction is the whole
+ * design. A peer cannot tell our application from a neighbour's at the same
+ * address - that is why this check exists - so a peer is not in a position to
+ * judge, and one that is old, broken or lying cannot manufacture a token it
+ * never saw.
+ *
+ * Only ports the peer would have read are required to carry it: it skips any
+ * outside the app port range, and a port it never tried says nothing either
+ * way.
+ *
+ * @param {number[]} portsToTest - the ports asked about
+ * @param {object} answered - port -> what that port replied, from the peer
+ * @param {string} token - the secret this node published on its test servers
+ * @returns {number|null} the first port that was not ours, or null
+ */
 function portNotOurs(portsToTest, answered, token) {
   if (!token) return null;
 

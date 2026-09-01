@@ -680,10 +680,23 @@ describe('portManager tests', () => {
 
     // The answer is signed now: a node's own record of what it has installed is
     // the truth about which ports are spoken for here, but only once it is that
-    // node saying it rather than whatever is listening on the address.
-    const answering = (heldPorts) => ({
-      data: { status: 'success', data: { pubKey: SIBLING_KEY, ports: heldPorts, signature: 'sig' } },
+    // node saying it rather than whatever is listening on the address. It signs
+    // the ask's time back, so it answers one question rather than every later one.
+    const answering = (heldPorts, askedAt) => ({
+      data: {
+        status: 'success',
+        data: {
+          pubKey: SIBLING_KEY, ports: heldPorts, askedAt, signature: 'sig',
+        },
+      },
     });
+
+    // A real sibling answers the ask it was handed, so the stub reads the time
+    // out of the body rather than the test guessing what Date.now() produced.
+    const respond = (...perCall) => async (url, sent) => {
+      const heldPorts = perCall.length === 1 ? perCall[0] : perCall.shift();
+      return answering(heldPorts, sent.timestamp);
+    };
 
     // Lets the real verifier run: the key is on the list, it belongs to the
     // address that was dialled, and the signature checks out.
@@ -718,7 +731,7 @@ describe('portManager tests', () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
       canVerify();
-      sinon.stub(axios, 'post').resolves(answering([31000, 31005]));
+      sinon.stub(axios, 'post').callsFake(respond([31000, 31005]));
 
       const held = await portManager.siblingHoldingPort(ports, ours);
 
@@ -733,7 +746,7 @@ describe('portManager tests', () => {
       canVerify('9.9.9.9:16127');
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, SIBLING));
-      sinon.stub(axios, 'post').resolves(answering([31000]));
+      sinon.stub(axios, 'post').callsFake(respond([31000]));
 
       expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
     });
@@ -744,8 +757,21 @@ describe('portManager tests', () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, SIBLING));
       sinon.stub(axios, 'post').resolves({
-        data: { status: 'success', data: { pubKey: SIBLING_KEY, ports: [31000] } },
+        data: { status: 'success', data: { pubKey: SIBLING_KEY, ports: [31000], askedAt: Date.now() } },
       });
+
+      expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
+    });
+
+    // A signed answer with no question attached is a recording, and a recording
+    // says what was true then. The ask carries a time and the answer signs it
+    // back, which is the same field that stops the ASK being replayable.
+    it('ignores an answer that names a different question', async () => {
+      canSign();
+      canVerify();
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, SIBLING));
+      sinon.stub(axios, 'post').resolves(answering([31000], Date.now() - 5000));
 
       expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
     });
@@ -755,7 +781,7 @@ describe('portManager tests', () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
       canVerify();
-      sinon.stub(axios, 'post').resolves(answering([31005, 31006]));
+      sinon.stub(axios, 'post').callsFake(respond([31005, 31006]));
 
       expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
     });
@@ -820,13 +846,11 @@ describe('portManager tests', () => {
       sinon.stub(networkStateService, 'networkState')
         .returns(nodesAt(ours, '86.9.47.94:16137', '86.9.47.94:16147', '86.9.47.94:16157'));
       canVerify('86.9.47.94:16137', '86.9.47.94:16147', '86.9.47.94:16157');
-      const get = sinon.stub(axios, 'post');
-      get.onCall(0).resolves(answering([31005]));
-      get.onCall(1).resolves(answering([31000]));
-      get.onCall(2).resolves(answering([31006]));
+      const get = sinon.stub(axios, 'post').callsFake(respond([31005], [31000], [31006]));
 
       const held = await portManager.siblingHoldingPort(ports, ours);
 
+      expect(get.callCount).to.equal(3);
       expect(held).to.deep.equal({ address: '86.9.47.94:16147', port: 31000 });
     });
     // Signing can fail on its own - signMessage catches and answers with
@@ -891,12 +915,51 @@ describe('portManager tests', () => {
       const privilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
       const res = resStub();
 
-      await portManager.portsInUseApi({ body: { pubKey: '04', signature: 'sig' } }, res);
+      await portManager.portsInUseApi({ body: { pubKey: '04', signature: 'sig', timestamp: Date.now() } }, res);
 
       sinon.assert.calledOnce(res.json);
       expect(res.json.firstCall.args[0].status).to.equal('success');
       // The signature settles it; no privilege check is needed or made.
       sinon.assert.notCalled(privilege);
+    });
+
+    // The body is otherwise constant - a key and a fixed word - so without a time
+    // in it one captured signature is a bearer token for this endpoint on every
+    // node, for ever.
+    it('refuses a signed ask that is older than its window', async () => {
+      canSignAnswer();
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(true);
+      const res = resStub();
+
+      const stale = Date.now() - (config.fluxapps.siblingAskValidityMs + 1000);
+      await portManager.portsInUseApi({ body: { pubKey: '04', signature: 'sig', timestamp: stale } }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.match(/stale/i);
+    });
+
+    it('refuses a signed ask that carries no time at all', async () => {
+      canSignAnswer();
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(true);
+      const res = resStub();
+
+      await portManager.portsInUseApi({ body: { pubKey: '04', signature: 'sig' } }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.match(/stale|timestamp/i);
+    });
+
+    // Not asked of an operator: they authenticated as themselves, and a person
+    // asking by hand has no signature for anyone to capture.
+    it('does not ask an operator for a timestamp', async () => {
+      canSignAnswer();
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(false);
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const res = resStub();
+
+      await portManager.portsInUseApi({ body: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
     });
 
     it('refuses a caller that neither signed nor is entitled, and still answers', async () => {
