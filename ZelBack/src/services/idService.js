@@ -873,7 +873,19 @@ async function checkLoggedUser(req, res) {
       res.json(message);
     } catch (error) {
       log.error(error);
-      const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      // `message` stays inside the PRIVILEGE_RESPONSE contract even here, because
+      // the frontend reads it AS the privilege whether the status says success or
+      // error, and logs the user out on exactly 'none' (fluxos-frontend
+      // guards.js). A thrown error's text landing in that field set the privilege
+      // to something like 'No user Flux ID specificed' - not 'none' - so the stale
+      // zelidauth stayed in localStorage instead of being cleared, and every later
+      // navigation repeated the same failure. Access still failed closed, since no
+      // route's privilege list contains an error string, but the session never
+      // ended.
+      //
+      // The error is not lost. It is logged above, and `name`/`code` still
+      // separate a failure from a plain refusal, which carries neither.
+      const errMessage = messageHelper.createErrorMessage(PRIVILEGE_RESPONSE.NONE, error.name, error.code);
       res.json(errMessage);
     }
   });
