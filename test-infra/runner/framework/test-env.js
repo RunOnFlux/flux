@@ -1054,7 +1054,19 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       // peer-topology.js. A suite TESTING a threshold sets its own in
       // configOverrides, which merges over this and wins.
       fluxapps: {
-        ...derivePeerThresholds(nodes, stubPeers.length),
+        // Deferred nodes are subtracted alongside stubs, because the ring cannot
+        // tell them apart: both hold an index that nothing answers on. 9fcabdc02
+        // taught bootAndPeer exactly this and stopped one function short - until
+        // startNode creates it, a deferred node neither dials nor answers an
+        // addoutgoingpeer request, so deriving thresholds that count it asks the
+        // fleet for a door that cannot open.
+        //
+        // No suite moves today, which is why it went unnoticed: the arc is a step
+        // function and every current fleet with a deferred node sits away from a
+        // step. 10/1, 11/1 and 12/2 stay at 4, 6/1 stays at 2, 3/1 stays at 1.
+        // 6/2 or 7/1 is the first shape that changes, so this was a trap set for
+        // the next suite written rather than a fault in any existing one.
+        ...derivePeerThresholds(nodes, stubPeers.length + deferredNodes),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at
