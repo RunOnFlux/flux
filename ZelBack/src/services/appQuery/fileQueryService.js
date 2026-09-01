@@ -5,6 +5,8 @@ const verificationHelper = require('../verificationHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
+const { isReservedName } = require('../appSystem/volumeReservedNames');
+const { Privilege, authOf } = require('../utils/privileges');
 
 /**
  * To get apps folder contents.
@@ -15,7 +17,7 @@ async function getAppsFolder(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname || '';
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
@@ -25,23 +27,40 @@ async function getAppsFolder(req, res) {
         throw new Error('appname and component parameters are mandatory');
       }
       let filepath;
-      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
-      if (appVolumePath.length > 0) {
+      const { mounts } = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (mounts.length > 0) {
         // Browse at appid level to show appdata and all other mount points
         // Sanitize folder path to prevent directory traversal attacks
-        filepath = sanitizePath(folder, appVolumePath[0].mount);
+        filepath = sanitizePath(folder, mounts[0].mount);
         // Verify resolved path stays within the allowed base directory
-        await verifyRealPath(filepath, appVolumePath[0].mount);
+        await verifyRealPath(filepath, mounts[0].mount);
       } else {
         throw new Error('Application volume not found');
       }
       const options = {
         withFileTypes: false,
       };
-      const files = await fs.readdir(filepath, options);
+      const listed = await fs.readdir(filepath, options);
+
+      // The browser opens at the volume root so an app with several mounts
+      // shows them all, and that root also holds things that are not the
+      // owner's: syncthing's control files, the filesystem's recovery
+      // directory, and what an interrupted file operation left for the boot
+      // sweep. They are implementation detail, they cannot be written through
+      // any endpoint, and a listing that offers them invites an operation that
+      // will only be refused.
+      const atRoot = filepath === mounts[0].mount;
+      const files = atRoot ? listed.filter((name) => !isReservedName(name)) : listed;
+
       const filesWithDetails = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const file of files) {
+        // lstat, so an entry describes ITSELF. An application can put a link in
+        // its own volume pointing anywhere on the node, and stat would answer
+        // with the size and type of whatever it names. It also decides whether
+        // this descends: a linked directory is not a directory here, so the size
+        // walk below is never sent through one. See the rule at the top of
+        // appSystem/fileSystemManager.
         // eslint-disable-next-line no-await-in-loop
         const fileStats = await fs.lstat(`${filepath}/${file}`);
         const isDirectory = fileStats.isDirectory();

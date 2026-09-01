@@ -159,7 +159,7 @@ describe('appValidator tests', () => {
         name: 'testapp',
         version: 999,
         description: 'Test app',
-        owner: '1owner',
+        owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         enterprise: false,
       };
 
@@ -177,7 +177,7 @@ describe('appValidator tests', () => {
         name: 'testapp',
         version: 4,
         description: 'Test app',
-        owner: '1owner',
+        owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         compose: [{
           name: 'component1',
           description: 'Component 1',
@@ -201,6 +201,63 @@ describe('appValidator tests', () => {
     });
   });
 
+  describe('owner identity validation', () => {
+    function specsOwnedBy(owner) {
+      return {
+        name: 'testapp',
+        version: 4,
+        description: 'Test app',
+        owner,
+        compose: [{
+          name: 'component1',
+          description: 'Component 1',
+          repotag: 'nginx:latest',
+          ports: [],
+          domains: [],
+          environmentParameters: [],
+          commands: [],
+          containerPorts: [],
+          containerData: '/data',
+          cpu: 0.5,
+          ram: 500,
+          hdd: 5,
+          tiered: false,
+        }],
+        instances: 3,
+      };
+    }
+
+    it('should reject an owner that is not a signing identity on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsOwnedBy('TrippleCore'), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('Invalid Flux App owner');
+      }
+    });
+
+    it('should reject a base58 owner whose checksum does not hold on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsOwnedBy('1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEh'), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('Invalid Flux App owner');
+      }
+    });
+
+    it('should accept a Flux ID owner on a live submission', async () => {
+      await appValidator.verifyAppSpecifications(specsOwnedBy('1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg'), 1000, true);
+    });
+
+    it('should accept an ethereum owner on a live submission', async () => {
+      await appValidator.verifyAppSpecifications(specsOwnedBy('0x2b8e7f6e8f0b6f4c6f8e2b8e7f6e8f0b6f4c6f8e'), 1000, true);
+    });
+
+    it('should accept an owner that is not a signing identity when replaying a message already on chain', async () => {
+      await appValidator.verifyAppSpecifications(specsOwnedBy('TrippleCore'), 1000);
+    });
+  });
+
   describe('exported functions', () => {
     it('should export validation functions', () => {
       expect(appValidator.verifyAppSpecifications).to.be.a('function');
@@ -219,7 +276,7 @@ describe('appValidator tests', () => {
           name: 'testarcane',
           version: 8,
           description: 'Test Arcane app',
-          owner: '1owner',
+          owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           enterprise: true,
           contacts: ['contact@example.com'],
           geolocation: [],
@@ -259,7 +316,7 @@ describe('appValidator tests', () => {
           name: 'testarcane',
           version: 8,
           description: 'Test Arcane app',
-          owner: '1owner',
+          owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           enterprise: true,
           contacts: ['contact@example.com'],
           geolocation: [],
@@ -306,7 +363,7 @@ describe('appValidator tests', () => {
           name: 'testv7enterprise',
           version: 7,
           description: 'Test v7 enterprise app',
-          owner: '1owner',
+          owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           contacts: ['contact@example.com'],
           geolocation: [],
           expire: 88000,
@@ -351,7 +408,7 @@ describe('appValidator tests', () => {
           name: 'testv7enterprise',
           version: 7,
           description: 'Test v7 enterprise app',
-          owner: '1owner',
+          owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           contacts: ['contact@example.com'],
           geolocation: [],
           expire: 88000,
@@ -416,7 +473,7 @@ describe('appValidator tests', () => {
           name: 'testapp',
           version: 4,
           description: 'Test app',
-          owner: '1owner',
+          owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           compose: [
             {
               name: 'component1',
@@ -471,7 +528,7 @@ describe('appValidator tests', () => {
           name: 'testapp',
           version: 4,
           description: 'Test app',
-          owner: '1owner',
+          owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           compose: [
             {
               name: 'component1',

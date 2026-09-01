@@ -36,15 +36,29 @@ function deviceIdForIp(ip) {
   return out.match(/.{1,7}/g).join('-');
 }
 
-// ip -> { deviceID, folders: Map, devices: Map, restartRequired }
+// ip -> { deviceID, folders: Map, devices: Map, restartRequired, folderWrites: [] }
 const nodeStates = new Map();
+
+// Folder config is kept as current state, so a change and its reversal leave no
+// trace: a folder paused for an operation and resumed afterwards reads exactly
+// like one that was never touched. Record each write in order so a test can ask
+// what was done to WHICH folder - the whole question for a composed app, whose
+// folders are per component and whose app name addresses none of them.
+function recordFolderWrite(state, method, id, body) {
+  state.folderWrites.push({ method, id, body: body ?? null });
+}
 
 function nodeState(ip) {
   let state = nodeStates.get(ip);
   if (!state) {
     const deviceID = deviceIdForIp(ip);
     state = {
-      deviceID, folders: new Map(), devices: new Map(), restartRequired: false,
+      deviceID,
+      folders: new Map(),
+      devices: new Map(),
+      ignores: new Map(),
+      restartRequired: false,
+      folderWrites: [],
     };
     // every node knows itself as a configured device
     state.devices.set(deviceID, {
@@ -102,6 +116,25 @@ function eventsBuffer(ip) {
 }
 // ips whose /rest/events endpoint is "down" (syncthing restarting); '*' = all
 const eventsOutages = new Set();
+
+// Nodes whose /rest/config/devices answers 500 while every other endpoint keeps
+// working. Syncthing's device configuration and its folder configuration are two
+// reads, and a node that got the folders has what it needs to tell peers which
+// it holds writable - so failing only the second is how a suite proves the pass
+// does not withhold the first.
+const deviceConfigOutages = new Set();
+
+// How many device reads this stub has actually REFUSED, by caller. A suite that
+// takes the read down needs to know the node reached it and was turned away -
+// an outage that silently failed to apply reads exactly like the behaviour under
+// test working. Counted here rather than read from the node's log, because a
+// suite that restarts a node loses its container log stream and would be
+// asserting on something it can no longer see.
+const deviceConfigRefusals = new Map();
+
+function deviceConfigDown(ip) {
+  return deviceConfigOutages.has(ip) || deviceConfigOutages.has('*');
+}
 
 function lookupSync(ip, folder) {
   return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
@@ -295,7 +328,10 @@ app.get('/rest/config/folders', (req, res) => {
 app.put('/rest/config/folders', (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
-  arr.forEach((f) => state.folders.set(f.id, f));
+  arr.forEach((f) => {
+    state.folders.set(f.id, f);
+    recordFolderWrite(state, 'put', f.id, f);
+  });
   res.json({});
 });
 
@@ -308,6 +344,7 @@ app.get('/rest/config/folders/:id', (req, res) => {
 app.put('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
   state.folders.set(req.params.id, { ...req.body, id: req.params.id });
+  recordFolderWrite(state, 'put', req.params.id, req.body);
   res.json({});
 });
 
@@ -335,19 +372,26 @@ app.patch('/rest/config/folders/:id', async (req, res) => {
     });
   }
   state.folders.set(req.params.id, { ...existing, ...req.body });
+  recordFolderWrite(state, 'patch', req.params.id, req.body);
   return res.json({});
 });
 
 app.delete('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
   state.folders.delete(req.params.id);
+  recordFolderWrite(state, 'delete', req.params.id, null);
   res.json({});
 });
 
 // -- Config Devices --
 
 app.get('/rest/config/devices', (req, res) => {
-  res.json(Array.from(reqState(req).devices.values()));
+  if (deviceConfigDown(clientIp(req))) {
+    const ip = clientIp(req);
+    deviceConfigRefusals.set(ip, (deviceConfigRefusals.get(ip) ?? 0) + 1);
+    return res.status(500).json({ error: 'simulated unreadable device configuration' });
+  }
+  return res.json(Array.from(reqState(req).devices.values()));
 });
 
 // Collection PUT (no id): upsert each device by deviceID (see folders above).
@@ -460,13 +504,25 @@ app.get('/rest/db/file', (req, res) => {
   res.json({ availability: [], global: {}, local: {} });
 });
 
+// Ignores are stateful so a GET reflects a prior POST, as real syncthing does:
+// real syncthing serves GET + POST here (lib/api/api.go), and FluxOS sets a
+// folder's ignores by POSTing the full pattern set. PUT is kept as an alias for
+// any legacy caller.
 app.get('/rest/db/ignores', (req, res) => {
-  res.json({ ignore: [], expanded: [] });
+  const state = reqState(req);
+  const ignore = state.ignores.get(req.query.folder) || [];
+  res.json({ ignore, expanded: ignore });
 });
 
-app.put('/rest/db/ignores', (req, res) => {
-  res.json({});
-});
+function setIgnores(req, res) {
+  const state = reqState(req);
+  const ignore = Array.isArray(req.body && req.body.ignore) ? req.body.ignore : [];
+  state.ignores.set(req.query.folder, ignore);
+  res.json({ ignore, expanded: ignore });
+}
+
+app.post('/rest/db/ignores', setIgnores);
+app.put('/rest/db/ignores', setIgnores);
 
 app.get('/rest/db/localchanged', (req, res) => {
   res.json({ files: [], folders: [], symlinks: [], deletes: [], total: 0 });
@@ -660,6 +716,8 @@ control.get('/state', (req, res) => {
       folders: Array.from(s.folders.values()),
       devices: Array.from(s.devices.values()),
       restartRequired: s.restartRequired,
+      // ordered history of folder config writes - see recordFolderWrite
+      folderWrites: s.folderWrites,
     })),
   });
 });
@@ -769,16 +827,45 @@ control.post('/events-outage', (req, res) => {
   return res.json({ ok: true });
 });
 
+// Take a node's /rest/config/devices down/up, leaving /rest/config/folders
+// answering. The two are separate reads on the same pass, and a node that read
+// its folders still knows which it holds writable.
+control.post('/device-config-outage', (req, res) => {
+  const { ip = '*', enabled = true } = req.body || {};
+  if (enabled) deviceConfigOutages.add(ip); else deviceConfigOutages.delete(ip);
+  return res.json({ ok: true });
+});
+
+control.get('/device-config-refusals', (req, res) => {
+  const { ip } = req.query;
+  return res.json({ refusals: ip ? (deviceConfigRefusals.get(ip) ?? 0) : Object.fromEntries(deviceConfigRefusals) });
+});
+
 // Back to default always-synced/empty behaviour.
 control.post('/sync-reset', (req, res) => {
   console.log(`[write] sync-reset from=${clientIp(req)}`);
   syncOverrides.clear();
   completionOverrides.clear();
+  deviceConfigOutages.clear();
+  deviceConfigRefusals.clear();
   nudgeLogs.clear();
   eventsBuffers.clear();
   eventsOutages.clear();
   folderPatchDelay.clear();
   patchDelayWaker.emit('wake');
+  res.json({ ok: true });
+});
+
+// Drop the recorded folder-write history, leaving the folder config itself
+// alone: a test that asks "what did THIS operation do" needs a mark it can
+// measure from, and the monitor writes folder config continuously.
+control.post('/folder-writes-reset', (req, res) => {
+  const { ip = '*' } = req.body || {};
+  const targets = ip === '*' ? Array.from(nodeStates.keys()) : [ip];
+  targets.forEach((target) => {
+    const state = nodeStates.get(target);
+    if (state) state.folderWrites.length = 0;
+  });
   res.json({ ok: true });
 });
 

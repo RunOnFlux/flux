@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const WebSocket = require('ws');
 const { expect } = require('chai');
 const log = require('../../ZelBack/src/lib/log');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
@@ -14,7 +15,6 @@ const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunica
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const nodeConfirmationService = require('../../ZelBack/src/services/nodeConfirmationService');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
-const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -67,6 +67,87 @@ describe('fluxCommunication tests', () => {
     // Force-close any lingering client connections (tests override ws.close with a no-op)
     localWsServer.clients.forEach((client) => client.terminate());
     localWsServer.close(done);
+  });
+
+  describe('initializeDiscovery tests', () => {
+    // Being confirmed is not the same as being ready to peer. Every message an
+    // inbound peer sends is checked against the node list, so a peer admitted
+    // before the list arrives is refused however legitimate it is. Measured at
+    // 1391ms on a live node holding 6091 nodes - short, but it is the whole of
+    // the window the node was turning real peers away in.
+    let onConfirmationChange;
+    let onReady;
+    let allowConnections;
+    let disconnectAll;
+
+    beforeEach(() => {
+      onConfirmationChange = sinon.stub(nodeConfirmationService, 'onConfirmationChange');
+      onReady = sinon.stub(networkStateService, 'onReady');
+      allowConnections = sinon.stub(peerManager, 'allowConnections');
+      disconnectAll = sinon.stub(peerManager, 'disconnectAll');
+      sinon.stub(log, 'info');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    // Runs initializeDiscovery and hands back the confirmation callback it
+    // registered, which is the only way into this code.
+    function confirmationHandler() {
+      fluxCommunication.initializeDiscovery();
+
+      expect(onConfirmationChange.calledOnce).to.equal(true);
+
+      return onConfirmationChange.firstCall.args[0];
+    }
+
+    it('does not accept peers on confirmation alone', () => {
+      const confirmed = confirmationHandler();
+
+      confirmed(true);
+
+      expect(onReady.calledOnce).to.equal(true);
+      expect(allowConnections.called).to.equal(false);
+    });
+
+    it('accepts peers once the node list has arrived', () => {
+      sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
+
+      const confirmed = confirmationHandler();
+
+      confirmed(true);
+      onReady.firstCall.args[0]();
+
+      expect(allowConnections.calledOnce).to.equal(true);
+    });
+
+    it('does not re-open after confirmation is lost while waiting for the list', () => {
+      // onReady fires whenever the list lands, which can be after a
+      // disconnectAll. Without the re-check this hands the door straight back.
+      const isConfirmed = sinon.stub(nodeConfirmationService, 'isConfirmed');
+      const confirmed = confirmationHandler();
+
+      confirmed(true);
+
+      isConfirmed.returns(false);
+      confirmed(false);
+
+      onReady.firstCall.args[0]();
+
+      expect(disconnectAll.calledOnce).to.equal(true);
+      expect(allowConnections.called).to.equal(false);
+    });
+
+    it('disconnects every peer when confirmation is lost, without consulting the list', () => {
+      const confirmed = confirmationHandler();
+
+      confirmed(false);
+
+      expect(disconnectAll.calledOnce).to.equal(true);
+      expect(onReady.called).to.equal(false);
+      expect(allowConnections.called).to.equal(false);
+    });
   });
 
   describe('handleAppMessages tests', () => {
@@ -355,68 +436,6 @@ describe('fluxCommunication tests', () => {
     }).timeout(5000);
   });
 
-  describe('handleAppInstallingMessage tests', () => {
-    let publishSpy;
-
-    before(requireMongo);
-
-    beforeEach(async () => {
-      peerManager.reset();
-      await dbHelper.initiateDB();
-      publishSpy = sinon.stub(fluxEventBus, 'publish');
-      sinon.stub(messageStore, 'storeSignedAppInstallingBroadcast');
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 0 } });
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    const installingMessage = (version, extra = {}) => ({
-      data: {
-        type: 'fluxappinstalling',
-        version,
-        name: 'myApp',
-        ip: '127.0.0.5',
-        broadcastedAt: Date.now(),
-        ...extra,
-      },
-      timestamp: Date.now(),
-    });
-
-    it('announces a claim as not withdrawn', async () => {
-      sinon.stub(messageStore, 'storeAppInstallingMessage').resolves(true);
-
-      await fluxCommunication.handleAppInstallingMessage(installingMessage(1), '127.0.0.5', '16127');
-
-      sinon.assert.calledWith(publishSpy, 'network:appinstalling', {
-        ip: '127.0.0.5', name: 'myApp', withdrawn: false,
-      });
-    });
-
-    it('announces a withdrawal as withdrawn', async () => {
-      // A version 2 message gives the claim up, and arrives through this same
-      // handler - so a consumer that cannot tell them apart reads a node
-      // standing aside as a node taking the app on.
-      sinon.stub(messageStore, 'storeAppInstallingMessage').resolves(true);
-
-      await fluxCommunication.handleAppInstallingMessage(
-        installingMessage(2, { withdrawn: true }), '127.0.0.5', '16127',
-      );
-
-      sinon.assert.calledWith(publishSpy, 'network:appinstalling', {
-        ip: '127.0.0.5', name: 'myApp', withdrawn: true,
-      });
-    });
-
-    it('announces nothing when the message was not stored', async () => {
-      sinon.stub(messageStore, 'storeAppInstallingMessage').resolves(false);
-
-      await fluxCommunication.handleAppInstallingMessage(installingMessage(1), '127.0.0.5', '16127');
-
-      sinon.assert.neverCalledWith(publishSpy, 'network:appinstalling');
-    });
-  });
 
   describe('connectedPeers tests', () => {
     const generateResponse = () => {
@@ -588,7 +607,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
@@ -621,7 +640,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue a warning if a connection does not exist', async () => {
@@ -653,7 +672,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if ip is not provided', async () => {
@@ -685,7 +704,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removePeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if user is unauthorized', async () => {
@@ -772,7 +791,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
@@ -805,7 +824,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     }).timeout(5000);
 
     it('should issue a warning if a connection does not exist', async () => {
@@ -835,7 +854,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if ip is not provided', async () => {
@@ -867,7 +886,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
 
     it('should issue an error message if user is unauthorized', async () => {
@@ -896,7 +915,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.removeIncomingPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
   });
 
@@ -1392,7 +1411,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.addPeer(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedMessage);
-      sinon.assert.calledOnceWithExactly(verificationStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     });
   });
 

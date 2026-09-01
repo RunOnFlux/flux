@@ -1,4 +1,5 @@
-process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
+// First, and above every other require: the environment this process answers from.
+require('./ZelBack/pinEnvironment');
 
 const log = require('./ZelBack/src/lib/log');
 const path = require('path');
@@ -46,4 +47,8 @@ async function initiate() {
   });
 }
 
-initiate();
+// Guarded so the entry point can be loaded without starting a node: the four
+// environment lines above decide what this process discloses, and a test can only
+// read them off the real file. Both launchers - `node app.js` and `nodemon app.js`
+// - enter here as main.
+if (require.main === module) initiate();

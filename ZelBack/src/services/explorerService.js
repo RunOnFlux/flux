@@ -22,6 +22,7 @@ const { extractIp } = require('./utils/socketAddressUtils');
 const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -1725,7 +1726,7 @@ async function checkBlockProcessingStopped(i, callback) {
  * @param {object} res Response.
  */
 async function stopBlockProcessing(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async (response) => {
@@ -1744,7 +1745,7 @@ async function stopBlockProcessing(req, res) {
  * @param {object} res Response.
  */
 async function restartBlockProcessing(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
@@ -1764,7 +1765,7 @@ async function restartBlockProcessing(req, res) {
  * @param {object} res Response.
  */
 async function reindexExplorer(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized === true) {
     // stop block processing
     const i = 0;
@@ -1806,53 +1807,6 @@ async function reindexExplorer(req, res) {
   }
 }
 
-async function fixExplorer(height = 1670000, rescanApps = true) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const blockheight = serviceHelper.ensureNumber(height);
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const projection = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-    if (!currentHeight) {
-      throw new Error('No scanned height found');
-    }
-    if (currentHeight.generalScannedHeight <= blockheight) {
-      throw new Error('Block height shall be lower than currently scanned');
-    }
-    if (blockheight < 0) {
-      throw new Error('BlockHeight lower than 0');
-    }
-    const rescanapps = serviceHelper.ensureBoolean(rescanApps);
-    if (blockheight === 0) {
-      await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-        if (error.message !== 'ns not found') {
-          log.error(error);
-        }
-      });
-    } else {
-      // stop block processing
-      const update = { $set: { generalScannedHeight: blockheight } };
-      const options = {
-        upsert: true,
-      };
-      // update scanned Height in scannedBlockHeightCollection
-      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-    }
-    initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
-    const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
-    log.info(message);
-  } catch (error) {
-    log.warn(error);
-    initiateBlockProcessor(true, true);
-  }
-}
-
 /**
  * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
  * @param {object} req Request.
@@ -1860,7 +1814,7 @@ async function fixExplorer(height = 1670000, rescanApps = true) {
  */
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       // since what blockheight
       let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo

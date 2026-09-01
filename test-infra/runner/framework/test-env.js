@@ -26,6 +26,7 @@ import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
+import chainStart from './chain-start.cjs';
 
 function createLogCollector() {
   // Each entry is { t, line }: t is the capture wall-clock (ISO), line is the raw
@@ -83,7 +84,10 @@ const SYNCTHING_IP = subnet.syncthing;
 const REGISTRY_IP = subnet.registry;
 const EXTERNAL_STUB_IP = subnet.externalStub;
 const FDM_IP = subnet.fdm;
-const INITIAL_HEIGHT = 2100000;
+// Default only. A suite that needs to stand before a fork passes its own:
+// createTestEnv({ initialHeight }). See chain-start.cjs for why the default is
+// where it is.
+const { DEFAULT_INITIAL_HEIGHT } = chainStart;
 
 // Per-run-all label. run-all.sh exports E2E_RUN_LABEL (unique per invocation) and
 // scopes its between-suite cleanup to it, so concurrent run-all invocations only
@@ -132,6 +136,7 @@ class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
   #aliases = [];
+  #dnsServer;
 
   withStaticIp(networkName, ip, aliases = []) {
     this.#staticIp = ip;
@@ -140,10 +145,27 @@ class StaticIpContainer extends GenericContainer {
     return this;
   }
 
+  withDnsServer(ip) {
+    this.#dnsServer = ip;
+    return this;
+  }
+
   async beforeContainerCreated() {
     // Tag with this run's label so run-all.sh's between-suite cleanup can scope
     // removal to its own fleet (see runLabels()).
     this.createOpts.Labels = { ...(this.createOpts.Labels || {}), ...runLabels() };
+    if (this.#dnsServer) {
+      // hostConfig, NOT createOpts.HostConfig: testcontainers creates the container
+      // with `{ ...createOpts, HostConfig: this.hostConfig }`, so anything written to
+      // createOpts.HostConfig here is overwritten wholesale before it is ever sent.
+      // It is the property testcontainers mutates itself (withTmpFs, withCapAdd) and
+      // it is still being written after this hook, so writing it here holds.
+      //
+      // Docker keeps 127.0.0.11 as the container's nameserver either way; this is the
+      // upstream its embedded resolver forwards to, which is where a name the fleet
+      // does not serve ends up.
+      this.hostConfig.Dns = [this.#dnsServer];
+    }
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
@@ -168,6 +190,14 @@ async function createNetwork() {
   await client.container.dockerode.createNetwork({
     Name: networkName,
     Driver: 'bridge',
+    // No route off the fleet. Every endpoint a node reaches is served on this
+    // network, so anything still leaving it is a hardcoded address nobody has
+    // found yet - and the point of Phase 3 is that it is found by a test rather
+    // than by a packet capture months later.
+    //
+    // The runner addresses nodes by static IP on this subnet and uses no
+    // published ports anywhere, so its own reach into the fleet is unaffected.
+    Internal: true,
     Labels: { 'org.testcontainers.session-id': reaper.sessionId, ...runLabels() },
     IPAM: {
       Driver: 'default',
@@ -461,7 +491,7 @@ function getBootId(nodeNum) {
   return `test-boot-id-node-${String(nodeNum).padStart(2, '0')}`;
 }
 
-async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true } = {}) {
+async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true, initialHeight = DEFAULT_INITIAL_HEIGHT } = {}) {
   const client = new MongoClient(`mongodb://${mongoIp}:27017`);
   try {
     await client.connect();
@@ -470,7 +500,7 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
       const explorerDb = client.db(`node${num}_zelcashdata`);
       await explorerDb.collection('scannedheight').updateOne(
         {},
-        { $set: { generalScannedHeight: INITIAL_HEIGHT } },
+        { $set: { generalScannedHeight: initialHeight } },
         { upsert: true },
       );
       const localDb = client.db(`node${num}_zelfluxlocal`);
@@ -543,12 +573,30 @@ function nodeReadyWaitStrategy(nodeIp) {
   return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
 }
 
+// `syncthing` selects what each node talks to. 'stub' (the default) is the
+// shared control-plane stub: it serves every node, moves no files, and is what
+// the gate runs on. 'binary' gives each node its own real daemon from the image
+// - the only way to observe data actually moving between nodes, and
+// correspondingly slower. A suite that asserts on transfers has to ask for it;
+// nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
-  rpcFailures = [], bootContext = 'running',
+  rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
 } = {}) {
+  if (syncthing !== 'stub' && syncthing !== 'binary') {
+    throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
+  }
+  // Only a legacy node ever installs its own packages, so unseeding a fleet without
+  // one strips nothing and tests nothing. Refused rather than ignored: a flag that
+  // silently does nothing reads as covered.
+  if (!aptSeeded && legacyNodes.length === 0) {
+    throw new Error('createTestEnv: aptSeeded: false needs legacyNodes - no other node type installs packages');
+  }
+  if (aptBadSource && legacyNodes.length === 0) {
+    throw new Error('createTestEnv: aptBadSource needs legacyNodes - no other node type runs apt');
+  }
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
   // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time
@@ -569,7 +617,9 @@ export async function createTestEnv({
   const declaredMs = (hookCtx && typeof hookCtx.timeout === 'function') ? hookCtx.timeout() : 0;
   if (declaredMs > 0) hookCtx.timeout(declaredMs + BOOT_LOCK_MAX_WAIT_MS + 30000);
   const queuedFrom = process.hrtime.bigint();
-  await acquireBootLock();
+  await acquireBootLock({
+    nodes, deferred: deferredNodes, legacy: legacyNodes.length, syncthing,
+  });
   if (declaredMs > 0) {
     const queuedMs = Number((process.hrtime.bigint() - queuedFrom) / 1000000n);
     hookCtx.timeout(declaredMs + queuedMs);
@@ -585,7 +635,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -614,7 +664,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -651,7 +701,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   containers.mongo = mongo;
   watchInfra(env, 'mongo', mongo);
 
-  await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter });
+  await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter, initialHeight });
 
   const daemonStub = await new StaticIpContainer(image('flux-e2e-daemon-stub'))
     .withStaticIp(networkName, DAEMON_IP)
@@ -662,6 +712,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       CONTROL_PORT: '18232',
       TICKER_AUTOSTART: tickerAutostart ? 'true' : 'false',
       NODE_COUNT: String(nodes),
+      INITIAL_HEIGHT: String(initialHeight),
     })
     .withBindMounts([{
       source: fixturesDir,
@@ -821,20 +872,57 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       FLUX_SYNCTHING_PORT: '8384',
       NODE_EXTRA_CA_CERTS: '/usr/local/share/ca-certificates/test-registry.crt',
     };
+    if (syncthing === 'binary') {
+      // the node runs its own daemon and binds apiport+2 itself, so there is
+      // nothing to forward and nothing shared to point at
+      nodeEnv.FLUX_SYNCTHING_MODE = 'binary';
+      delete nodeEnv.FLUX_SYNCTHING_HOST;
+      delete nodeEnv.FLUX_SYNCTHING_PORT;
+      if (isLegacy) {
+        // Who supervises syncthing differs by node type, and SYNCTHING_PATH is
+        // the signal FluxOS reads to decide: set, it takes the node for ArcaneOS
+        // and leaves the daemon to the OS; unset, it spawns and supervises the
+        // daemon itself. A legacy node is the second case, so leaving this set
+        // on one - which is what happened for every harness node until now -
+        // means FluxOS's own supervision path is never exercised at all.
+        delete nodeEnv.SYNCTHING_PATH;
+      }
+    }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
-    if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
+    // Legacy only, because it is the only node type that installs anything:
+    // monitorSystem() returns on sight of FLUXOS_PATH, so an Arcane node purged
+    // of syncthing would simply never get it back.
+    if (!aptSeeded && isLegacy) nodeEnv.FLUX_APT_SEEDED = 'false';
+    if (aptBadSource && isLegacy) nodeEnv.FLUX_APT_BAD_SOURCE = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
-    // files (shared.js / node-NN) carry the default 198.18 addresses; NODE_CONFIG
-    // is deep-merged over them by the `config` package, so under a non-default base
-    // these overrides take effect (and are a no-op when base === '198.18'). Explicit
-    // test overrides still win (merged on top of this).
+    // files carry the default 198.18 addresses; this is written into the node's
+    // config directory as local.js, which node-config loads after them, so under a
+    // non-default base these overrides take effect (and are a no-op when
+    // base === '198.18'). Explicit test overrides still win (merged on top of this).
     const infraOverride = {
       database: { url: MONGO_IP },
       daemon: { host: DAEMON_IP },
       benchmark: { host: DAEMON_IP },
-      syncthing: { ip: SYNCTHING_IP },
+      // FluxOS builds its syncthing API base from config at module load, so in
+      // binary mode the node has to be pointed at its own daemon. local.js is
+      // loaded after the mounted files, so this is the only place that wins.
+      syncthing: {
+        ip: syncthing === 'binary' ? '127.0.0.1' : SYNCTHING_IP,
+        // The apt repository and its signing key, served by the external stub out of
+        // the node image. A legacy node writes this source and fetches this key itself
+        // on first boot; pointed here it does both without leaving the fleet network.
+        aptSourceUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/`,
+        releaseKeyUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/keyring.gpg`,
+      },
       github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
-      geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, statsApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      stats: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      pricing: {
+        fluxRatesBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+        coingeckoBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+      },
+      mongodb: { signingKeyBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      upnp: { gatewayUrl: `http://${EXTERNAL_STUB_IP}:3000/upnp/device.xml` },
       // Every base URL a node fetches from belongs here, not just in
       // config/shared.js: a run claims its own /24, so an address baked into the
       // shared config is only correct for the run that happens to claim the
@@ -849,10 +937,25 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       // there is nothing to remember and nothing to keep in step - see
       // peer-topology.js. A suite TESTING a threshold sets its own in
       // configOverrides, which merges over this and wins.
-      fluxapps: derivePeerThresholds(nodes, stubPeers.length),
+      fluxapps: {
+        ...derivePeerThresholds(nodes, stubPeers.length),
+        // Travels as configuration, like every other override. It used to be an
+        // env var the entrypoint sed into shared.js - but the merged config is
+        // written by REQUIRING the per-node file, which spreads shared.js at
+        // that moment and freezes the result, so a patch applied to shared.js
+        // afterwards landed on a file nothing read again. Discovery then never
+        // started for the suites that asked for it.
+        discoveryAutostart,
+      },
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
-    nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
+    // Handed over as a file rather than as NODE_CONFIG. The config package merges
+    // that variable over every file, which is a redirect no hash can see, so the
+    // entry points delete it - production has no environment path into config at
+    // all now. The entrypoint writes this JSON into the pinned config directory
+    // instead, where node-config picks it up as local.js and the same override
+    // arrives through a file like every other one.
+    nodeEnv.FLUX_TEST_CONFIG = JSON.stringify(nodeConfig);
 
     // Wait on an HTTP poll of the node's own /flux/version, not Docker's health
     // state machine: under a contended 10-node fleet boot, Wait.forHealthCheck()
@@ -861,6 +964,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     const builder = new StaticIpContainer(image('flux-e2e-fluxos-01'))
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
+      // Nodes resolve through the stub, which answers fleet names by relaying to
+      // Docker's own resolver and refuses everything else at once - so a name
+      // nothing on this fleet serves fails immediately, named and attributed,
+      // instead of stalling whatever asked for it until its own deadline.
+      // Only the nodes: the stub resolves normally, or it would relay to itself.
+      .withDnsServer(EXTERNAL_STUB_IP)
       .withExtraHosts(fdmExtraHosts(FDM_IP))
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
@@ -954,6 +1063,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   // deferredBuilders/fluxNodes); identity, registries and teardown live on the
   // shell itself so they exist from boot start.
   Object.assign(env, {
+    // The height this run's chain started at. Suites wait on "a block ABOVE the
+    // start has been processed" to know the node has caught up with the block they
+    // just advanced to, and that only means anything against the height this env
+    // actually used - a literal goes stale the moment the default moves, and goes
+    // stale silently, because a predicate that is already true still passes.
+    initialHeight,
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
     fdmControl: `http://${FDM_IP}:16131`,

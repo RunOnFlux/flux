@@ -10,6 +10,7 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
+const { Privilege, authOf } = require('../utils/privileges');
 
 // Cache for blocked repositories
 let cacheUserBlockedRepos = null;
@@ -290,7 +291,7 @@ async function getUserBlockedRepositores() {
       return userBlockedRepos;
     }
     const usableUserBlockedRepos = [];
-    const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+    const marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
     const response = await axios.get(marketPlaceUrl);
     console.log(response);
     if (response && response.data && response.data.status === 'success') {
@@ -587,7 +588,7 @@ async function checkDockerAccessibility(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         return res.json(errMessage);

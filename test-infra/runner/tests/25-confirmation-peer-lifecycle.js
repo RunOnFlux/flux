@@ -18,7 +18,7 @@ async function bootAndPeer(env) {
   ));
   await advanceBlock();
   for (const client of env.clients) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
   await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
@@ -60,7 +60,10 @@ describe('Peers disconnect on confirmation loss (4019)', function () {
     await setNodeStatus(nodeIp, 'EXPIRED');
     await waitForNodeStatus(client, (d) => d.confirmed === false, 30000);
 
-    await waitForPeersRemoved(client, (d) => d.total === 0, 30000, { afterId: beforeLoss });
+    // Tight on purpose. Losing confirmation evicts each peer, so the count reaches zero
+    // in the same turn as the decision rather than as each remote answers its close
+    // frame. A window the length of ws's own 30s close timeout would pass either way.
+    await waitForPeersRemoved(client, (d) => d.total === 0, 10000, { afterId: beforeLoss });
   });
 });
 
@@ -82,7 +85,7 @@ describe('Inbound connections rejected when unconfirmed', function () {
     ));
     await advanceBlock();
     for (const client of env.clients) {
-      await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+      await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
     }
 
     const indices = Array.from({ length: 9 }, (_, i) => i + 1);

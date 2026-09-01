@@ -710,4 +710,79 @@ describe('appTamperingDetectionService tests', () => {
       expect(logStub.error.firstCall.args[0]).to.include('mongo down');
     });
   });
+
+  describe('prepareIncidentRollup (count-summing merge + unique index)', () => {
+    // A rollup carries a `count` recordEvent increments, so twins from before
+    // the unique index must have their counts SUMMED, not one dropped - dropping
+    // would undercount the incident. Then the unique index makes twins impossible.
+    let createIndexStub;
+    let removed;
+    let upserts;
+
+    beforeEach(() => {
+      createIndexStub = sinon.stub().resolves();
+      removed = [];
+      upserts = [];
+      dbHelperStub.databaseConnection.returns({
+        db: () => ({ collection: () => ({ createIndex: createIndexStub }) }),
+      });
+      dbHelperStub.removeDocumentsFromCollection = sinon.stub().callsFake(async (_db, _coll, query) => { removed.push(query); });
+      dbHelperStub.updateOneInDatabase = sinon.stub().callsFake(async (_db, _coll, query, update) => { upserts.push({ query, set: update.$set }); });
+    });
+
+    it('sums counts and keeps the widest window when merging duplicate rollups', async () => {
+      findResults = [
+        {
+          appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 2, firstSeen: new Date(2000), lastSeen: new Date(5000), severity: 3,
+        },
+        {
+          appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 5, firstSeen: new Date(1000), lastSeen: new Date(9000), severity: 3,
+        },
+      ];
+
+      await service.prepareIncidentRollup();
+
+      expect(removed).to.deep.equal([{ appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1' }]);
+      expect(upserts).to.have.lengthOf(1);
+      const merged = upserts[0].set;
+      expect(merged.count, 'counts were not summed').to.equal(7);
+      expect(merged.firstSeen).to.deep.equal(new Date(1000)); // earliest
+      expect(merged.lastSeen).to.deep.equal(new Date(9000)); // latest
+      expect(merged).to.not.have.property('_id');
+      sinon.assert.calledOnce(createIndexStub);
+    });
+
+    it('only queries rows the partial index covers, and builds that index', async () => {
+      findResults = [];
+
+      await service.prepareIncidentRollup();
+
+      expect(lastFindArgs.query).to.deep.equal({ incidentKey: { $exists: true } });
+      const [spec, options] = createIndexStub.firstCall.args;
+      expect(spec).to.deep.equal({ appName: 1, eventType: 1, incidentKey: 1 });
+      expect(options.unique).to.equal(true);
+      expect(options.partialFilterExpression).to.deep.equal({ incidentKey: { $exists: true } });
+    });
+
+    it('leaves a singleton rollup untouched and still builds the index', async () => {
+      findResults = [{
+        appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 4, firstSeen: new Date(1000), lastSeen: new Date(2000),
+      }];
+
+      await service.prepareIncidentRollup();
+
+      expect(removed).to.deep.equal([]);
+      expect(upserts).to.deep.equal([]);
+      sinon.assert.calledOnce(createIndexStub);
+    });
+
+    it('logs and does not throw when the merge fails, leaving it for the next boot', async () => {
+      dbHelperStub.findInDatabase = sinon.stub().rejects(new Error('mongo mid-election'));
+
+      await service.prepareIncidentRollup();
+
+      sinon.assert.calledOnce(logStub.error);
+      expect(logStub.error.firstCall.args[0]).to.include('mongo mid-election');
+    });
+  });
 });

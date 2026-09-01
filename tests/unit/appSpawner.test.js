@@ -182,6 +182,10 @@ describe('appSpawner tests', () => {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
         checkInstallingAppPortAvailable: sinon.stub().resolves(true),
       },
+      '../appQuery/resourceQueryService': {
+        appsResources: sinon.stub().resolves({ status: 'success', data: { unreadable: opts.unaccounted ?? [] } }),
+        unaccountedApps: (response) => (response.status === 'success' ? response.data.unreadable : []),
+      },
       '../utils/appUtilities': {
         getAppPorts: sinon.stub().returns([]),
       },
@@ -218,9 +222,6 @@ describe('appSpawner tests', () => {
       },
       '../utils/cacheManager': {
         FluxCacheManager: { oneHour: 3600000 },
-      },
-      '../utils/fluxEventBus': {
-        publish: sinon.stub(),
       },
       '../appMessaging/messageStore': {
         storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
@@ -827,6 +828,26 @@ describe('appSpawner tests', () => {
         installStub, logged, withdrawalStub, removeStub,
       };
     }
+
+    // An application whose specification this node cannot read contributes
+    // nothing to the resource totals the capacity check subtracts from this
+    // node's capacity, so the space it believes is free includes space already
+    // spoken for. Taking on more work in that state over-commits the node.
+    it('does not take on new work while it cannot account for what it holds', async () => {
+      const { installStub } = await runAttempt({ unaccounted: ['someunreadableapp'] });
+
+      expect(installStub.called, 'installed while unable to size its own apps').to.be.false;
+      expect(logStub.error.args.some((a) => String(a[0]).includes('someunreadableapp')), 'the refusal did not name the app').to.be.true;
+    });
+
+    // And the refusal belongs on this path alone. A redeploy of an app already
+    // counted adds nothing to the node's commitments, so refusing there would
+    // freeze every other application over one this node cannot read.
+    it('installs normally when every app it holds can be sized', async () => {
+      const { installStub } = await runAttempt({ unaccounted: [] });
+
+      expect(installStub.called).to.be.true;
+    });
 
     it('REGRESSION GUARD (the Bahrain incident): installs when the single eligible domain holds the whole share', async () => {
       // one domain, instances 3 -> the domain's share is all 3; one already

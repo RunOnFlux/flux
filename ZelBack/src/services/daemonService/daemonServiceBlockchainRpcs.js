@@ -2,6 +2,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
+const { Privilege, authOf } = require('../utils/privileges');
 
 let response = messageHelper.createErrorMessage();
 
@@ -87,7 +88,7 @@ async function getBlockHash(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -108,7 +109,7 @@ async function getBlockDeltas(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -149,7 +150,7 @@ async function getBlockHashes(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -199,7 +200,7 @@ async function getBlockHeader(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -270,7 +271,7 @@ async function getRawMemPool(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -297,7 +298,7 @@ async function getTxOut(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -323,7 +324,7 @@ async function getTxOutProof(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -350,10 +351,10 @@ async function verifyChain(req, res) {
   let { checklevel, numblocks } = req.params;
   checklevel = checklevel || req.query.checklevel || 3;
   numblocks = numblocks || req.query.numblocks || 288;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   checklevel = serviceHelper.ensureNumber(checklevel);
   numblocks = serviceHelper.ensureNumber(numblocks);
@@ -362,7 +363,7 @@ async function verifyChain(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -383,7 +384,7 @@ async function verifyTxOutProof(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -406,7 +407,7 @@ async function getSpentInfo(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**

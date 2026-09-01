@@ -1,5 +1,6 @@
 // eslint-disable-next-line prefer-const
 let userconfig = require('../../config/userconfig');
+const volumeToolsImage = require('./volumeToolsImage.json');
 
 const isDevelopment = userconfig.initial.development || false;
 
@@ -131,6 +132,134 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // Backstop for images whose entrypoint discards the payload's exit status.
+    // A clean exit proves nothing, so for those images restart RATE is the only
+    // fault evidence left and this is the only thing that ever paces them.
+    // This many automatic restarts inside the window is treated as a crash and
+    // enters the ladder above, which reaches anything restarting closer together
+    // than window/count - 60s apart at these values. Slower is deliberately left
+    // alone: Palworld's segfault-restart cycle is ~77s at its worst, and coming
+    // straight back is better for the customer than being paced.
+    // Keep the window wider than the reconciler's retry interval times this
+    // count. A container that fails to START never ran, so it is never a fault
+    // and never walks the ladder directly - it reaches it only by filling this
+    // window, and a window narrower than that retries forever.
+    // Counted as restarts ALREADY RECORDED, so at 5 the sixth restart is the one
+    // that earns a rung and the seventh is the first one held back.
+    restartBurstCount: 5,
+    restartBurstWindowMs: 300000,
+    // How long a finished operation stays readable at /apps/operations/:jobId,
+    // and how long a client is told to wait between polls while one runs. A
+    // RUNNING job never expires - only terminal ones are retained on a clock.
+    operationRetentionMs: 60 * 60 * 1000,
+    operationRetryAfterSeconds: 2,
+    // File operations on an app's volume, each run in a throwaway container.
+    volumeOperations: {
+      // The tag is the NAME and the id is the PROOF, and they rotate together.
+      //
+      // In their own file because the harness reads them too, and reads them
+      // from here rather than repeating them: a rebuilt image must not leave
+      // the harness testing something the fleet does not run. It cannot
+      // `require` this config to get at them - line 2 pulls in userconfig.js,
+      // which is gitignored and absent from a fresh checkout - so it used to
+      // match them out of this source with a regular expression, and changing
+      // the shape of a pin broke the runner rather than the thing under test.
+      //
+      // A tag alone decides nothing: it is mutable at the registry, and one
+      // inside an image a peer hands over is whatever that peer wrote in it. So
+      // what a node runs is decided by the image id - the digest of the image's
+      // own config - which is checked on every path, whether the image arrived
+      // from the registry, from a peer, or was already here. An id is per
+      // architecture, hence one for each.
+      //
+      // ROTATING THIS MEANS CHANGING BOTH, which is why they sit together. An
+      // id belongs to a specific build: the same commit rebuilt under a new tag
+      // carries different labels and therefore a different id. Read them from
+      // the release that published the tag, never from a previous one. A tag
+      // moved without its ids is refused by every node, loudly, which is the
+      // right direction to fail in but is not something to discover during a
+      // rollout.
+      //
+      // It also means rotating the image needs a FluxOS release, which is
+      // deliberate rather than a limitation to work around. What the image does
+      // is coupled to the code that drives it - the staging names it creates are the
+      // ones swept here, so a change to one is a change to both - and the
+      // alternative,
+      // publishing the pin where the fleet reads policy, would let a merge
+      // choose the program every node runs as root over an app's volume, with
+      // no staged rollout. The urgency that would buy is small: the container
+      // has no network, a read-only rootfs, every capability dropped but three,
+      // and one volume mounted, so a CVE in what it packages is not reachable
+      // the way one in a network-facing service is.
+      //
+      // What the image DOES is proven in its own repository, not here: the
+      // ceiling, the link refusal, discarding staging, the atomic exchange the
+      // publish is made of, and the signal handling all have tests there
+      // that run in a container configured exactly as this one configures it,
+      // on both architectures. Nothing in this repository can exercise them,
+      // and a reviewer looking only here should not conclude they are
+      // unexercised.
+      ...volumeToolsImage,
+      // One per app stops a single owner monopolising a node; the node-wide cap
+      // stops the disk being saturated by several at once. A reached limit is
+      // refused rather than queued - a queued request waits silently behind
+      // someone else's long copy until an intermediate proxy kills it.
+      // How widely the fleet's registry fetch is spread. Only the registry is
+      // spread: it is the one place every node reaches at once, where asking
+      // peers costs the fleet nothing it does not already have. Configurable so
+      // a test fleet can watch a window it would otherwise sit inside of.
+      prefetchWindowMs: 6 * 60 * 60 * 1000,
+      maxConcurrentPerApp: 1,
+      maxConcurrentPerNode: 4,
+      // How long an operation may make NO progress before it is stopped. Not a
+      // limit on how long it may run: moving a hundred gigabytes legitimately
+      // outruns any wall clock short enough to be useful, and a fixed ceiling
+      // cannot tell that from a wedged container. The volume's own usage is
+      // read every tick anyway, so "has this written or deleted anything at
+      // all recently" is free and is the question actually worth asking.
+      // Generous, because a slow disk under load is not a stuck one.
+      stallTimeoutMs: 10 * 60 * 1000,
+      // The floor an upload has to keep to count as still sending. Bytes from
+      // the caller are the only evidence a slow upload is alive - it moves no
+      // whole filesystem block for minutes, so the volume reads as idle - but
+      // the evidence has to be a RATE. Treating any byte at all as progress
+      // lets one byte per window hold a slot until the request itself times
+      // out two hours later, and four of those block every file operation on
+      // the node for every app on it.
+      //
+      // Set where a caller below it could not finish anyway: 64 kbit/s carries
+      // ~58MB in the two hours server.requestTimeout allows, so this mostly
+      // writes down a limit that already exists. It clears the worst usable
+      // mobile link by a wide margin and sits thousands of times above the
+      // trickle it is here to stop.
+      minUploadBitsPerSecond: 64 * 1000,
+      // Bounds a runaway archive. How much can be WRITTEN is already capped by
+      // the size of the volume itself.
+      memoryBytes: 512 * 1024 * 1024,
+      pidsLimit: 256,
+      // One core per operation. tar and zip are single-threaded, so this mostly
+      // writes down what they already use - what it bounds is the tool that is
+      // not: anything in the image that spawns workers has pidsLimit's worth of
+      // processes to do it with, and without a quota one operation takes every
+      // core the node has. The worst case across the pool is
+      // maxConcurrentPerNode cores, and contention inside it is settled by
+      // CpuShares in the executor's HostConfig: file operations yield to the
+      // applications, which are the tenants the node is for.
+      cpuCores: 1,
+      // How long a cancelled operation is given to stop of its own accord. The
+      // container is sent SIGTERM, which flux-op traps to stop the command and
+      // reclaim its staging directory; only after this does docker escalate to
+      // SIGKILL, which reaches neither - the executor's own deferred reclaim
+      // then removes what was staged. Long enough to remove a large staging
+      // tree, short enough that a cancel still feels like one.
+      cancelGraceSeconds: 15,
+      // How often a running operation is looked at: one tick reports that it is
+      // alive, notices a cancellation, and reads how far it has got. Nothing is
+      // holding a request open to receive any of it - the endpoints answered 202
+      // before the work began - so this is the resolution of a poll, not a
+      // keepalive.
+      progressIntervalMs: 2000,
+    },
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.
@@ -281,7 +410,7 @@ module.exports = {
     daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
-    ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
+    ownerAppAllowance: 1000, // a by-name local install (fluxteam only) runs for this amount of blocks before the expiry sweep removes it
     temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
@@ -303,6 +432,7 @@ module.exports = {
     hashSyncIntervalMs: 1800000,
     peerNotifyIntervalMs: 3600000,
     cpuCheckIntervalMs: 900000,
+    statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,
     imageComplianceIntervalMs: 3600000,
     forceRemovalIntervalMs: 7200000,
@@ -314,6 +444,11 @@ module.exports = {
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
+    // How many times a global command retries a node that answers 503 while it
+    // is still reconciling its apps after boot. The refusal carries a 15s
+    // Retry-After, so this is ~2 minutes of coverage - long enough for a
+    // booting node to settle, bounded so a genuinely wedged one is not hammered.
+    globalCmdBootRetries: 8,
     discoveryAutostart: true,
     discoveryRetryMs: 60000,
     discoveryFailRetryMs: 120000,
@@ -359,6 +494,7 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000, // masterSlave (g:) FDM election cycle
+    masterSlaveStaggerMs: 180000, // per-place wait before an instance may take an empty g: primary
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -402,6 +538,10 @@ module.exports = {
     stallNudgeMaxIntervalMs: 900000, // nudge backoff cap (15min)
     stallRemoveMinWindowMs: 1200000, // 20min minimum evidence window before removal
     stallRemoveMinNudges: 3, // nudges that must have failed before removal
+    // Where a legacy node installs syncthing from. Arcane nodes ship it in the image and
+    // never reach either of these.
+    aptSourceUrl: 'https://apt.syncthing.net/',
+    releaseKeyUrl: 'https://syncthing.net/release-key.gpg',
   },
   // enterpriseAppOwners moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
@@ -460,7 +600,22 @@ module.exports = {
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
-    statsApiBaseUrl: 'https://stats.runonflux.io',
+  },
+  // The network's statistics service. One host, several paths: node location,
+  // marketplace listings, app USD pricing, and the minimum module versions a node
+  // checks its syncthing against at boot.
+  stats: {
+    baseUrl: 'https://stats.runonflux.io',
+  },
+  pricing: {
+    fluxRatesBaseUrl: 'https://viprates.runonflux.io',
+    // Consulted only when the rates service above is unreachable.
+    coingeckoBaseUrl: 'https://api.coingecko.com',
+  },
+  mongodb: {
+    // Where a replacement server signing key is fetched from when the installed one
+    // has expired. The version is appended: /server-<major.minor>.asc
+    signingKeyBaseUrl: 'https://pgp.mongodb.com',
   },
   analytics: {
     url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.

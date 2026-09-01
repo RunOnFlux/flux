@@ -18,6 +18,7 @@ const proxyquire = require('proxyquire');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const cloudUIUpdateService = require('../../ZelBack/src/services/cloudUIUpdateService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
@@ -204,7 +205,7 @@ describe('fluxService tests', () => {
       };
       const req = {};
 
-      const response = await fluxService.softUpdateFlux(req, res);
+      const response = await fluxService.softUpdateFluxApi(req, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
@@ -225,7 +226,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFlux(undefined, res);
+      await fluxService.softUpdateFluxApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -253,7 +254,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFlux(undefined, res);
+      await fluxService.softUpdateFluxApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -286,7 +287,7 @@ describe('fluxService tests', () => {
         status: 'error',
       };
 
-      const response = await fluxService.softUpdateFluxInstall({}, res);
+      const response = await fluxService.softUpdateFluxInstallApi({}, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
@@ -307,7 +308,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFluxInstall(undefined, res);
+      await fluxService.softUpdateFluxInstallApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -335,7 +336,7 @@ describe('fluxService tests', () => {
       };
       const res = generateResponse();
 
-      await fluxService.softUpdateFluxInstall(undefined, res);
+      await fluxService.softUpdateFluxInstallApi({}, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -425,12 +426,21 @@ describe('fluxService tests', () => {
     });
   });
 
-  describe('rebuildHome tests', () => {
+  // The UI is fetched from a published release, so this asserts the fetch was asked for
+  // rather than that some package script was spawned. The script this used to name was
+  // deleted with the UI it built, and a stubbed runCommand cannot tell a script that is
+  // missing from one that succeeded - so the endpoint returned an error in the field
+  // while its tests stayed green.
+  describe('rebuildUi tests', () => {
     let verifyPrivilegeStub;
+    let runUpdateScriptStub;
     let runCmdStub;
+    let watchdogOwnsStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      runUpdateScriptStub = sinon.stub(cloudUIUpdateService, 'runUpdateScript');
+      watchdogOwnsStub = sinon.stub(cloudUIUpdateService, 'watchdogManagesCloudUI').returns(false);
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
@@ -438,7 +448,7 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is not an admin or flux team', async () => {
+    it('should refuse a caller who is not an admin or flux team', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
       const expectedResponse = {
@@ -450,60 +460,60 @@ describe('fluxService tests', () => {
         status: 'error',
       };
 
-      const response = await fluxService.rebuildHome(undefined, res);
+      await fluxService.rebuildUi(undefined, res);
 
-      expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(runUpdateScriptStub);
     });
 
-    it('should return success message if cmd exec does not return error', async () => {
+    it('should report success when the UI is fetched', async () => {
       verifyPrivilegeStub.returns(true);
-      runCmdStub.resolves({ error: null });
-      const nodedpath = path.join(__dirname, '../../');
-
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'Flux UI successfully rebuilt',
-          name: undefined,
-        },
-        status: 'success',
-      };
+      runUpdateScriptStub.resolves(true);
       const res = generateResponse();
 
-      await fluxService.rebuildHome(undefined, res);
-      await serviceHelper.delay(200);
+      await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'homebuild'] });
+      sinon.assert.calledOnce(runUpdateScriptStub);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(res.json.firstCall.args[0].data.message).to.equal('Flux UI successfully rebuilt');
     });
 
-    it('should return error if cmd exec throws error ', async () => {
+    it('should report an error when the fetch fails', async () => {
       verifyPrivilegeStub.returns(true);
-      runCmdStub.resolves({
-        error: {
-          message: 'This is an error',
-          code: 403,
-          name: 'testing error',
-        },
-      });
-      const nodedpath = path.join(__dirname, '../../');
-
-      const expectedResponse = {
-        data: {
-          code: 403,
-          message: 'Error rebuilding Flux UI: This is an error',
-          name: 'testing error',
-        },
-        status: 'error',
-      };
+      runUpdateScriptStub.resolves(false);
       const res = generateResponse();
 
-      await fluxService.rebuildHome(undefined, res);
-      await serviceHelper.delay(200);
+      await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'homebuild'] });
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('Error rebuilding Flux UI');
+    });
+
+    // The script removes the served directory before it copies the new one in.
+    // On ArcaneOS the watchdog owns CloudUI, which is why the periodic check
+    // stands aside there - reaching the script directly from here would walk
+    // under that and tear down a directory this node does not manage.
+    it('refuses on ArcaneOS, where the watchdog owns CloudUI', async () => {
+      verifyPrivilegeStub.returns(true);
+      watchdogOwnsStub.returns(true);
+      const res = generateResponse();
+
+      await fluxService.rebuildUi(undefined, res);
+
+      sinon.assert.notCalled(runUpdateScriptStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('managed by the watchdog');
+    });
+
+    // The regression this replaced: a package script named here is one more thing that can
+    // be deleted somewhere else without anything failing until a node runs it.
+    it('should not spawn a package script of its own', async () => {
+      verifyPrivilegeStub.returns(true);
+      runUpdateScriptStub.resolves(true);
+
+      await fluxService.rebuildUi(undefined, generateResponse());
+
+      sinon.assert.notCalled(runCmdStub);
     });
   });
 
@@ -1897,6 +1907,29 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
+    // What appsResources answers with: the totals, and the applications whose
+    // specifications this node could not read.
+    const lockedResources = {
+      appsCpusLocked: 3,
+      appsRamLocked: 6000,
+      appsHddLocked: 90,
+      unreadable: ['someunreadableapp'],
+    };
+
+    // A container as docker reports it, so what /flux/info publishes of it is
+    // decided by the projection rather than by what the stub was told to say.
+    const runningContainer = {
+      Id: '9f2c1b0e4d3a',
+      Names: ['/fluxwww_App'],
+      Image: 'someregistry.example/private:1.2.3',
+      ImageID: 'sha256:0123456789abcdef',
+      Command: '/entrypoint.sh --serve',
+      Ports: [{ PrivatePort: 8080, PublicPort: 31000, Type: 'tcp' }],
+      Labels: { 'org.opencontainers.image.revision': 'a1b2c3d4' },
+      State: 'running',
+      Status: 'Up 2 hours',
+    };
+
     it('should return flux info no response passed', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
       daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
@@ -1904,8 +1937,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -1934,8 +1967,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -1958,14 +1991,71 @@ describe('fluxService tests', () => {
           },
           apps: {
             fluxusage: 'usage data',
-            runningapps: 'listRunningApps data',
-            resources: 'appsResources data',
+            // /flux/info carries the same public view /apps/listrunningapps
+            // serves - it embeds the container listing, and a projection
+            // applied at one exit and not the other is the shape it exists
+            // to avoid.
+            runningapps: [{ Names: ['/fluxwww_App'], State: 'running', Status: 'Up 2 hours' }],
+            // The three totals /apps/appsresources publishes, and not the list of
+            // apps this node could not read - which appsResources answers with
+            // and no caller outside the node is told.
+            resources: { appsCpusLocked: 3, appsRamLocked: 6000, appsHddLocked: 90 },
           },
           geolocation: null,
           appsHashesTotal: 1,
           hashesPresent: 1,
         },
       });
+    });
+
+    // calledOnceWithMatch is a partial match, so it would pass on a resources
+    // object that also carried the list of apps this node cannot read. Their
+    // names are public on chain, but "this node is holding an application it
+    // cannot read" is a statement about its health that nobody outside needs.
+    it('publishes the three resource totals and no more', async () => {
+      daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
+      benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
+      benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
+      appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
+      explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
+      fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
+      fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
+      const result = await fluxService.getFluxInfo();
+
+      expect(Object.keys(result.data.apps.resources).sort())
+        .to.deep.equal(['appsCpusLocked', 'appsHddLocked', 'appsRamLocked']);
+    });
+
+    // calledOnceWithMatch is a partial match, so the assertion above would pass
+    // on a runningapps entry that also carried the image. This one reads the key
+    // set, which is the property the projection exists to hold.
+    it('publishes three container fields and no others', async () => {
+      daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
+      benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
+      benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
+      appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
+      explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
+      fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
+      fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
+      const result = await fluxService.getFluxInfo();
+
+      expect(result.data.apps.runningapps).to.have.lengthOf(1);
+      expect(Object.keys(result.data.apps.runningapps[0]).sort())
+        .to.deep.equal(['Names', 'State', 'Status']);
     });
 
     it('should return error if control rpcs returns error', async () => {
@@ -1975,8 +2065,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2000,8 +2090,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2025,8 +2115,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2050,8 +2140,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'error', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2075,8 +2165,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'error', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2100,8 +2190,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'error', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2126,7 +2216,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'error', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2150,7 +2240,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
       appsServiceAppsResourcesStub.returns({ status: 'error', data: 'appsResources data' });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
@@ -2175,8 +2265,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'error', data: 'getAppHashes data' });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2200,8 +2290,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'error', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2225,8 +2315,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'error', data: 'connectedPeersInfo data' });
@@ -2250,8 +2340,8 @@ describe('fluxService tests', () => {
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
-      appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
-      appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -3170,6 +3260,262 @@ describe('fluxService tests', () => {
 
       await fluxService.streamChain(req, res);
       expect(received).to.deep.equal(['testtesttesttest']);
+    });
+  });
+  // Each of these is a pair: an endpoint that authorises, and an operation that
+  // does not, because it has no caller to authorise. One function cannot be
+  // both, which is what the shape these replaced attempted - it decided whether
+  // to check by whether a request object happened to have been passed, so the
+  // scheduler that passed none was trusted, and so was anyone who arrived in a
+  // way that left it undefined.
+  describe('the command is behind the privilege check, not beside it', () => {
+    // Two kinds of operation under one rule. The update pair runs a package script; the
+    // branch switch drives git directly, so it is asserted on the git it runs.
+    const npmPairs = [
+      ['softUpdateFluxApi', 'softupdate'],
+      ['softUpdateFluxInstallApi', 'softupdateinstall'],
+    ];
+    const gitPairs = [
+      ['enterMasterApi', 'master'],
+      ['enterDevelopmentApi', 'development'],
+    ];
+
+    let verifyPrivilegeStub;
+    let runCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'master\n' });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    [...npmPairs, ...gitPairs].forEach(([api]) => {
+      it(`${api} runs nothing when the caller is refused`, async () => {
+        verifyPrivilegeStub.resolves(false);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.notCalled(runCmdStub);
+      });
+    });
+
+    npmPairs.forEach(([api, script]) => {
+      it(`${api} runs npm ${script} once the caller is admitted`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.calledOnceWithMatch(runCmdStub, 'npm', { params: ['run', script] });
+      });
+    });
+
+    gitPairs.forEach(([api, branch]) => {
+      it(`${api} verifies ${branch} exists before checking it out`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+      });
+
+      // The ordinary state of a node, not an edge case: it carries only the
+      // branch it was installed on, and every other branch is a remote-tracking
+      // ref alone. git checkout creates the local branch from that, so refusing
+      // here would refuse a switch the node can make - and this is the endpoint
+      // the flux team uses to move a node onto development.
+      it(`${api} accepts ${branch} when the node has it only as origin/${branch}`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] }))
+          .resolves({ error: new Error('exit 1'), stdout: '' });
+        const res = generateResponse();
+
+        await fluxService[api]({}, res);
+
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+        expect(res.json.firstCall.args[0].status).to.equal('success');
+      });
+
+      // The ordinary state of an Arcane node: the installer clones
+      // --depth 1 --single-branch, so no other branch is on the box in any
+      // form. Refusing here would refuse every switch such a node could ever
+      // be asked to make.
+      const absent = () => {
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`] }))
+          .resolves({ error: new Error('exit 1'), stdout: '' });
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`] }))
+          .resolves({ error: new Error('exit 1'), stdout: '' });
+      };
+
+      const shallowIs = (value) => {
+        runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--is-shallow-repository'] }))
+          .resolves({ error: null, stdout: `${value}\n` });
+      };
+
+      it(`${api} fetches ${branch} when the node has no reference to it`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        absent();
+        shallowIs('true');
+        const res = generateResponse();
+
+        await fluxService[api]({}, res);
+
+        // Into the local branch, not a tracking ref: git will not check out a
+        // remote-tracking ref the configured refspec does not map.
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['fetch', '--depth', '1', 'origin', `${branch}:refs/heads/${branch}`] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['config', `branch.${branch}.remote`, 'origin'] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['config', `branch.${branch}.merge`, `refs/heads/${branch}`] });
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+        expect(res.json.firstCall.args[0].status).to.equal('success');
+      });
+
+      // A --depth fetch turns a FULL clone shallow, so a legacy node would be
+      // quietly truncated by a branch switch.
+      it(`${api} does not shallow a full clone when fetching ${branch}`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        absent();
+        shallowIs('false');
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.calledWithMatch(runCmdStub, 'git', { params: ['fetch', 'origin', `${branch}:refs/heads/${branch}`] });
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: sinon.match.array.contains(['--depth']) });
+      });
+
+      it(`${api} refuses ${branch} when it cannot be fetched either`, async () => {
+        verifyPrivilegeStub.resolves(true);
+        absent();
+        shallowIs('true');
+        runCmdStub.withArgs('git', sinon.match({ params: ['fetch', '--depth', '1', 'origin', `${branch}:refs/heads/${branch}`] }))
+          .resolves({ error: new Error('couldn\'t find remote ref'), stdout: '' });
+        const res = generateResponse();
+
+        await fluxService[api]({}, res);
+
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', branch] });
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(res.json.firstCall.args[0].data.message).to.contain('could not be fetched');
+      });
+
+      // Told where to run, not left to inherit whatever directory the process is
+      // in. Two of these read and one writes - a checkout changes files on disk -
+      // and every npm sibling in the file has always passed it.
+      it(`${api} runs every git command in the node's own checkout`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        const gitCalls = runCmdStub.getCalls().filter((call) => call.args[0] === 'git');
+        expect(gitCalls.length, 'no git command ran at all').to.be.greaterThan(0);
+        const unanchored = gitCalls
+          .filter((call) => !call.args[1] || !call.args[1].cwd)
+          .map((call) => (call.args[1]?.params ?? []).join(' '));
+        expect(unanchored, 'these git commands ran wherever the process happened to be').to.deep.equal([]);
+      });
+
+      it(`${api} does not pull, so a switch changes the branch and nothing else`, async () => {
+        verifyPrivilegeStub.resolves(true);
+
+        await fluxService[api]({}, generateResponse());
+
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['pull'] });
+      });
+    });
+
+    // The operation itself takes no request and consults nobody. If one of
+    // these ever asks a privilege question again, the endpoint above stops
+    // being the only door and this fails.
+    [...npmPairs, ...gitPairs].forEach(([api]) => {
+      const operation = api.replace(/Api$/, '');
+      it(`${operation} authorises nobody - that is the endpoint's job`, async () => {
+        await fluxService[operation]();
+
+        sinon.assert.notCalled(verifyPrivilegeStub);
+        sinon.assert.called(runCmdStub);
+      });
+    });
+  });
+
+  // The branch switch reports what git says the node is on, rather than repeating the
+  // branch it was asked for. The two are not the same thing when the checkout only
+  // half worked, which is the case the old npm route could not tell apart.
+  describe('switching branch says where the node actually ended up', () => {
+    let runCmdStub;
+
+    beforeEach(() => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('names the branch and commit read back from git', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--abbrev-ref', 'HEAD'] }))
+        .resolves({ error: null, stdout: 'master\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--short', 'HEAD'] }))
+        .resolves({ error: null, stdout: 'abc1234\n' });
+      const res = generateResponse();
+
+      await fluxService.enterMasterApi({}, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(res.json.firstCall.args[0].data.message).to.contain('master at abc1234');
+    });
+
+    // A detached HEAD, or a node not deployed from a checkout at all, leaves nothing to
+    // name. The switch still happened, so it must still be reported as success - failing
+    // to describe an operation is not the same as the operation failing.
+    it('still reports success when git cannot name the checkout', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--abbrev-ref', 'HEAD'] }))
+        .resolves({ error: new Error('not a git repository'), stdout: '' });
+      const res = generateResponse();
+
+      await fluxService.enterMasterApi({}, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(res.json.firstCall.args[0].data.message).to.equal('Master branch successfully entered');
+    });
+
+    it('reports the branch it could not find, not just that it failed', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/heads/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--is-shallow-repository'] }))
+        .resolves({ error: null, stdout: 'true\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['fetch', '--depth', '1', 'origin', 'master:refs/heads/master'] }))
+        .resolves({ error: new Error("couldn't find remote ref master"), stdout: '' });
+      const res = generateResponse();
+
+      await fluxService.enterMasterApi({}, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('Branch master is not on this node and could not be fetched');
+    });
+
+    it('does not check out a branch it could neither find nor fetch', async () => {
+      runCmdStub.resolves({ error: null, stdout: 'ok\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/heads/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/master'] }))
+        .resolves({ error: new Error('exit 1'), stdout: '' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['rev-parse', '--is-shallow-repository'] }))
+        .resolves({ error: null, stdout: 'true\n' });
+      runCmdStub.withArgs('git', sinon.match({ params: ['fetch', '--depth', '1', 'origin', 'master:refs/heads/master'] }))
+        .resolves({ error: new Error("couldn't find remote ref master"), stdout: '' });
+
+      await fluxService.enterMasterApi({}, generateResponse());
+
+      sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', 'master'] });
     });
   });
 });

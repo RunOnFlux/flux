@@ -1,14 +1,71 @@
 const fs = require('fs').promises;
 const path = require('node:path');
-const util = require('node:util');
-const df = require('node-df');
 const dockerService = require('../dockerService');
+const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const mountParser = require('./mountParser');
 const log = require('../../lib/log');
-const { appsFolder, appVolumesPath, legacyAppVolumesPath } = require('./appConstants');
+const {
+  appsFolder, appVolumesPath, legacyAppVolumesPath, APP_VOLUME_MOUNT_OPTIONS,
+} = require('./appConstants');
 
-const dfAsync = util.promisify(df);
+/**
+ * The unit node capacity is counted in, which is the unit it is spent in:
+ * `fallocate -l <n>G` takes 1024^3 bytes per unit, so this is what an app's
+ * `hdd` actually costs the filesystem.
+ */
+const BYTES_PER_GIB = 1024 ** 3;
+
+/**
+ * The host filesystems eligible to hold an app's FLUXFSVOL image.
+ *
+ * Block-backed, and neither the root nor a boot filesystem. Loop devices are
+ * excluded because a loop mount IS an app volume - treating one as a candidate
+ * host would place an app's image inside another app's volume.
+ *
+ * Throws when the mount table cannot be read; callers narrow their search to
+ * the appvolumes directories rather than treating that as "no disks".
+ *
+ * @returns {Promise<Array<object>>} mount rows from deviceHelper
+ */
+async function eligibleHostMounts() {
+  const filesystems = await deviceHelper.listMountedFilesystems();
+  return filesystems.filter((entry) => entry.source.includes('/dev/')
+    && !entry.source.includes('loop')
+    && !entry.target.includes('boot')
+    && entry.target !== '/');
+}
+
+/**
+ * The host volumes that count towards this node's advertised capacity, sized in
+ * whole GiB.
+ *
+ * A wider set than eligibleHostMounts: a loop-mounted ROOT is included, because
+ * on some images that is the host disk rather than an app volume. Callers that
+ * place a FLUXFSVOL want the narrower set; callers that total up node capacity
+ * want this one.
+ *
+ * GiB, because that is the unit an app's `hdd` is spent in: `createAppVolume`
+ * allocates with `fallocate -l <hdd>G`, and util-linux reads a bare `G` as
+ * 1024^3. nodeSpecs.ssdStorage is GiB for the same reason - fluxbench reports
+ * the disk that way - so every side of a capacity check speaks one unit.
+ *
+ * @returns {Promise<Array<{filesystem: string, mount: string, size: number,
+ *   used: number, available: number}>>}
+ */
+async function capacityVolumesInGib() {
+  const mounts = await deviceHelper.listMountedFilesystems();
+  return mounts
+    .filter((volume) => (volume.source.includes('/dev/') && !volume.source.includes('loop') && !volume.target.includes('boot'))
+      || (volume.source.includes('loop') && volume.target === '/'))
+    .map((volume) => ({
+      filesystem: volume.source,
+      mount: volume.target,
+      size: Math.round(volume.sizeBytes / BYTES_PER_GIB),
+      used: Math.round(volume.usedBytes / BYTES_PER_GIB),
+      available: Math.round(volume.availableBytes / BYTES_PER_GIB),
+    }));
+}
 
 /**
  * Whether a path currently has a filesystem mounted on it. Reads
@@ -49,16 +106,12 @@ async function getVolumeFilePath(appId) {
   const candidates = [];
 
   try {
-    const dfres = await dfAsync({});
-    dfres.forEach((volume) => {
-      const eligible = volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop')
-        && !volume.mount.includes('boot') && volume.mount !== '/';
-      if (eligible) {
-        candidates.push(path.join(volume.mount, volumeFileName));
-      }
+    const mounts = await eligibleHostMounts();
+    mounts.forEach((mount) => {
+      candidates.push(path.join(mount.target, volumeFileName));
     });
   } catch (error) {
-    log.warn(`getVolumeFilePath - df failed (${error.message}), falling back to appvolumes locations only`);
+    log.warn(`getVolumeFilePath - findmnt failed (${error.message}), falling back to appvolumes locations only`);
   }
 
   candidates.push(path.join(appVolumesPath, volumeFileName));
@@ -89,16 +142,10 @@ async function getComponentAppIdsFromVolumeFiles(appName) {
   const searchDirs = new Set([appVolumesPath, legacyAppVolumesPath]);
 
   try {
-    const dfres = await dfAsync({});
-    dfres.forEach((volume) => {
-      const eligible = volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop')
-        && !volume.mount.includes('boot') && volume.mount !== '/';
-      if (eligible) {
-        searchDirs.add(volume.mount);
-      }
-    });
+    const mounts = await eligibleHostMounts();
+    mounts.forEach((mount) => searchDirs.add(mount.target));
   } catch (error) {
-    log.warn(`getComponentAppIdsFromVolumeFiles - df failed (${error.message}), searching appvolumes locations only`);
+    log.warn(`getComponentAppIdsFromVolumeFiles - findmnt failed (${error.message}), searching appvolumes locations only`);
   }
 
   const escapedName = appName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -169,7 +216,7 @@ async function ensureAppVolumeMounted(identifier) {
   }
 
   const mountRes = await serviceHelper.runCommand('mount', {
-    runAsRoot: true, params: ['-o', 'loop', volumeFile, mountPoint], logError: false,
+    runAsRoot: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, mountPoint], logError: false,
   });
   if (mountRes.error) {
     // another actor (e.g. a legacy @reboot job on its last boot) may have
@@ -341,11 +388,76 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   }
 }
 
+/**
+ * Delete everything an app holds in its volume, leaving the volume itself mounted
+ * @param {string} identifier - Component identifier
+ * @returns {Promise<void>}
+ */
+async function clearAppVolumeData(identifier) {
+  const appId = dockerService.getAppIdentifier(identifier);
+  const appDataPath = path.join(appsFolder, appId, 'appdata');
+
+  // Enumerated AND deleted as root, in one command.
+  //
+  // Listing the directory host-side runs as the FluxOS user while the rm runs
+  // under sudo, and that asymmetry is fatal for exactly the apps g: mode exists
+  // to serve: a hardening image chmods its data dir (postgres does `chmod 700
+  // $PGDATA`, and for a component mounting /var/lib/postgresql/data that dir IS
+  // this appdata), so readdir fails EACCES. The caller treats that as a failed
+  // wipe - correctly - and holds dataDesired at 'clear' with a paced retry, so
+  // the component would never start again. Refusing to wipe is the right answer
+  // to a wipe that failed; it is the wrong answer to one that could have
+  // succeeded as root.
+  //
+  // find, not a shell glob: `rm -rf <dir>/*` was the old shape and hits E2BIG on
+  // a large directory, misses dotfiles, and needs a shell. -mindepth 1 empties
+  // the directory without removing it - the mount structure has to stay - and
+  // -exec ... + batches, so this is one process rather than the concurrent,
+  // uncapped rm-per-entry it replaces.
+  const wipe = await serviceHelper.runCommand('find', {
+    runAsRoot: true,
+    params: [appDataPath, '-mindepth', '1', '-maxdepth', '1', '-exec', 'rm', '-rf', '{}', '+'],
+  });
+
+  if (wipe.error) {
+    // Nothing to clear is not a failed clear: an app whose volume was never
+    // populated must not hold the reconciler on a retry forever.
+    //
+    // Classified by exit code, never by find's message: that text is strerror
+    // output, rendered in the node's locale (sudo keeps LANG/LC_* through
+    // env_keep), so matching the English words works only on English nodes -
+    // anywhere else a missing directory reads as a failed wipe and the
+    // reconciler retries it every 5s forever. `test -d` answers with its exit
+    // status alone. As root, like the wipe: an unprivileged check paired with
+    // a root action fails on a data dir the image chmods to 700.
+    //
+    // And classified AFTER the wipe rather than checked before it: check-first
+    // races toward "falsely clean" when the directory appears inside the
+    // window, where this order races toward a throw - and the next pass wipes
+    // whatever arrived.
+    const probe = await serviceHelper.runCommand('test', {
+      runAsRoot: true,
+      logError: false,
+      params: ['-d', appDataPath],
+    });
+    if (probe.error) {
+      log.info(`No data to delete for app ${appId}`);
+      return;
+    }
+    throw new Error(`Failed to delete data for app ${appId}: ${wipe.stderr || wipe.error.message || wipe.error}`);
+  }
+
+  log.info(`Deleted data for app ${appId}`);
+}
+
+
 module.exports = {
   verifyAppVolumeMount,
   ensureMountPathsExist,
+  capacityVolumesInGib,
   isPathMounted,
   getVolumeFilePath,
   getComponentAppIdsFromVolumeFiles,
   ensureAppVolumeMounted,
+  clearAppVolumeData,
 };

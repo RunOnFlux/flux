@@ -25,7 +25,7 @@ describe('daemonServiceNetworkRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -41,35 +41,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.addNode(req);
+      await daemonServiceNetworkRpcs.addNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          node: 'node1',
-          command: 'myCommand',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceNetworkRpcs.addNode(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(
-        daemonServiceUtilsStub,
-        'addNode',
-        [req.params.node, req.params.command],
-      );
-    });
-
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -82,10 +62,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.addNode(req);
+      await daemonServiceNetworkRpcs.addNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'addNode',
@@ -106,10 +87,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.addNode(req);
+      await daemonServiceNetworkRpcs.addNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'addNode',
@@ -210,7 +192,7 @@ describe('daemonServiceNetworkRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -226,34 +208,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.disconnectNode(req);
+      await daemonServiceNetworkRpcs.disconnectNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          node: 'node1',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceNetworkRpcs.disconnectNode(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(
-        daemonServiceUtilsStub,
-        'disconnectNode',
-        [req.params.node],
-      );
-    });
-
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -265,10 +228,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.disconnectNode(req);
+      await daemonServiceNetworkRpcs.disconnectNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'disconnectNode',
@@ -289,10 +253,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.disconnectNode(req);
+      await daemonServiceNetworkRpcs.disconnectNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'disconnectNode', []);
     });
 
@@ -328,7 +293,7 @@ describe('daemonServiceNetworkRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -344,35 +309,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
+      await daemonServiceNetworkRpcs.getAddedNodeInfo(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          node: 'node1',
-          dns: true,
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(
-        daemonServiceUtilsStub,
-        'getAddedNodeInfo',
-        [req.params.dns, req.params.node],
-      );
-    });
-
-    it('should trigger rpc with dns parameter when no node is passed, no response passed', async () => {
+    it('should trigger rpc with dns parameter when no node is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -384,10 +329,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
+      await daemonServiceNetworkRpcs.getAddedNodeInfo(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'getAddedNodeInfo',
@@ -395,7 +341,7 @@ describe('daemonServiceNetworkRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc without parameters if no dns passed, no response passed', async () => {
+    it('should trigger rpc without parameters if no dns passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -407,10 +353,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
+      await daemonServiceNetworkRpcs.getAddedNodeInfo(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'getAddedNodeInfo',
@@ -418,7 +365,7 @@ describe('daemonServiceNetworkRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -431,10 +378,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
+      await daemonServiceNetworkRpcs.getAddedNodeInfo(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'getAddedNodeInfo',
@@ -455,10 +403,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
+      await daemonServiceNetworkRpcs.getAddedNodeInfo(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getAddedNodeInfo', []);
     });
 
@@ -774,7 +723,7 @@ describe('daemonServiceNetworkRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -793,14 +742,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -814,14 +764,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setBan', [req.params.ip, req.params.command, req.params.bantime, req.params.absolute]);
     });
 
-    it('should trigger rpc when no absolute param is passed, no response passed', async () => {
+    it('should trigger rpc when no absolute param is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -834,14 +785,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setBan', [req.params.ip, req.params.command, req.params.bantime]);
     });
 
-    it('should trigger rpc if no bantime is passed, no response passed', async () => {
+    it('should trigger rpc if no bantime is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -854,14 +806,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setBan', [req.params.ip, req.params.command]);
     });
 
-    it('should trigger rpc without parameters if no command is passed, no response passed', async () => {
+    it('should trigger rpc without parameters if no command is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -874,14 +827,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setBan', []);
     });
 
-    it('should trigger rpc without parameters if no ip is passed, no response passed', async () => {
+    it('should trigger rpc without parameters if no ip is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -894,14 +848,15 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setBan', []);
     });
 
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -916,10 +871,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setBan', [req.query.ip, req.query.command, req.query.bantime, req.query.absolute]);
     });
 
@@ -933,10 +889,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceNetworkRpcs.setBan(req);
+      await daemonServiceNetworkRpcs.setBan(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setBan', []);
     });
 

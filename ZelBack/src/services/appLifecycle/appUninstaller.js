@@ -21,8 +21,8 @@ const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const volumeService = require('../utils/volumeService');
-const imageManager = require('../appSecurity/imageManager');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { Privilege, authOf } = require('../utils/privileges');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -1202,43 +1202,26 @@ async function removeAppLocallyApi(req, res) {
       throw new Error('No Flux App specified');
     }
 
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    // The node operator is deliberately NOT here. Hosting an app is not owning it:
+    // an operator who can remove one can script the removal against every install
+    // and keep a customer's app off their node indefinitely, which the customer
+    // experiences as an app that will not stay deployed and cannot diagnose.
+    // Ending an app is the owner's call, or the team's on their behalf.
+    //
+    // One gate, and vetted status does not narrow it further: appownerorfluxteam
+    // admits exactly {owner, fluxTeam, fluxSupport}, which is who may uninstall a
+    // vetted app too. A second check against the same set can only ever agree, and
+    // asking it costs two database reads and a vetted lookup per uninstall.
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
     }
 
-    // For vetted apps, only app owner or Flux Team can uninstall
-    // First, get app specifications to check if vetted
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const database = dbopen.db(config.database.appsglobal.database);
-    const appsQuery = { name: appname };
-    const appsProjection = {};
-
-    let appSpecsForVettedCheck = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    if (!appSpecsForVettedCheck) {
-      appSpecsForVettedCheck = await dbHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
-    }
-
-    if (appSpecsForVettedCheck) {
-      const appIsVetted = await imageManager.isAppVetted(appSpecsForVettedCheck);
-      if (appIsVetted) {
-        // Check if user is specifically the app owner or Flux Team
-        const isAppOwner = await verificationHelper.verifyPrivilege('appowner', req, appname);
-        const isFluxTeam = await verificationHelper.verifyPrivilege('fluxteam', req);
-
-        if (!isAppOwner && !isFluxTeam) {
-          const errMessage = messageHelper.createErrorMessage('This is a vetted application. Only the app owner or InFlux Support Team are allowed to uninstall it.');
-          return res.json(errMessage);
-        }
-      }
-    }
-
     if (global) {
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
+      appController.executeAppGlobalCommand(appname, 'appremove', authOf(req)); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global reinstallation`);
       return res.json(appResponse);
     }

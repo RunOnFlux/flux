@@ -8,7 +8,6 @@ const appUninstaller = require('../appLifecycle/appUninstaller');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
-const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
@@ -25,7 +24,7 @@ const {
   ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
 
-const { isPathMounted } = volumeService;
+const { isPathMounted } = require('../utils/volumeService');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -286,50 +285,80 @@ async function fixAppdataPermissions(appId) {
 }
 
 /**
- * Helper function to get Syncthing folder sync completion status
+ * Reads a folder's sync completion, and says which of the two ways it failed.
+ *
+ * "Syncthing says there is no such folder" is a finding about the data. "Syncthing
+ * did not answer" is a finding about syncthing, and the caller that refuses a
+ * backup must not report the second as the first - telling an operator their
+ * instance has never synced, when what happened is that a daemon was restarting,
+ * is a false statement about their data at the moment they are trying to protect
+ * it.
+ *
+ * Only an HTTP status proves syncthing replied at all, and performRequest keeps
+ * it in the error message, so that is what separates the two. Anything that is
+ * not a plain 404 - a transport failure, a 500, an unreadable api key - is
+ * unknown rather than absent, because none of them are the folder telling us
+ * anything.
+ *
+ * @param {string} folderId - The Syncthing folder ID
+ * @returns {Promise<{status: Object|null, reason: 'ok'|'absent'|'unknown'}>}
+ */
+async function probeFolderSyncCompletion(folderId) {
+  try {
+    const {
+      globalBytes = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
+    } = await syncthingService.getDbStatus(folderId);
+
+    const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
+
+    const status = {
+      syncPercentage,
+      globalBytes,
+      inSyncBytes,
+      state,
+      // local additions/modifications in a receiveonly folder; invisible to the
+      // completion metrics above (they only count cluster data)
+      receiveOnlyChangedFiles,
+      // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
+      // never "done": a node holding the only copy before its peers reconnect
+      // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
+      // Gating on globalBytes > 0 stops the promotion gate from reverting (which
+      // would delete the only copy) or promoting unverified data against an empty
+      // global; such a folder falls through to the wait branch instead. The
+      // leader/cold-start path (the legitimate empty-folder seed) is exempt and
+      // handled separately above.
+      isSynced: globalBytes > 0 && syncPercentage === SYNC_COMPLETE_PERCENTAGE,
+    };
+
+    return { status, reason: 'ok' };
+  } catch (error) {
+    // A 404 is syncthing answering that it holds no such folder. Anything else -
+    // transport, a refused key, a malformed reply - leaves the folder's state
+    // unknown, which is a different claim and must never read as absence.
+    if (error.httpStatus === 404) {
+      log.warn(`No syncthing folder ${folderId}`);
+      return { status: null, reason: 'absent' };
+    }
+    log.warn(`Could not read sync status for folder ${folderId}: ${error.message}`);
+    return { status: null, reason: 'unknown' };
+  }
+}
+
+/**
+ * The folder's sync status, or null when it cannot be read for any reason.
+ *
+ * Callers that only need "do I have a usable reading" keep this contract: both
+ * failures are equally unusable to them, and both must be treated conservatively.
+ * Callers that report the failure to a person want probeFolderSyncCompletion.
+ *
  * @param {string} folderId - The Syncthing folder ID
  * @returns {Promise<Object|null>} Sync status object or null if unavailable
  */
 async function getFolderSyncCompletion(folderId) {
-  try {
-    const statusResponse = await syncthingService.getDbStatus({
-      query: { folder: folderId },
-    }, null);
-
-    if (statusResponse && statusResponse.status === 'success') {
-      const {
-        globalBytes = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
-      } = statusResponse.data;
-
-      const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
-
-      return {
-        syncPercentage,
-        globalBytes,
-        inSyncBytes,
-        state,
-        // local additions/modifications in a receiveonly folder; invisible to the
-        // completion metrics above (they only count cluster data)
-        receiveOnlyChangedFiles,
-        // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
-        // never "done": a node holding the only copy before its peers reconnect
-        // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
-        // Gating on globalBytes > 0 stops the promotion gate from reverting (which
-        // would delete the only copy) or promoting unverified data against an empty
-        // global; such a folder falls through to the wait branch instead. The
-        // leader/cold-start path (the legitimate empty-folder seed) is exempt and
-        // handled separately above.
-        isSynced: globalBytes > 0 && syncPercentage === SYNC_COMPLETE_PERCENTAGE,
-      };
-    }
-
-    log.warn(`Failed to get sync status for folder ${folderId}`);
-    return null;
-  } catch (error) {
-    log.error(`Error checking sync completion for ${folderId}: ${error.message}`);
-    return null;
-  }
+  const { status } = await probeFolderSyncCompletion(folderId);
+  return status;
 }
+
 
 /**
  * Determines if this node should be the designated leader for starting an app first.
@@ -637,12 +666,9 @@ async function handleSkippedAppSecondEncounter(params) {
 async function checkIfPeersAreSynced(folderId) {
   try {
     // Get all Syncthing folders
-    const configResponse = await syncthingService.getConfig({}, null);
-    if (!configResponse || configResponse.status !== 'success') {
-      return false;
-    }
+    const config = await syncthingService.getConfig();
 
-    const folder = configResponse.data.folders?.find((f) => f.id === folderId);
+    const folder = config.folders?.find((f) => f.id === folderId);
     if (!folder) {
       return false;
     }
@@ -664,39 +690,34 @@ async function checkIfPeersAreSynced(folderId) {
     for (const device of devices) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const completionResponse = await syncthingService.getDbCompletion({
-          query: { folder: folderId, device: device.deviceID },
-        }, null);
-
-        if (completionResponse?.status === 'success' && completionResponse.data) {
-          const { completion = 0, globalBytes = 0, remoteState = 'unknown' } = completionResponse.data;
-          // A peer is a safe source only if it is CONNECTED (remoteState 'valid'),
-          // reports 100%, AND actually holds data:
-          // - db/completion is computed from the peer's last-known index, so a dead or
-          //   offline peer still reports completion 100. Trusting that stale figure
-          //   turns a source-node reboot into followers deleting their partial copies.
-          //   remoteState is the connectivity discriminator ('valid' iff connected);
-          //   when absent, there is no evidence and the peer must not be trusted.
-          // - Syncthing reports completion 100 for an empty folder (globalBytes 0) too,
-          //   so without the globalBytes check a peer that synced empty/wrong data from
-          //   a bad seed would falsely satisfy "peers are synced" and we would remove
-          //   the good local copy in favour of an empty one (data loss).
-          if (remoteState === 'valid' && completion === 100 && globalBytes > 0) {
-            log.info(`checkIfPeersAreSynced - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}% (${globalBytes} bytes, connected)`);
-            return true;
-          }
-          if (completion === 100 && remoteState !== 'valid') {
-            log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but is not connected (remoteState ${remoteState}); stale index, not a synced source`);
-          } else if (completion === 100) {
-            log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but 0 bytes (empty); not treating it as a synced source`);
-          }
-        } else {
-          // an in-band failure silently skipping the device would read as
-          // "peer not synced" with zero diagnostics - fail-safe, but loud
-          log.warn(`checkIfPeersAreSynced - ${folderId}: completion read for device ${device.deviceID.substring(0, 7)}... failed: ${completionResponse?.data?.message || 'malformed response'}`);
+        const { completion = 0, globalBytes = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletion({
+          folder: folderId,
+          device: device.deviceID,
+        });
+        // A peer is a safe source only if it is CONNECTED (remoteState 'valid'),
+        // reports 100%, AND actually holds data:
+        // - db/completion is computed from the peer's last-known index, so a dead or
+        //   offline peer still reports completion 100. Trusting that stale figure
+        //   turns a source-node reboot into followers deleting their partial copies.
+        //   remoteState is the connectivity discriminator ('valid' iff connected);
+        //   when absent, there is no evidence and the peer must not be trusted.
+        // - Syncthing reports completion 100 for an empty folder (globalBytes 0) too,
+        //   so without the globalBytes check a peer that synced empty/wrong data from
+        //   a bad seed would falsely satisfy "peers are synced" and we would remove
+        //   the good local copy in favour of an empty one (data loss).
+        if (remoteState === 'valid' && completion === 100 && globalBytes > 0) {
+          log.info(`checkIfPeersAreSynced - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}% (${globalBytes} bytes, connected)`);
+          return true;
+        }
+        if (completion === 100 && remoteState !== 'valid') {
+          log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but is not connected (remoteState ${remoteState}); stale index, not a synced source`);
+        } else if (completion === 100) {
+          log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but 0 bytes (empty); not treating it as a synced source`);
         }
       } catch (deviceError) {
-        log.warn(`checkIfPeersAreSynced - Error checking device ${device.deviceID}: ${deviceError.message}`);
+        // a failed completion read silently skipping the device would read as
+        // "peer not synced" with zero diagnostics - fail-safe, but loud
+        log.warn(`checkIfPeersAreSynced - ${folderId}: completion read for device ${device.deviceID.substring(0, 7)}... failed: ${deviceError.message}`);
       }
     }
 
@@ -718,19 +739,15 @@ async function checkIfPeersAreSynced(folderId) {
  */
 async function nudgeFolderDevices(folderId) {
   try {
-    const configResponse = await syncthingService.getConfig({}, null);
-    if (!configResponse || configResponse.status !== 'success') return;
-    const folder = configResponse.data.folders?.find((f) => f.id === folderId);
+    const config = await syncthingService.getConfig();
+    const folder = config.folders?.find((f) => f.id === folderId);
     if (!folder) return;
     // eslint-disable-next-line no-restricted-syntax
     for (const device of folder.devices || []) {
       let paused = false;
       try {
-        // dataOrThrow: pause/resume answer in-band, so without it these
-        // try/catches are dead code and a failed resume would pass silently -
-        // the exact outcome the error log below exists to make loud
         // eslint-disable-next-line no-await-in-loop
-        messageHelper.dataOrThrow(await syncthingService.systemPause({ params: { device: device.deviceID }, query: {} }, null));
+        await syncthingService.systemPause(device.deviceID);
         paused = true;
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(OPERATION_DELAY_MS);
@@ -745,7 +762,7 @@ async function nudgeFolderDevices(folderId) {
         if (paused) {
           try {
             // eslint-disable-next-line no-await-in-loop
-            messageHelper.dataOrThrow(await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null));
+            await syncthingService.systemResume(device.deviceID);
           } catch (error) {
             log.error(`nudgeFolderDevices - ${folderId}: RESUME of device ${device.deviceID.substring(0, 7)} FAILED - device left paused (its connection stays suspended): ${error.message}`);
           }
@@ -1096,7 +1113,6 @@ async function manageFolderSyncState(params) {
     localSocketAddr,
     syncthingFolder,
     installedAppName,
-    mountVerifyNeeded = true,
     liveness,
   } = params;
 
@@ -1105,57 +1121,15 @@ async function manageFolderSyncState(params) {
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
-    // Mount safety of a live sendreceive folder is verified at decision points
-    // (startup, FolderErrors from syncthing) - not per pass: the .stfolder
-    // marker inside the volume turns storage loss into FolderErrors, and the
-    // caller flags exactly those folders here
-    if (mountVerifyNeeded) {
-      const folderPath = syncFolder.path || `${appsFolder}${appId}/appdata`;
-      let mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
-
-      if (!mountSafety.isSafe && !mountSafety.isMounted) {
-        // The detection is actionable: the backing image normally still exists,
-        // and FluxOS owns the mount - repair instead of just blocking. The
-        // re-verify still holds the folder back (receiveonly) if the freshly
-        // mounted volume disagrees with the index (phantom-index case).
-        const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
-        if (mountAttempt.mounted) {
-          log.info(`manageFolderSyncState - ${appId} volume was not mounted; mounted it, re-verifying folder safety`);
-          mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
-        }
-      }
-
-      if (!mountSafety.isSafe) {
-        // DANGER: Mount not ready! Switch to receiveonly to prevent data propagation
-        log.error(`manageFolderSyncState - SAFETY BLOCK: ${appId} mount not safe (${mountSafety.reason}). Switching to receiveonly mode to prevent data loss.`);
-        log.error(`manageFolderSyncState - Mount status: mounted=${mountSafety.isMounted}, hasContent=${mountSafety.hasContent}, files=${mountSafety.fileCount}`);
-
-        // Update folder to receiveonly mode to prevent this node from sending "empty" state to peers
-        syncthingFolder.type = 'receiveonly';
-        const cache = {
-          numberOfExecutions: 0,
-          mountSafetyBlocked: true,
-          blockedReason: mountSafety.reason,
-          blockedAt: Date.now(),
-        };
-        receiveOnlySyncthingAppsCache.set(appId, cache);
-
-        // Hold the container too: its binds point at the same unsafe dir. The
-        // reconciler is the actuator; the receiveonly machinery flips the
-        // verdict back to running once the folder is verifiably synced.
-        appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${mountSafety.reason}`);
-
-        // Return with skipUpdate=false so the folder config gets updated to receiveonly
-        return { syncthingFolder, cache, skipUpdate: false };
-      }
-    }
-
-    // Mount is safe (verified) or not in question (steady state)
+    // The mount is sound by the time this runs: the pass verifies every folder
+    // it is going to act on before it acts, and holds out the ones that fail.
+    // Re-deriving that verdict here would cost a syncthing round trip and a
+    // directory walk per folder to answer a question already answered.
     await ensureContainerRunning(appId, containerDataFlags);
     // Ensure cache entry exists so health monitor can track this folder
     const existingCache = receiveOnlySyncthingAppsCache.get(appId);
     const cache = existingCache || { restarted: true };
-    return { syncthingFolder, cache, skipUpdate: true };
+    return { syncthingFolder, cache };
   }
 
   // First run scenario
@@ -1235,6 +1209,7 @@ async function manageFolderSyncState(params) {
 module.exports = {
   manageFolderSyncState,
   getFolderSyncCompletion,
+  probeFolderSyncCompletion,
   isDesignatedLeader,
   verifyFolderMountSafety,
   verifySendReceiveFolderSafety,

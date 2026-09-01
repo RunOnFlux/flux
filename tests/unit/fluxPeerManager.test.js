@@ -5,7 +5,7 @@ const WebSocket = require('ws');
 
 const { expect } = chai;
 
-const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
@@ -157,6 +157,69 @@ describe('FluxPeerSocket tests', () => {
 
       peer.onPingSent();
       expect(peer.missedPongs).to.equal(2);
+    });
+  });
+
+  describe('liveness credited from any traffic', () => {
+    // A pong is an ordinary frame and queues behind everything else that peer sent, so the busier
+    // a peer is talking to us the later its pong is read. Crediting only pongs therefore fires the
+    // heartbeat first on the connections we have the most evidence are alive. Measured in the peer
+    // simulator at 3,000 nodes: 245,936 messages read in one minute, of which 13 were pings, and
+    // 45s later every node terminated every peer — then rebuilt and did it again, indefinitely.
+
+    it('should not terminate a peer that missed pongs but sent other traffic', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+      const terminate = sinon.stub(peer, 'terminate');
+
+      peer.ws.onmessage({ data: 'anything' });
+      for (let i = 0; i < peer.maxMissedPongs; i += 1) peer.onPingSent();
+
+      expect(peer.missedPongs).to.be.at.least(peer.maxMissedPongs);
+      sinon.assert.notCalled(terminate);
+      expect(peer.isAlive).to.equal(true);
+    });
+
+    it('should still terminate a peer that has sent nothing at all', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+      const terminate = sinon.stub(peer, 'terminate');
+
+      expect(peer.lastMessageMono).to.equal(null);
+      expect(peer.heardFromRecently).to.equal(false);
+      for (let i = 0; i < peer.maxMissedPongs; i += 1) peer.onPingSent();
+      sinon.assert.called(terminate);
+    });
+
+    it('should stop crediting traffic older than the window the pong count allows', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      peer.ws.onmessage({ data: 'anything' });
+      expect(peer.heardFromRecently).to.equal(true);
+
+      // Older than pingInterval * maxMissedPongs — the same window a silent peer already gets.
+      peer.lastMessageMono -= peer.livenessWindowMs + 1;
+      expect(peer.heardFromRecently).to.equal(false);
+    });
+
+    it('should measure the window on a clock the system cannot move', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+      peer.ws.onmessage({ data: 'anything' });
+
+      // A wall clock jumping forward — NTP correction, a manual set — must not age a peer out.
+      const realNow = Date.now;
+      Date.now = () => realNow() + 3600000;
+      try {
+        expect(peer.heardFromRecently).to.equal(true);
+      } finally {
+        Date.now = realNow;
+      }
     });
   });
 
@@ -422,7 +485,7 @@ describe('FluxPeerSocket tests', () => {
       const ws = createMockWs();
       sinon.spy(manager, 'remove');
       // Add via manager so peer is in the map
-      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(ws.onclose).to.be.a('function');
       ws.onclose({ code: 1000 });
@@ -679,6 +742,129 @@ describe('FluxPeerManager tests', () => {
 
       sinon.assert.calledOnce(manager.trackDisconnect);
       sinon.assert.calledWith(manager.trackDisconnect, '10.0.0.1', '16127');
+    });
+  });
+
+  // The mock socket's close() is a stub: readyState never advances and onclose never
+  // fires, which is a socket whose peer does not answer the close frame. Every
+  // assertion below is made in that state, because it is the one where waiting on the
+  // socket and acting on the decision give different answers.
+  describe('evict', () => {
+    it('should remove the peer without waiting for the socket to close', () => {
+      const ws = createMockWs('10.0.0.1');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      const evicted = manager.evict('10.0.0.1:16127', CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+
+      expect(evicted).to.equal(peer);
+      expect(manager.has('10.0.0.1:16127')).to.equal(false);
+      expect(manager.outboundCount).to.equal(0);
+      expect(ws.onclose).to.equal(null);
+    });
+
+    it('should send the close frame, so the remote still decides on the code we sent', () => {
+      const ws = createMockWs('10.0.0.1');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      manager.evict('10.0.0.1:16127', CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+
+      sinon.assert.calledOnceWithExactly(ws.close, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+    });
+
+    it('should leave a late close unable to remove a second time', () => {
+      const ws = createMockWs('10.0.0.1');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.evict('10.0.0.1:16127', CLOSE_CODES.NODE_UNCONFIRMED);
+
+      // The handshake completing later has no handler to run, and the key is gone.
+      expect(ws.onclose).to.equal(null);
+      expect(manager.remove('10.0.0.1:16127')).to.equal(null);
+    });
+
+    it('should return null for a peer it does not hold', () => {
+      expect(manager.evict('1.2.3.4:16127', CLOSE_CODES.NODE_UNCONFIRMED)).to.equal(null);
+    });
+  });
+
+  // A send fails only when the socket is not open, which is exactly when close()
+  // can achieve nothing - so the path that reacts to a failed send has to remove
+  // the peer itself, or the peer stays in the map holding a slot no reconnect is
+  // dialled for and offering itself as a sync source.
+  describe('broadcast to a peer that cannot receive', () => {
+    it('drops the peer from the map, not just from the socket', async () => {
+      const ws = createMockWs('10.0.0.1');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      ws.readyState = WebSocket.CLOSED; // send() refuses, which is how this path is reached
+
+      await manager.broadcast('anything', { direction: DIRECTION.OUTBOUND, delayMs: 0 });
+
+      expect(manager.has('10.0.0.1:16127'), 'peer survived a send it could not receive').to.equal(false);
+      expect(manager.outboundCount).to.equal(0);
+      expect(ws.onclose).to.equal(null);
+    });
+
+    it('keeps sending to the peers that can receive', async () => {
+      const dead = createMockWs('10.0.0.1');
+      const alive = createMockWs('10.1.0.1');
+      manager.add(dead, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(alive, '10.1.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      dead.readyState = WebSocket.CLOSED;
+
+      await manager.broadcast('anything', { direction: DIRECTION.OUTBOUND, delayMs: 0 });
+
+      expect(manager.has('10.0.0.1:16127')).to.equal(false);
+      expect(manager.has('10.1.0.1:16127')).to.equal(true);
+      sinon.assert.called(alive.send);
+    });
+  });
+
+  describe('disconnectAll', () => {
+    /** Twelve peers in distinct /16 groups - the production sync threshold. */
+    function addTwelvePeers(mgr) {
+      const peers = [];
+      for (let i = 0; i < 12; i += 1) {
+        const ip = `10.${i}.0.1`;
+        peers.push(mgr.add(createMockWs(ip), ip, '16127', { source: PEER_SOURCE.RANDOM }));
+      }
+      return peers;
+    }
+
+    it('should empty the peer map even though no socket reports closing', () => {
+      addTwelvePeers(manager);
+      expect(manager.outboundCount).to.equal(12);
+
+      manager.disconnectAll();
+
+      expect(manager.outboundCount).to.equal(0);
+    });
+
+    it('should drop below the degraded threshold as it goes', () => {
+      const belowThreshold = sinon.stub();
+      manager.on('peersBelowThreshold', belowThreshold);
+      addTwelvePeers(manager);
+
+      manager.disconnectAll();
+
+      sinon.assert.calledOnce(belowThreshold);
+      sinon.assert.calledWith(belowThreshold, sinon.match((n) => n < 4));
+    });
+
+    it('should stop accepting connections', () => {
+      addTwelvePeers(manager);
+
+      manager.disconnectAll();
+
+      expect(manager.acceptingConnections).to.equal(false);
+    });
+
+    it('should send every peer the close frame', () => {
+      const peers = addTwelvePeers(manager);
+
+      manager.disconnectAll();
+
+      peers.forEach((peer) => {
+        sinon.assert.calledOnceWithExactly(peer.ws.close, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+      });
     });
   });
 

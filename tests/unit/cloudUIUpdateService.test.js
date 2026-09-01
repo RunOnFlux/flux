@@ -4,11 +4,13 @@ const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 
+const STUB_API_BASE = 'http://api-base-from-config.invalid';
+
 describe('cloudUIUpdateService tests', () => {
   let cloudUIUpdateService;
   let fsStub;
   let axiosStub;
-  let execStub;
+  let execFileStub;
   let logStub;
 
   beforeEach(() => {
@@ -22,7 +24,7 @@ describe('cloudUIUpdateService tests', () => {
       get: sinon.stub(),
     };
 
-    execStub = sinon.stub();
+    execFileStub = sinon.stub();
 
     logStub = {
       info: sinon.stub(),
@@ -36,6 +38,12 @@ describe('cloudUIUpdateService tests', () => {
   });
 
   function loadService(envOverrides = {}) {
+    // Both halves of the original state, because the variable being ABSENT is
+    // one of the two states this switches between. Recording only its value
+    // left a load that set it unable to put it back, and the next load then
+    // restored the leak faithfully - which reaches every later test file in the
+    // run, since process.env outlives the module.
+    const hadEnv = 'FLUXOS_PATH' in process.env;
     const originalEnv = process.env.FLUXOS_PATH;
 
     if (envOverrides.FLUXOS_PATH !== undefined) {
@@ -49,14 +57,20 @@ describe('cloudUIUpdateService tests', () => {
       {
         fs: fsStub,
         axios: axiosStub,
-        child_process: { exec: execStub },
+        child_process: { execFile: execFileStub },
+        // Deliberately NOT the production value: asserting against
+        // config.github.apiBaseUrl would pass whether the service read config or kept
+        // the hardcoded https://api.github.com, because they are the same string.
+        config: { github: { apiBaseUrl: STUB_API_BASE } },
         '../lib/log': logStub,
       },
     );
 
     // Restore original env after loading
-    if (originalEnv !== undefined) {
+    if (hadEnv) {
       process.env.FLUXOS_PATH = originalEnv;
+    } else {
+      delete process.env.FLUXOS_PATH;
     }
 
     return service;
@@ -261,6 +275,55 @@ describe('cloudUIUpdateService tests', () => {
     });
   });
 
+  // The script removes the served directory before it copies the new one into
+  // place, so two runs at once means the second one's removal lands inside the
+  // first one's copy - and the run that wrote the version file is then not the
+  // run that wrote the files beside it.
+  describe('runUpdateScript tests', () => {
+    it('runs one script for two overlapping callers', async () => {
+      const service = loadService();
+      let finish;
+      execFileStub.callsFake((file, args, opts, callback) => {
+        finish = () => callback(null, 'done', '');
+      });
+
+      const first = service.runUpdateScript();
+      const second = service.runUpdateScript();
+      finish();
+
+      expect(await first).to.equal(true);
+      expect(await second, 'the second caller got its own answer').to.equal(true);
+      sinon.assert.calledOnce(execFileStub);
+    });
+
+    it('runs again once the one in flight has finished', async () => {
+      const service = loadService();
+      execFileStub.callsFake((file, args, opts, callback) => callback(null, 'done', ''));
+
+      await service.runUpdateScript();
+      await service.runUpdateScript();
+
+      sinon.assert.calledTwice(execFileStub);
+    });
+
+    // A failed run must not leave the guard set, or nothing can rebuild until
+    // the process restarts.
+    it('releases the guard when the script fails', async () => {
+      const service = loadService();
+      execFileStub.callsFake((file, args, opts, callback) => callback(new Error('boom'), '', 'stderr'));
+
+      expect(await service.runUpdateScript()).to.equal(false);
+      expect(await service.runUpdateScript()).to.equal(false);
+
+      sinon.assert.calledTwice(execFileStub);
+    });
+
+    it('names the watchdog as the owner of CloudUI on ArcaneOS alone', () => {
+      expect(loadService({ FLUXOS_PATH: '/dat/usr/lib/fluxos' }).watchdogManagesCloudUI()).to.equal(true);
+      expect(loadService().watchdogManagesCloudUI()).to.equal(false);
+    });
+  });
+
   describe('checkAndUpdateCloudUI tests', () => {
     describe('on legacy OS (non-ArcaneOS)', () => {
       beforeEach(() => {
@@ -269,14 +332,19 @@ describe('cloudUIUpdateService tests', () => {
 
       it('should run update script if CloudUI folder does not exist', async () => {
         fsStub.existsSync.returns(false);
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           callback(null, 'success', '');
         });
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execStub);
+        sinon.assert.calledOnce(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Folder missing or empty, installing...');
+        // The endpoint comes from config and is passed to the script. A script left to
+        // decide for itself reaches the public internet, which is what this prevents.
+        const [file, args] = execFileStub.firstCall.args;
+        expect(file).to.equal('npm');
+        expect(args).to.eql(['run', 'update:cloudui', '--', STUB_API_BASE]);
       });
 
       it('should run update script if version file does not exist', async () => {
@@ -286,13 +354,13 @@ describe('cloudUIUpdateService tests', () => {
         // Second call for getLocalVersionHash (version file doesn't exist)
         fsStub.existsSync.onCall(1).returns(false);
 
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           callback(null, 'success', '');
         });
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execStub);
+        sinon.assert.calledOnce(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: No version file found, updating...');
       });
 
@@ -304,7 +372,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execStub);
+        sinon.assert.notCalled(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Could not fetch remote version info, skipping update check');
       });
 
@@ -330,7 +398,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execStub);
+        sinon.assert.notCalled(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Already up to date');
       });
 
@@ -356,7 +424,7 @@ describe('cloudUIUpdateService tests', () => {
         };
         axiosStub.get.resolves(mockRelease);
 
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           // After update, return new hash
           fsStub.readFileSync.returns(remoteHash);
           callback(null, 'Updated successfully', '');
@@ -364,13 +432,13 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execStub);
+        sinon.assert.calledOnce(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: New version detected, updating...');
       });
 
       it('should log error if update script fails', async () => {
         fsStub.existsSync.returns(false);
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           callback(new Error('Script failed'), '', 'error output');
         });
 
@@ -394,8 +462,8 @@ describe('cloudUIUpdateService tests', () => {
             assets: [{ name: 'dist.tar.gz', digest: 'sha256:newhash' }],
           },
         });
-        // exec callback throws error
-        execStub.callsFake((cmd, opts, callback) => {
+        // the spawn itself throws, before any callback
+        execFileStub.callsFake(() => {
           throw new Error('Unexpected exec error');
         });
 
@@ -411,7 +479,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execStub);
+        sinon.assert.notCalled(execFileStub);
         sinon.assert.notCalled(axiosStub.get);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Running on ArcaneOS, skipping update check (handled by watchdog)');
       });

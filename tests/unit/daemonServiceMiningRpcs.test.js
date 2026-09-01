@@ -25,24 +25,6 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceMiningRpcs.getBlockSubsidy(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockSubsidy', []);
-    });
-
     it('should trigger rpc, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -63,7 +45,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockSubsidy', []);
     });
 
-    it('should trigger rpc, height passed in params, no response passed', async () => {
+    it('should trigger rpc, height passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -74,14 +56,15 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getBlockSubsidy(req);
+      await daemonServiceMiningRpcs.getBlockSubsidy(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockSubsidy', [+req.params.height]);
     });
 
-    it('should trigger rpc, height passed in query, no response passed', async () => {
+    it('should trigger rpc, height passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -92,10 +75,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getBlockSubsidy(req);
+      await daemonServiceMiningRpcs.getBlockSubsidy(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockSubsidy', [+req.query.height]);
     });
   });
@@ -109,24 +93,6 @@ describe('daemonServiceMiningRpcs tests', () => {
 
     afterEach(() => {
       sinon.restore();
-    });
-
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceMiningRpcs.getBlockTemplate(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockTemplate', []);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -149,7 +115,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockTemplate', []);
     });
 
-    it('should trigger rpc, jsonrequestobject passed in params, no response passed', async () => {
+    it('should trigger rpc, jsonrequestobject passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const jsonObject = {
         param1: 'val1',
@@ -164,14 +130,15 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getBlockTemplate(req);
+      await daemonServiceMiningRpcs.getBlockTemplate(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockTemplate', [jsonObject]);
     });
 
-    it('should trigger rpc, jsonrequestobject passed in query, no response passed', async () => {
+    it('should trigger rpc, jsonrequestobject passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const jsonObject = {
         param1: 'val1',
@@ -186,10 +153,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getBlockTemplate(req);
+      await daemonServiceMiningRpcs.getBlockTemplate(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBlockTemplate', [jsonObject]);
     });
   });
@@ -277,24 +245,6 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceMiningRpcs.getNetworkHashPs(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkHashPs', [120, -1]);
-    });
-
     it('should trigger rpc, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -315,7 +265,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkHashPs', [120, -1]);
     });
 
-    it('should trigger rpc, height passed in params, no response passed', async () => {
+    it('should trigger rpc, height passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -327,14 +277,15 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getNetworkHashPs(req);
+      await daemonServiceMiningRpcs.getNetworkHashPs(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkHashPs', [+req.params.blocks, +req.params.height]);
     });
 
-    it('should trigger rpc, height passed in query, no response passed', async () => {
+    it('should trigger rpc, height passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -346,10 +297,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getNetworkHashPs(req);
+      await daemonServiceMiningRpcs.getNetworkHashPs(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkHashPs', [+req.query.blocks, +req.query.height]);
     });
   });
@@ -363,24 +315,6 @@ describe('daemonServiceMiningRpcs tests', () => {
 
     afterEach(() => {
       sinon.restore();
-    });
-
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceMiningRpcs.getNetworkSolPs(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkSolPs', [120, -1]);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -403,7 +337,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkSolPs', [120, -1]);
     });
 
-    it('should trigger rpc, height passed in params, no response passed', async () => {
+    it('should trigger rpc, height passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -415,14 +349,15 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getNetworkSolPs(req);
+      await daemonServiceMiningRpcs.getNetworkSolPs(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkSolPs', [+req.params.blocks, +req.params.height]);
     });
 
-    it('should trigger rpc, height passed in query, no response passed', async () => {
+    it('should trigger rpc, height passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -434,10 +369,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.getNetworkSolPs(req);
+      await daemonServiceMiningRpcs.getNetworkSolPs(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNetworkSolPs', [+req.query.blocks, +req.query.height]);
     });
   });
@@ -455,7 +391,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -472,36 +408,15 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
+      await daemonServiceMiningRpcs.prioritiseTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          txid: 'ABC212345F09848',
-          prioritydelta: '45',
-          feedelta: '5',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(
-        daemonServiceUtilsStub,
-        'prioritiseTransaction',
-        [req.params.txid, +req.params.prioritydelta, +req.params.feedelta],
-      );
-    });
-
-    it('should trigger rpc with dns parameter when no txid is passed, no response passed', async () => {
+    it('should trigger rpc with dns parameter when no txid is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -514,10 +429,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
+      await daemonServiceMiningRpcs.prioritiseTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'prioritiseTransaction',
@@ -525,7 +441,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc with dns parameter when no feedelta is passed, no response passed', async () => {
+    it('should trigger rpc with dns parameter when no feedelta is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -538,10 +454,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
+      await daemonServiceMiningRpcs.prioritiseTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'prioritiseTransaction',
@@ -549,7 +466,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc without parameters if no prioritydelta is passed, no response passed', async () => {
+    it('should trigger rpc without parameters if no prioritydelta is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -562,10 +479,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
+      await daemonServiceMiningRpcs.prioritiseTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'prioritiseTransaction',
@@ -573,7 +491,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -587,10 +505,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
+      await daemonServiceMiningRpcs.prioritiseTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'prioritiseTransaction',
@@ -611,10 +530,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
+      await daemonServiceMiningRpcs.prioritiseTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'prioritiseTransaction', []);
     });
 
@@ -656,7 +576,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const jsonObject = {
         param1: 'val1',
@@ -676,39 +596,15 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.submitBlock(req);
+      await daemonServiceMiningRpcs.submitBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const jsonObject = {
-        param1: 'val1',
-        param2: 'val2',
-      };
-      const req = {
-        params: {
-          jsonparametersobject: JSON.stringify(jsonObject),
-          hexdata: '0x1209378487347821378712384782561656451604567670acdef',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceMiningRpcs.submitBlock(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(
-        daemonServiceUtilsStub,
-        'submitBlock',
-        [req.params.hexdata, jsonObject],
-      );
-    });
-
-    it('should trigger rpc with hexdata parameter when no jsonObject is passed, no response passed', async () => {
+    it('should trigger rpc with hexdata parameter when no jsonObject is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -720,10 +616,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.submitBlock(req);
+      await daemonServiceMiningRpcs.submitBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'submitBlock',
@@ -731,7 +628,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc without parameters if no hexdata is passed, no response passed', async () => {
+    it('should trigger rpc without parameters if no hexdata is passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const jsonObject = {
@@ -747,10 +644,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.submitBlock(req);
+      await daemonServiceMiningRpcs.submitBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'submitBlock',
@@ -758,7 +656,7 @@ describe('daemonServiceMiningRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const jsonObject = {
@@ -775,10 +673,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.submitBlock(req);
+      await daemonServiceMiningRpcs.submitBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'submitBlock',
@@ -798,10 +697,11 @@ describe('daemonServiceMiningRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceMiningRpcs.submitBlock(req);
+      await daemonServiceMiningRpcs.submitBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'submitBlock', []);
     });
 

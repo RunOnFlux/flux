@@ -37,6 +37,7 @@ const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require(
 const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 const verifyPool = require('./utils/verifyPool');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const DISCOVERY = {
   maxOutbound: 14,
@@ -908,7 +909,7 @@ async function removePeer(req, res) {
     let { ip } = req.params;
     ip = ip || req.query.ip;
 
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
     if (authorized !== true) {
       const message = messageHelper.errUnauthorizedMessage();
@@ -952,7 +953,7 @@ async function removeIncomingPeer(req, res) {
     let { ip } = req.params;
     ip = ip || req.query.ip;
 
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
     if (authorized !== true) {
       const message = messageHelper.errUnauthorizedMessage();
@@ -1196,8 +1197,8 @@ async function addPeer(req, res) {
     ip = ip || req.query.ip;
 
     const authorized = await verificationHelper.verifyPrivilege(
-      'adminandfluxteam',
-      req,
+      Privilege.NODE_OPERATOR_OR_FLUX_TEAM,
+      authOf(req),
     );
 
     if (authorized !== true) {
@@ -1310,7 +1311,7 @@ function startDiscovery() {
 
 async function startDiscoveryApi(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized !== true) {
       return res.json(messageHelper.errUnauthorizedMessage());
     }
@@ -1502,12 +1503,29 @@ async function fluxDiscovery() {
 
 function initializeDiscovery() {
   nodeConfirmationService.onConfirmationChange((confirmed) => {
-    if (confirmed) {
-      peerManager.allowConnections();
-    } else {
+    if (!confirmed) {
       log.info('fluxDiscovery - Confirmation lost, disconnecting all peers');
       peerManager.disconnectAll();
+      return;
     }
+
+    // Confirmed is not the same as ready to peer. Every message an inbound peer
+    // sends is checked against the node list, so a peer that arrives before the
+    // list does is refused however legitimate it is - there is nothing to
+    // validate it against. The two facts come from different calls to the same
+    // daemon, one carrying a single record and one carrying every node, so the
+    // list lands well after the confirmation and that gap is the whole of the
+    // window peers were being turned away in.
+    //
+    // Only the first open waits: once the list is here isReady() is true and
+    // this runs inline, so regaining confirmation reconnects immediately.
+    networkStateService.onReady(() => {
+      // The wait is not instant, and confirmation can be lost inside it. Without
+      // this the callback would re-open the door straight after disconnectAll().
+      if (!nodeConfirmationService.isConfirmed()) return;
+
+      peerManager.allowConnections();
+    });
   });
 }
 
@@ -1611,7 +1629,7 @@ function getUnstableNodes(req, res) {
  * @param {object} res Response.
  */
 async function getPeerHistory(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }

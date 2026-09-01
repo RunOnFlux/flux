@@ -6,6 +6,7 @@ const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
 const path = require('path');
+const { PassThrough } = require('stream');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
@@ -94,6 +95,66 @@ describe('dockerService tests', () => {
       ['db_App', 'testing1234', 'KadenaChainWebNode', 'FoldingAtHomeB'].forEach((bare) => {
         expect(dockerService.getBaseAppName(dockerService.getAppIdentifier(bare))).to.equal(bare);
       });
+    });
+  });
+
+  describe('isAppContainer tests', () => {
+    it('accepts an app container by its label', () => {
+      expect(dockerService.isAppContainer({
+        Names: ['/anything'], Labels: { 'runonflux.role': 'app' },
+      })).to.equal(true);
+    });
+
+    it('rejects a container FluxOS runs for its own purposes', () => {
+      // The whole point: a sweep that reclaims orphaned apps must not reach
+      // these, whatever they happen to be called.
+      expect(dockerService.isAppContainer({
+        Names: ['/fluxfileop-abc123'], Labels: { 'runonflux.role': 'fileop' },
+      })).to.equal(false);
+    });
+
+    it('prefers the label over the name prefix when both are present', () => {
+      expect(dockerService.isAppContainer({
+        Names: ['/fluxcomp_myapp'], Labels: { 'runonflux.role': 'fileop' },
+      })).to.equal(false);
+    });
+
+    it('falls back to the name prefix for containers created before labels shipped', () => {
+      expect(dockerService.isAppContainer({ Names: ['/fluxcomp_myapp'] })).to.equal(true);
+      expect(dockerService.isAppContainer({ Names: ['/zelcomp_myapp'], Labels: {} })).to.equal(true);
+    });
+
+    it('rejects a container that is neither labelled nor flux-named', () => {
+      expect(dockerService.isAppContainer({ Names: ['/watchtower'] })).to.equal(false);
+      expect(dockerService.isAppContainer({})).to.equal(false);
+    });
+  });
+
+  describe('isFluxOwnedContainer tests', () => {
+    it('claims a container FluxOS runs for itself, whatever docker named it', () => {
+      // The distinction from isAppContainer, and the reason both exist: this
+      // one is false about an executor container, and a sweep phrased as "stop
+      // what is not an app" would therefore stop the node's own work.
+      const executor = { Names: ['/adoring_borg'], Labels: { 'runonflux.role': 'fileop' } };
+
+      expect(dockerService.isFluxOwnedContainer(executor)).to.equal(true);
+      expect(dockerService.isAppContainer(executor)).to.equal(false);
+    });
+
+    it('claims an app container', () => {
+      expect(dockerService.isFluxOwnedContainer({
+        Names: ['/anything'], Labels: { 'runonflux.role': 'app' },
+      })).to.equal(true);
+    });
+
+    it('falls back to the name prefix for containers created before labels shipped', () => {
+      expect(dockerService.isFluxOwnedContainer({ Names: ['/fluxcomp_myapp'] })).to.equal(true);
+      expect(dockerService.isFluxOwnedContainer({ Names: ['/zelcomp_myapp'], Labels: {} })).to.equal(true);
+    });
+
+    it('disclaims a container nobody here created', () => {
+      expect(dockerService.isFluxOwnedContainer({ Names: ['/watchtower'] })).to.equal(false);
+      expect(dockerService.isFluxOwnedContainer({})).to.equal(false);
     });
   });
 
@@ -326,6 +387,74 @@ describe('dockerService tests', () => {
     it('isContainerDetachedFromNetwork tolerates missing input', () => {
       expect(dockerService.isContainerDetachedFromNetwork(undefined)).to.equal(false);
       expect(dockerService.isContainerDetachedFromNetwork(null)).to.equal(false);
+    });
+  });
+
+  describe('reclaimAppNetworks tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const listing = (...names) => names.map((Name) => ({ Name }));
+
+    it('removes an app network no installed app accounts for', async () => {
+      // The uninstaller is the only thing that removes one, so an uninstall
+      // interrupted between the container going and the network going leaves it
+      // for ever - holding an octet nothing can hand out again.
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_gone'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().resolves({ Name: 'fluxDockerNetwork_gone', Containers: {} }),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set());
+
+      expect(reclaimed).to.deep.equal(['fluxDockerNetwork_gone']);
+      sinon.assert.calledOnce(remove);
+    });
+
+    it('leaves a network an installed app owns', async () => {
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_live'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().resolves({ Containers: {} }),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set(['fluxDockerNetwork_live']));
+
+      expect(reclaimed).to.deep.equal([]);
+      sinon.assert.notCalled(remove);
+    });
+
+    it('leaves a network something is attached to, whatever the caller said', async () => {
+      // Something is using it, and this is not the thing that decides otherwise.
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_busy'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().resolves({ Containers: { abc123: { Name: 'fluxsomething' } } }),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set());
+
+      expect(reclaimed).to.deep.equal([]);
+      sinon.assert.notCalled(remove);
+    });
+
+    it('leaves a network it cannot inspect', async () => {
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_unknown'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().rejects(new Error('EAI_AGAIN')),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set());
+
+      expect(reclaimed).to.deep.equal([]);
+      sinon.assert.notCalled(remove);
     });
   });
 
@@ -768,62 +897,6 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe('appDockerPause tests', () => {
-    const appName = 'website';
-    let dockerStub;
-    let getContainerSpy;
-
-    beforeEach(() => {
-      dockerStub = sinon.stub(Dockerode.Container.prototype, 'pause').returns(Promise.resolve('paused'));
-      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
-    });
-
-    afterEach(() => {
-      dockerStub.restore();
-      getContainerSpy.restore();
-    });
-
-    it('should call a docker pause command', async () => {
-      const pauseResult = await dockerService.appDockerPause(appName);
-
-      sinon.assert.calledOnce(dockerStub);
-      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
-      expect(pauseResult).to.equal('Flux App website successfully paused.');
-    });
-
-    it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerPause('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
-    });
-  });
-
-  describe('appDockerUnpause tests', () => {
-    const appName = 'website';
-    let dockerStub;
-    let getContainerSpy;
-
-    beforeEach(() => {
-      dockerStub = sinon.stub(Dockerode.Container.prototype, 'unpause').returns(Promise.resolve('unpaused'));
-      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
-    });
-
-    afterEach(() => {
-      dockerStub.restore();
-      getContainerSpy.restore();
-    });
-
-    it('should call a docker unpause command', async () => {
-      const unpauseResult = await dockerService.appDockerUnpause(appName);
-
-      sinon.assert.calledOnce(dockerStub);
-      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
-      expect(unpauseResult).to.equal('Flux App website successfully unpaused.');
-    });
-
-    it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerUnpause('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
-    });
-  });
-
   describe('appDockerImageRemove tests', () => {
     const appName = 'website';
     let dockerStub;
@@ -1207,6 +1280,198 @@ describe('dockerService tests', () => {
       };
 
       await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
+    });
+  });
+  describe('loadImage tests', () => {
+    const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+
+    /** What the daemon writes back: newline-delimited JSON, one object per line. */
+    const narration = (lines) => lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+
+    /** Deliver a body in the pieces a network actually hands over. */
+    const delivered = (pieces) => {
+      const stream = new PassThrough();
+      process.nextTick(() => {
+        pieces.forEach((piece) => stream.write(piece));
+        stream.end();
+      });
+      return stream;
+    };
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('finds an id whose line arrived in two pieces', async () => {
+      // The bug this covers. The narration was matched by concatenating chunks
+      // and then clearing the buffer on EVERY chunk, so nothing was ever
+      // carried forward: a line split across two writes matched neither half,
+      // and an archive that did contain the image reported that it did not -
+      // and the node went and asked more peers for thirteen megabytes it
+      // already had.
+      const body = narration([{ stream: `Loaded image ID: ${ID}\n` }]);
+      const half = Math.floor(body.length / 2);
+      sinon.stub(Dockerode.prototype, 'loadImage')
+        .resolves(delivered([body.slice(0, half), body.slice(half)]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded.ids).to.deep.equal([ID]);
+    });
+
+    it('reports a tagged image too, under the name it was given', async () => {
+      // Docker says "Loaded image ID:" for an untagged image and "Loaded
+      // image:" for a tagged one. Reading only the first form left anything
+      // tagged on the disk with nothing that could name it - carrying whatever
+      // name the sender chose.
+      sinon.stub(Dockerode.prototype, 'loadImage').resolves(delivered([narration([
+        { stream: `Loaded image ID: ${ID}\n` },
+        { stream: 'Loaded image: runonflux/website:latest\n' },
+      ])]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded.ids).to.deep.equal([ID]);
+      expect(loaded.tags).to.deep.equal(['runonflux/website:latest']);
+    });
+
+    it('reports every id an archive brought, not just the first', async () => {
+      const second = 'sha256:2222222222222222222222222222222222222222222222222222222222222222';
+      sinon.stub(Dockerode.prototype, 'loadImage').resolves(delivered([narration([
+        { stream: `Loaded image ID: ${ID}\n` },
+        { stream: `Loaded image ID: ${second}\n` },
+      ])]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded.ids).to.deep.equal([ID, second]);
+    });
+
+    it('says nothing arrived when the daemon named nothing', async () => {
+      sinon.stub(Dockerode.prototype, 'loadImage')
+        .resolves(delivered([narration([{ stream: 'The archive was empty\n' }])]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded).to.deep.equal({ ids: [], tags: [] });
+    });
+  });
+
+  describe('archiveNames tests', () => {
+    // Real archives on a real disk: what this reads is a tar's own bytes, and a
+    // stubbed reader would only prove the stub parses JSON.
+    const tar = require('tar');
+    const realFs = require('fs');
+    const nodeOs = require('os');
+    let dir;
+
+    const archiveOf = async (manifest) => {
+      if (manifest !== null) {
+        realFs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
+      }
+      realFs.writeFileSync(path.join(dir, 'layer.tar'), 'not really a layer');
+      const entries = manifest === null ? ['layer.tar'] : ['manifest.json', 'layer.tar'];
+      const file = path.join(dir, 'image.tar');
+      await tar.c({ file, cwd: dir }, entries);
+      return file;
+    };
+
+    beforeEach(() => { dir = realFs.mkdtempSync(path.join(nodeOs.tmpdir(), 'fluxarch-')); });
+    afterEach(() => { realFs.rmSync(dir, { recursive: true, force: true }); });
+
+    it('reports every name an archive declares', async () => {
+      const file = await archiveOf([
+        { Config: 'a.json', RepoTags: ['ghcr.io/x/y:v1'], Layers: ['layer.tar'] },
+        { Config: 'b.json', RepoTags: ['ghcr.io/x/z:v2', 'ghcr.io/x/z:latest'], Layers: ['layer.tar'] },
+      ]);
+
+      expect(await dockerService.archiveNames(file))
+        .to.deep.equal(['ghcr.io/x/y:v1', 'ghcr.io/x/z:v2', 'ghcr.io/x/z:latest']);
+    });
+
+    it('reports nothing for an archive addressed by id, which is what this node serves', async () => {
+      // docker save <id> writes RepoTags: null - that is the shape an honest
+      // peer sends, and the only shape the fetch accepts.
+      const file = await archiveOf([{ Config: 'a.json', RepoTags: null, Layers: ['layer.tar'] }]);
+
+      expect(await dockerService.archiveNames(file)).to.deep.equal([]);
+    });
+
+    it('refuses a compressed archive without reading it', async () => {
+      // node-tar inflates gzip transparently, so the ceiling a peer's archive is
+      // taken under would be counting the compressed bytes: 32MB of zeros at
+      // level 9 becomes about 34GB, which is a minute of inflate before anything
+      // is rejected. This node's serve path writes a plain tar, so an archive
+      // that arrives compressed is doing something we never do.
+      const plain = await archiveOf([{ Config: 'a.json', RepoTags: ['ghcr.io/x/y:v1'], Layers: ['layer.tar'] }]);
+      const compressed = path.join(dir, 'image.tar.gz');
+      realFs.writeFileSync(compressed, require('zlib').gzipSync(realFs.readFileSync(plain)));
+
+      // The same archive, so what is refused is the format rather than anything
+      // about its content.
+      expect(await dockerService.archiveNames(plain)).to.deep.equal(['ghcr.io/x/y:v1']);
+      await expect(dockerService.archiveNames(compressed)).to.be.rejectedWith(/compressed/);
+    });
+
+    it('refuses an archive with no manifest rather than calling it empty', async () => {
+      // Reported as a bad archive, not as "the peer did not have it": the
+      // second reads as an ordinary miss and sends the caller to another peer.
+      const file = await archiveOf(null);
+
+      await expect(dockerService.archiveNames(file)).to.be.rejectedWith(/no manifest/);
+    });
+
+    it('refuses a manifest too big to be describing one image', async () => {
+      // The archive around it is a file and bounded; this entry is read into
+      // memory, so it needs a ceiling of its own. A real manifest measures
+      // ~1.2KB, and the format's own limit puts a single image at ~10KB of
+      // layer paths, so nothing legitimate comes near this.
+      const file = await archiveOf([{
+        Config: 'a.json',
+        RepoTags: [`ghcr.io/x/${'y'.repeat(64 * 1024)}:v1`],
+        Layers: ['layer.tar'],
+      }]);
+
+      await expect(dockerService.archiveNames(file)).to.be.rejectedWith(/not describing one image/);
+    });
+  });
+
+  describe('tagImage tests', () => {
+    const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+    let getImageStub;
+
+    afterEach(() => {
+      if (getImageStub) getImageStub.restore();
+      getImageStub = null;
+    });
+
+    it('names an image, splitting the reference the way the daemon wants it', async () => {
+      // The daemon takes the repository and the tag as separate fields, so the
+      // reference has to be taken apart. A registry host carries a colon of its
+      // own when it names a port, which is why the tag is cut from the LAST one
+      // and only when no slash follows it.
+      const tag = sinon.stub().resolves();
+      getImageStub = sinon.stub(Dockerode.prototype, 'getImage').returns({ tag });
+
+      await dockerService.tagImage(ID, 'fluxregistry:5000/runonflux/flux-volume-tools:v1.1.0');
+
+      expect(getImageStub.calledOnceWith(ID)).to.equal(true);
+      expect(tag.calledOnceWith({
+        repo: 'fluxregistry:5000/runonflux/flux-volume-tools',
+        tag: 'v1.1.0',
+      })).to.equal(true);
+    });
+
+    it('defaults the tag when the reference carries none', async () => {
+      const tag = sinon.stub().resolves();
+      getImageStub = sinon.stub(Dockerode.prototype, 'getImage').returns({ tag });
+
+      await dockerService.tagImage(ID, 'fluxregistry:5000/runonflux/flux-volume-tools');
+
+      expect(tag.calledOnceWith({
+        repo: 'fluxregistry:5000/runonflux/flux-volume-tools',
+        tag: 'latest',
+      })).to.equal(true);
     });
   });
 });

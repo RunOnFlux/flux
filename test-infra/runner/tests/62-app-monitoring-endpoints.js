@@ -1,0 +1,224 @@
+/*
+ * The monitoring endpoints, against a container that is genuinely running.
+ *
+ * Samples are stored as the dozen values the consumers read and put back into
+ * the docker stats shape on the way out. Unit tests prove that round trip against
+ * a fixture — which is to say, against my own assumptions about what docker
+ * populates and how it spells it. Only a real reading proves the extract picks up
+ * the fields that are actually there.
+ *
+ * This is also the first coverage these endpoints have had. Three of them shipped
+ * dead on every node: the router called them with (req, res) and dropped the
+ * trailing arguments the handlers dereferenced, and no test noticed because the
+ * suite asserted that a response happened, which the catch block satisfies.
+ */
+import { describe, it, before, after } from 'mocha';
+import { expect } from 'chai';
+import { createTestEnv } from '../framework/test-env.js';
+import { nodeKey, appOwnerKey } from '../framework/keys.js';
+import { authenticate } from '../auth.js';
+import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
+import { pushImage } from '../framework/registry-helper.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { startTicker, advanceBlock } from '../framework/daemon-control.js';
+import {
+  waitFor, waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
+  waitForAppInstalled, waitForAppSpecStored,
+} from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+
+function localRegistryCompose(appName) {
+  return [{
+    name: appName,
+    description: 'monitoring test container',
+    repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
+    ports: [31121],
+    domains: [''],
+    environmentParameters: [],
+    commands: [],
+    containerPorts: [80],
+    containerData: '/tmp',
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    repoauth: '',
+  }];
+}
+
+async function bootAndPeer(env) {
+  for (const client of env.clients) await waitForDaemonReady(client);
+  await Promise.all(env.clients.map(
+    (c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000),
+  ));
+  await advanceBlock();
+  for (const client of env.clients) {
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
+  }
+  await env.startDiscovery();
+  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
+  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+  await startTicker();
+}
+
+describe('App monitoring endpoints', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+  const appName = `e2emon${Date.now()}`;
+  const component = `${appName}_${appName}`;
+  let node;
+  let ownerAuth;
+
+  before(async function () {
+    this.timeout(360000);
+
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    await bootAndPeer(env);
+    await pushImage(appName, 'v1');
+
+    const spec = buildAppSpec({
+      name: appName,
+      compose: localRegistryCompose(appName),
+      instances: 3,
+    });
+    const regResult = await registerAndConfirm(
+      env.clients[0].url, nodeKey(1), spec, env.clients,
+    );
+    expect(regResult.status).to.equal('success');
+
+    await waitForBlockProcessed(
+      env.clients[0], (d) => d.height >= regResult.targetHeight, 60000,
+    );
+    await waitForAppSpecStored(env.clients[0], appName);
+
+    const installed = await Promise.any(
+      env.clients.map((c, i) => waitForAppInstalled(c, appName, 180000).then(() => i)),
+    );
+    node = env.clients[installed];
+    ownerAuth = await authenticate(node.url, appOwnerKey());
+
+    // the sampler runs on statsSampleIntervalMs, two seconds in the harness
+    await waitFor(async () => {
+      const res = await node.getAuthed(`/apps/appmonitor/${component}`, ownerAuth.zelidauth);
+      return res.status === 'success' && Array.isArray(res.data) && res.data.length >= 2;
+    }, { timeout: 60000, interval: 2000, label: 'monitoring samples collected' });
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should report samples a chart can plot', async function () {
+    const res = await node.getAuthed(`/apps/appmonitor/${component}`, ownerAuth.zelidauth);
+
+    expect(res.status).to.equal('success');
+    expect(res.data).to.be.an('array').that.is.not.empty;
+
+    const [sample] = res.data;
+    expect(sample.timestamp, 'sample has no wall-clock time').to.be.a('number');
+    expect(sample.timestamp).to.be.greaterThan(0);
+
+    // Every field below is one the frontend reads. A real docker reading is the
+    // only thing that proves the extract names them the way docker does.
+    const { data } = sample;
+    // Typed is not enough for these four. extractSample defaults each with `?? 0`,
+    // so a renamed docker field yields a number - zero - and a type assertion
+    // passes on a reading that has lost the values the CPU throttler divides by.
+    // A running container has accrued cpu time and the system counter is always
+    // ticking, so zero here means the extract missed the field.
+    expect(data.cpu_stats.cpu_usage.total_usage, 'cpu total_usage').to.be.a('number');
+    expect(data.cpu_stats.cpu_usage.total_usage, 'cpu total_usage defaulted to 0').to.be.greaterThan(0);
+    expect(data.precpu_stats.cpu_usage.total_usage, 'precpu total_usage').to.be.a('number');
+    expect(data.precpu_stats.cpu_usage.total_usage, 'precpu total_usage defaulted to 0').to.be.greaterThan(0);
+    expect(data.cpu_stats.system_cpu_usage, 'system_cpu_usage').to.be.a('number');
+    expect(data.cpu_stats.system_cpu_usage, 'system_cpu_usage defaulted to 0').to.be.greaterThan(0);
+    expect(data.precpu_stats.system_cpu_usage, 'precpu system_cpu_usage').to.be.a('number');
+    expect(data.precpu_stats.system_cpu_usage, 'precpu system_cpu_usage defaulted to 0').to.be.greaterThan(0);
+    expect(data.cpu_stats.online_cpus, 'online_cpus').to.be.a('number');
+    expect(data.cpu_stats.online_cpus).to.be.greaterThan(0);
+
+    // The suite header names networks.eth0 as exactly what a stub gets wrong, and
+    // nothing in this file asserted it. If docker names the interface anything
+    // else both values are null and every app charts flat network traffic.
+    expect(data.networks, 'no networks block on the reading').to.be.an('object');
+    expect(data.networks.eth0, 'the extract reads networks.eth0 by name').to.be.an('object');
+    expect(data.networks.eth0.rx_bytes, 'rx_bytes').to.be.a('number');
+    expect(data.networks.eth0.tx_bytes, 'tx_bytes').to.be.a('number');
+
+    // a running container always has a memory limit; zero means the extract
+    // missed it rather than the container using nothing
+    expect(data.memory_stats.limit, 'memory limit').to.be.a('number');
+    expect(data.memory_stats.limit).to.be.greaterThan(0);
+    expect(data.memory_stats.usage, 'memory usage').to.be.a('number');
+    expect(data.memory_stats.usage).to.be.greaterThan(0);
+
+    expect(data.nanoCpus, 'the allocation the chart scales against').to.be.a('number');
+    expect(data.nanoCpus).to.be.greaterThan(0);
+  });
+
+  // No disk-io test here, deliberately. The harness nodes' nested docker
+  // (cgroup v2 host) reports io_service_bytes_recursive as null, so an
+  // assertion guarded on entries being present never runs here, and the shape
+  // is ours by construction anyway (expandSample hardcodes the two ops). The
+  // extract's case-insensitive match against docker's capitalised ops is
+  // pinned in the unit suite, against a recorded reading
+  // (appInspector.test.js, "matches docker's capitalised blkio ops").
+
+  it('should report the same shape from appstats', async function () {
+    const res = await node.getAuthed(`/apps/appstats/${component}`, ownerAuth.zelidauth);
+
+    expect(res.status).to.equal('success');
+    expect(res.data.cpu_stats.cpu_usage.total_usage).to.be.a('number');
+    expect(res.data.memory_stats.limit).to.be.greaterThan(0);
+    expect(res.data.disk_stats, 'disk usage is attached by the node, not docker').to.be.an('object');
+  });
+
+  it('should thin a range past a day to hourly, keeping the newest sample', async function () {
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    // The strict inequality below needs a series longer than what thinning
+    // keeps (first + newest = 2 of a sub-hour series), so full must hold >= 3.
+    // Nothing orders this test against the sampler: it starts with the app and
+    // accumulates on its own clock, while the suite arrives whenever the prior
+    // tests finish - a race this test used to win by accident. Enforce the
+    // precondition; the assertion keeps its full strength.
+    await waitFor(async () => {
+      const r = await node.getAuthed(`/apps/appmonitor/${component}`, ownerAuth.zelidauth);
+      return r.status === 'success' && r.data.length >= 3;
+    }, { timeout: 60000, interval: 2000, label: 'monitor store holds at least 3 samples' });
+
+    const full = await node.getAuthed(`/apps/appmonitor/${component}`, ownerAuth.zelidauth);
+    const thinned = await node.getAuthed(
+      `/apps/appmonitor/${component}/${dayMs + 1}`, ownerAuth.zelidauth,
+    );
+
+    expect(thinned.status).to.equal('success');
+    // the whole series is minutes old, so hourly thinning leaves the first
+    // sample and the newest — never an empty chart
+    expect(thinned.data.length).to.be.at.least(1);
+    // Strictly shorter, not at-most: with thinning gone the two fetches answer
+    // the same series, and equal lengths satisfy an at-most. The store holds
+    // minutes of 2s-cadence samples here while thinning leaves two, so the
+    // strict inequality holds on correct code whatever the sampler does
+    // between the fetches.
+    expect(thinned.data.length).to.be.lessThan(full.data.length);
+    // At least, not equal to. `thinned` is fetched second and the sampler keeps
+    // running between the two calls, so a sample landing in that gap legitimately
+    // gives it a NEWER newest sample - an equality fails there on correct code.
+    // Swapping the fetch order does not fix that, it only moves which side the
+    // race lands on. Fetched-later can only have gained samples, so this holds
+    // whatever the sampler does, and still catches the defect the test is for:
+    // thinning that drops the newest sample makes it OLDER, which fails here.
+    expect(
+      thinned.data[thinned.data.length - 1].timestamp,
+      'the newest sample must survive thinning or the chart stops short of now',
+    ).to.be.at.least(full.data[full.data.length - 1].timestamp);
+  });
+
+  it('should withhold monitoring data from an unauthenticated caller', async function () {
+    const res = await node.get(`/apps/appmonitor/${component}`);
+
+    expect(res.status).to.equal('error');
+    expect(res.data.message).to.match(/unauthorized/i);
+  });
+});

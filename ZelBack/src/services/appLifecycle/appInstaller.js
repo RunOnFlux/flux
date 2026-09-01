@@ -37,6 +37,7 @@ const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
 const fluxEventBus = require('../utils/fluxEventBus');
 const volumeService = require('../utils/volumeService');
+const { Privilege, authOf } = require('../utils/privileges');
 
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
@@ -47,69 +48,26 @@ const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Je
 const legacyPinnedOctets = appsThatMightBeUsingOldGatewayIpAssignment.map((name) => name.charCodeAt(name.length - 1));
 
 // Helper functions and constants for installApplicationHard
-const util = require('util');
 
-const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
 /**
- * Perform Docker cleanup (prune containers, networks, volumes, images)
+ * Reclaim disk before an install by removing unreferenced docker images.
+ *
+ * Only images. Containers, networks and volumes were pruned here too, keyed on
+ * docker's notion of "unused" - nothing attached right now - which is equally
+ * true of a healthy app whose container is momentarily down, of a container
+ * FluxOS is running for its own purposes, and of anything the node operator
+ * left stopped. The guard in front of this only ever knew about installed app
+ * components, so those other three were never covered. An image, by contrast,
+ * is unreferenced or it is not, and re-pulling one is a download rather than a
+ * loss.
+ *
  * @param {object} res - Response object for streaming
  * @returns {Promise<void>}
  */
 async function performDockerCleanup(res) {
-  const dockerContainers = {
-    status: 'Clearing up unused docker containers...',
-  };
-  log.info(dockerContainers);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerContainers));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneContainers();
-  const dockerContainers2 = {
-    status: 'Docker containers cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerContainers2));
-    if (res.flush) res.flush();
-  }
-
-  const dockerNetworks = {
-    status: 'Clearing up unused docker networks...',
-  };
-  log.info(dockerNetworks);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerNetworks));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneNetworks();
-  const dockerNetworks2 = {
-    status: 'Docker networks cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerNetworks2));
-    if (res.flush) res.flush();
-  }
-
-  const dockerVolumes = {
-    status: 'Clearing up unused docker volumes...',
-  };
-  log.info(dockerVolumes);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerVolumes));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneVolumes();
-  const dockerVolumes2 = {
-    status: 'Docker volumes cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerVolumes2));
-    if (res.flush) res.flush();
-  }
-
   const dockerImages = {
     status: 'Clearing up unused docker images...',
   };
@@ -294,7 +252,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   pullConfig.provider = imgVerifier.provider;
 
   // eslint-disable-next-line no-unused-vars
-  await dockerPullStreamPromise(pullConfig, res);
+  await dockerService.pullImage(pullConfig, res);
 
   const pullStatus = {
     status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
@@ -999,7 +957,7 @@ async function installAppLocally(req, res) {
     }
     let blockAllowance = config.fluxapps.ownerAppAllowance;
     // needs to be logged in
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
       let appSpecifications;
       // anyone can deploy temporary app
@@ -1013,8 +971,19 @@ async function installAppLocally(req, res) {
         blockAllowance = config.fluxapps.temporaryAppAllowance;
       }
       if (!appSpecifications) {
-        // only owner can deploy permanent message or existing app
-        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        // Placing a registered app on a node is not the node operator's call, for
+        // the same reason removing one is not: hosting an app is not owning it.
+        // This branch resolves an app BY NAME from the marketplace, the global
+        // registry or a permanent message, so an operator reaching it is choosing
+        // which customer's app runs on hardware they control - and for a g:/r: app
+        // the new instance syncs that customer's data down to it. The spawner
+        // decides placement; the owner decides everything else.
+        //
+        // The temporary-message branch above is untouched and stays open to any
+        // logged-in user: that is how an app is tested before it is registered,
+        // it is addressed by hash rather than by name, and it expires on its own
+        // (temporaryAppAllowance).
+        const ownerAuthorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
         if (!ownerAuthorized) {
           const errMessage = messageHelper.errUnauthorizedMessage();
           res.json(errMessage);
@@ -1161,7 +1130,7 @@ async function testAppInstall(req, res) {
     let blockAllowance = config.fluxapps.ownerAppAllowance;
 
     // needs to be logged in
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
       let appSpecifications;
 
@@ -1177,8 +1146,19 @@ async function testAppInstall(req, res) {
       }
 
       if (!appSpecifications) {
-        // only owner can deploy permanent message or existing app
-        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        // Placing a registered app on a node is not the node operator's call, for
+        // the same reason removing one is not: hosting an app is not owning it.
+        // This branch resolves an app BY NAME from the marketplace, the global
+        // registry or a permanent message, so an operator reaching it is choosing
+        // which customer's app runs on hardware they control - and for a g:/r: app
+        // the new instance syncs that customer's data down to it. The spawner
+        // decides placement; the owner decides everything else.
+        //
+        // The temporary-message branch above is untouched and stays open to any
+        // logged-in user: that is how an app is tested before it is registered,
+        // it is addressed by hash rather than by name, and it expires on its own
+        // (temporaryAppAllowance).
+        const ownerAuthorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
         if (!ownerAuthorized) {
           const errMessage = messageHelper.errUnauthorizedMessage();
           res.json(errMessage);

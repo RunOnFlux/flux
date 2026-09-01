@@ -15,6 +15,11 @@
 #
 # Pass image names to build a subset:
 #   FLUX_E2E_TAG=placement ./test-infra/build-images.sh fluxos-01 external-http-stub
+#
+# Every image is stamped with `flux.e2e.src`, the digest of the sources it was
+# built from (test-infra/image-digest.sh). verify-images.sh recomputes that from
+# the working tree before a run and refuses to start when they differ, so an
+# image left behind by another branch cannot quietly decide a gate.
 set -euo pipefail
 
 TAG="${FLUX_E2E_TAG:-latest}"
@@ -31,19 +36,30 @@ mapfile -t STUBS < <(
 )
 
 build_fluxos() {
-  # the app binary the fixtures need; gitignored, so it survives branch
-  # switches and is easy to forget after a clean
-  if [ -f test-infra/test-app/build.sh ]; then
-    echo "==> test-app binary"
-    bash test-infra/test-app/build.sh
-  fi
+  # The app binary the fixtures need; gitignored, so it survives branch switches
+  # and is easy to forget after a clean. Not guarded on the script existing: it
+  # is present on every lineage, and a guard there would let this produce a
+  # complete image set with no binary in it - which surfaces as eight suites
+  # failing twenty minutes later, looking like product bugs. Built BEFORE the
+  # digest is taken - it sits in the build context, so it is part of what the
+  # image is.
+  echo "==> test-app binary"
+  bash test-infra/test-app/build.sh
   echo "==> flux-e2e-fluxos-01:${TAG}"
-  docker build -f test-infra/Dockerfile.fluxos -t "flux-e2e-fluxos-01:${TAG}" .
+  docker build -f test-infra/Dockerfile.fluxos \
+    --label "flux.e2e.src=$(test-infra/image-digest.sh fluxos-01)" \
+    -t "flux-e2e-fluxos-01:${TAG}" .
 }
 
 build_stub() {
   echo "==> flux-e2e-$1:${TAG}"
-  docker build -t "flux-e2e-$1:${TAG}" "test-infra/$1"
+  # The tag reaches every stub so one can build FROM the node image under the same
+  # tag; a stub whose Dockerfile declares no such ARG ignores it. external-http-stub
+  # does, which is why fluxos-01 is built first - and why its digest folds in the
+  # node image's, so a stale base makes the stub read stale too.
+  docker build --build-arg "FLUX_E2E_TAG=${TAG}" \
+    --label "flux.e2e.src=$(test-infra/image-digest.sh "$1")" \
+    -t "flux-e2e-$1:${TAG}" "test-infra/$1"
 }
 
 targets=("$@")

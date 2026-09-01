@@ -5,7 +5,9 @@ import { getAppContainerStatus, restartDockerd } from '../framework/container.js
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
-import { waitForUp, waitForDown, assertNoEvent } from '../framework/wait.js';
+import {
+  waitForUp, waitForDown, assertNoEvent, waitForOperatorIntent,
+} from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // B6 end-to-end: a deliberate stop whose die event is LOST (docker event stream
@@ -50,12 +52,17 @@ describe('deliberate stop during an event-stream outage neither wedges nor flaps
     const auth = await authenticate(client.url, appOwnerKey());
     const stopRes = await client.getAuthed(`/apps/appstop/${appName}`, auth.zelidauth);
     expect(stopRes.status).to.equal('success');
+    // The interleaving this suite exists to catch puts the wrong start BEFORE the
+    // container goes down, so an assertion anchored after waitForDown has already
+    // stepped past it. Anchor on the intent instead - the id survives the stream
+    // outage, which a wall-clock or a last-seen-id anchor taken here would not.
+    const intent = await waitForOperatorIntent(client, identifier, true);
     await waitForDown(client, appName, 'stopped during the stream outage');
 
     // the lost die event must cost nothing: no restart against the operator
     // lock (reconnect sweep + boot-style reconciles all see operatorStopped),
     // and no flapping start/stop loop
-    await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === identifier && d.action === 'started', 20000);
+    await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === identifier && d.action === 'started', 20000, { afterId: intent.id });
     const status = await getAppContainerStatus(client.container, appName, { all: true });
     expect(status && status.status.startsWith('Up')).to.not.equal(true);
 

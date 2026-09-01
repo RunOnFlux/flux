@@ -8,6 +8,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
+const signatureVerifier = require('../signatureVerifier');
 const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 // eslint-disable-next-line no-unused-vars
@@ -20,6 +21,7 @@ const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
 const { peerManager } = require('../utils/peerState');
+const { Privilege, authOf } = require('../utils/privileges');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1217,11 +1219,12 @@ function checkComposeHWParameters(appSpecsComposed) {
  * Validates specs including hardware requirements, architecture compatibility, and Docker compliance
  * @param {object} appSpecifications - Application specifications to validate
  * @param {number} height - Block height for validation context
- * @param {boolean} checkDockerAndWhitelist - Whether to check Docker, whitelist, and architecture requirements
+ * @param {boolean} liveSubmission - Whether the spec is being submitted now through the API, rather than
+ * replayed from a message already on chain. Gates the checks that only hold for a spec being accepted today.
  * @returns {Promise<boolean>} True if validation passes
  * @throws {Error} If validation fails (e.g., incompatible architectures, missing requirements)
  */
-async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
+async function verifyAppSpecifications(appSpecifications, height, liveSubmission = false) {
   if (!appSpecifications) {
     throw new Error('Invalid Flux App Specifications');
   }
@@ -1234,6 +1237,14 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
 
   // TYPE CHECKS
   verifyTypeCorrectnessOfApp(appSpecifications);
+
+  // OWNER IDENTITY
+  // Updates verify against the owner already on record, so the incoming owner is
+  // never used as a key and an owner that cannot be signed for is accepted. Held
+  // to live submissions only - messages already on chain replay unchanged.
+  if (liveSubmission && !signatureVerifier.isValidSigningIdentity(appSpecifications.owner)) {
+    throw new Error('Invalid Flux App owner. Must be a Flux ID or an Ethereum address');
+  }
 
   // RESTRICTION CHECKS
   verifyRestrictionCorrectnessOfApp(appSpecifications, height);
@@ -1258,7 +1269,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   }
 
   // Whitelist, repository checks
-  if (checkDockerAndWhitelist) {
+  if (liveSubmission) {
     // check blacklist
     await imageManager.checkApplicationImagesCompliance(appSpecifications);
 
@@ -1532,7 +1543,7 @@ async function registerAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);

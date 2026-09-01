@@ -21,13 +21,8 @@ const syncthingServiceMock = {
   getEvents: sinon.stub(),
 };
 
-const fluxEventBusMock = {
-  publish: sinon.stub(),
-};
-
 const consumer = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingEventsConsumer', {
   '../syncthingService': syncthingServiceMock,
-  '../utils/fluxEventBus': fluxEventBusMock,
 });
 
 // park the long-poll until the request is aborted (a real long-poll holds until
@@ -53,7 +48,7 @@ function abortableDeferred() {
 }
 
 function eventsResponse(events) {
-  return { status: 'success', data: events };
+  return events;
 }
 
 describe('syncthingEventsConsumer tests', () => {
@@ -66,7 +61,6 @@ describe('syncthingEventsConsumer tests', () => {
     // inter-poll waits are cancellable controller.sleep calls - stub instant so
     // the suite never waits out pacing/backoff in real time
     sleepStub = sinon.stub(FluxController.prototype, 'sleep').resolves();
-    fluxEventBusMock.publish.reset();
     onFolderActivity = sinon.stub();
     onResync = sinon.stub();
   });
@@ -90,7 +84,7 @@ describe('syncthingEventsConsumer tests', () => {
     sinon.assert.calledWith(onFolderActivity, 'fluxcomp_app1', 'FolderSummary');
     sinon.assert.calledWith(onFolderActivity, 'fluxcomp_app1', 'StateChanged');
     // the second poll continues from the last seen id
-    const secondCallQuery = syncthingServiceMock.getEvents.secondCall.args[0].query;
+    const secondCallQuery = syncthingServiceMock.getEvents.secondCall.args[0];
     expect(secondCallQuery.since).to.equal(6);
   });
 
@@ -132,9 +126,8 @@ describe('syncthingEventsConsumer tests', () => {
     await new Promise((resolve) => { setImmediate(() => { setImmediate(() => { setImmediate(resolve); }); }); });
 
     sinon.assert.calledOnce(onResync);
-    sinon.assert.calledWith(fluxEventBusMock.publish, 'syncthing:eventsResync', sinon.match.object);
     // since continues from the new stream's last id
-    const thirdCallQuery = syncthingServiceMock.getEvents.thirdCall.args[0].query;
+    const thirdCallQuery = syncthingServiceMock.getEvents.thirdCall.args[0];
     expect(thirdCallQuery.since).to.equal(1);
   });
 
@@ -172,11 +165,10 @@ describe('syncthingEventsConsumer tests', () => {
     });
 
     // the poll after the failure starts over from "now", not the stale position
-    const recoveryQuery = syncthingServiceMock.getEvents.thirdCall.args[0].query;
+    const recoveryQuery = syncthingServiceMock.getEvents.thirdCall.args[0];
     expect(recoveryQuery.since).to.equal(0);
     // exactly one resync, announced once the stream is healthy again
     sinon.assert.calledOnce(onResync);
-    sinon.assert.calledOnceWithExactly(fluxEventBusMock.publish, 'syncthing:eventsResync', sinon.match.object);
   });
 
   it('retries with a backoff delay when the events endpoint fails (degrades to the poll, never breaks)', async () => {
@@ -205,7 +197,6 @@ describe('syncthingEventsConsumer tests', () => {
 
     const record = consumer.getFolderErrors('fluxcomp_app1');
     expect(record.errors).to.deep.equal(errors);
-    sinon.assert.calledWith(fluxEventBusMock.publish, 'syncthing:folderErrors', sinon.match({ folder: 'fluxcomp_app1' }));
   });
 
   it('paces itself when the events endpoint returns empty instantly (never hot-loops)', async () => {

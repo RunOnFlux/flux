@@ -36,3 +36,18 @@ export async function resetFdm() {
 export async function getFdmState() {
   return get('/state');
 }
+
+// Stop FDM answering, which is the only way to reach the node's third state:
+// not "no primary yet" (clearMaster, above - that is FDM answering) but "FDM
+// gave no verdict at all", which the election stands down on rather than acting
+// on evidence it does not have.
+//   'refuse'      close the socket - the node's poll gets ECONNREFUSED, the
+//                 production outage signature
+//   'unavailable' 503 - reachable, but reporting itself as still starting up
+export async function startFdmOutage(mode = 'refuse') {
+  return post('/outage', { mode });
+}
+
+export async function endFdmOutage() {
+  return post('/recover');
+}

@@ -30,21 +30,21 @@ const configManager = require('./utils/configManager');
  *
  * @returns {string|null}
  */
-function nodeAdminZelid() {
+function nodeOperatorZelid() {
   return configManager.getConfigValue('initial.zelid') ?? null;
 }
 
 /**
  * Verifies admin session
- * @param {object} headers
+ * @param {string|object} zelidauth - the value of the zelidauth header
  *
  * @returns {Promise<boolean>}
  */
-async function verifyAdminSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
+async function verifyNodeOperatorSession(zelidauth) {
+  if (!zelidauth) return false;
+  const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== nodeAdminZelid()) return false;
+  if (auth.zelid !== nodeOperatorZelid()) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -70,13 +70,13 @@ async function verifyAdminSession(headers) {
 
 /**
  * Verifies user session
- * @param {object} headers
+ * @param {string|object} zelidauth - the value of the zelidauth header
  *
  * @returns {Promise<boolean>}
  */
-async function verifyUserSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
+async function verifyUserSession(zelidauth) {
+  if (!zelidauth) return false;
+  const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
 
   const db = dbHelper.databaseConnection();
@@ -112,13 +112,13 @@ async function verifyUserSession(headers) {
 
 /**
  * Verifies flux team session
- * @param {object} headers
+ * @param {string|object} zelidauth - the value of the zelidauth header
  *
  * @returns {Promise<boolean>}
  */
-async function verifyFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
+async function verifyFluxTeamSession(zelidauth) {
+  if (!zelidauth) return false;
+  const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 
@@ -146,15 +146,15 @@ async function verifyFluxTeamSession(headers) {
 
 /**
  * Verifies admin or flux team session
- * @param {object} headers
+ * @param {string|object} zelidauth - the value of the zelidauth header
  *
  * @returns {Promise<boolean>}
  */
-async function verifyAdminAndFluxTeamSession(headers) {
-  if (!headers || !headers.zelidauth) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
+async function verifyNodeOperatorOrFluxTeamSession(zelidauth) {
+  if (!zelidauth) return false;
+  const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== nodeAdminZelid() && auth.zelid !== config.fluxSupportTeamFluxID) return false; // admin is considered as fluxTeam
+  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== nodeOperatorZelid() && auth.zelid !== config.fluxSupportTeamFluxID) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -179,13 +179,13 @@ async function verifyAdminAndFluxTeamSession(headers) {
 
 /**
  * Verifies app owner session
- * @param {object} headers
+ * @param {string|object} zelidauth - the value of the zelidauth header
  *
  * @returns {Promise<boolean>}
  */
-async function verifyAppOwnerSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
+async function verifyAppOwnerSession(zelidauth, appName) {
+  if (!zelidauth || !appName) return false;
+  const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   // Use dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
@@ -223,20 +223,48 @@ async function verifyAppOwnerSession(headers, appName) {
 }
 
 /**
- * Verifies app owner (or higher privilege) session
- * @param {object} headers
+ * Verifies an app-owner or flux-team session: the app's owner and the flux team,
+ * but NOT the node operator.
  *
- * @returns {Promise<boolean>}
+ * This is the gate for every app-scoped endpoint: the verbs that decide whether
+ * someone else's app runs or keeps its data - start, stop, restart, kill,
+ * redeploy, remove, the volume operations and backup/restore - and everything
+ * that discloses what is inside it - logs, inspect, stats, the process list, the
+ * file listings and downloads, and a decrypted enterprise spec.
+ *
+ * The node operator is the node's own admin, so verifyNodeOperatorSession admits them
+ * and this must not.
+ *
+ * Hosting an app is not owning it, and the two halves of that have the same
+ * answer. On run state: an app cannot exceed what was bought - dockerService
+ * sets NanoCPUs and Memory/MemorySwap on the container from the spec - so an app
+ * inside its allocation is spending cycles the operator sold, and an app outside
+ * one is a containment defect to fix in the limits rather than to paper over on
+ * a single node with a button. The operator is paid whether the container runs
+ * or not, so a per-app stop withholds the service and keeps the payment;
+ * stopping FluxOS forfeits the payment along with the obligation, which is what
+ * makes it the honest lever.
+ *
+ * On disclosure: hosting is a reason to know what an app COSTS you, which
+ * /apps/appsresources answers unauthenticated and in aggregate. It is not a
+ * reason to read the customer's environment variables, files or logs. That the
+ * operator may also have local access to the disk is not an argument for
+ * serving the same data over an authenticated API - remote, scriptable across a
+ * fleet, and exposed with the operator's zelid rather than with their machine.
+ *
+ * @param {string|object} zelidauth - the value of the zelidauth header
+ * @param {string} appName
+ * @returns {Promise<boolean>} authorized
  */
-async function verifyAppOwnerOrHigherSession(headers, appName) {
-  if (!headers || !headers.zelidauth || !appName) return false;
-  const auth = serviceHelper.ensureObject(headers.zelidauth);
+async function verifyAppOwnerOrFluxTeamSession(zelidauth, appName) {
+  if (!zelidauth || !appName) return false;
+  const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   // Use dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const registryManager = require('./appDatabase/registryManager');
   const ownerFluxID = await registryManager.getApplicationOwner(appName);
-  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== nodeAdminZelid() && auth.zelid !== config.fluxSupportTeamFluxID) return false;
+  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -269,10 +297,10 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
 }
 
 module.exports = {
-  nodeAdminZelid,
-  verifyAdminAndFluxTeamSession,
-  verifyAdminSession,
-  verifyAppOwnerOrHigherSession,
+  nodeOperatorZelid,
+  verifyNodeOperatorOrFluxTeamSession,
+  verifyNodeOperatorSession,
+  verifyAppOwnerOrFluxTeamSession,
   verifyAppOwnerSession,
   verifyFluxTeamSession,
   verifyUserSession,

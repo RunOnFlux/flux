@@ -14,7 +14,7 @@ describe('volumeService tests', () => {
   let serviceHelperStub;
   let mountParserStub;
   let fsStub;
-  let dfStub;
+  let deviceHelperStub;
   let logStub;
   let volumeService;
 
@@ -38,7 +38,7 @@ describe('volumeService tests', () => {
     // fallback, so tests can keep expressing mountedness via runCommand; the
     // isPathMounted describe covers the mountinfo path with real fixtures
     fsStub = { promises: { access: sinon.stub(), readdir: sinon.stub().resolves([]), readFile: sinon.stub().rejects(new Error('no mountinfo')) } };
-    dfStub = sinon.stub().callsArgWith(1, null, []); // node-df callback style: (options, cb)
+    deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]) };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
@@ -47,9 +47,17 @@ describe('volumeService tests', () => {
       '../dockerService': dockerServiceStub,
       '../serviceHelper': serviceHelperStub,
       './mountParser': mountParserStub,
-      './appConstants': { appsFolder: APPS_FOLDER, appVolumesPath: APP_VOLUMES, legacyAppVolumesPath: LEGACY_APP_VOLUMES },
+      // The real APP_VOLUME_MOUNT_OPTIONS, not a placeholder: the assertion
+      // below is what stops nosuid/nodev being dropped, so a stubbed value
+      // would let the test pass against a mount that no longer sets them.
+      './appConstants': {
+        appsFolder: APPS_FOLDER,
+        appVolumesPath: APP_VOLUMES,
+        legacyAppVolumesPath: LEGACY_APP_VOLUMES,
+        APP_VOLUME_MOUNT_OPTIONS: require('../../ZelBack/src/services/utils/appConstants').APP_VOLUME_MOUNT_OPTIONS,
+      },
       '../../lib/log': logStub,
-      'node-df': dfStub,
+      '../deviceHelper': deviceHelperStub,
       fs: { promises: fsStub.promises },
     });
   });
@@ -118,11 +126,96 @@ describe('volumeService tests', () => {
     });
   });
 
+  describe('capacityVolumesInGib tests', () => {
+    const mount = (source, target, sizeBytes) => ({
+      source, target, sizeBytes, usedBytes: 0, availableBytes: sizeBytes,
+    });
+
+    it('counts block-backed volumes', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/sdb1', '/dat2', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGib();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat', '/dat2']);
+    });
+
+    it('excludes a volume that is not block-backed', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('tmpfs', '/run', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGib();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
+    });
+
+    it('excludes a loop device, which is an app volume rather than a host disk', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/loop3', '/dat/apps/fluxcomp_app', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGib();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
+    });
+
+    it('excludes a boot filesystem', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/sda2', '/boot', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGib();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
+    });
+
+    it('includes a loop-mounted root, which is the host disk on some images', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/loop0', '/', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGib();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat', '/']);
+    });
+
+    it('reports whole GiB', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat', sizeBytes: 1e12, usedBytes: 4e11, availableBytes: 6e11 },
+      ]);
+
+      const [volume] = await volumeService.capacityVolumesInGib();
+      expect(volume).to.deep.equal({
+        filesystem: '/dev/sda1', mount: '/dat', size: 931, used: 373, available: 559,
+      });
+    });
+
+    it('counts the room for an app in the unit the app will spend', async () => {
+      // The number this produces is compared against an app's `hdd`, and that
+      // is spent by `fallocate -l <hdd>G`, which util-linux reads as 1024^3.
+      // Free space worth exactly twenty of those has to read as 20 - and
+      // twenty DECIMAL GB has to read as less, or a node admits an app it is
+      // 7.4% short for and finds out when fallocate returns ENOSPC.
+      const twentyGib = 20 * (1024 ** 3);
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat', sizeBytes: twentyGib, usedBytes: 0, availableBytes: twentyGib },
+      ]);
+      expect((await volumeService.capacityVolumesInGib())[0].available).to.equal(20);
+
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat', sizeBytes: 2e10, usedBytes: 0, availableBytes: 2e10 },
+      ]);
+      expect((await volumeService.capacityVolumesInGib())[0].available).to.be.below(20);
+    });
+  });
+
   describe('getVolumeFilePath tests', () => {
-    it('should find the image at the root of an eligible df volume', async () => {
-      dfStub.callsArgWith(1, null, [
-        { filesystem: '/dev/sda1', mount: '/dat' },
-        { filesystem: 'tmpfs', mount: '/run' },
+    it('should find the image at the root of an eligible host volume', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat' },
+        { source: 'tmpfs', target: '/run' },
       ]);
       fsStub.promises.access.rejects(new Error('ENOENT'));
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
@@ -132,7 +225,7 @@ describe('volumeService tests', () => {
     });
 
     it('should not look for images at the root filesystem itself', async () => {
-      dfStub.callsArgWith(1, null, [{ filesystem: '/dev/sda1', mount: '/' }]);
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/' }]);
       fsStub.promises.access.rejects(new Error('ENOENT'));
 
       await volumeService.getVolumeFilePath('fluxapp1');
@@ -163,8 +256,8 @@ describe('volumeService tests', () => {
       expect(result).to.be.null;
     });
 
-    it('should still check appvolumes locations when df fails', async () => {
-      dfStub.callsArgWith(1, new Error('df failed'), null);
+    it('should still check appvolumes locations when the mount table cannot be read', async () => {
+      deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
       fsStub.promises.access.rejects(new Error('ENOENT'));
       fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
@@ -176,7 +269,7 @@ describe('volumeService tests', () => {
   describe('ensureAppVolumeMounted tests', () => {
     beforeEach(() => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
-      dfStub.callsArgWith(1, null, [{ filesystem: '/dev/sda1', mount: '/dat' }]);
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
     });
 
     it('should be a no-op when the app dir is already a mountpoint', async () => {
@@ -206,7 +299,12 @@ describe('volumeService tests', () => {
       expect(chattr[0].args[1].params).to.deep.equal(['+i', `${APPS_FOLDER}fluxapp1`]);
       const mount = callsFor('mount');
       expect(mount).to.have.lengthOf(1);
-      expect(mount[0].args[1].params).to.deep.equal(['-o', 'loop', '/dat/fluxapp1FLUXFSVOL', `${APPS_FOLDER}fluxapp1`]);
+      // nosuid/nodev are asserted as part of the argv, not just the loop option:
+      // a volume holds data its owner writes, so a setuid bit or a device node
+      // arriving there - by extraction, by copy, by the app itself - must not be
+      // honoured. Dropping either option is a silent privilege regression, so it
+      // fails here rather than going unnoticed.
+      expect(mount[0].args[1].params).to.deep.equal(['-o', 'loop,nosuid,nodev', '/dat/fluxapp1FLUXFSVOL', `${APPS_FOLDER}fluxapp1`]);
       // the flag must be set BEFORE the mount shadows the bare dir
       expect(chattr[0].calledBefore(mount[0])).to.be.true;
     });
@@ -459,6 +557,88 @@ describe('volumeService tests', () => {
       await expect(
         volumeService.ensureMountPathsExist({ name: 'backup', containerData: '/data|0:/database' }, 'testapp', true, null),
       ).to.be.rejectedWith('Component reference mount requires full app specifications');
+    });
+  });
+
+  describe('clearAppVolumeData tests', () => {
+    const FIND_ARGS = ['-mindepth', '1', '-maxdepth', '1', '-exec', 'rm', '-rf', '{}', '+'];
+
+    beforeEach(() => {
+      dockerServiceStub.getAppIdentifier.returns('fluxdb_MyApp');
+    });
+
+    it('empties the app data directory as root, in one command', async () => {
+      await volumeService.clearAppVolumeData('db_MyApp');
+
+      sinon.assert.calledOnce(serviceHelperStub.runCommand);
+      const [cmd, opts] = serviceHelperStub.runCommand.firstCall.args;
+      // Root for the LISTING as well as the delete. Enumerating host-side runs as
+      // the FluxOS user, and an image that chmods its data dir 700 (postgres does)
+      // makes that fail - which the caller correctly reads as a failed wipe and
+      // then retries forever, so the component never starts again.
+      expect(opts.runAsRoot).to.equal(true);
+      expect(cmd).to.equal('find');
+      // The path is load-bearing: the app ROOT holds the mount structure, and
+      // wiping that instead of appdata destroys the volume rather than its
+      // contents. -mindepth 1 empties the directory without removing it.
+      expect(opts.params).to.deep.equal([`${APPS_FOLDER}fluxdb_MyApp/appdata`, ...FIND_ARGS]);
+    });
+
+    // THE CONTRACT. serviceHelper.runCommand never rejects - it resolves
+    // { error, stdout, stderr } - so a caller that reads it as though it threw
+    // ignores every failure. This logged "Deleted data for app X" when the wipe
+    // had failed, and appReconciler's catch, which holds dataDesired at 'clear'
+    // so a start cannot proceed onto un-wiped data, was unreachable.
+    it('rejects when the wipe failed, rather than reporting success', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: new Error('exit 1'), stdout: '', stderr: "rm: cannot remove '/x': Device or resource busy",
+      });
+      // the directory exists - the failure was real
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: null, stdout: '', stderr: '' });
+
+      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith('Failed to delete data');
+
+      expect(
+        logStub.info.getCalls().some((call) => String(call.args[0]).includes('Deleted data')),
+        'reported the data deleted when the wipe failed',
+      ).to.equal(false);
+    });
+
+    // Nothing to clear is not a failed clear: an app whose volume was never
+    // populated must not hold the reconciler on a retry forever. The stderr is
+    // deliberately NOT the English message: find renders strerror in the node's
+    // locale, so the classification must come from `test -d`'s exit status and
+    // never from the words.
+    it('returns quietly when there is no app data directory, whatever language find speaks', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: new Error('exit 1'),
+        stdout: '',
+        stderr: "find: '/test/apps/folder/fluxdb_MyApp/appdata': Aucun fichier ou dossier de ce type",
+      });
+      // the directory does not exist - there was nothing to clear
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: new Error('exit 1'), stdout: '', stderr: '' });
+
+      await volumeService.clearAppVolumeData('db_MyApp');
+
+      expect(
+        logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
+      ).to.equal(true);
+      // The classifier runs as root, like the wipe: an unprivileged check paired
+      // with a root action fails on a data dir the image chmods to 700.
+      const [cmd, opts] = serviceHelperStub.runCommand.secondCall.args;
+      expect(cmd).to.equal('test');
+      expect(opts.runAsRoot).to.equal(true);
+      expect(opts.params).to.deep.equal(['-d', `${APPS_FOLDER}fluxdb_MyApp/appdata`]);
+    });
+
+    it('reports what the wipe actually said, so a failure can be diagnosed', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: new Error('exit 1'), stdout: '', stderr: 'rm: cannot remove: Read-only file system',
+      });
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: null, stdout: '', stderr: '' });
+
+      await expect(volumeService.clearAppVolumeData('db_MyApp'))
+        .to.be.rejectedWith(/Read-only file system/);
     });
   });
 });

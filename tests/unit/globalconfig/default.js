@@ -116,6 +116,8 @@ module.exports = {
   fluxapps: {
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    restartBurstCount: 5,
+    restartBurstWindowMs: 300000,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.
@@ -287,6 +289,7 @@ module.exports = {
     hashSyncIntervalMs: 1800000,
     peerNotifyIntervalMs: 3600000,
     cpuCheckIntervalMs: 900000,
+    statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,
     imageComplianceIntervalMs: 3600000,
     forceRemovalIntervalMs: 7200000,
@@ -342,6 +345,11 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000,
+    // Deliberately NOT the production 180000. The code falls back to 3 minutes
+    // when the key is missing, so a config value equal to the fallback cannot
+    // tell "read from config" from "key misspelled and silently defaulted" -
+    // which is exactly how statsSampleIntervalMs came to read undefined.
+    masterSlaveStaggerMs: 30000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -382,6 +390,8 @@ module.exports = {
     stallNudgeMaxIntervalMs: 900000,
     stallRemoveMinWindowMs: 1200000,
     stallRemoveMinNudges: 3,
+    aptSourceUrl: 'https://apt.syncthing.net/',
+    releaseKeyUrl: 'https://syncthing.net/release-key.gpg',
   },
   cpuBurst: {
     enabled: true,
@@ -400,6 +410,15 @@ module.exports = {
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
-    statsApiBaseUrl: 'https://stats.runonflux.io',
+  },
+  stats: {
+    baseUrl: 'https://stats.runonflux.io',
+  },
+  pricing: {
+    fluxRatesBaseUrl: 'https://viprates.runonflux.io',
+    coingeckoBaseUrl: 'https://api.coingecko.com',
+  },
+  mongodb: {
+    signingKeyBaseUrl: 'https://pgp.mongodb.com',
   },
 };

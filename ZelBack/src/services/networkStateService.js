@@ -1,5 +1,6 @@
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 /**
  * @typedef {import('./utils/networkStateManager').Fluxnode} Fluxnode
@@ -82,6 +83,16 @@ async function start(options = {}) {
       resolve();
     });
 
+    // Every refresh, with what the node now believes the fleet to be. Nothing in
+    // production consumes it - the bus is test-only - and it exists because a
+    // test that changes the node list otherwise has no way to know when this
+    // node has read the change: the list is polled on a timer, and the only
+    // endpoints that report one ask the daemon rather than this cache. Sleeping
+    // long enough instead is the thing that turns into a flaky suite.
+    stateManager.on('updated', () => {
+      fluxEventBus.publish('networkstate:updated', { nodes: stateManager.nodeCount });
+    });
+
     setImmediate(() => stateManager.start());
   });
 }
@@ -116,9 +127,11 @@ function networkState(options = {}) {
 /**
  * Whether the node list has been fetched and indexed.
  *
- * Every accessor on this service answers an unknown state and a genuinely empty
- * one with the same value - an empty list, a zero, a null. Callers that would
- * read those differently ask this first rather than guessing.
+ * The bulk accessors - networkState(), nodeCount() - answer an unknown state
+ * and a genuinely empty one with the same value, so a caller that would read
+ * those differently asks this first rather than guessing. The lookups that
+ * answer a question about one node do not: they wait for the list rather than
+ * report it absent from a state that has never held it.
  * @returns {boolean}
  */
 function isReady() {

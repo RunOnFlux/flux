@@ -1,4 +1,4 @@
-FROM ubuntu:26.04
+FROM ubuntu:26.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -27,6 +27,83 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# The packages FluxOS installs on a legacy node, and the repository it installs
+# them from.
+#
+# monitorSystem() returns immediately when FLUXOS_PATH is set, so this path only
+# runs on legacy nodes - and there it really installs, over the internet, inside
+# every boot. Resolving the closure at build time and serving it to the fleet
+# closes that without taking the install path out of the test: a seeded node
+# still runs monitorSystem() for real and finds its prerequisites satisfied, and
+# a suite that wants the install itself purges them first.
+#
+# The stage builds on `base`, not on ubuntu directly, because the closure is
+# whatever apt resolves against THIS image's package state. Computed against a
+# barer image it would name packages the node already has and miss ones it does
+# not.
+#
+# Recommends are deliberately not suppressed. aptRunner passes no
+# --no-install-recommends, so a node's own install pulls them - that is where
+# shared-mime-info comes from - and a repository built without them would be
+# missing packages the node goes on to ask for.
+FROM base AS debcache
+
+COPY test-infra/syncthing-release-key.asc /tmp/syncthing-release-key.asc
+COPY test-infra/build-apt-repo.sh /usr/local/bin/build-apt-repo.sh
+
+# Syncthing's repository carries only its two most recent releases, so there is
+# no older version to pin to and no build arg that could hold one. The version
+# is whatever it serves at build time, recorded in the repository so that
+# whoever has to agree with it can read it rather than restate it. That is also
+# how a production node gets syncthing: from the image it was built with.
+#
+# The key is vendored rather than fetched so the repository it authenticates is
+# pinned in git and reviewed, not trusted on first use at build time.
+RUN gpg --dearmor -o /usr/share/keyrings/syncthing-archive-keyring.gpg /tmp/syncthing-release-key.asc \
+    && echo "deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" \
+         > /etc/apt/sources.list.d/syncthing.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends dpkg-dev apt-utils \
+    && rm -rf /var/cache/apt/archives/*.deb \
+    && apt-get install -y --download-only chrony syncthing netcat-openbsd \
+    && chmod +x /usr/local/bin/build-apt-repo.sh \
+    && /usr/local/bin/build-apt-repo.sh /opt/flux-apt-repo
+
+FROM base
+
+# The repository travels in the image because the stub that serves it to the
+# fleet copies it from here: what a node installs at runtime is then the same
+# file it was seeded with, not a second download that can differ.
+COPY --from=debcache /opt/flux-apt-repo /opt/flux-apt-repo
+
+# Every source that reaches the internet goes, including the two this Dockerfile
+# added for its own build - docker's and nodesource's outlive the layer that
+# needed them, so any later apt-get update refreshes them, which is egress that
+# exists in no product source file. Removing the directory wholesale rather than
+# naming files means a source added later cannot be missed here.
+#
+# The base packages are served from the image over file:// because FluxOS never
+# writes this source and serving it over HTTP would cover nothing. The one
+# source FluxOS does write - syncthing's - is pointed at the stub over HTTP by
+# config, so the keyring fetch, the source write and apt's HTTP transport are
+# all exercised as they are on a node.
+#
+# Seeded here, so a normal fleet boots into the steady state.
+RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list \
+    && cp /opt/flux-apt-repo/keyring.gpg /usr/share/keyrings/flux-e2e-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/flux-e2e-archive-keyring.gpg] file:///opt/flux-apt-repo ubuntu main" \
+         > /etc/apt/sources.list.d/flux-e2e.list \
+    && apt-get update \
+    && apt-get install -y chrony syncthing netcat-openbsd \
+    && rm -rf /var/cache/apt/archives/*.deb \
+    && syncthing --version
+
+# The package index stays. A node has one, and upgradePackage refreshes the cache
+# without forcing - cacheUpdateTime falls back to the mtime of /var/lib/apt/lists,
+# which on a freshly built image is minutes old, so the refresh is skipped as
+# recent. Emptied, the index is then both absent and apparently current, and every
+# install fails with `Unable to locate package` before reaching the network at all.
 
 WORKDIR /flux
 

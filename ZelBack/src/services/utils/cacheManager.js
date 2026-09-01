@@ -183,6 +183,12 @@ class FluxCacheManager {
       max: 200,
       ttl: 30 * FluxCacheManager.oneMinute,
     },
+    // appUtilities - disk usage moves slowly, while the monitoring UI polls app stats
+    // every few seconds. Sample it once a minute however many callers ask.
+    containerStorageCache: {
+      max: 100,
+      ttl: FluxCacheManager.oneMinute,
+    },
   };
 
   constructor() {

@@ -4,6 +4,7 @@ const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appConstants = require('../utils/appConstants');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -172,16 +173,54 @@ async function installedApps(req, res) {
 }
 
 /**
- * To list running apps.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
+ * The container fields a public listing carries.
+ *
+ * An allowlist rather than a filter: the view is built from three of docker's
+ * own fields, keeping docker's names and forms, so it holds nothing else and a
+ * field docker adds in a future version is absent by default rather than
+ * carried until someone notices. A listing assembled this way cannot report an
+ * application's image, entrypoint, ports or build metadata; those belong to its
+ * owner, and are published from its specification when its specification is
+ * public.
+ *
+ * The same three fields for every application, not a smaller view for some.
+ * Choosing per application would put that choice at the exit, where getting it
+ * wrong is silent.
+ *
+ * Names stays docker's array, verbatim. FDM builds /flux{component}_{app} and
+ * matches Names[0] exactly, failing closed when it does not - so a bare name,
+ * or one with the prefix stripped, takes every g: app out of routing.
+ *
+ * @param {Array<object>} containers - docker container objects
+ * @returns {Array<object>} each container as {Names, State, Status}
  */
-async function listRunningApps(req, res) {
+function publicContainerView(containers) {
+  return containers.map((container) => ({
+    Names: container.Names,
+    State: container.State,
+    Status: container.Status,
+  }));
+}
+
+/**
+ * The containers this node should be routed to: everything running, plus any
+ * container a backup or restore is holding stopped.
+ *
+ * Not a filter of listAllApps. A container stopped for a backup is still the
+ * application's, and leaving it out is FDM dropping that application from
+ * haproxy for the length of the backup - so the in-memory backup and restore
+ * sets put it back.
+ *
+ * Returns docker's container objects whole, for callers inside this process.
+ * The public route answers from listRunningAppsApi, which projects them.
+ *
+ * @returns {object} Message carrying the container objects.
+ */
+async function listRunningApps() {
   try {
     let apps = await dockerService.dockerListContainers(false);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
+      apps = apps.filter((app) => dockerService.isAppContainer(app));
     }
 
     // Include apps that are in backup or restore as "running" even if container is stopped
@@ -193,7 +232,7 @@ async function listRunningApps(req, res) {
     if (appsInBackupRestore.length > 0) {
       // Get all containers including stopped ones
       const allContainers = await dockerService.dockerListContainers(true);
-      const fluxContainers = allContainers.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
+      const fluxContainers = allContainers.filter((app) => dockerService.isAppContainer(app));
 
       // Find stopped containers that are in backup/restore and add them to running list
       fluxContainers.forEach((container) => {
@@ -226,7 +265,7 @@ async function listRunningApps(req, res) {
       modifiedApps.push(app);
     });
     const appsResponse = messageHelper.createDataMessage(modifiedApps);
-    return res ? res.json(appsResponse) : appsResponse;
+    return appsResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -234,22 +273,64 @@ async function listRunningApps(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return errorResponse;
   }
 }
 
 /**
- * Component identifiers this node holds: running here, or committed to running
- * and not started yet.
+ * GET /apps/listrunningapps - the public view of the containers this node
+ * should be routed to.
  *
- * The question a primary election actually asks a peer. Running containers alone
- * answer it wrongly during the masterSlave primary path, which fixes ownership on
- * the persistent data before it starts anything - for that whole window the node
- * has decided but has no container, so a peer reading running containers is told
- * the component is free and starts a second writer on the shared volume.
+ * The response is the same for every caller, which is what lets the route keep
+ * its cache: apicache keys an entry on the request URL alone and answers from
+ * its store before the handler runs, so anything decided from who is asking is
+ * decided once and then served to everyone else.
  *
- * Uncached, unlike listrunningapps: a 15-second-stale answer reopens the same
- * window it exists to close.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void}
+ */
+async function listRunningAppsApi(req, res) {
+  const response = await listRunningApps();
+  if (response.status === 'error') {
+    res.json(response);
+    return;
+  }
+  res.json(messageHelper.createDataMessage(publicContainerView(response.data)));
+}
+
+/**
+ * Component identifiers this node holds: running here, committed to running and
+ * not started yet, or deliberately stopped here by the operator.
+ *
+ * The question a primary election actually asks a peer, and the answer is about
+ * OWNERSHIP, not about what is up. Three sources, because no one of them answers
+ * it on its own:
+ *
+ * - Running containers miss the masterSlave primary path, which fixes ownership
+ *   on the persistent data before it starts anything. For that whole window the
+ *   node has decided but has no container.
+ * - committedIdentifiers covers that window, but it is in-memory and re-derived
+ *   from live truth, so a FluxOS restart empties it. It is also only ever written
+ *   at the moment a node wins an election, never re-asserted while it goes on
+ *   being the primary.
+ * - The operator stop lock is the durable one. `appstop` writes it to hold the
+ *   component down HERE - the election skips this node and the reconciler will
+ *   not restart it - and until this endpoint reported it, that intent never left
+ *   the node. A peer saw no container and no commitment, concluded the component
+ *   was free, and elected a new primary over an owner who had stopped theirs to
+ *   work on it. Whether that happened at all turned on whether this node's FluxOS
+ *   had restarted since it was elected, which is not something an owner can see.
+ *
+ * Not filtered to g: components. The list answers "is this component mine", which
+ * is true of a stopped component whatever its storage mode, and the only caller
+ * asks about g: components alone - so filtering would cost a spec lookup to leave
+ * out entries nobody looks up.
+ *
+ * Cached for one second at the route, not the fifteen listrunningapps takes: long
+ * enough to bound an anonymous caller to one pass of this work per second, short
+ * enough to be meaningless against the tens of seconds the window it closes runs
+ * for.
  *
  * @param {object} req Request.
  * @param {object} res Response.
@@ -267,7 +348,10 @@ async function heldComponents(req, res) {
     const committed = appReconciler.committedIdentifiers()
       .map((identifier) => dockerService.getAppIdentifier(identifier));
 
-    const held = [...new Set([...running, ...committed])];
+    const operatorStopped = (await appsRuntimeState.operatorStoppedIdentifiers())
+      .map((identifier) => dockerService.getAppIdentifier(identifier));
+
+    const held = [...new Set([...running, ...committed, ...operatorStopped])];
     const response = messageHelper.createDataMessage(held);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -332,16 +416,18 @@ async function promotedFolders(req, res) {
 }
 
 /**
- * List all apps (both running and installed)
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
+ * Every container of an application on this node, running or not.
+ *
+ * Returns docker's container objects whole, for callers inside this process.
+ * The public route answers from listAllAppsApi, which projects them.
+ *
+ * @returns {object} Message carrying the container objects.
  */
-async function listAllApps(req, res) {
+async function listAllApps() {
   try {
     let apps = await dockerService.dockerListContainers(true);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
+      apps = apps.filter((app) => dockerService.isAppContainer(app));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -353,17 +439,31 @@ async function listAllApps(req, res) {
       delete app.Mounts;
       modifiedApps.push(app);
     });
-    const appsResponse = messageHelper.createDataMessage(modifiedApps);
-    return res ? res.json(appsResponse) : appsResponse;
+    return messageHelper.createDataMessage(modifiedApps);
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
+    return messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
   }
+}
+
+/**
+ * GET /apps/listallapps - the public view of every container on this node.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void}
+ */
+async function listAllAppsApi(req, res) {
+  const response = await listAllApps();
+  if (response.status === 'error') {
+    res.json(response);
+    return;
+  }
+  res.json(messageHelper.createDataMessage(publicContainerView(response.data)));
 }
 
 /**
@@ -473,10 +573,13 @@ async function getAppsMessagesCount(req, res) {
 module.exports = {
   installedApps,
   decryptEnterpriseApps,
+  publicContainerView,
   listRunningApps,
+  listRunningAppsApi,
   heldComponents,
   promotedFolders,
   listAllApps,
+  listAllAppsApi,
   getlatestApplicationSpecificationAPI,
   getApplicationOriginalOwner,
   getAppsInstallingLocations,

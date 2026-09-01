@@ -16,6 +16,8 @@ class FifoQueue extends EventEmitter {
 
   static get defaultRetainErrors() { return true; }
 
+  static get defaultMaxRetainCycles() { return 3; }
+
   /**
    * The main queue
    */
@@ -49,6 +51,11 @@ class FifoQueue extends EventEmitter {
     this.retryDelay = options.retryDelay ?? FifoQueue.defaultRetryDelay;
     this.maxSize = options.maxSize ?? FifoQueue.defaultMaxSize; // 0 infinite
     this.retainErrors = options.retainErrors ?? FifoQueue.defaultRetainErrors;
+    // How many times a retained task is handed back to the worker before the queue
+    // gives up on it. Retaining is what lets a task outlive a bad moment; without a
+    // ceiling it also lets one that can never succeed be retried for the life of
+    // the process.
+    this.maxRetainCycles = options.maxRetainCycles ?? FifoQueue.defaultMaxRetainCycles;
   }
 
   /**
@@ -75,11 +82,17 @@ class FifoQueue extends EventEmitter {
   }
 
   /**
-   * Setter for worker
+   * Setter for worker. A queue has one worker for its lifetime; prefer passing it
+   * to the constructor so the queue is never in a state where it accepts work it
+   * cannot run.
    * @param {() => Promise<void>} worker
+   * @throws {Error} If a worker is already set
    */
   addWorker(worker) {
-    if (this.worker) return;
+    // Refused rather than ignored. Silently keeping the first worker leaves the
+    // caller believing its own was installed, and the queue then runs somebody
+    // else's - which is a difference nothing downstream can see.
+    if (this.worker) throw new Error('FifoQueue already has a worker');
 
     this.worker = worker;
     if (this.workAvailable) this.finished = this.work();
@@ -97,6 +110,13 @@ class FifoQueue extends EventEmitter {
    */
   resume() {
     this.halted = false;
+    // A 'failed' listener resumes from INSIDE the work loop, where work() returns
+    // at once because working is already true. Assigning that already-resolved
+    // promise to finished would tell clear() the queue is idle while a worker is
+    // still in flight, and clear() then wipes the list out from under it - a path
+    // systemService reaches on exactly the failures this listener handles. The
+    // running loop reads the flag itself, so there is nothing to start.
+    if (this.working) return;
     this.finished = this.work();
   }
 
@@ -195,15 +215,50 @@ class FifoQueue extends EventEmitter {
         if (!retriesRemaining) {
           // the emit callback runs before the resolve (resolve is awaited)
           resolve({ error });
-          this.emit('failed', { options, error });
+          // Halted BEFORE the emit, never after. An emit is a synchronous yield:
+          // the listener runs right here, and it is allowed to resume the queue -
+          // monitorAptCache does exactly that, synchronously, for a failed
+          // apt-get update. A halt written after the emit silently undoes that
+          // resume, the loop breaks out with work still queued, and nothing ever
+          // starts it again: push() only calls work() when it is not already
+          // working, and working goes false on the way out. Settle our own state,
+          // then notify.
           this.halted = true;
+          // commandOptions, not the raw payload: a listener asks what failed, and
+          // for a payload of the {commandOptions, workerOptions} shape the command
+          // is a level down. Emitting the payload put it out of reach, so every
+          // listener test against it silently matched nothing.
+          this.emit('failed', { options: commandOptions, error });
         }
         // Can get halted externally too.
-        // we put this task back at the start of the queue and bail.
         if (this.halted) {
-          if (retainErrors) this.#list.unshift(props);
+          // To the BACK of the queue. At the front it is handed straight back to
+          // the worker on the next resume, ahead of everything else - so a task
+          // that cannot succeed is retried forever and nothing queued behind it
+          // ever runs. One package apt could not find is enough to stop a node
+          // installing any of the others.
+          //
+          // And only so many times. Each resume grants a fresh ladder of retries,
+          // so without a ceiling the pair of retain-and-resume is unbounded: the
+          // ladder ends, whatever is listening resumes the queue, and it begins
+          // again. Given up on rather than dropped silently - the caller already
+          // has its error, but nothing else would ever learn the work was
+          // abandoned.
+          const cycles = (props[2] ?? 0) + 1;
+          if (retainErrors && cycles <= this.maxRetainCycles) {
+            props[2] = cycles;
+            this.#list.push(props);
+          } else if (retainErrors) {
+            this.emit('abandoned', { options: commandOptions, error, cycles });
+          }
           break;
         }
+
+        // Not halted, so a listener resumed from inside the emit above and the
+        // queue carries on - but this task's ladder is still over. Falling
+        // through would sleep out the retry delay with nothing left to retry,
+        // stalling every task behind it for the full interval.
+        if (!retriesRemaining) break;
 
         // wait default 10 seconds between retries
         // eslint-disable-next-line no-await-in-loop

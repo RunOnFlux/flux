@@ -19,7 +19,7 @@ describe('App registration', function () {
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > env.initialHeight, 50000);
     await env.startDiscovery();
     await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
     await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);

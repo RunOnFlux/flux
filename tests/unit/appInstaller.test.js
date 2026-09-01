@@ -2,15 +2,14 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
-// specific return (e.g. a distinct getAppIdentifier or a shared pruneContainers
+// specific return (e.g. a distinct getAppIdentifier or a shared pruneImages
 // spy). Fresh sinon stubs per call, so each proxyquired module gets its own.
 const makeDockerServiceStub = (overrides = {}) => ({
   dockerListContainers: sinon.stub().resolves([]),
-  pruneContainers: sinon.stub().resolves(),
-  pruneNetworks: sinon.stub().resolves(),
-  pruneVolumes: sinon.stub().resolves(),
   pruneImages: sinon.stub().resolves(),
   dockerNetworkState: sinon.stub().resolves('absent'),
   getFreeFluxAppNetworkOctet: sinon.stub().resolves(1),
@@ -19,7 +18,7 @@ const makeDockerServiceStub = (overrides = {}) => ({
   appDockerCreate: sinon.stub().resolves(),
   appDockerStart: sinon.stub().resolves('container-started'),
   getAppIdentifier: sinon.stub().returns('testapp'),
-  dockerPullStream: sinon.stub().resolves('pulled'),
+  pullImage: sinon.stub().resolves('pulled'),
   ...overrides,
 });
 
@@ -162,7 +161,7 @@ describe('appInstaller tests', () => {
       '../geolocationService': {
         isStaticIP: sinon.stub().returns(true),
       },
-      '../dockerService': makeDockerServiceStub({ dockerPullStream: sinon.stub().yields(null, 'pulled') }),
+      '../dockerService': makeDockerServiceStub({ pullImage: sinon.stub().resolves('pulled') }),
       './appUninstaller': {
         removeAppLocally: sinon.stub().resolves(),
       },
@@ -291,7 +290,7 @@ describe('appInstaller tests', () => {
       await appInstaller.installAppLocally(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith('user', req)).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.USER, authOf(req))).to.be.true;
     });
 
     it('should handle missing appname parameter', async () => {
@@ -321,8 +320,8 @@ describe('appInstaller tests', () => {
         setHeader: sinon.stub(),
       };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -335,6 +334,70 @@ describe('appInstaller tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(logStub.error.called).to.be.true;
+    });
+  });
+
+  // Placing a registered app on a node is not the operator's call, for the same
+  // reason removing one is not. The temporary-message route is deliberately NOT
+  // closed with it - that is how an app is tested before it is registered.
+  describe('local install is not the node operator\'s to make', () => {
+    const nameInstall = () => ({ params: { appname: 'someCustomerApp' }, query: {} });
+
+    it('refuses a node admin installing a registered app by name', async () => {
+      const req = nameInstall();
+      const res = { json: sinon.stub(), setHeader: sinon.stub() };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      // the node operator's own privilege - held, and no longer sufficient here
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req)), 'the gate must ask for fluxteam').to.be.true;
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+    });
+
+    it('refuses a node admin on the test-install route too', async () => {
+      const req = nameInstall();
+      const res = { json: sinon.stub(), setHeader: sinon.stub() };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+    });
+
+    // The one that must keep working: an app under test is addressed by HASH and
+    // carries a temporary message, so it never reaches the by-name gate at all.
+    it('still lets any logged-in user install an app under test by its temporary message', async () => {
+      const req = { params: { appname: 'a1b2c3hash' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub() };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(false);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        appSpecifications: { name: 'apptest', version: 3, owner: 'someone' },
+      });
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+
+      await appInstaller.installAppLocally(req, res);
+
+      // It got past the gate: no Unauthorized was returned, and the by-name
+      // privilege was never consulted because a temporary message was found.
+      const unauthorized = res.json.getCalls().some((c) => c.args[0]?.data?.message === 'Unauthorized');
+      expect(unauthorized, 'a temporary app must not be refused').to.equal(false);
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req)), 'the by-name gate must not be reached').to.be.false;
     });
   });
 
@@ -354,7 +417,7 @@ describe('appInstaller tests', () => {
       await appInstaller.testAppInstall(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith('user', req)).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.USER, authOf(req))).to.be.true;
     });
 
     it('should handle missing appname parameter', async () => {
@@ -384,8 +447,8 @@ describe('appInstaller tests', () => {
         setHeader: sinon.stub(),
       };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -432,8 +495,8 @@ describe('appInstaller tests', () => {
         setHeader: sinon.stub(),
       };
 
-      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -1037,7 +1100,6 @@ describe('appInstaller tests', () => {
         lockHeldWhenBroadcasting = globalStateStub.installationInProgress;
         return Promise.resolve();
       });
-      const fluxEventBusStub = { publish: sinon.stub(), subscribe: sinon.stub() };
       const dbHelperStubSuccess = {
         databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
         findInDatabase: sinon.stub().resolves([]),
@@ -1109,7 +1171,6 @@ describe('appInstaller tests', () => {
         '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
         '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
         '../utils/globalState': globalStateStub,
-        '../utils/fluxEventBus': fluxEventBusStub,
         '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
@@ -1157,7 +1218,7 @@ describe('appInstaller tests', () => {
         enterprise: 'encryptedblob',
       };
       const decryptEnterpriseAppsStub = sinon.stub().resolves({ readable: [decryptedApp], unreadable: [], inPlace: [decryptedApp] });
-      const pruneContainersStub = sinon.stub().resolves();
+      const pruneImagesStub = sinon.stub().resolves();
 
       // Use proxyquire without noCallThru so lazy requires are intercepted
       const appInstallerFresh = proxyquire.noCallThru().load('../../ZelBack/src/services/appLifecycle/appInstaller', {
@@ -1182,7 +1243,7 @@ describe('appInstaller tests', () => {
         },
         '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
         '../dockerService': makeDockerServiceStub({
-          pruneContainers: pruneContainersStub,
+          pruneImages: pruneImagesStub,
           createFluxAppDockerNetwork: sinon.stub().resolves('net'),
           appDockerStart: sinon.stub().resolves('ok'),
         }),
@@ -1223,9 +1284,9 @@ describe('appInstaller tests', () => {
 
       expect(decryptEnterpriseAppsStub.calledOnce).to.be.true;
       expect(decryptEnterpriseAppsStub.calledWith([encryptedApp], { formatSpecs: false })).to.be.true;
-      // Decrypted enterprise app has a stopped component (MyComponent_enterpriseapp123 not running)
-      // so pruneContainers should NOT be called
-      expect(pruneContainersStub.called).to.be.false;
+      // Decrypted enterprise app has a stopped component (MyComponent_enterpriseapp123 not running),
+      // so the cleanup guard holds and no prune runs
+      expect(pruneImagesStub.called).to.be.false;
     });
   });
 

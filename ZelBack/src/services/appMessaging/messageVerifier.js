@@ -26,6 +26,7 @@ const {
 } = require('../utils/appConstants');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const globalState = require('../utils/globalState');
+const { Privilege, authOf } = require('../utils/privileges');
 
 /**
  * Verify app hash against message content
@@ -426,7 +427,7 @@ async function requestAppsMessage(apps, incoming) {
 async function requestAppMessageAPI(req, res) {
   try {
     // only flux team and node owner can do this
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);

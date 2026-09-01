@@ -183,39 +183,56 @@ describe('Orchestrator: READY to DEGRADED', function () {
   });
 });
 
+// #onPeersDegraded accepts READY or SYNCING; the block above covers the READY entry and
+// this one covers SYNCING. Node 0 is held in SYNCING by asking it for more ephemeral sync
+// completions than it has peers to supply, so it sits there with its peers connected and
+// its confirmation intact, and the peers can then be dropped on their own account.
+//
+// Confirmation loss is not the lever here. It evicts every peer inside the same handler,
+// so the count reaches zero while the node is still READY and it degrades from there -
+// which is the block above, not this one.
 describe('Orchestrator: peer drop during SYNCING', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
   before(async function () {
-    this.timeout(120000);
-    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
-    await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
-    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-    await waitForExplorerReady(env.clients[0]);
-    await waitForOrchestratorStarted(env.clients[0]);
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 20000);
-    await env.startDiscovery();
-    await waitForPeerThreshold(env.clients[0], 120000);
-    await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
-    // Revoke message capability so the orchestrator stays in SYNCING
-    await setNodeStatus(env.clients[0].ip, 'EXPIRED');
-    await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
+    this.timeout(300000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 5,
+      tickerAutostart: false,
+      // Five completions per type against four peers: state sync cannot complete, so
+      // #checkReadiness never lets node 0 out of SYNCING. The ticker stays stopped, so
+      // the block timer that would otherwise release it never expires either.
+      nodeConfigOverrides: { 0: { fluxapps: { appSyncMinCompletions: 5 } } },
+    });
+    // discover: true also waits for the peer threshold, which is what arms the manager to
+    // report dropping below it later.
+    await bootNodes(env, { discover: true });
+    await waitForOrchestratorState(env.clients[0], 'SYNCING', 60000);
   });
 
   after(async function () {
     this.timeout(30000);
-    await clearAllNodeStatus();
     await env?.teardown();
   });
 
   it('should transition to DEGRADED when peers drop during SYNCING', async function () {
-    this.timeout(30000);
+    this.timeout(60000);
+    // waitForEvent answers from the buffer of every event since boot, so this anchor is
+    // what makes the wait below describe the transition this test causes.
+    const beforeDrop = env.clients[0].getLastEventId();
+
     for (let i = 1; i < env.clients.length; i++) {
       await env.disconnectNode(i);
     }
-    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 10000);
+
+    const degraded = await env.clients[0].waitForEvent(
+      'orchestrator:stateChanged', (d) => d.to === 'DEGRADED', 30000, { afterId: beforeDrop },
+    );
+    // Names the entry state, so this block cannot quietly become a second copy of the
+    // READY one if the order these two facts arrive in ever changes.
+    expect(degraded.data.from).to.equal('SYNCING');
   });
 });
 

@@ -1,3 +1,8 @@
+// First, and above every other require: the environment this process answers from. This
+// file runs as an entry point of its own under `require.main === module`, so it settles
+// the environment rather than relying on whoever required it having done so.
+require('./ZelBack/pinEnvironment');
+
 const configManager = require('./ZelBack/src/services/utils/configManager');
 
 if (typeof AbortController === 'undefined') {
@@ -6,8 +11,6 @@ if (typeof AbortController === 'undefined') {
   const abortControler = require('node-abort-controller');
   globalThis.AbortController = abortControler.AbortController;
 }
-
-process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 
 const fs = require('node:fs');
 const http = require('node:http');

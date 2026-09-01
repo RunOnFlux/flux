@@ -4,6 +4,9 @@ import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
 import { assertHermeticRepotags } from './app-helper.js';
+import chainStart from './chain-start.cjs';
+
+const { DEFAULT_INITIAL_HEIGHT } = chainStart;
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -16,7 +19,18 @@ function fakeTxid() {
 export async function buildSeedableApp({
   name,
   compose = null,
-  height = 2100010,
+  // Seeded RELATIVE TO THE CHAIN THIS SUITE IS ON, never to a literal. An app is
+  // seeded `expire` blocks before it expires, so a height pinned to some older
+  // chain start seeds an app that is already long expired at the fleet's first
+  // block: the spawner filters it out of every candidate list and
+  // expireGlobalApplications deletes it outright.
+  //
+  // Pass `env` and it follows that suite's chain, including one that opted out
+  // via createTestEnv({ initialHeight }) - which is the whole reason that
+  // parameter exists, and the reason a bare constant here would go stale again
+  // the first time somebody uses it.
+  env = null,
+  height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
   instances = 3,
   owner = null,
   staticip = false,
@@ -95,6 +109,97 @@ export async function buildSeedableApp({
   const specWithMeta = { ...spec, hash, height };
 
   return { spec: specWithMeta, permanentMessage, hashEntry, hash, txid };
+}
+
+/**
+ * A seedable LEGACY app - version <= 3, which has no compose array at all: the
+ * one component's fields sit flat on the specification itself.
+ *
+ * That shape is why a restore of such an app used to throw before it did
+ * anything: the code reached for `.compose` and found nothing. `seed-helper`
+ * builds v8 everywhere else, so nothing in the harness could produce an app that
+ * takes the legacy branch.
+ *
+ * The field list is what appValidator demands of version <= 3, including two
+ * details that are easy to get wrong: `ports` and `containerPorts` are arrays of
+ * STRINGS rather than numbers, and the environment array is spelled
+ * `enviromentParameters` - the historical misspelling that dockerService still
+ * reads as a fallback.
+ *
+ * @param {object} opts - name, containerData and the usual overrides
+ * @returns {Promise<object>} the same shape buildSeedableApp returns
+ */
+export async function buildSeedableLegacyApp({
+  name,
+  version = 3,
+  containerData = '/appdata',
+  port = 32001,
+  // Chain-relative, same as buildSeedableApp above and for the same reason its
+  // comment gives: a literal height seeds an app already expired on any suite
+  // whose chain starts later, and assertAliveOnThisChain refuses it.
+  env = null,
+  height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
+  instances = 1,
+  owner = null,
+  expire = 22000,
+  allowExternalRepotag = false,
+}) {
+  const ownerKey = appOwnerKey();
+  const appOwner = owner ?? ownerKey.zelid;
+
+  const spec = {
+    version,
+    name,
+    description: `Seeded legacy test app ${name}`,
+    owner: appOwner,
+    repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
+    ports: [String(port)],
+    domains: [''],
+    enviromentParameters: [],
+    commands: [],
+    containerPorts: ['80'],
+    containerData,
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    instances,
+    expire,
+  };
+
+  const type = 'fluxappregister';
+  const messageVersion = 1;
+  const timestamp = Date.now();
+  const payload = type + messageVersion + JSON.stringify(spec) + timestamp;
+  const signature = await signBtcMessage(payload, ownerKey.privkey);
+
+  const messageContent = type + messageVersion + JSON.stringify(spec) + timestamp + signature;
+  const hash = sha256(messageContent);
+  const txid = fakeTxid();
+
+  const permanentMessage = {
+    type,
+    version: messageVersion,
+    appSpecifications: spec,
+    hash,
+    timestamp,
+    signature,
+    txid,
+    height,
+    valueSat: 200000000,
+  };
+
+  const hashEntry = {
+    hash,
+    txid,
+    height,
+    value: 200000000,
+    message: true,
+    messageNotFound: false,
+    createdAt: new Date(),
+  };
+
+  assertHermeticRepotags(spec, allowExternalRepotag);
+  return { spec: { ...spec, hash, height }, permanentMessage, hashEntry, hash, txid };
 }
 
 /**
@@ -339,8 +444,12 @@ export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null
   return { locations, stateEvents };
 }
 
-export async function seedAppOnAllNodes(dbClients, { name, compose, height, instances } = {}) {
-  const app = await buildSeedableApp({ name, compose, height, instances });
+export async function seedAppOnAllNodes(dbClients, {
+  name, compose, height, instances, env,
+} = {}) {
+  const app = await buildSeedableApp({
+    name, compose, height, instances, env,
+  });
 
   const seedPromises = dbClients.map(async (dbc) => {
     await dbc.seedGlobalAppSpec(app.spec);
@@ -352,8 +461,12 @@ export async function seedAppOnAllNodes(dbClients, { name, compose, height, inst
   return app;
 }
 
-export async function seedAppWithRunningState(dbClients, nodeIps, { name, compose, height, instances } = {}) {
-  const app = await seedAppOnAllNodes(dbClients, { name, compose, height, instances });
+export async function seedAppWithRunningState(dbClients, nodeIps, {
+  name, compose, height, instances, env,
+} = {}) {
+  const app = await seedAppOnAllNodes(dbClients, {
+    name, compose, height, instances, env,
+  });
   const state = buildRunningState({ appName: name, nodeIps, hash: app.hash });
 
   const seedPromises = dbClients.map(async (dbc, i) => {

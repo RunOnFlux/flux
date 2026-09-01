@@ -1,5 +1,7 @@
 const config = require('config');
+const fs = require('fs').promises;
 const stream = require('stream');
+const tar = require('tar');
 const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
@@ -231,43 +233,6 @@ async function dockerContainerStats(idOrName) {
   };
   const response = await dockerContainer.stats(options); // output hw usage statistics just once
   return response;
-}
-
-/**
- * Take stats from docker container and follow progress of the stream.
- * @param {string} repoTag Docker Hub repo/image tag.
- * @param {object} res Response.
- * @param {function} callback Callback.
- */
-async function dockerContainerStatsStream(idOrName, req, res, callback) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  dockerContainer.stats(idOrName, (err, mystream) => {
-    function onFinished(error, output) {
-      if (error) {
-        callback(err);
-      } else {
-        callback(null, output);
-      }
-      mystream.destroy();
-    }
-    function onProgress(event) {
-      if (res) {
-        res.write(serviceHelper.ensureString(event));
-        if (res.flush) res.flush();
-      }
-      log.info(event);
-    }
-    if (err) {
-      callback(err);
-    } else {
-      docker.modem.followProgress(mystream, onFinished, onProgress);
-    }
-    req.on('close', () => {
-      mystream.destroy();
-    });
-  });
 }
 
 /**
@@ -722,6 +687,98 @@ const getContainerIP = async (containerName) => {
 };
 
 /**
+ * Create a container from a fully-formed options object and return its handle.
+ *
+ * The thin wrapper appDockerCreate does not provide: that one assembles an
+ * application's container from a spec. Callers that run a short-lived container
+ * of their own build their own options and need the handle back to wait on it.
+ *
+ * @param {object} options - docker create options
+ * @returns {Promise<object>} dockerode container
+ */
+async function createContainer(options) {
+  return docker.createContainer(options);
+}
+
+/**
+ * Whether a container summary is one of this node's APPLICATION containers.
+ *
+ * The `runonflux.role` label is authoritative when present: FluxOS runs
+ * containers for its own purposes too, and those must stay invisible to
+ * anything that reclaims apps. `forceAppRemovals` derives an app name from a
+ * container name by slicing a prefix and splitting on the underscore, so a
+ * container that is not shaped `flux<component>_<app>` yields a
+ * plausible-looking wrong name which is then handed to removeAppLocally.
+ *
+ * The name-prefix test remains for containers created before the labels shipped
+ * and not recreated since.
+ *
+ * @param {object} container - a container summary from dockerListContainers
+ * @returns {boolean}
+ */
+function isAppContainer(container) {
+  const role = container.Labels && container.Labels['runonflux.role'];
+  if (role) return role === 'app';
+
+  const name = (container.Names && container.Names[0]) || '';
+  return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
+}
+
+/**
+ * Whether a container summary is one FluxOS put there, in ANY role.
+ *
+ * The broader question than isAppContainer, and the one a sweep that stops
+ * foreign containers has to ask. A file-operation container is emphatically not
+ * an application, so isAppContainer answers no about it - and a sweep phrased
+ * as "stop everything that is not an app" would therefore stop the node's own
+ * work mid-copy.
+ *
+ * A container FluxOS runs for itself is created with no name, because a name it
+ * does not need is one more thing that can collide with a tenant's. Docker then
+ * assigns a random one, which no prefix test can recognise - so the label is
+ * the only thing that can answer this question at all.
+ *
+ * @param {object} container - a container summary from dockerListContainers
+ * @returns {boolean}
+ */
+function isFluxOwnedContainer(container) {
+  if (container.Labels && container.Labels['runonflux.role']) return true;
+
+  const name = (container.Names && container.Names[0]) || '';
+  return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
+}
+
+/**
+ * The identity of a container, stamped as docker labels when it is created.
+ *
+ * The container NAME already encodes this (`flux<component>_<app>`), but a name
+ * is a string every caller has to re-parse, and the parsers have drifted - some
+ * slice a fixed prefix width, some split on the underscore, and a container
+ * whose name does not fit that shape yields a plausible-looking wrong answer
+ * rather than an error. A label is read back verbatim.
+ *
+ * `role` separates an application container from one FluxOS runs for its own
+ * purposes, so a sweep that reclaims orphaned apps can select what it owns
+ * instead of inferring it from a name prefix.
+ *
+ * @param {string} appName
+ * @param {string} componentName - the component, or the app name for the
+ *   single-component flat form which has no separate component
+ * @param {string|null} owner - the app owner's id, when the caller has the
+ *   full spec in scope
+ * @returns {Object<string, string>}
+ */
+function componentIdentityLabels(appName, componentName, owner) {
+  const labels = {
+    'runonflux.app': appName,
+    'runonflux.component': componentName,
+    'runonflux.role': 'app',
+  };
+  if (owner) labels['runonflux.owner'] = owner;
+  return labels;
+}
+
+/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -928,9 +985,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // scope, and stamped onto the container as docker labels. Every subsequent
   // start of this container (initial start, restart, recovery) reads the
   // labels in appDockerStart and reapplies burst — no per-caller plumbing.
-  const burstOwner = fullAppSpecs?.owner || null;
-  const burstEligible = burstOwner
-    && cpuBurstHelper.isEnterpriseOwner(burstOwner)
+  const appOwner = fullAppSpecs?.owner || null;
+  const burstEligible = appOwner
+    && cpuBurstHelper.isEnterpriseOwner(appOwner)
     && await cpuBurstHelper.isCpuBurstSupported();
   const burstLabels = burstEligible
     ? {
@@ -938,9 +995,14 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       'flux.burst.cores': String(appSpecifications.cpu),
     }
     : null;
-  const containerLabels = (labels || burstLabels)
-    ? { ...(labels || {}), ...(burstLabels || {}) }
-    : null;
+  const identityLabels = componentIdentityLabels(
+    appName,
+    isComponent ? appSpecifications.name : appName,
+    appOwner,
+  );
+  const containerLabels = {
+    ...identityLabels, ...(labels || {}), ...(burstLabels || {}),
+  };
   if (burstEligible) {
     log.info(`CPU burst: marking ${identifier} as burst-eligible (cores=${appSpecifications.cpu})`);
   }
@@ -956,8 +1018,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
-    // Conditionally include Labels only if it's not null
-    ...(containerLabels && { Labels: containerLabels }),
+    Labels: containerLabels,
     HostConfig: {
       NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
@@ -1263,6 +1324,273 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
 }
 
 /**
+ * Whether an image is in this node's local store.
+ *
+ * Creating a container does NOT pull. Docker answers 404 for an image it does
+ * not hold, so anything running a pinned image has to ask this first and fetch
+ * it itself.
+ *
+ * @param {string} reference - repo:tag or repo@digest
+ * @returns {Promise<boolean>}
+ */
+async function imageExists(reference) {
+  try {
+    await docker.getImage(reference).inspect();
+    return true;
+  } catch (error) {
+    if (error.statusCode === 404) return false;
+    throw error;
+  }
+}
+
+/**
+ * The id an image reference currently resolves to, or null if there is none.
+ *
+ * A tag says nothing about WHICH image it names - it is moved by whoever loads
+ * or pulls one next - so anything deciding what to do with a reference someone
+ * else chose has to ask what it points at now.
+ *
+ * @param {string} reference - repo:tag, an id, or repo@digest
+ * @returns {Promise<string|null>}
+ */
+async function getImageId(reference) {
+  try {
+    const info = await docker.getImage(reference).inspect();
+    return info.Id;
+  } catch (error) {
+    if (error.statusCode === 404) return null;
+    throw error;
+  }
+}
+
+/**
+ * Pull an image, resolving when the pull has finished.
+ *
+ * dockerPullStream reports progress through a callback, so a caller that wants
+ * to await it has to wrap it - and wrapping it at the call site, as two of them
+ * did, captures this function when the CALLING module loads. That pins whichever
+ * version was in place at that moment, which is a detail of this module that has
+ * no business reaching callers, and it makes the wrapped copy unreachable to
+ * anything that replaces this one afterwards.
+ *
+ * @param {object} pullConfig - repoTag and optional auth
+ * @param {object} [res] - response to stream progress to, if any
+ * @returns {Promise<*>}
+ */
+function pullImage(pullConfig, res = null) {
+  return new Promise((resolve, reject) => {
+    dockerPullStream(pullConfig, res, (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+}
+
+/**
+ * Stream an image out of the local store as a tar archive.
+ *
+ * The archive carries the image's config and layers, which is what makes an id
+ * checkable at the other end: the id IS the digest of that config, so a receiver
+ * can tell what it was sent from the bytes rather than from the sender.
+ *
+ * @param {string} reference - repo:tag, repo@digest or an image id
+ * @returns {Promise<NodeJS.ReadableStream>}
+ */
+async function exportImage(reference) {
+  return docker.getImage(reference).get();
+}
+
+/**
+ * Load images from a tar archive, answering what arrived.
+ *
+ * The ids are what identifies the image. An archive names itself - its tags are
+ * whatever the sender wrote - so a caller taking one from anywhere it does not
+ * control decides from the ids, and removes whatever it did not want.
+ *
+ * Tags are reported as well, and separately. They cannot say WHICH image
+ * something is, but an archive can carry them, and something loaded onto this
+ * node under a name of the sender's choosing is exactly what a caller has to be
+ * able to remove again. Reporting only the ids left those on the disk with
+ * nothing that could name them.
+ *
+ * The daemon narrates the load as a JSON stream and dockerode's reader frames
+ * it, the same way pullImage does. Concatenating chunks and matching a regex
+ * over them - which this did - loses any line that falls across two network
+ * writes, so an archive that did contain the wanted image reported that it did
+ * not.
+ *
+ * @param {NodeJS.ReadableStream} stream - a docker image archive
+ * @returns {Promise<{ids: Array<string>, tags: Array<string>}>} what the daemon
+ *   reports loading
+ */
+async function loadImage(stream) {
+  const progress = await docker.loadImage(stream);
+
+  const events = await new Promise((resolve, reject) => {
+    docker.modem.followProgress(progress, (error, output) => (
+      error ? reject(error) : resolve(output || [])
+    ));
+  });
+
+  const ids = new Set();
+  const tags = new Set();
+
+  for (const event of events) {
+    const narration = (event && event.stream) || '';
+
+    const id = narration.match(/Loaded image ID: (sha256:[0-9a-f]{64})/);
+    if (id) {
+      ids.add(id[1]);
+    } else {
+      const tag = narration.match(/Loaded image: (\S+)/);
+      if (tag) tags.add(tag[1]);
+    }
+  }
+
+  return { ids: [...ids], tags: [...tags] };
+}
+
+/**
+ * What a manifest can legitimately weigh.
+ *
+ * The archive holds ONE image - a peer packs a single id - and docker refuses
+ * to build deeper than 125 layers, each listed as a path of about 80 bytes.
+ * That is ~10KB of Layers, plus a config path and any tags; a real one measures
+ * 1.2KB. 64KB is several times the format's own ceiling.
+ *
+ * It needs a ceiling at all because this entry is read into memory while the
+ * archive around it is a file, bounded at PEER_IMAGE_MAX_BYTES. Nothing stops a
+ * peer making the manifest the whole of that, and the reason the archive goes
+ * to disk in the first place is not holding it in heap.
+ */
+const MANIFEST_MAX_BYTES = 64 * 1024;
+
+/** What a gzip stream starts with, and the only two bytes needed to know. */
+const GZIP_MAGIC = Buffer.from([0x1f, 0x8b]);
+
+/**
+ * Refuse an archive that arrives compressed.
+ *
+ * The ceiling a peer's archive is taken under counts the bytes on the wire, and
+ * the reader below is node-tar, which inflates gzip transparently - so a
+ * compressed archive is bounded at what it weighs rather than at what it
+ * becomes. Measured at level 9 on zeros, that is 1029:1: the 32MB a peer may
+ * send expands to about 34GB, which is a minute of inflate on a laptop and
+ * longer on a node, on a threadpool thread the filesystem also wants.
+ *
+ * Refused by FORMAT rather than bounded by size, because this node never sends
+ * one: the serve path exports with `docker save`, which writes a plain tar. An
+ * archive that arrives compressed is doing something we do not do, so there is
+ * nothing to weigh and no limit to choose - and the next peer is asked instead.
+ *
+ * @param {string} archivePath
+ */
+async function refuseCompressedArchive(archivePath) {
+  const handle = await fs.open(archivePath, 'r');
+  try {
+    const head = Buffer.alloc(GZIP_MAGIC.length);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    if (bytesRead === head.length && head.equals(GZIP_MAGIC)) {
+      throw new Error('the archive is compressed, which this node does not accept from a peer');
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The names a docker image archive declares for what it carries.
+ *
+ * `docker load` applies these: an archive naming `some/app:v1` MOVES that name
+ * onto whatever the archive holds, taking it off whatever the node had under it.
+ * From a source this node does not control that is not a detail - it is the
+ * sender choosing what this node's own images are called - so a caller has to be
+ * able to look before loading rather than repair afterwards. Repairing is too
+ * late: removing the stolen name does not give it back to the image that had it,
+ * and that image is then nameless, which is to say dangling, which is to say the
+ * next prune deletes it.
+ *
+ * Read from the archive rather than from the sender's word about it. Only
+ * manifest.json is parsed; the layers are not touched, so this costs a scan of
+ * the tar's headers.
+ *
+ * @param {string} archivePath - a docker image archive on disk
+ * @returns {Promise<Array<string>>} every name the archive declares
+ */
+async function archiveNames(archivePath) {
+  await refuseCompressedArchive(archivePath);
+
+  let manifest = '';
+  let taken = 0;
+  let found = false;
+  let oversize = false;
+
+  await tar.t({
+    file: archivePath,
+    onReadEntry(entry) {
+      if (entry.path !== 'manifest.json') {
+        entry.resume();
+        return;
+      }
+      found = true;
+      entry.on('data', (chunk) => {
+        taken += chunk.length;
+        // Past the ceiling the bytes are drained and dropped rather than kept:
+        // the entry still has to be walked to finish the scan, but nothing more
+        // of it is held.
+        if (taken > MANIFEST_MAX_BYTES) {
+          oversize = true;
+          return;
+        }
+        manifest += chunk.toString();
+      });
+      entry.resume();
+    },
+  });
+
+  // An archive with no manifest is not a docker image archive. Saying so here
+  // is better than letting the daemon report it as an empty load, which reads
+  // as "the peer did not have it" and sends the caller to another peer.
+  if (!found) throw new Error('the archive carries no manifest');
+
+  if (oversize) {
+    throw new Error(`the archive's manifest is over ${MANIFEST_MAX_BYTES} bytes, so it is not describing one image`);
+  }
+
+  const entries = JSON.parse(manifest);
+  return entries.flatMap((entry) => (entry && entry.RepoTags) || []);
+}
+
+/**
+ * Give a loaded image the name it is pinned under.
+ *
+ * An archive addressed by id carries no names - the daemon writes RepoTags only
+ * for a reference that has one - so an image taken from a peer arrives nameless.
+ * A nameless image is a DANGLING image, and the prune that runs before every app
+ * install takes dangling images. Naming it is what leaves the peer path in the
+ * same state a registry pull leaves, so the image survives to be used.
+ *
+ * Named after the id has been checked, never before: the name is this node's
+ * word for what it verified, not the sender's word for what it sent.
+ *
+ * @param {string} id - the image id, already verified
+ * @param {string} reference - the repo:tag to name it with
+ * @returns {Promise<void>}
+ */
+async function tagImage(id, reference) {
+  // The tag is what follows the last colon, and only when no slash follows it:
+  // a registry host names its port with a colon too, so cutting at the first
+  // one turns `fluxregistry:5000/x` into the repository `fluxregistry`.
+  const cut = reference.lastIndexOf(':');
+  const tagged = cut > 0 && !reference.slice(cut).includes('/');
+
+  await docker.getImage(id).tag({
+    repo: tagged ? reference.slice(0, cut) : reference,
+    tag: tagged ? reference.slice(cut + 1) : 'latest',
+  });
+}
+
+/**
  * Removes app's docker image.
  *
  * @param {string} idOrName
@@ -1357,34 +1685,6 @@ async function dockerNetworkState(networkName) {
     }
     return networks.some((n) => n.Name === networkName) ? 'exists' : 'absent';
   }
-}
-
-/**
- * Pauses app's docker.
- *
- * @param {string} idOrName
- * @returns {string} message
- */
-async function appDockerPause(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  await dockerContainer.pause();
-  return `Flux App ${idOrName} successfully paused.`;
-}
-
-/**
- * Unpauses app's docker.
- *
- * @param {string} idOrName
- * @returns {string} message
- */
-async function appDockerUnpause(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  await dockerContainer.unpause();
-  return `Flux App ${idOrName} successfully unpaused.`;
 }
 
 /**
@@ -1498,6 +1798,66 @@ async function getFreeFluxAppNetworkOctet(excludeOctets = new Set()) {
     if (!used.has(octet)) return octet;
   }
   return null;
+}
+
+/**
+ * Remove app networks that no installed app owns.
+ *
+ * A network is created per app and removed by the uninstaller, and by nothing
+ * else. An uninstall interrupted between the container going and the network
+ * going - a reboot, a crash, a removal that failed both its retries - leaves
+ * one behind for ever, because nothing looks again.
+ *
+ * That is not free. Each carries an explicitly assigned `172.23.<octet>.0/24`,
+ * and getFreeFluxAppNetworkOctet walks 1..255 for one nothing is using: a
+ * leaked network holds its octet permanently, and when the last one goes the
+ * answer is null and no app can be installed on the node again. Rare, never
+ * self-healing, and terminal when it arrives.
+ *
+ * The caller supplies the names it expects, rather than this deriving them: an
+ * app name can be recovered from a network name only by assuming what is in it,
+ * and being wrong there deletes a live app's network.
+ *
+ * A network with anything attached is left alone whatever the caller said,
+ * because something is using it and this cannot be the thing that decides
+ * otherwise.
+ *
+ * @param {Set<string>} expected - network names installed apps account for
+ * @returns {Promise<string[]>} what was reclaimed
+ */
+async function reclaimAppNetworks(expected) {
+  const reclaimed = [];
+  const networks = await getFluxDockerNetworks();
+
+  for (const summary of networks) {
+    const name = summary.Name;
+    if (!name || !name.startsWith('fluxDockerNetwork_') || expected.has(name)) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+
+    const network = docker.getNetwork(name);
+    // eslint-disable-next-line no-await-in-loop
+    const detail = await dockerNetworkInspect(network).catch(() => null);
+    if (!detail) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    if (Object.keys(detail.Containers || {}).length) {
+      log.info(`reclaimAppNetworks - ${name} has no installed app but something is attached; leaving it`);
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    const removed = await dockerRemoveNetwork(network).then(() => true).catch((error) => {
+      log.warn(`reclaimAppNetworks - could not remove ${name}: ${error.message}`);
+      return false;
+    });
+    if (removed) reclaimed.push(name);
+  }
+
+  return reclaimed;
 }
 
 /**
@@ -1693,26 +2053,15 @@ async function getAppContainerNames(appName) {
   return names;
 }
 
-/**
- * Remove all unused containers. Unused contaienrs are those wich are not running
- */
-async function pruneContainers() {
-  return docker.pruneContainers();
-}
-
-/**
- * Remove all unused networks. Unused networks are those which are not referenced by any running containers
- */
-async function pruneNetworks() {
-  return docker.pruneNetworks();
-}
-
-/**
- * Remove all unused Volumes. Unused Volumes are those which are not referenced by any containers
- */
-async function pruneVolumes() {
-  return docker.pruneVolumes();
-}
+// No blanket container/network/volume prune primitive is exposed, deliberately.
+// Docker's "unused" is a runtime predicate - nothing attached right now - which
+// is true of every healthy app whose container is momentarily down, of every
+// container FluxOS runs for its own purposes between exiting and being reaped,
+// and of anything the node operator left stopped on their own machine. A prune
+// keyed on it deletes all three. Removal of flux objects is scoped by OWNERSHIP
+// instead: appUninstaller for an app's containers and volumes, appNetwork for
+// its networks, and the identity labels stamped by componentIdentityLabels for
+// everything else.
 
 /**
  * Remove all unused Images. Unused Images are those which are not referenced by any containers
@@ -1868,15 +2217,20 @@ module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
   appDockerImageRemove,
+  imageExists,
+  getImageId,
+  pullImage,
+  exportImage,
+  loadImage,
+  archiveNames,
+  tagImage,
   appDockerKill,
-  appDockerPause,
   appDockerRemove,
   appDockerForceRemove,
   appDockerRestart,
   appDockerStart,
   appDockerStop,
   appDockerTop,
-  appDockerUnpause,
   createFluxAppDockerNetwork,
   createFluxDockerNetwork,
   dockerContainerChanges,
@@ -1886,7 +2240,6 @@ module.exports = {
   dockerContainerLogsPolling,
   dockerContainerLogsStream,
   dockerContainerStats,
-  dockerContainerStatsStream,
   dockerCreateNetwork,
   dockerGetEvents,
   dockerGetUsage,
@@ -1897,6 +2250,7 @@ module.exports = {
   dockerNetworkInspect,
   dockerPullStream,
   dockerRemoveNetwork,
+  reclaimAppNetworks,
   dockerVersion,
   getAppDockerNameIdentifier,
   getAppIdentifier,
@@ -1908,15 +2262,15 @@ module.exports = {
   getFluxDockerNetworkSubnets,
   getFreeFluxAppNetworkOctet,
   migrateContainerRestartPolicies,
-  pruneContainers,
   pruneImages,
-  pruneNetworks,
-  pruneVolumes,
   removeFluxAppDockerNetwork,
   forceRemoveFluxAppDockerNetwork,
   appDockerNetworkConnect,
   getAppContainerNames,
   getAppContainerObjects,
+  isAppContainer,
+  isFluxOwnedContainer,
+  createContainer,
   getAppNameByContainerIp,
   classifyContainerNetworkAttachment,
   isContainerDetachedFromNetwork,

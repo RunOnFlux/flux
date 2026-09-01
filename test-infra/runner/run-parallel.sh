@@ -38,21 +38,121 @@ set -o pipefail   # NOTE: deliberately NOT `set -u` — empty associative-array
 cd "$(dirname "$0")" || exit 99
 RUNNER="$PWD/run-all.sh"
 
+# The log root is established before the preflight checks rather than after them.
+# Every one of those checks can refuse to start the gate, and a refusal is the
+# run's whole outcome - so it is written down, not only printed at whoever
+# happened to be watching the terminal.
+LOGROOT="${E2E_LOG_DIR:-/tmp/e2e-logs}"
+rm -rf "$LOGROOT"; mkdir -p "$LOGROOT"
+DLOG="$LOGROOT/driver.log"
+log(){ echo "$(date -u +%H:%M:%S) $*" | tee -a "$DLOG"; }
+
+# Each refusal carries its own status, so a caller can tell WHICH precondition
+# refused the gate and not merely that one did.
+abort(){
+  local code="$1"; shift
+  local line
+  for line in "$@"; do echo "$line" | tee -a "$DLOG"; done
+  exit "$code"
+}
+
+# A host tuning bar that is not a whole number is not a lower bar - it is no bar
+# at all. `[ "$x" -lt "$y" ]` on a non-numeric operand returns 2, and with
+# `pipefail` but no `-e` an `if` reads 2 as false: the raise below is skipped and
+# so is the ###ABORT beside it, so the gate runs on exactly the unraised host the
+# block exists to refuse - a false red wearing a product bug's clothes, which is
+# the failure these blocks were written to prevent. Both operands are checked
+# here, before either is compared.
+require_int(){
+  case "$2" in
+    '' | *[!0-9]*)
+      abort 93 "###ABORT $1 is '$2', which is not a whole number." \
+               "Set it to a number, or unset it to take the default." ;;
+  esac
+}
+
 # Same host-FluxOS guard as run-all.sh (which every suite also runs through) -
 # checked here too so the gate fails in one second instead of launching 48
 # suites that each abort individually. See run-all.sh for the full rationale.
 if [ -z "${E2E_ALLOW_HOST_FLUXOS:-}" ]; then
   for unit in fluxos.service flux-watchdog.timer flux-watchdog.service; do
     if systemctl is-active --quiet "$unit" 2>/dev/null; then
-      echo "###ABORT host FluxOS is running ($unit is active) - it stops/adopts harness containers."
-      echo "Stop it for the run:  sudo systemctl stop flux-watchdog.timer flux-watchdog.service fluxos.service"
-      echo "Or set E2E_ALLOW_HOST_FLUXOS=1 to run anyway."
-      exit 97
+      abort 97 "###ABORT host FluxOS is running ($unit is active) - it stops/adopts harness containers." \
+               "Stop it for the run:  sudo systemctl stop flux-watchdog.timer flux-watchdog.service fluxos.service" \
+               "Or set E2E_ALLOW_HOST_FLUXOS=1 to run anyway."
     fi
   done
 fi
 
-LOGROOT="${E2E_LOG_DIR:-/tmp/e2e-logs}"
+# The other way a gate is wrong before it starts: an image built from an older
+# tree runs this branch's suites and fails as though the product were broken. A
+# stale syncthing-stub cost a whole 85-suite gate on 2026-08-11. Decide it once,
+# in a second, rather than let the suites discover it one confusing failure at a
+# time - and tell the per-suite runners it is settled so they do not each repeat
+# a check that walks the whole build context.
+if ! "$PWD/../verify-images.sh"; then
+  abort 96 "###ABORT images do not match the tree - see above."
+fi
+export E2E_IMAGES_VERIFIED=1
+
+# The kernel neighbor (ARP) table must hold every container across every
+# concurrent fleet. At the default hard cap (gc_thresh3=1024) six 10-node
+# fleets overflow it: new entries are refused, packets to whichever addresses
+# lost the lottery silently drop, and one node per fleet goes dark while the
+# host sits idle - a before-all boot timeout wearing a product bug's clothes
+# (gate-3 suite 1209, and five suites of gate 4, were exactly this;
+# /proc/net/stat/arp_cache table_fulls is the tell). Checked and raised here
+# because a gate on an overflowing host produces false reds by design.
+NEIGH_MIN="${E2E_NEIGH_GC_THRESH3:-8192}"
+require_int E2E_NEIGH_GC_THRESH3 "$NEIGH_MIN"
+neigh_now=$(sysctl -n net.ipv4.neigh.default.gc_thresh3 2>/dev/null || echo 0)
+require_int net.ipv4.neigh.default.gc_thresh3 "$neigh_now"
+if [ "$neigh_now" -lt "$NEIGH_MIN" ]; then
+  sudo -n sysctl -q -w \
+    "net.ipv4.neigh.default.gc_thresh1=$((NEIGH_MIN / 4))" \
+    "net.ipv4.neigh.default.gc_thresh2=$((NEIGH_MIN / 2))" \
+    "net.ipv4.neigh.default.gc_thresh3=$NEIGH_MIN" 2>/dev/null
+  neigh_now=$(sysctl -n net.ipv4.neigh.default.gc_thresh3 2>/dev/null || echo 0)
+  if [ "$neigh_now" -lt "$NEIGH_MIN" ]; then
+    abort 95 "###ABORT neighbor table cap too small (gc_thresh3=$neigh_now < $NEIGH_MIN) and could not raise it." \
+             "Raise it for the run:  sudo sysctl -w net.ipv4.neigh.default.gc_thresh3=$NEIGH_MIN (and thresh1/2 to a quarter/half)" \
+             "Or lower the bar deliberately with E2E_NEIGH_GC_THRESH3."
+  fi
+  echo "# neighbor table cap raised to gc_thresh3=$neigh_now for the gate"
+fi
+
+# systemd's first act is to create an inotify instance to watch cgroups, and
+# fs.inotify.max_user_instances is a PER-UID, HOST-WIDE pool that every container
+# draws from as root. Exhaust it and systemd cannot allocate its manager object:
+# PID 1 exits 255, having written the reason to /dev/console, which a container
+# without a TTY does not have. No docker logs, no journal (journald never started)
+# - the silent exit-255 class that went unexplained for three gates and survived
+# six reproduction attempts, because a solo run never exhausts a host-wide pool.
+#
+# The arithmetic is why it was intermittent rather than constant. Measured directly
+# once the gauge existed (gate 10): a full gate peaks at 102 concurrent containers
+# and 221 inotify instances - 2.17 each, not the 1.27 a quieter sample suggested.
+# So the harness has been running at 1.7x the default ceiling of 128, and the wonder
+# is not that gates failed but that any passed: containers hold an instance only
+# briefly, so a boot survived or died on the exact overlap. 1024 is 4.6x the measured
+# peak, which leaves room for wider fleets rather than merely clearing today's number.
+INOTIFY_MIN="${E2E_INOTIFY_MAX_USER_INSTANCES:-1024}"
+require_int E2E_INOTIFY_MAX_USER_INSTANCES "$INOTIFY_MIN"
+ino_now=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
+require_int fs.inotify.max_user_instances "$ino_now"
+if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
+  sudo -n sysctl -q -w "fs.inotify.max_user_instances=$INOTIFY_MIN" 2>/dev/null
+  ino_now=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
+  if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
+    abort 94 "###ABORT inotify instance pool too small (max_user_instances=$ino_now < $INOTIFY_MIN) and could not raise it." \
+             "Every systemd-mode node needs one and the pool is host-wide, so a gate on this host" \
+             "produces silent exit-255 boot deaths by design." \
+             "Raise it for the run:  sudo sysctl -w fs.inotify.max_user_instances=$INOTIFY_MIN" \
+             "Or lower the bar deliberately with E2E_INOTIFY_MAX_USER_INSTANCES."
+  fi
+  echo "# inotify instance pool raised to max_user_instances=$ino_now for the gate"
+fi
+
 MAXN="${MAXN:-3}"
 MIN_FREE_MB="${MIN_FREE_MB:-15000}"
 # Don't admit a new suite while the box is already CPU-saturated. Memory never
@@ -88,15 +188,19 @@ load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enou
 sweep_harness_leftovers(){
   # scope to OUR label (key presence, any run id) - org.testcontainers=true would
   # also kill unrelated testcontainers projects sharing the box
-  docker ps -aq --filter label=flux-e2e-run | xargs -r docker rm -f >/dev/null 2>&1
+  #
+  # -v, or every force-removed container orphans its ANONYMOUS volumes. An image
+  # with a VOLUME directive (mongo declares /data/db) gets one per container, and
+  # they carry com.docker.volume.anonymous rather than our label - so the volume
+  # sweep below cannot see them and nothing ever reclaims them. Measured on chud
+  # after a gate: 34 dangling volumes, 8.9GB in local volumes with 2.2GB
+  # reclaimable. testcontainers' own teardown already passes removeVolumes, so this
+  # is only about the containers a sweep takes rather than a suite.
+  docker ps -aq --filter label=flux-e2e-run | xargs -r docker rm -fv >/dev/null 2>&1
   docker network ls --format '{{.ID}} {{.Name}}' | grep ' flux-test-' | awk '{print $1}' | xargs -r docker network rm >/dev/null 2>&1
   docker volume ls -q --filter label=flux-e2e-run | xargs -r docker volume rm >/dev/null 2>&1
   rm -rf /tmp/e2e-base-locks /tmp/e2e-boot-lock
 }
-
-rm -rf "$LOGROOT"; mkdir -p "$LOGROOT"
-DLOG="$LOGROOT/driver.log"
-log(){ echo "$(date -u +%H:%M:%S) $*" | tee -a "$DLOG"; }
 
 sweep_harness_leftovers
 

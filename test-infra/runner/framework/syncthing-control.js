@@ -27,6 +27,29 @@ export async function getSyncthingState() {
   return get('/state');
 }
 
+// Folder config is stored as current state, so a change and the change that
+// undoes it cancel out: a folder paused for an operation and resumed afterwards
+// reads identically to one nothing touched. These expose the ordered write
+// history instead, which is what answers "what did this operation do, and to
+// WHICH folder" - the question a composed app turns on, since its folders are
+// per component and the app name names none of them.
+export async function resetFolderWrites(ip = '*') {
+  return post('/folder-writes-reset', { ip });
+}
+
+export async function getFolderWrites(ip) {
+  const state = await getSyncthingState();
+  const node = state.nodes.find((n) => n.ip === ip);
+  return node ? node.folderWrites : [];
+}
+
+// The paused/resumed pairs this operation applied, in order, as folder ids.
+export async function getPauseWrites(ip) {
+  return (await getFolderWrites(ip))
+    .filter((w) => w.method === 'patch' && w.body && typeof w.body.paused === 'boolean')
+    .map((w) => ({ id: w.id, paused: w.body.paused }));
+}
+
 // Raw setter for /rest/db/status.
 export async function setSyncState({
   ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
@@ -169,6 +192,24 @@ export async function resetSyncthingEventIds(ip) {
 // from the consumer's side.
 export async function setEventsOutage({ ip = '*', enabled = true }) {
   return post('/events-outage', { ip, enabled });
+}
+
+// Take a node's /rest/config/devices down/up while /rest/config/folders keeps
+// answering. Those are two reads on one monitor pass, and which folders a node
+// holds writable is answered by the folder half alone - so this is how a suite
+// proves a device read it could not complete does not withhold a folder list the
+// node already has.
+export async function setDeviceConfigOutage({ ip = '*', enabled = true }) {
+  return post('/device-config-outage', { ip, enabled });
+}
+
+// How many device reads the stub has actually turned away for this node. An
+// outage that silently failed to apply reads exactly like the behaviour under
+// test working, and this is observable where the node's log is not: a suite that
+// restarts a node loses that container's log stream.
+export async function getDeviceConfigRefusals(ip) {
+  const answer = await get(`/device-config-refusals${ip ? `?ip=${ip}` : ''}`);
+  return answer?.refusals ?? 0;
 }
 
 // The folder status endpoint errors for this folder - the node can verify

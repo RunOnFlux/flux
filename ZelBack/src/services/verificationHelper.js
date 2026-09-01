@@ -5,42 +5,57 @@ const { randomBytes } = require('crypto');
 const log = require('../lib/log');
 
 const verificationHelperUtils = require('./verificationHelperUtils');
+const { Privilege, APP_SCOPED } = require('./utils/privileges');
 
 /**
- * Verifies a specific privilege based on request headers.
- * @param {string} privilege - 'admin, 'fluxteam', 'adminandfluxteam', 'appownerabove', 'appowner', 'user'
- * @param {object} req
- * @param {string} appName
+ * Which verifier answers each privilege.
  *
+ * Every member of Privilege appears here and nothing else does, so a privilege
+ * that no longer resolves is a failing test rather than a silent refusal at
+ * runtime. The wrappers defer the lookup to call time, so a stubbed
+ * verificationHelperUtils is still the one that answers.
+ */
+const DISPATCH = Object.freeze({
+  [Privilege.USER]: (auth) => verificationHelperUtils.verifyUserSession(auth),
+  [Privilege.NODE_OPERATOR]: (auth) => verificationHelperUtils.verifyNodeOperatorSession(auth),
+  [Privilege.FLUX_TEAM]: (auth) => verificationHelperUtils.verifyFluxTeamSession(auth),
+  [Privilege.NODE_OPERATOR_OR_FLUX_TEAM]: (auth) => verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(auth),
+  [Privilege.APP_OWNER]: (auth, appName) => verificationHelperUtils.verifyAppOwnerSession(auth, appName),
+  [Privilege.APP_OWNER_OR_FLUX_TEAM]: (auth, appName) => verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(auth, appName),
+});
+
+/**
+ * Whether a caller holds a privilege.
+ *
+ * Takes the zelidauth header's value, not the request it arrived in. The check
+ * reads one field, and a function that accepts the whole request can reach
+ * anything else on it - including the parts the caller controls.
+ *
+ * @param {string} privilege - a Privilege member
+ * @param {string} zelidauth - the value of the zelidauth header
+ * @param {{appName?: string}} [options] - carried by, and only by, an app-scoped privilege
  * @returns {Promise<boolean>} authorized
  */
-async function verifyPrivilege(privilege, req, appName) {
+async function verifyPrivilege(privilege, zelidauth, options = {}) {
+  // Ahead of the try, because the catch below answers false. That is the right
+  // answer to a check that failed and the wrong answer to a call site that is
+  // wired wrongly, and the two must not reach a caller wearing the same face.
+  if (!(privilege in DISPATCH)) {
+    throw new TypeError(`verifyPrivilege: ${JSON.stringify(privilege)} is not a Privilege`);
+  }
+  // A header value is always a string, so anything else came from our own code:
+  // a request, a fabricated headers object, an already-parsed auth. Absent is
+  // not in this class - it is every unauthenticated request there has ever been.
+  if (zelidauth != null && typeof zelidauth !== 'string') {
+    throw new TypeError('verifyPrivilege: takes the zelidauth header value, not the request');
+  }
+  const scoped = APP_SCOPED.includes(privilege);
+  if (!scoped && 'appName' in options) {
+    throw new TypeError(`verifyPrivilege: ${privilege} resolves an identity and reads no app name`);
+  }
+
   try {
-    let authorized = false;
-    switch (privilege) {
-      case 'admin':
-        authorized = await verificationHelperUtils.verifyAdminSession(req.headers);
-        break;
-      case 'fluxteam':
-        authorized = await verificationHelperUtils.verifyFluxTeamSession(req.headers);
-        break;
-      case 'adminandfluxteam':
-        authorized = await verificationHelperUtils.verifyAdminAndFluxTeamSession(req.headers);
-        break;
-      case 'appownerabove':
-        authorized = await verificationHelperUtils.verifyAppOwnerOrHigherSession(req.headers, appName);
-        break;
-      case 'appowner':
-        authorized = await verificationHelperUtils.verifyAppOwnerSession(req.headers, appName);
-        break;
-      case 'user':
-        authorized = await verificationHelperUtils.verifyUserSession(req.headers);
-        break;
-      default:
-        authorized = false;
-        break;
-    }
-    return authorized;
+    return await DISPATCH[privilege](zelidauth, options.appName);
   } catch (error) {
     log.error(error);
     return false;
