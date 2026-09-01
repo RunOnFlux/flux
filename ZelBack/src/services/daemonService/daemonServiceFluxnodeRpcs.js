@@ -54,7 +54,7 @@ async function listFluxNodes(req, res) {
     response.data = response.data.slice(0, limit);
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -69,7 +69,7 @@ async function listFluxNodeConf(req, res) { // practically useless
   filter = filter || req.query.filter;
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'listzelnodeconf'; // listfluxnodeconf
   const rpcparameters = [];
@@ -79,7 +79,7 @@ async function listFluxNodeConf(req, res) { // practically useless
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -184,7 +184,7 @@ async function startDeterministicFluxNode(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -213,7 +213,7 @@ async function startFluxNode(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**

@@ -225,12 +225,18 @@ describe('benchmarkService tests', () => {
           hexstring: '0x0123ABCDF',
         },
       };
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.stub().returns(res);
+        return res;
+      };
+      const mockResponse = generateResponse();
+      const expectedSuccessMessage = { status: 'success', data: 'called' };
 
-      const signFluxTransactionResult = await benchmarkService.signFluxTransaction(req);
+      await benchmarkService.signFluxTransaction(req, mockResponse);
 
-      expect(signFluxTransactionResult).to.be.an('object');
-      expect(signFluxTransactionResult.status).to.equal('success');
-      expect(signFluxTransactionResult.data).to.equal('called');
+      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
       sinon.assert.calledOnceWithExactly(benchmarkStub, 'signzelnodetransaction', { params: [req.params.hexstring] });
     });
@@ -280,10 +286,25 @@ describe('benchmarkService tests', () => {
           hexstring: '0x0123ABCDF',
         },
       };
-      const signFluxTransactionResult = await benchmarkService.signFluxTransaction(req);
+      const generateResponse = () => {
+        const res = { test: 'testing' };
+        res.status = sinon.stub().returns(res);
+        res.json = sinon.stub().returns(res);
+        return res;
+      };
+      const mockResponse = generateResponse();
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      };
 
-      expect(signFluxTransactionResult).to.be.an('object');
-      expect(signFluxTransactionResult.status).to.equal('error');
+      await benchmarkService.signFluxTransaction(req, mockResponse);
+
+      sinon.assert.calledOnceWithExactly(mockResponse.json, expectedErrorMessage);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, Privilege.NODE_OPERATOR, authOf(req));
       sinon.assert.notCalled(benchmarkStub);
     });
@@ -346,20 +367,6 @@ describe('benchmarkService tests', () => {
 
     afterEach(() => {
       sinon.restore();
-    });
-
-    it('should return a sucessful response if called without response', async () => {
-      const req = {
-        params: {
-          command: 'testing',
-        },
-      };
-      const signFluxTransactionResult = await benchmarkService.help(req);
-
-      expect(signFluxTransactionResult).to.be.an('object');
-      expect(signFluxTransactionResult.status).to.equal('success');
-      expect(signFluxTransactionResult.data).to.equal('called');
-      sinon.assert.calledOnceWithExactly(benchmarkStub, 'help', { params: [req.params.command] });
     });
 
     it('should return a sucessful response if called with response', async () => {

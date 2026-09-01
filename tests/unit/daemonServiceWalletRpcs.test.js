@@ -27,35 +27,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          n: '123',
-          keysobject: {
-            key1: 'key1',
-            key2: 'key2',
-          },
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.addMultiSigAddress(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -87,25 +58,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.addMultiSigAddress(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'addMultiSigAddress', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -127,7 +79,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'addMultiSigAddress', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -143,14 +95,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.addMultiSigAddress(req);
+      await daemonServiceWalletRpcs.addMultiSigAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'addMultiSigAddress', [+req.params.n, req.params.keysobject]);
     });
 
-    it('should trigger rpc, no n param, no response passed', async () => {
+    it('should trigger rpc, no n param', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -165,14 +118,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.addMultiSigAddress(req);
+      await daemonServiceWalletRpcs.addMultiSigAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'addMultiSigAddress', []);
     });
 
-    it('should trigger rpc, no keysobject, no response passed', async () => {
+    it('should trigger rpc, no keysobject', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -184,14 +138,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.addMultiSigAddress(req);
+      await daemonServiceWalletRpcs.addMultiSigAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'addMultiSigAddress', []);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -207,10 +162,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.addMultiSigAddress(req);
+      await daemonServiceWalletRpcs.addMultiSigAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'addMultiSigAddress', [+req.query.n, JSON.parse(req.query.keysobject)]);
     });
   });
@@ -347,31 +303,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          destination: '111ZACEF1230887178',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.backupWallet(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -399,25 +330,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.backupWallet(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'backupWallet', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -439,7 +351,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'backupWallet', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -451,14 +363,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.backupWallet(req);
+      await daemonServiceWalletRpcs.backupWallet(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'backupWallet', [req.params.destination]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -470,10 +383,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.backupWallet(req);
+      await daemonServiceWalletRpcs.backupWallet(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'backupWallet', [req.query.destination]);
     });
   });
@@ -491,31 +405,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          destination: '111ZACEF1230887178',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.dumpPrivKey(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -543,25 +432,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.dumpPrivKey(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'dumpPrivKey', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -583,7 +453,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'dumpPrivKey', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -595,14 +465,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.dumpPrivKey(req);
+      await daemonServiceWalletRpcs.dumpPrivKey(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'dumpPrivKey', [req.params.taddr]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -614,10 +485,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.dumpPrivKey(req);
+      await daemonServiceWalletRpcs.dumpPrivKey(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'dumpPrivKey', [req.query.taddr]);
     });
   });
@@ -635,32 +507,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          minconf: '3',
-          includewatchonly: 'false',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.getBalance(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -689,25 +535,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.getBalance(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBalance', ['', 1, false]);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -729,7 +556,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBalance', ['', 1, false]);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -742,14 +569,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getBalance(req);
+      await daemonServiceWalletRpcs.getBalance(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBalance', ['', +req.params.minconf, false]);
     });
 
-    it('should trigger rpc, no minconf param, no response passed', async () => {
+    it('should trigger rpc, no minconf param', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -761,14 +589,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getBalance(req);
+      await daemonServiceWalletRpcs.getBalance(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBalance', ['', 1, true]);
     });
 
-    it('should trigger rpc, no includewatchonly, no response passed', async () => {
+    it('should trigger rpc, no includewatchonly', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -780,14 +609,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getBalance(req);
+      await daemonServiceWalletRpcs.getBalance(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBalance', ['', +req.params.minconf, false]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -800,10 +630,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getBalance(req);
+      await daemonServiceWalletRpcs.getBalance(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getBalance', ['', +req.query.minconf, false]);
     });
   });
@@ -1033,7 +864,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -1052,10 +883,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
+      await daemonServiceWalletRpcs.getReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
@@ -1087,25 +919,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -1127,7 +940,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1140,14 +953,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
+      await daemonServiceWalletRpcs.getReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.params.fluxaddress, +req.params.minconf]);
     });
 
-    it('should trigger rpc, no minconf param, no response passed', async () => {
+    it('should trigger rpc, no minconf param', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1157,14 +971,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
+      await daemonServiceWalletRpcs.getReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.params.fluxaddress, 1]);
     });
 
-    it('should trigger rpc, no fluxaddress, no response passed', async () => {
+    it('should trigger rpc, no fluxaddress', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1176,14 +991,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
+      await daemonServiceWalletRpcs.getReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', []);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1196,10 +1012,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
+      await daemonServiceWalletRpcs.getReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.query.fluxaddress, +req.query.minconf]);
     });
   });
@@ -1213,24 +1030,6 @@ describe('daemonServiceWalletRpcs tests', () => {
 
     afterEach(() => {
       sinon.restore();
-    });
-
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.getTransaction(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getTransaction', []);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -1253,7 +1052,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getTransaction', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -1265,14 +1064,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getTransaction(req);
+      await daemonServiceWalletRpcs.getTransaction(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getTransaction', [req.params.txid, true]);
     });
 
-    it('should trigger rpc, no txid in params, no response passed', async () => {
+    it('should trigger rpc, no txid in params', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -1283,14 +1083,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getTransaction(req);
+      await daemonServiceWalletRpcs.getTransaction(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getTransaction', []);
     });
 
-    it('should trigger rpc, no includewatchonly in params, no response passed', async () => {
+    it('should trigger rpc, no includewatchonly in params', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -1301,14 +1102,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getTransaction(req);
+      await daemonServiceWalletRpcs.getTransaction(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getTransaction', [req.params.txid, false]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -1320,10 +1122,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.getTransaction(req);
+      await daemonServiceWalletRpcs.getTransaction(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getTransaction', [req.query.txid, false]);
     });
   });
@@ -1586,25 +1389,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.importAddress(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importAddress', []);
-    });
-
     it('should trigger rpc, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -1626,7 +1410,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importAddress', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1640,14 +1424,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importAddress(req);
+      await daemonServiceWalletRpcs.importAddress(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importAddress', [req.params.address, req.params.label, false]);
     });
 
-    it('should trigger rpc, no rescan in params, no response passed', async () => {
+    it('should trigger rpc, no rescan in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1660,14 +1445,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importAddress(req);
+      await daemonServiceWalletRpcs.importAddress(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importAddress', [req.params.address, req.params.label, true]);
     });
 
-    it('should trigger rpc, no address in params, no response passed', async () => {
+    it('should trigger rpc, no address in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1680,14 +1466,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importAddress(req);
+      await daemonServiceWalletRpcs.importAddress(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importAddress', []);
     });
 
-    it('should trigger rpc, no label in params, no response passed', async () => {
+    it('should trigger rpc, no label in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1700,14 +1487,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importAddress(req);
+      await daemonServiceWalletRpcs.importAddress(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importAddress', [req.params.address, '', false]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1721,10 +1509,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importAddress(req);
+      await daemonServiceWalletRpcs.importAddress(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importAddress', [req.query.address, req.query.label, false]);
     });
   });
@@ -1771,25 +1560,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.importPrivKey(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', []);
-    });
-
     it('should trigger rpc, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -1811,7 +1581,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1825,14 +1595,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importPrivKey(req);
+      await daemonServiceWalletRpcs.importPrivKey(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.fluxprivkey, req.params.label, false]);
     });
 
-    it('should trigger rpc, no rescan in params, no response passed', async () => {
+    it('should trigger rpc, no rescan in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1845,14 +1616,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importPrivKey(req);
+      await daemonServiceWalletRpcs.importPrivKey(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.fluxprivkey, req.params.label, true]);
     });
 
-    it('should trigger rpc, no fluxprivkey in params, no response passed', async () => {
+    it('should trigger rpc, no fluxprivkey in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1865,14 +1637,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importPrivKey(req);
+      await daemonServiceWalletRpcs.importPrivKey(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', []);
     });
 
-    it('should trigger rpc, no label in params, no response passed', async () => {
+    it('should trigger rpc, no label in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1885,14 +1658,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importPrivKey(req);
+      await daemonServiceWalletRpcs.importPrivKey(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.fluxprivkey, '', false]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1906,10 +1680,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importPrivKey(req);
+      await daemonServiceWalletRpcs.importPrivKey(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.query.fluxprivkey, req.query.label, false]);
     });
   });
@@ -1954,25 +1729,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.importWallet(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importWallet', []);
-    });
-
     it('should trigger rpc, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -1994,7 +1750,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importWallet', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2006,14 +1762,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importWallet(req);
+      await daemonServiceWalletRpcs.importWallet(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importWallet', [req.params.filename]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2025,10 +1782,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.importWallet(req);
+      await daemonServiceWalletRpcs.importWallet(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importWallet', [req.query.filename]);
     });
   });
@@ -2073,25 +1831,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.keyPoolRefill(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'keyPoolRefill', [100]);
-    });
-
     it('should trigger rpc, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -2113,7 +1852,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'keyPoolRefill', [100]);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2125,14 +1864,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.keyPoolRefill(req);
+      await daemonServiceWalletRpcs.keyPoolRefill(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'keyPoolRefill', [200]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2144,10 +1884,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.keyPoolRefill(req);
+      await daemonServiceWalletRpcs.keyPoolRefill(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'keyPoolRefill', [100]);
     });
   });
@@ -2408,25 +2149,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.rescanBlockchain(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'rescanblockchain', [0]);
-    });
-
     it('should trigger rpc, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -2448,7 +2170,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'rescanblockchain', [0]);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2460,14 +2182,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.rescanBlockchain(req);
+      await daemonServiceWalletRpcs.rescanBlockchain(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'rescanblockchain', [15]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2479,10 +2202,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.rescanBlockchain(req);
+      await daemonServiceWalletRpcs.rescanBlockchain(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'rescanblockchain', [3]);
     });
   });
@@ -2500,33 +2224,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          minconf: '3',
-          includewatchonly: 'false',
-          includeempty: 'true',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.listReceivedByAddress(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -2556,25 +2253,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.listReceivedByAddress(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listReceivedByAddress', [1, false, false]);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -2596,7 +2274,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listReceivedByAddress', [1, false, false]);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2610,14 +2288,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listReceivedByAddress(req);
+      await daemonServiceWalletRpcs.listReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listReceivedByAddress', [+req.params.minconf, true, false]);
     });
 
-    it('should trigger rpc, no minconf param, no response passed', async () => {
+    it('should trigger rpc, no minconf param', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2630,14 +2309,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listReceivedByAddress(req);
+      await daemonServiceWalletRpcs.listReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listReceivedByAddress', [1, true, false]);
     });
 
-    it('should trigger rpc, no includewatchonly, no response passed', async () => {
+    it('should trigger rpc, no includewatchonly', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2650,14 +2330,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listReceivedByAddress(req);
+      await daemonServiceWalletRpcs.listReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listReceivedByAddress', [+req.params.minconf, true, false]);
     });
 
-    it('should trigger rpc, no includeempty, no response passed', async () => {
+    it('should trigger rpc, no includeempty', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2670,14 +2351,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listReceivedByAddress(req);
+      await daemonServiceWalletRpcs.listReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listReceivedByAddress', [+req.params.minconf, false, false]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2691,10 +2373,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listReceivedByAddress(req);
+      await daemonServiceWalletRpcs.listReceivedByAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listReceivedByAddress', [+req.query.minconf, false, true]);
     });
   });
@@ -2712,7 +2395,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -2732,10 +2415,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listSinceBlock(req);
+      await daemonServiceWalletRpcs.listSinceBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
@@ -2768,25 +2452,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.listSinceBlock(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listSinceBlock', ['', 1, false]);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -2808,7 +2473,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listSinceBlock', ['', 1, false]);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2822,14 +2487,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listSinceBlock(req);
+      await daemonServiceWalletRpcs.listSinceBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listSinceBlock', [req.params.blockhash, +req.params.targetconfirmations, true]);
     });
 
-    it('should trigger rpc, no targetconfirmations param, no response passed', async () => {
+    it('should trigger rpc, no targetconfirmations param', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2842,14 +2508,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listSinceBlock(req);
+      await daemonServiceWalletRpcs.listSinceBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listSinceBlock', [req.params.blockhash, 1, true]);
     });
 
-    it('should trigger rpc, no includewatchonly, no response passed', async () => {
+    it('should trigger rpc, no includewatchonly', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2862,14 +2529,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listSinceBlock(req);
+      await daemonServiceWalletRpcs.listSinceBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listSinceBlock', [req.params.blockhash, +req.params.targetconfirmations, false]);
     });
 
-    it('should trigger rpc, no blockhash, no response passed', async () => {
+    it('should trigger rpc, no blockhash', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2882,14 +2550,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listSinceBlock(req);
+      await daemonServiceWalletRpcs.listSinceBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listSinceBlock', ['', +req.params.targetconfirmations, true]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -2903,10 +2572,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listSinceBlock(req);
+      await daemonServiceWalletRpcs.listSinceBlock(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listSinceBlock', [req.query.blockhash, +req.query.targetconfirmations, true]);
     });
   });
@@ -2924,33 +2594,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          count: '23',
-          from: '1',
-          includewatchonly: 'true',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.listTransactions(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -2980,25 +2623,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.listTransactions(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listTransactions', ['*', 10, 0, false]);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -3020,7 +2644,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listTransactions', ['*', 10, 0, false]);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3034,14 +2658,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listTransactions(req);
+      await daemonServiceWalletRpcs.listTransactions(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listTransactions', ['*', +req.params.count, +req.params.from, true]);
     });
 
-    it('should trigger rpc, no count param, no response passed', async () => {
+    it('should trigger rpc, no count param', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3054,14 +2679,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listTransactions(req);
+      await daemonServiceWalletRpcs.listTransactions(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listTransactions', ['*', 10, +req.params.from, true]);
     });
 
-    it('should trigger rpc, no from, no response passed', async () => {
+    it('should trigger rpc, no from', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3074,14 +2700,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listTransactions(req);
+      await daemonServiceWalletRpcs.listTransactions(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listTransactions', ['*', +req.params.count, 0, true]);
     });
 
-    it('should trigger rpc, no includewatchonly, no response passed', async () => {
+    it('should trigger rpc, no includewatchonly', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3094,14 +2721,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listTransactions(req);
+      await daemonServiceWalletRpcs.listTransactions(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listTransactions', ['*', +req.params.count, +req.params.from, false]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3115,10 +2743,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listTransactions(req);
+      await daemonServiceWalletRpcs.listTransactions(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listTransactions', ['*', +req.query.count, +req.query.from, true]);
     });
   });
@@ -3136,7 +2765,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -3155,10 +2784,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listUnspent(req);
+      await daemonServiceWalletRpcs.listUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
@@ -3194,25 +2824,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.listUnspent(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listUnspent', [1, 9999999]);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -3234,7 +2845,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listUnspent', [1, 9999999]);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3251,14 +2862,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listUnspent(req);
+      await daemonServiceWalletRpcs.listUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listUnspent', [+req.params.minconf, +req.params.maxconf, req.params.addresses]);
     });
 
-    it('should trigger rpc, no minconf param, no response passed', async () => {
+    it('should trigger rpc, no minconf param', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3274,14 +2886,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listUnspent(req);
+      await daemonServiceWalletRpcs.listUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listUnspent', [1, +req.params.maxconf, req.params.addresses]);
     });
 
-    it('should trigger rpc, no maxconf, no response passed', async () => {
+    it('should trigger rpc, no maxconf', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3297,14 +2910,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listUnspent(req);
+      await daemonServiceWalletRpcs.listUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listUnspent', [+req.params.minconf, 9999999, req.params.addresses]);
     });
 
-    it('should trigger rpc, no addresses, no response passed', async () => {
+    it('should trigger rpc, no addresses', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3317,14 +2931,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listUnspent(req);
+      await daemonServiceWalletRpcs.listUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listUnspent', [+req.params.minconf, +req.params.maxconf]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3341,10 +2956,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.listUnspent(req);
+      await daemonServiceWalletRpcs.listUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listUnspent', [+req.query.minconf, +req.query.maxconf, req.query.addresses]);
     });
   });
@@ -3362,35 +2978,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          unlock: false,
-          transactions: {
-            tr1: '1111ZZZZACEF12345',
-            tr2: '11ZZZ12354523ACF',
-          },
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.lockUnspent(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -3422,25 +3009,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.lockUnspent(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'lockUnspent', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -3462,7 +3030,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'lockUnspent', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3478,14 +3046,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.lockUnspent(req);
+      await daemonServiceWalletRpcs.lockUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'lockUnspent', [false, req.params.transactions]);
     });
 
-    it('should trigger rpc, no transactions, no response passed', async () => {
+    it('should trigger rpc, no transactions', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3497,14 +3066,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.lockUnspent(req);
+      await daemonServiceWalletRpcs.lockUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'lockUnspent', []);
     });
 
-    it('should trigger rpc, no unlock, no response passed', async () => {
+    it('should trigger rpc, no unlock', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3519,14 +3089,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.lockUnspent(req);
+      await daemonServiceWalletRpcs.lockUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'lockUnspent', []);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3542,10 +3113,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.lockUnspent(req);
+      await daemonServiceWalletRpcs.lockUnspent(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'lockUnspent', [true, req.query.transactions]);
     });
   });
@@ -3563,35 +3135,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          tofluxaddress: '1111ZASCVDF',
-          amount: '111111',
-          minconf: '3',
-          comment: 'testcomment',
-          commentto: 'testcommentto',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -3623,25 +3166,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -3663,7 +3187,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3679,14 +3203,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
+      await daemonServiceWalletRpcs.sendFrom(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, +req.params.minconf, req.params.comment, req.params.commentto]);
     });
 
-    it('should trigger rpc, no tofluxaddress, no response passed', async () => {
+    it('should trigger rpc, no tofluxaddress', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3701,14 +3226,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
+      await daemonServiceWalletRpcs.sendFrom(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', []);
     });
 
-    it('should trigger rpc, no amount, no response passed', async () => {
+    it('should trigger rpc, no amount', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3723,14 +3249,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
+      await daemonServiceWalletRpcs.sendFrom(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', []);
     });
 
-    it('should trigger rpc, no minconf, no response passed', async () => {
+    it('should trigger rpc, no minconf', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3745,14 +3272,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
+      await daemonServiceWalletRpcs.sendFrom(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, 1, req.params.comment, req.params.commentto]);
     });
 
-    it('should trigger rpc, no comment, no response passed', async () => {
+    it('should trigger rpc, no comment', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3767,14 +3295,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
+      await daemonServiceWalletRpcs.sendFrom(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, +req.params.minconf, '', req.params.commentto]);
     });
 
-    it('should trigger rpc, no commentto, no response passed', async () => {
+    it('should trigger rpc, no commentto', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3789,14 +3318,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
+      await daemonServiceWalletRpcs.sendFrom(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, +req.params.minconf, req.params.comment, '']);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3812,10 +3342,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendFrom(req);
+      await daemonServiceWalletRpcs.sendFrom(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.query.tofluxaddress, +req.query.amount, +req.query.minconf, req.query.comment, req.query.commentto]);
     });
   });
@@ -4018,42 +3549,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          amounts: {
-            amount1: '12',
-            amount2: '33',
-            amount3: '44',
-          },
-          minconf: '3',
-          comment: 'testcomment',
-          substractfeefromamount: {
-            fee1: '12',
-            fee2: '33',
-            fee3: '44',
-          },
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.sendMany(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -4092,25 +3587,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.sendMany(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -4132,7 +3608,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4155,14 +3631,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendMany(req);
+      await daemonServiceWalletRpcs.sendMany(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', ['', req.params.amounts, +req.params.minconf, req.params.comment, req.params.substractfeefromamount]);
     });
 
-    it('should trigger rpc, no amounts, no response passed', async () => {
+    it('should trigger rpc, no amounts', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4180,14 +3657,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendMany(req);
+      await daemonServiceWalletRpcs.sendMany(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', []);
     });
 
-    it('should trigger rpc, no minconf, no response passed', async () => {
+    it('should trigger rpc, no minconf', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4209,14 +3687,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendMany(req);
+      await daemonServiceWalletRpcs.sendMany(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', ['', req.params.amounts, 1, req.params.comment, req.params.substractfeefromamount]);
     });
 
-    it('should trigger rpc, no comment, no response passed', async () => {
+    it('should trigger rpc, no comment', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4238,14 +3717,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendMany(req);
+      await daemonServiceWalletRpcs.sendMany(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', ['', req.params.amounts, +req.params.minconf, '', req.params.substractfeefromamount]);
     });
 
-    it('should trigger rpc, no subtractfeefromamount, no response passed', async () => {
+    it('should trigger rpc, no subtractfeefromamount', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4263,14 +3743,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendMany(req);
+      await daemonServiceWalletRpcs.sendMany(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', ['', req.params.amounts, +req.params.minconf, req.params.comment]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4293,10 +3774,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendMany(req);
+      await daemonServiceWalletRpcs.sendMany(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendMany', ['', req.query.amounts, +req.query.minconf, req.query.comment, req.query.substractfeefromamount]);
     });
   });
@@ -4505,35 +3987,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          fluxaddress: '1111ZZZZASD',
-          amount: '123456',
-          comment: 'testcomment',
-          commentto: 'testcommentto',
-          substractfeefromamount: 'false',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -4565,25 +4018,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -4605,7 +4039,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4621,14 +4055,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
+      await daemonServiceWalletRpcs.sendToAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, req.params.comment, req.params.commentto, false]);
     });
 
-    it('should trigger rpc, no fluxaddress, no response passed', async () => {
+    it('should trigger rpc, no fluxaddress', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4643,14 +4078,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
+      await daemonServiceWalletRpcs.sendToAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', []);
     });
 
-    it('should trigger rpc, no amount, no response passed', async () => {
+    it('should trigger rpc, no amount', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4665,14 +4101,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
+      await daemonServiceWalletRpcs.sendToAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', []);
     });
 
-    it('should trigger rpc, no comment, no response passed', async () => {
+    it('should trigger rpc, no comment', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4687,14 +4124,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
+      await daemonServiceWalletRpcs.sendToAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, '', req.params.commentto, false]);
     });
 
-    it('should trigger rpc, no commentto, no response passed', async () => {
+    it('should trigger rpc, no commentto', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4709,14 +4147,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
+      await daemonServiceWalletRpcs.sendToAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, req.params.comment, '', false]);
     });
 
-    it('should trigger rpc, no subtractfeefromamount, no response passed', async () => {
+    it('should trigger rpc, no subtractfeefromamount', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4731,14 +4170,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
+      await daemonServiceWalletRpcs.sendToAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, req.params.comment, req.params.commentto, false]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4754,10 +4194,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.sendToAddress(req);
+      await daemonServiceWalletRpcs.sendToAddress(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.query.fluxaddress, +req.query.amount, req.query.comment, req.query.commentto, true]);
     });
   });
@@ -4959,31 +4400,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          amount: '12345',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.setTxFee(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -5011,25 +4427,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.setTxFee(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setTxFee', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -5051,7 +4448,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setTxFee', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -5063,14 +4460,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.setTxFee(req);
+      await daemonServiceWalletRpcs.setTxFee(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setTxFee', [+req.params.amount]);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -5082,10 +4480,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.setTxFee(req);
+      await daemonServiceWalletRpcs.setTxFee(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'setTxFee', [+req.query.amount]);
     });
   });
@@ -5103,32 +4502,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
-      verifyPrivilegeStub.returns(false);
-      const req = {
-        params: {
-          taddr: '1ZZZ12345',
-          message: 'this is test message',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-
-      const result = await daemonServiceWalletRpcs.signMessage(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.notCalled(daemonServiceUtilsStub);
-    });
-
     it('should throw error if user is unauthorized,  response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const res = generateResponse();
@@ -5157,25 +4530,6 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, no params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceWalletRpcs.signMessage(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signMessage', []);
-    });
-
     it('should trigger rpc, no params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
@@ -5197,7 +4551,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signMessage', []);
     });
 
-    it('should trigger rpc, data in params, no response passed', async () => {
+    it('should trigger rpc, data in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -5210,14 +4564,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.signMessage(req);
+      await daemonServiceWalletRpcs.signMessage(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signMessage', [req.params.taddr, req.params.message]);
     });
 
-    it('should trigger rpc, no taddr in params, no response passed', async () => {
+    it('should trigger rpc, no taddr in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -5229,14 +4584,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.signMessage(req);
+      await daemonServiceWalletRpcs.signMessage(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signMessage', []);
     });
 
-    it('should trigger rpc, no message in params, no response passed', async () => {
+    it('should trigger rpc, no message in params', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -5248,14 +4604,15 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.signMessage(req);
+      await daemonServiceWalletRpcs.signMessage(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signMessage', []);
     });
 
-    it('should trigger rpc, data in query, no response passed', async () => {
+    it('should trigger rpc, data in query', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -5268,10 +4625,11 @@ describe('daemonServiceWalletRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceWalletRpcs.signMessage(req);
+      await daemonServiceWalletRpcs.signMessage(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'signMessage', [req.query.taddr, req.query.message]);
     });
   });

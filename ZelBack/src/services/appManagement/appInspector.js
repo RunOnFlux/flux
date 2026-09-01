@@ -41,12 +41,12 @@ async function appTop(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+      return res.json(errMessage);
     }
 
     const appRes = await dockerService.appDockerTop(appname);
     const appResponse = messageHelper.createDataMessage(appRes);
-    return res ? res.json(appResponse) : appResponse;
+    return res.json(appResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -54,7 +54,7 @@ async function appTop(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 

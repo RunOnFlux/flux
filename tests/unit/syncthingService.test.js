@@ -319,6 +319,66 @@ describe('syncthingService tests', () => {
     });
   });
 
+  // This endpoint had no test at all: both branches end in res.json, and until
+  // now nothing had ever called it the way the router does. Its sibling in
+  // syncthingEventsConsumer takes a folder id and is a different function; the
+  // name collision is why the gap read as covered.
+  describe('getFolderErrors tests', () => {
+    let fakeGet;
+    let errorSpy;
+
+    beforeEach(() => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      fakeGet = sinon.stub().resolves({ data: [{ error: 'folder marker missing' }] });
+      sinon.stub(axios, 'create').returns({ get: fakeGet });
+      errorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('answers the folder syncthing was asked about, through the response', async () => {
+      const res = { json: sinon.stub() };
+
+      await syncthingService.getFolderErrors({ params: { folder: 'fluxcomp_app' }, query: {} }, res);
+
+      sinon.assert.calledOnceWithExactly(fakeGet, '/rest/folder/errors?folder=fluxcomp_app', undefined);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: [{ error: 'folder marker missing' }],
+      });
+    });
+
+    it('reads the folder from the query when the path does not carry it', async () => {
+      const res = { json: sinon.stub() };
+
+      await syncthingService.getFolderErrors({ params: {}, query: { folder: 'fluxcomp_other' } }, res);
+
+      sinon.assert.calledOnceWithExactly(fakeGet, '/rest/folder/errors?folder=fluxcomp_other', undefined);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+    });
+
+    it('answers the error through the response, and reads nothing, when no folder is named', async () => {
+      const res = { json: sinon.stub() };
+
+      await syncthingService.getFolderErrors({ params: {}, query: {} }, res);
+
+      sinon.assert.notCalled(fakeGet);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'folder parameter is mandatory',
+        },
+      });
+      sinon.assert.calledOnce(errorSpy);
+    });
+  });
+
   describe('installSyncthingIdempotently tests', () => {
     let runCmdStub;
     let infoSpy;

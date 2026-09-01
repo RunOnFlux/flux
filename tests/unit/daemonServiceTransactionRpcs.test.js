@@ -58,7 +58,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
-    it('should create a raw transaction if all parameters are set properly - no response passed', async () => {
+    it('should return the created raw transaction in the response', async () => {
       getBlockCountStub.resolves('5243422');
       const req = {
         params: {
@@ -74,7 +74,8 @@ describe('daemonServiceTransactionRpcs tests', () => {
           expiryheight: 1234677,
         },
       };
-      const result = await daemonServiceTransactionRpcs.createRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.createRawTransaction(req, res);
       const expectedCallParams = [
         { test: 'testtransaction', something: 'somethingelse' },
         { addr1: '1235asdf', addr2: '12344aaaa' },
@@ -82,12 +83,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
         1234677,
       ];
 
-      expect(result).to.equal(execCallResult);
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
       sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
-    it('should create a raw transaction if all parameters are set properly, passed in query - no response passed', async () => {
+    it('should create a raw transaction if all parameters are set properly, passed in query - response passed', async () => {
       getBlockCountStub.resolves('5243422');
       const req = {
         params: {
@@ -106,7 +107,8 @@ describe('daemonServiceTransactionRpcs tests', () => {
           expiryheight: 1234677,
         },
       };
-      const result = await daemonServiceTransactionRpcs.createRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.createRawTransaction(req, res);
       const expectedCallParams = [
         { test: 'testtransaction', something: 'somethingelse' },
         { addr1: '1235asdf', addr2: '12344aaaa' },
@@ -114,12 +116,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
         1234677,
       ];
 
-      expect(result).to.equal(execCallResult);
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
       sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
-    it('should create a raw transaction if no expiryheight is passed - no response passed', async () => {
+    it('should create a raw transaction if no expiryheight is passed - response passed', async () => {
       getBlockCountStub.resolves('5243422');
       const req = {
         params: {
@@ -137,7 +139,8 @@ describe('daemonServiceTransactionRpcs tests', () => {
           locktime: 5999,
         },
       };
-      const result = await daemonServiceTransactionRpcs.createRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.createRawTransaction(req, res);
       const expectedCallParams = [
         { test: 'testtransaction', something: 'somethingelse' },
         { addr1: '1235asdf', addr2: '12344aaaa' },
@@ -145,12 +148,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
         524342220,
       ];
 
-      expect(result).to.equal(execCallResult);
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
       sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
-    it('should create a raw transaction if no locktime is passed - no response passed', async () => {
+    it('should create a raw transaction if no locktime is passed - response passed', async () => {
       getBlockCountStub.resolves('5243422');
       const req = {
         params: {
@@ -168,7 +171,8 @@ describe('daemonServiceTransactionRpcs tests', () => {
           expiryheight: 1234677,
         },
       };
-      const result = await daemonServiceTransactionRpcs.createRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.createRawTransaction(req, res);
       const expectedCallParams = [
         { test: 'testtransaction', something: 'somethingelse' },
         { addr1: '1235asdf', addr2: '12344aaaa' },
@@ -176,7 +180,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
         1234677,
       ];
 
-      expect(result).to.equal(execCallResult);
+      sinon.assert.calledOnceWithExactly(res.json, execCallResult);
       sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
@@ -208,9 +212,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
         },
       };
 
-      const result = await daemonServiceTransactionRpcs.createRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.createRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResult);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResult);
       sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
@@ -422,7 +427,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should execute RPC if parameters are passed in params, no response passed', async () => {
+    it('should execute RPC if parameters are passed in params, response passed', async () => {
       const req = {
         params: {
           hex: '0x412368904412378BAF',
@@ -431,9 +436,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const expectedParams = [req.params.hex];
 
-      const result = await daemonServiceTransactionRpcs.decodeScript(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.decodeScript(req, res);
 
-      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'decodeScript', expectedParams);
     });
 
@@ -490,7 +496,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should execute RPC if parameters are passed in params, no response passed', async () => {
+    it('should execute RPC if parameters are passed in params, response passed', async () => {
       const req = {
         params: {
           hexstring: '0x412368904412378BAF',
@@ -499,9 +505,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const expectedParams = [req.params.hexstring];
 
-      const result = await daemonServiceTransactionRpcs.fundRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.fundRawTransaction(req, res);
 
-      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'fundRawTransaction', expectedParams);
     });
 
@@ -694,7 +701,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should execute RPC if parameters are passed in params, no response passed', async () => {
+    it('should execute RPC if parameters are passed in params, response passed', async () => {
       const req = {
         params: {
           hexstring: '0x412368904412378BAF',
@@ -704,13 +711,14 @@ describe('daemonServiceTransactionRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const expectedParams = [req.params.hexstring, req.params.allowhighfees];
 
-      const result = await daemonServiceTransactionRpcs.sendRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.sendRawTransaction(req, res);
 
-      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendRawTransaction', expectedParams);
     });
 
-    it('should execute RPC if parameters are passed in query, no allowhighfees param, no response passed', async () => {
+    it('should execute RPC if parameters are passed in query, no allowhighfees param, response passed', async () => {
       const req = {
         params: {
           test: 'test',
@@ -722,9 +730,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const expectedParams = [req.query.hexstring, false];
 
-      const result = await daemonServiceTransactionRpcs.sendRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.sendRawTransaction(req, res);
 
-      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendRawTransaction', expectedParams);
     });
 
@@ -938,7 +947,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should return the unauthorized error message in the response', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -964,9 +973,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
@@ -1003,7 +1013,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in params, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1023,9 +1033,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'signRawTransaction',
@@ -1039,7 +1050,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1062,9 +1073,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'signRawTransaction',
@@ -1078,7 +1090,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, parameters passed in params no sighashtype, no response passed', async () => {
+    it('should trigger rpc, parameters passed in params no sighashtype, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1100,9 +1112,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'signRawTransaction',
@@ -1116,7 +1129,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, no hexstring passed, no response passed', async () => {
+    it('should trigger rpc, no hexstring passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1138,9 +1151,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'signRawTransaction',
@@ -1148,7 +1162,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, no prevtxs passed, no response passed', async () => {
+    it('should trigger rpc, no prevtxs passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1167,9 +1181,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'signRawTransaction',
@@ -1177,7 +1192,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, no privatekeys passed, no response passed', async () => {
+    it('should trigger rpc, no privatekeys passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1196,9 +1211,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'signRawTransaction',
@@ -1206,7 +1222,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
       );
     });
 
-    it('should trigger rpc, no branchid passed, no response passed', async () => {
+    it('should trigger rpc, no branchid passed, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1228,9 +1244,10 @@ describe('daemonServiceTransactionRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
+      const res = generateResponse();
+      await daemonServiceTransactionRpcs.signRawTransaction(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(
         daemonServiceUtilsStub,
         'signRawTransaction',

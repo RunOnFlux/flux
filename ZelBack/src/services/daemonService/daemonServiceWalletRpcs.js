@@ -20,7 +20,7 @@ async function addMultiSigAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'addMultiSigAddress';
   let rpcparameters = [];
@@ -31,7 +31,7 @@ async function addMultiSigAddress(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -79,7 +79,7 @@ async function backupWallet(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'backupWallet';
   let rpcparameters = [];
@@ -88,7 +88,7 @@ async function backupWallet(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -103,7 +103,7 @@ async function dumpPrivKey(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'dumpPrivKey';
   let rpcparameters = [];
@@ -112,7 +112,7 @@ async function dumpPrivKey(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -128,7 +128,7 @@ async function getBalance(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'getBalance';
   minconf = serviceHelper.ensureNumber(minconf);
@@ -136,7 +136,7 @@ async function getBalance(req, res) {
   const rpcparameters = ['', minconf, includewatchonly];
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -188,7 +188,7 @@ async function getReceivedByAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'getReceivedByAddress';
   let rpcparameters = [];
@@ -198,7 +198,7 @@ async function getReceivedByAddress(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -220,7 +220,7 @@ async function getTransaction(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -274,7 +274,7 @@ async function importAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'importAddress';
   let rpcparameters = [];
@@ -284,7 +284,7 @@ async function importAddress(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -301,7 +301,7 @@ async function importPrivKey(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'importPrivKey';
   let rpcparameters = [];
@@ -311,7 +311,7 @@ async function importPrivKey(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -326,7 +326,7 @@ async function importWallet(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'importWallet';
   let rpcparameters = [];
@@ -335,7 +335,7 @@ async function importWallet(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -350,14 +350,14 @@ async function keyPoolRefill(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'keyPoolRefill';
   newsize = serviceHelper.ensureNumber(newsize);
   const rpcparameters = [newsize];
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -408,14 +408,14 @@ async function rescanBlockchain(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   startheight = serviceHelper.ensureNumber(startheight);
   const rpccall = 'rescanblockchain';
   const rpcparameters = [startheight];
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -432,7 +432,7 @@ async function listReceivedByAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   minconf = serviceHelper.ensureNumber(minconf);
   includeempty = serviceHelper.ensureBoolean(includeempty);
@@ -441,7 +441,7 @@ async function listReceivedByAddress(req, res) {
   const rpcparameters = [minconf, includeempty, includewatchonly];
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -458,7 +458,7 @@ async function listSinceBlock(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   targetconfirmations = serviceHelper.ensureNumber(targetconfirmations);
   includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
@@ -466,7 +466,7 @@ async function listSinceBlock(req, res) {
   const rpcparameters = [blockhash, targetconfirmations, includewatchonly];
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -484,7 +484,7 @@ async function listTransactions(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   count = serviceHelper.ensureNumber(count);
   from = serviceHelper.ensureNumber(from);
@@ -493,7 +493,7 @@ async function listTransactions(req, res) {
   const rpcparameters = [account, count, from, includewatchonly];
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -510,7 +510,7 @@ async function listUnspent(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   minconf = serviceHelper.ensureNumber(minconf);
   maxconf = serviceHelper.ensureNumber(maxconf);
@@ -523,7 +523,7 @@ async function listUnspent(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -539,7 +539,7 @@ async function lockUnspent(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'lockUnspent';
   let rpcparameters = [];
@@ -551,7 +551,7 @@ async function lockUnspent(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -573,7 +573,7 @@ async function sendFrom(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'sendFrom';
   let rpcparameters = [];
@@ -585,7 +585,7 @@ async function sendFrom(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -646,13 +646,13 @@ async function sendMany(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'sendMany';
   let rpcparameters = [];
   if (!amounts) {
     response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   amounts = serviceHelper.ensureObject(amounts);
   minconf = serviceHelper.ensureNumber(minconf);
@@ -664,7 +664,7 @@ async function sendMany(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -729,7 +729,7 @@ async function sendToAddress(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'sendToAddress';
   let rpcparameters = [];
@@ -741,7 +741,7 @@ async function sendToAddress(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -796,7 +796,7 @@ async function setTxFee(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'setTxFee';
   let rpcparameters = [];
@@ -807,7 +807,7 @@ async function setTxFee(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -823,7 +823,7 @@ async function signMessage(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'signMessage';
   let rpcparameters = [];
@@ -833,7 +833,7 @@ async function signMessage(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**

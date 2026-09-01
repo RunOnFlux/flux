@@ -20,7 +20,7 @@ async function addNode(req, res) {
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
 
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'addNode';
   let rpcparameters = [];
@@ -29,7 +29,7 @@ async function addNode(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -72,7 +72,7 @@ async function disconnectNode(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -102,7 +102,7 @@ async function getAddedNodeInfo(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -243,7 +243,7 @@ async function setBan(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 module.exports = {

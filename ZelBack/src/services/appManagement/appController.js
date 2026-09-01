@@ -357,13 +357,13 @@ async function appStart(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+      return res.json(errMessage);
     }
 
     if (global) {
       executeAppGlobalCommand(appname, 'appstart', authOf(req)); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global start`);
-      return res ? res.json(appResponse) : appResponse;
+      return res.json(appResponse);
     }
 
     // THE RECONCILER STARTS IT, NOT THIS HANDLER.
@@ -397,11 +397,11 @@ async function appStart(req, res) {
       const pending = messageHelper.createDataMessage(
         `Application ${startedName} will be started: ${outcome.reason}`,
       );
-      return res ? res.json(pending) : pending;
+      return res.json(pending);
     }
 
     const appResponse = messageHelper.createDataMessage(`Application ${startedName} started`);
-    return res ? res.json(appResponse) : appResponse;
+    return res.json(appResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -409,7 +409,7 @@ async function appStart(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -443,13 +443,13 @@ async function appStop(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+      return res.json(errMessage);
     }
 
     if (global) {
       executeAppGlobalCommand(appname, 'appstop', authOf(req)); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global stop`);
-      return res ? res.json(appResponse) : appResponse;
+      return res.json(appResponse);
     }
 
     // THE RECONCILER STOPS IT, NOT THIS HANDLER.
@@ -487,11 +487,11 @@ async function appStop(req, res) {
       const pending = messageHelper.createDataMessage(
         `Application ${stoppedName} will be stopped: ${outcome.reason}`,
       );
-      return res ? res.json(pending) : pending;
+      return res.json(pending);
     }
 
     const appResponse = messageHelper.createDataMessage(`Application ${stoppedName} stopped`);
-    return res ? res.json(appResponse) : appResponse;
+    return res.json(appResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -499,7 +499,7 @@ async function appStop(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -532,13 +532,13 @@ async function appRestart(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+      return res.json(errMessage);
     }
 
     if (global) {
       executeAppGlobalCommand(appname, 'apprestart', authOf(req)); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global restart`);
-      return res ? res.json(appResponse) : appResponse;
+      return res.json(appResponse);
     }
 
     // A RESTART IS DESIRED STATE, NOT A DOCKER CALL.
@@ -561,11 +561,11 @@ async function appRestart(req, res) {
       const pending = messageHelper.createDataMessage(
         `Application ${restartedName} will be restarted: ${outcome.reason}`,
       );
-      return res ? res.json(pending) : pending;
+      return res.json(pending);
     }
 
     const appResponse = messageHelper.createDataMessage(`Application ${restartedName} restarted`);
-    return res ? res.json(appResponse) : appResponse;
+    return res.json(appResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -573,7 +573,7 @@ async function appRestart(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -603,7 +603,7 @@ async function appKill(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+      return res.json(errMessage);
     }
 
     // A kill is a stop that carries a signal, so it is the same desired state
@@ -622,11 +622,11 @@ async function appKill(req, res) {
       const pending = messageHelper.createDataMessage(
         `Application ${killedName} will be killed: ${outcome.reason}`,
       );
-      return res ? res.json(pending) : pending;
+      return res.json(pending);
     }
 
     const appResponse = messageHelper.createDataMessage(`Application ${killedName} killed`);
-    return res ? res.json(appResponse) : appResponse;
+    return res.json(appResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -634,7 +634,7 @@ async function appKill(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -672,7 +672,7 @@ async function deprecatedPauseResponse(req, res) {
       const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
-        return res ? res.json(errMessage) : errMessage;
+        return res.json(errMessage);
       }
     }
 
@@ -681,7 +681,7 @@ async function deprecatedPauseResponse(req, res) {
       'Deprecated',
       410,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -689,7 +689,7 @@ async function deprecatedPauseResponse(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 

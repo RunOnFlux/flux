@@ -631,7 +631,7 @@ describe('appInspector tests', () => {
   });
 
   describe('appTop tests', () => {
-    it('should return error if no params were passed, response passed', async () => {
+    it('should return error if no params were passed', async () => {
       const req = {
         params: {
           test: 'test',
@@ -659,32 +659,7 @@ describe('appInspector tests', () => {
       expect(logStub.error.called).to.be.true;
     });
 
-    it('should return error if no params were passed, no response passed', async () => {
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-
-      messageHelperStub.createErrorMessage.returns({
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'No Flux App specified',
-        },
-      });
-
-      const result = await appInspector.appTop(req);
-
-      expect(result).to.have.property('status', 'error');
-      expect(logStub.error.called).to.be.true;
-    });
-
-    it('should return error if user has no appowner privileges, response passed', async () => {
+    it('should return error if user has no appowner privileges', async () => {
       const appInspectorWithAuth = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
         config: configStub,
         '../dockerService': dockerServiceStub,
@@ -739,7 +714,7 @@ describe('appInspector tests', () => {
       expect(res.json.calledOnce).to.be.true;
     });
 
-    it('should return error if user has no appowner privileges, no response passed', async () => {
+    it('should return error if user has no appowner privileges, appQueryService unstubbed', async () => {
       const appInspectorWithAuth = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
         config: configStub,
         '../dockerService': dockerServiceStub,
@@ -776,19 +751,24 @@ describe('appInspector tests', () => {
           test2: 'test2',
         },
       };
+      const res = {
+        json: sinon.stub(),
+      };
 
-      messageHelperStub.createErrorMessage.returns({
+      const expected = {
         status: 'error',
         data: {
           code: 401,
           name: 'Unauthorized',
           message: 'Unauthorized. Access denied.',
         },
-      });
+      };
+      messageHelperStub.createErrorMessage.returns(expected);
+      messageHelperStub.errUnauthorizedMessage.returns(expected);
 
-      const result = await appInspectorWithAuth.appTop(req);
+      await appInspectorWithAuth.appTop(req, res);
 
-      expect(result).to.have.property('status', 'error');
+      sinon.assert.calledOnceWithExactly(res.json, expected);
     });
 
     it('should top app, underscore in the name', async () => {
@@ -800,16 +780,20 @@ describe('appInspector tests', () => {
           test2: 'test2',
         },
       };
+      const res = {
+        json: sinon.stub(),
+      };
 
-      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
-      messageHelperStub.createDataMessage.returns({
+      const expected = {
         status: 'success',
         data: 'some data',
-      });
+      };
+      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
+      messageHelperStub.createDataMessage.returns(expected);
 
-      const result = await appInspector.appTop(req);
+      await appInspector.appTop(req, res);
 
-      expect(result).to.have.property('status', 'success');
+      sinon.assert.calledOnceWithExactly(res.json, expected);
       expect(dockerServiceStub.appDockerTop.calledWith('test_myappname')).to.be.true;
     });
 
@@ -822,16 +806,20 @@ describe('appInspector tests', () => {
           test2: 'test2',
         },
       };
+      const res = {
+        json: sinon.stub(),
+      };
 
-      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
-      messageHelperStub.createDataMessage.returns({
+      const expected = {
         status: 'success',
         data: 'some data',
-      });
+      };
+      dockerServiceStub.appDockerTop = sinon.stub().resolves('some data');
+      messageHelperStub.createDataMessage.returns(expected);
 
-      const result = await appInspector.appTop(req);
+      await appInspector.appTop(req, res);
 
-      expect(result).to.have.property('status', 'success');
+      sinon.assert.calledOnceWithExactly(res.json, expected);
       expect(dockerServiceStub.appDockerTop.calledWith('myappname')).to.be.true;
     });
   });

@@ -224,7 +224,7 @@ async function signFluxTransaction(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -314,7 +314,7 @@ async function help(req, res) {
 
   const response = await executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**

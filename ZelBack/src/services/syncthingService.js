@@ -1542,11 +1542,11 @@ async function getFolderErrors(req, res) {
       throw new Error('folder parameter is mandatory');
     }
     const response = await getFolderIdErrors(folder);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1567,11 +1567,11 @@ async function getFolderVersions(req, res) {
       throw new Error('folder parameter is mandatory');
     }
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1640,11 +1640,11 @@ async function getDbBrowse(req, res) {
     const qqStr = qs.stringify(qq);
     apiPath += `?${qqStr}`;
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1706,11 +1706,11 @@ async function getDbFile(req, res) {
     const qqStr = qs.stringify(qq);
     apiPath += `${qqStr}`;
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1727,11 +1727,11 @@ async function getDbIgnores(req, res) {
     let apiPath = '/rest/db/ignores';
     if (folder) apiPath += `?folder=${folder}`;
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1777,11 +1777,11 @@ async function getDbLocalchanged(req, res) {
       throw new Error('folder parameter is mandatory');
     }
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1802,11 +1802,11 @@ async function getDbNeed(req, res) {
       throw new Error('folder parameter is mandatory');
     }
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1834,11 +1834,11 @@ async function getDbRemoteNeed(req, res) {
       throw new Error('device parameter is mandatory');
     }
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -2377,11 +2377,11 @@ async function getSvcDeviceID(req, res) {
       throw new Error('id parameter is mandatory');
     }
     const response = await performRequest('get', apiPath);
-    return res ? res.json(response) : response;
+    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 

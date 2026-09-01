@@ -27,7 +27,7 @@ async function createRawTransaction(req, res) {
   });
   if (!blockcount) {
     // getBlockCount rejected the promise - return error message
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const defaultExpiryHeight = blockcount + 20;
   let { expiryheight } = req.params;
@@ -44,7 +44,7 @@ async function createRawTransaction(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -108,7 +108,7 @@ async function decodeRawTransaction(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -154,7 +154,7 @@ async function decodeScript(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -200,7 +200,7 @@ async function fundRawTransaction(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -272,7 +272,7 @@ async function sendRawTransaction(req, res) {
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -324,7 +324,7 @@ async function signRawTransaction(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'signRawTransaction';
   const rpcparameters = [];
@@ -344,7 +344,7 @@ async function signRawTransaction(req, res) {
     }
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**

@@ -25,7 +25,7 @@ async function getBlockSubsidy(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -47,7 +47,7 @@ async function getBlockTemplate(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -97,7 +97,7 @@ async function getNetworkHashPs(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -118,7 +118,7 @@ async function getNetworkSolPs(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -135,7 +135,7 @@ async function prioritiseTransaction(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
+    return res.json(response);
   }
   const rpccall = 'prioritiseTransaction';
   let rpcparameters = [];
@@ -147,7 +147,7 @@ async function prioritiseTransaction(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
@@ -176,7 +176,7 @@ async function submitBlock(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
