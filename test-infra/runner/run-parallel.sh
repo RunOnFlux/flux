@@ -205,11 +205,42 @@ sweep_harness_leftovers(){
 sweep_harness_leftovers
 
 # ---- capture sidecars (best-effort; killed on exit) ----
-( sudo dmesg -wT 2>/dev/null | grep --line-buffered -iE 'oom|killed process' ) > "$LOGROOT/cap-dmesg.log" 2>&1 & CAP1=$!
+# CAP1 records the PID of its root half so the trap can signal it directly.
+# `kill $CAP1` reaches the subshell and nothing else: `sudo` and the `dmesg` it
+# execs are root-owned, so they survive an unprivileged kill of their parent,
+# reparent to init, and `grep` then blocks forever on a pipe nobody will close.
+# Three processes per gate, and because they stay in the ssh session's cgroup
+# the scope goes `abandoned` and logind never reaps the session - which is why
+# `uptime` reported 54 users on an idle chud with `who` reporting none. Leaking
+# since 2026-08-07 and hand-cleared at least three times without the cause being
+# fixed: 66 runs' worth on chud, 31 on cindy, the oldest there since boot.
+# Killing the root `dmesg` first is what makes the rest fall over - grep sees
+# EOF and exits, and the subshell goes with it.
+CAP_DMESG_PID="$LOGROOT/cap-dmesg.pid"
+( sudo sh -c 'echo $$ >"$1"; exec dmesg -wT' _ "$CAP_DMESG_PID" 2>/dev/null \
+    | grep --line-buffered -iE 'oom|killed process' ) > "$LOGROOT/cap-dmesg.log" 2>&1 & CAP1=$!
 ( while true; do echo "$(date -u +%H:%M:%S) avail=$(free_mb)MB load=$(cut -d' ' -f1 /proc/loadavg) containers=$(docker ps -q 2>/dev/null | wc -l)"; sleep 5; done ) > "$LOGROOT/cap-mem.log" 2>&1 & CAP2=$!
 ( docker events --filter event=die --filter event=kill --filter event=oom \
     --format '{{.Time}} {{.Action}} name={{.Actor.Attributes.name}} exitCode={{.Actor.Attributes.exitCode}}' ) > "$LOGROOT/cap-events.log" 2>&1 & CAP3=$!
-trap 'kill $CAP1 $CAP2 $CAP3 2>/dev/null' EXIT
+stop_captures(){
+  local root_dmesg pid kid
+  root_dmesg=$(cat "$CAP_DMESG_PID" 2>/dev/null)
+  # Root-owned, so it needs sudo, and it has to go first: once `dmesg` is gone
+  # `grep` sees EOF and the subshell follows it out.
+  [ -n "$root_dmesg" ] && sudo -n kill "$root_dmesg" 2>/dev/null
+  # Children BEFORE parents, and by explicit PID. `$CAPn` is the subshell, whose
+  # children outlive it and reparent to init - `docker events` was found orphaned
+  # on cindy beside the dmesg trio, ten hours after the gate that started it.
+  # Killing the parent first would lose the ppid link that finds them.
+  for pid in $CAP1 $CAP2 $CAP3; do
+    for kid in $(ps -eo pid,ppid --no-headers 2>/dev/null | awk -v p="$pid" '$2==p{print $1}'); do
+      kill "$kid" 2>/dev/null
+    done
+    kill "$pid" 2>/dev/null
+  done
+  rm -f "$CAP_DMESG_PID"
+}
+trap stop_captures EXIT
 
 declare -A PID2SUITE
 
