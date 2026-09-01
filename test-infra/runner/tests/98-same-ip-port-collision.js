@@ -122,8 +122,17 @@ describe('a port another Flux node at this address holds', function () {
     const answer = await env.clients[1].post('/flux/portsinuse', {}, { zelidauth: auth.zelidauth });
 
     expect(answer.status).to.equal('success');
-    expect(answer.data).to.be.an('array');
-    expect(answer.data).to.include(HELD_PORT);
+    expect(answer.data.ports).to.be.an('array');
+    expect(answer.data.ports).to.include(HELD_PORT);
+
+    // The answer is SIGNED, and that is the whole reason to act on it. A node's
+    // own record of what it has installed is the truth about which ports are
+    // spoken for at this address - but only once it is that node saying it,
+    // rather than whatever happens to be listening on the address. Asserted here
+    // because this is the only place a real FluxOS answers this endpoint; the
+    // sibling test below then proves the other end verifies it.
+    expect(answer.data.pubKey, 'the answer named no signer').to.be.a('string');
+    expect(answer.data.signature, 'the answer was not signed').to.be.a('string');
   });
 
   // Answering is not free: it reads this node's own specifications and decrypts

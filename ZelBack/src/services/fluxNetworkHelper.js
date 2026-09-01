@@ -454,8 +454,8 @@ async function checkFluxAvailability(req, res) {
  * @returns {object} Message.
  */
 /**
- * Whether a request body carries a signature from a Fluxnode on the deterministic
- * list, over its own contents.
+ * Whether a signed body - asked or answered - carries a signature from a
+ * Fluxnode on the deterministic list, over its own contents.
  *
  * Extracted rather than written twice. Two copies of a signature check is the
  * one duplication that must not drift - whichever copy is corrected, the other
@@ -464,10 +464,17 @@ async function checkFluxAvailability(req, res) {
  * The body is verified as it arrived minus the signature itself, which is how
  * the sender built the message it signed.
  *
- * @param {object} processedBody The parsed request body, carrying pubKey and signature
+ * `socketAddress` binds the signer to a place, and the two directions need
+ * different answers. For a request, "some listed Fluxnode signed this" is the
+ * whole question - any node on the list may ask. For an ANSWER it is not enough:
+ * we dialled one address, and what comes back has to be from the node that lives
+ * there rather than a signature made by, or relayed from, somewhere else.
+ *
+ * @param {object} processedBody The parsed body, carrying pubKey and signature
+ * @param {{socketAddress?: string}} [options] The address the signer must hold
  * @returns {Promise<boolean>} True when a listed Fluxnode signed this body
  */
-async function verifySignedFluxnodeRequest(processedBody) {
+async function verifySignedFluxnodeMessage(processedBody, options = {}) {
   if (!processedBody || !processedBody.pubKey || !processedBody.signature) return false;
 
   const { pubKey, signature } = processedBody;
@@ -475,11 +482,23 @@ async function verifySignedFluxnodeRequest(processedBody) {
   const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
   if (!nodes.length) return false;
 
+  const { socketAddress = null } = options;
+  if (socketAddress && !nodes.some((node) => socketAddressesMatch(node.ip, socketAddress))) return false;
+
   const dataToVerify = { ...processedBody };
   delete dataToVerify.signature;
 
   return verificationHelper.verifyMessage(JSON.stringify(dataToVerify), pubKey, signature) === true;
 }
+
+/**
+ * The most ports one request may ask this node to test.
+ *
+ * An application is capped at maxComponents (10) components of ports (5) each in
+ * appValidator, so 50 is the largest honest ask. The bound exists because the
+ * ports are tested one after another, each for up to a full connect timeout.
+ */
+const MAX_TESTABLE_PORTS = 50;
 
 async function checkAppAvailability(req, res) {
   let body = '';
@@ -492,14 +511,50 @@ async function checkAppAvailability(req, res) {
 
       const processedBody = serviceHelper.ensureObject(body);
 
-      const { ip, ports } = processedBody;
+      const { ports } = processedBody;
 
       const ipPort = processedBody.port;
 
       // pubkey of the message has to be on the list
-      const verified = await verifySignedFluxnodeRequest(processedBody);
+      const verified = await verifySignedFluxnodeMessage(processedBody);
       if (!verified && authorized !== true) {
         throw new Error('Unable to verify request authenticity');
+      }
+
+      // The address to probe is NOT an input. A caller that names it chooses
+      // where this node connects, and the echo below hands back the first bytes
+      // of what answered - so a body-supplied address turns every Flux node into
+      // a fetch primitive aimed at anything a signed peer likes, the loopback and
+      // the RFC1918 side of its own router included. The range guard does not
+      // help: portMin is 1 and portMax is 65535, and bannedPorts names this
+      // node's own services rather than a database's.
+      //
+      // The honest caller never needed it. It is asking whether ITS OWN ports
+      // are reachable, so the address it means is the one it is connecting from.
+      // This is the rule /flux/addpeer already applies, and every inbound peer is
+      // already identified by its socket address - a Fluxnode whose egress
+      // differed from its declared address could not hold a peer slot anywhere on
+      // the network, so nothing legitimate is lost by insisting on it here.
+      //
+      // The operator of THIS node may still name an address: probing elsewhere by
+      // hand is a real thing to want, and that privilege is already node-local.
+      const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
+      const ip = authorized === true ? (processedBody.ip || remoteIp) : remoteIp;
+
+      if (!ip) {
+        throw new Error('Unable to determine which address to test');
+      }
+
+      if (!Array.isArray(ports)) {
+        throw new Error('No ports to test');
+      }
+
+      // A valid application cannot hold more ports than the specification allows
+      // it: maxComponents (10) x ports per component (5) = 50, both in
+      // appValidator. Bounded at all because each port below costs up to a full
+      // connect timeout and they are tested in sequence.
+      if (ports.length > MAX_TESTABLE_PORTS) {
+        throw new Error(`Too many ports to test. Maximum of ${MAX_TESTABLE_PORTS} allowed.`);
       }
 
       const { fluxapps: { portMin: minPort, portMax: maxPort } } = config;
@@ -2454,7 +2509,7 @@ module.exports = {
   isPortOpen,
   portAnswered,
   checkAppAvailability,
-  verifySignedFluxnodeRequest,
+  verifySignedFluxnodeMessage,
   isPortEnterprise,
   isPortBanned,
   isPortUPNPBanned,

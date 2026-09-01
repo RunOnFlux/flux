@@ -393,9 +393,10 @@ class NetworkStateManager extends EventEmitter {
    * A random node that can observe this one from OUTSIDE its address.
    *
    * For asking a peer what our address looks like from where it stands. A node
-   * sharing our public address is not outside it: reaching us means leaving the
-   * router and being sent straight back in, which most consumer routers do not
-   * do - so it reports a closed port and we refuse an install that was fine.
+   * sharing our public address is not outside it - its packets never leave the
+   * router - so whatever it can or cannot reach says nothing about what the
+   * internet can reach, which is the only question being asked. That holds
+   * however the router behaves; it is not a claim about hairpinning.
    * Excluded here rather than at each caller, because the callers that need it
    * are not the only ones drawing a peer and one of them already had to write
    * the check by hand.

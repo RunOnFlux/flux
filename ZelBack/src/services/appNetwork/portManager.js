@@ -457,7 +457,7 @@ async function portsInUseApi(req, res) {
     // of them works for both kinds of caller.
     const processedBody = serviceHelper.ensureObject(req.body);
 
-    const signed = await fluxNetworkHelper.verifySignedFluxnodeRequest(processedBody);
+    const signed = await fluxNetworkHelper.verifySignedFluxnodeMessage(processedBody);
     const authorized = signed
       ? true
       : await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
@@ -466,7 +466,26 @@ async function portsInUseApi(req, res) {
       throw new Error('Unable to verify request authenticity');
     }
 
-    res.json(messageHelper.createDataMessage(await portsInUse()));
+    const ports = await portsInUse();
+
+    // Signed, so the answer is bound to the Fluxnode that owns this address
+    // rather than to whatever is listening on it. A node's own record of what it
+    // has installed IS the truth about which ports are spoken for here, and that
+    // is the whole reason to act on the answer - but only once it is that node
+    // saying it. The request side has always established who is ASKING; without
+    // this the reply established nothing at all.
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const answer = { pubKey, ports };
+    const signature = await signCheckAppData(JSON.stringify(answer));
+
+    // signMessage catches its own failures and answers with nothing, so an
+    // unsigned answer is a real possibility rather than a throw. It would be
+    // discarded at the other end without a word; say what happened instead.
+    if (!signature || typeof signature !== 'string') {
+      throw new Error('Unable to sign the answer');
+    }
+
+    res.json(messageHelper.createDataMessage({ ...answer, signature }));
   } catch (error) {
     log.error(error);
     res.json(messageHelper.createErrorMessage(
@@ -523,7 +542,17 @@ function siblingSocketAddresses(localSocketAddress) {
  * wiser - and silence is never read as clearance, because the port test that
  * follows is what decides.
  *
- * @param {object} appSpecFormatted - App specification
+ * DEPENDS ON NAT HAIRPINNING. A sibling is addressed by the public address it
+ * shares with us, so asking it means leaving the router and being sent straight
+ * back in. Where a router does not do that, every sibling is silent and this
+ * check contributes nothing. What is lost is the only answer to "is this port
+ * already SPOKEN FOR here": the port test that follows answers a different
+ * question - whether the port reaches us right now - and so cannot see a port a
+ * neighbour has installed and is not currently serving. Asking over the LAN
+ * rather than through the router is the fix, and it belongs with the work that
+ * gives siblings an address that is not the shared one.
+ *
+ * @param {number[]} appPorts - the host ports this application wants
  * @param {string} localSocketAddress - our own ip:port
  * @returns {Promise<{address: string, port: number}|null>} the sibling and the
  *   port it holds, or null when none of them reported one
@@ -567,17 +596,45 @@ async function siblingHoldingPort(appPorts, localSocketAddress) {
     ).catch(() => null);
 
     const body = response && response.data;
-    if (!body || body.status !== 'success' || !Array.isArray(body.data)) return null;
+    if (!body || body.status !== 'success') return null;
 
-    return { address, ports: body.data.map(Number) };
+    const answer = body.data;
+    if (!answer || !Array.isArray(answer.ports)) return null;
+
+    // Verified as the answer of the node AT THIS ADDRESS. A listed Fluxnode
+    // elsewhere signing a port list says nothing about what is installed here,
+    // and this address is only as trustworthy as whatever is answering on it.
+    // The body is passed through as it arrived, because that is what was signed.
+    // eslint-disable-next-line no-await-in-loop
+    const verified = await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: address });
+
+    if (!verified) {
+      log.warn(`siblingHoldingPort - ${address} did not answer as the Flux node at that address; ignoring it`);
+      return null;
+    }
+
+    return { address, ports: answer.ports.map(Number) };
   }));
 
+  const heard = answers.filter(Boolean);
+
+  if (!heard.length) {
+    // Nothing was learned, which is not the same as there being nothing to
+    // learn - and the two used to be the same silence. Reaching a sibling means
+    // leaving the router and being sent straight back in, so where the router
+    // does not hairpin every sibling looks mute and this check quietly
+    // contributes nothing on the very topology it exists for. Worth a line: it
+    // is an anomaly rather than a routine state, and it cannot be told from an
+    // absence of siblings by anyone reading afterwards.
+    log.warn(`siblingHoldingPort - ${siblings.length} Flux node(s) share this address and none of them answered; `
+      + 'which ports they hold is unknown to this node');
+    return null;
+  }
+
   // eslint-disable-next-line no-restricted-syntax
-  for (const answer of answers) {
-    if (answer) {
-      const held = answer.ports.find((port) => wanted.has(port));
-      if (held) return { address: answer.address, port: held };
-    }
+  for (const answer of heard) {
+    const held = answer.ports.find((port) => wanted.has(port));
+    if (held) return { address: answer.address, port: held };
   }
 
   return null;
@@ -719,7 +776,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   // never sent to the peer. The peer returns what it read; we compare.
   const portTestToken = crypto.randomBytes(16).toString('hex');
   const isUPNP = upnpService.isUPNP();
-  let portsStatus = false;
+  // null until something decides; see the loop below.
+  let verdict = null;
 
   try {
     const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
@@ -817,17 +875,34 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     // eslint-disable-next-line no-await-in-loop
     const signature = await signCheckAppData(stringData);
     data.signature = signature;
+    // Every attempt does one of two things: it DECIDES, or it records what it
+    // learned and asks somebody else. Running out - of attempts, of peers, of
+    // anyone willing to answer - is resolved once, after the loop.
+    //
+    // It used to be resolved in three places inside it, each a variation on the
+    // same paragraph, and a fourth way of running out had no paragraph at all: a
+    // last attempt whose peer never answered fell out of the bottom onto the
+    // `false` the answer was initialised with, and refused the install having
+    // said nothing. A verdict and "nobody has decided yet" must never be the
+    // same value, or the next exit somebody adds inherits that too.
     let i = 0;
-    let finished = false;
-    // Peer address -> the port its reading said was not ours. Keyed by peer so
-    // that redrawing the same one does not read as a second opinion.
+
+    // Peer address -> the port that peer said is not serving this node. Keyed by
+    // peer so that redrawing the same one does not read as a second opinion.
     const disagreements = new Map();
     // Every peer already asked, so a redraw is ANOTHER peer rather than another
     // draw. Without this the picker can hand back the one just asked - which on
     // a budget of two attempts it often does - and a check counting distinct
     // witnesses never reaches two however many times it tries.
     const asked = [];
-    while (!finished && i < config.fluxapps.portTestMaxAttempts) {
+    // Why the loop stopped learning, for the resolution below. There being
+    // nobody left outside this address is not the same as everyone who was there
+    // being unable or unwilling to answer, and a reader needs to know which.
+    let ranOutOfObservers = false;
+    let sawUnreadablePeer = false;
+    let sawSilentPeer = false;
+
+    while (verdict === null && i < config.fluxapps.portTestMaxAttempts) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
       const randomSocketAddress = await networkStateService.getRandomExternalObserver(
@@ -835,30 +910,14 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         { exclude: asked },
       );
 
-      // Nobody outside this address to ask. A Flux node sharing our public
-      // address cannot answer the question: reaching us means leaving the
-      // router and being sent straight back in, which most consumer routers do
-      // not do, so it would report a closed port and we would refuse an install
-      // that was fine. Answering nothing is honest, and it takes the same
-      // "nothing was learned" path the older-peer case below takes - which is
-      // exactly what this node did before the check existed.
+      // Nobody outside this address left to ask. A Flux node sharing our public
+      // address is not outside it: its packets never leave the router, so what
+      // it can reach says nothing about what the internet can reach. Answering
+      // nothing is honest, and the resolution below takes it the same way it
+      // takes every other "nothing was learned" - which is the check this node
+      // made before the token existed.
       if (!randomSocketAddress) {
-        // Two different things end up here and they should not read the same.
-        // Nobody outside this address at all is one; having asked everyone there
-        // was and run out is the other - and in the second case a peer HAS
-        // disagreed, which anyone reading this log needs to know.
-        if (disagreements.size) {
-          log.warn(`checkInstallingAppPortAvailable - ${disagreements.size} peer(s) read a port that was not ours `
-            + `(${[...disagreements.keys()].join(', ')}) and there is no other Flux node outside this address to ask; `
-            + 'proceeding on reachability alone');
-        } else {
-          log.warn('checkInstallingAppPortAvailable - no Flux node outside this address could be asked; proceeding on reachability alone');
-        }
-        fluxEventBus.publish('ports:unproven', {
-          reason: disagreements.size ? 'noOtherObserver' : 'noObserver',
-          peers: [...disagreements.keys()],
-        });
-        portsStatus = true;
+        ranOutOfObservers = true;
         break;
       }
 
@@ -872,87 +931,142 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         log.error(`${askingIP} for app availability is not reachable`);
         log.error(error);
       });
-      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        // The peer names the port it could not reach, when it knows which. That
-        // detail was parsed out and thrown away - it fed nothing but bookkeeping
-        // no one read - and it is the one thing that makes a refused install
-        // debuggable without going to the peer's own logs.
+
+      // What this attempt learned about one of our ports, or null when it
+      // learned nothing at all. Only a port recorded here counts as a witness.
+      let reportedPort = null;
+
+      if (!resMyAppAvailability) {
+        // The peer never answered us. That is a fact about the peer, not about
+        // our ports.
+        sawSilentPeer = true;
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      if (resMyAppAvailability.data.status === 'error') {
+        // Two different things arrive here and only one of them is about our
+        // ports. A peer that NAMES the port it could not reach has read
+        // something at this address. A peer that rejected the request outright -
+        // a stale node list, a clock, a key briefly unavailable at its end - has
+        // told us nothing, and taking that for "your port is closed" refuses an
+        // install that was fine and records a cause that never happened.
         const failure = resMyAppAvailability.data.data && resMyAppAvailability.data.data.message;
         const failedPort = typeof failure === 'string' && failure.includes('Failed port: ')
           ? serviceHelper.ensureNumber(failure.split('Failed port: ')[1])
           : null;
 
-        log.warn(`checkInstallingAppPortAvailable - ${askingIP} could not reach `
-          + `${failedPort > 0 ? `port ${failedPort}` : 'the ports'}. Installation aborted.`);
-        portsStatus = false;
-        finished = true;
-      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+        if (!(failedPort > 0)) {
+          log.warn(`checkInstallingAppPortAvailable - ${askingIP} would not answer the question (${failure || 'no reason given'}); asking another peer`);
+          sawSilentPeer = true;
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        // One peer's report that a port did not answer it. Evidence, and it goes
+        // to the same rule everything else goes to - not a verdict. Only our own
+        // token coming back settles a port on one peer's say-so, because only
+        // this node could have produced it.
+        log.warn(`checkInstallingAppPortAvailable - ${askingIP} could not reach port ${failedPort}`);
+        reportedPort = failedPort;
+      } else if (resMyAppAvailability.data.status === 'success') {
         const { answered } = resMyAppAvailability.data.data || {};
 
-        // Three outcomes, and the difference between the last two is the whole
-        // design. NOBODY COULD PROVE IT is not the same as SOMEBODY DISPROVED IT.
         if (!answered) {
           // This peer is on older code: it reached the ports but did not read
-          // them, so it has told us nothing we can act on. Ask someone else -
-          // and if nobody can, fall through to the reachability answer below,
-          // which is exactly the check this node made before. That fallback is
-          // what stops the first nodes to upgrade refusing every install while
-          // the rest of the network catches up, and it stops happening on its
-          // own as it does.
+          // them, so it has told us nothing we can act on. Ask someone else.
           log.info(`checkInstallingAppPortAvailable - ${askingIP} cannot read ports back, asking another peer`);
-          if (i < config.fluxapps.portTestMaxAttempts) {
-            // eslint-disable-next-line no-continue
-            continue;
-          }
-          log.warn('checkInstallingAppPortAvailable - no peer could read the ports back; proceeding on reachability alone');
-          fluxEventBus.publish('ports:unproven', { reason: 'noReader', peers: asked.map(extractIp) });
-          portsStatus = true;
-          finished = true;
-        } else {
-          const notOurs = portNotOurs(portsToTest, answered, portTestToken);
-
-          if (notOurs === null) {
-            // Our own token came back. Proof, not report - only this node could
-            // have produced it - so one peer settles it.
-            portsStatus = true;
-            finished = true;
-          } else {
-            disagreements.set(askingIP, notOurs);
-            const refused = refusedPort(disagreements, PORT_TEST_CORROBORATION);
-
-            if (refused === null && i < config.fluxapps.portTestMaxAttempts) {
-              log.info(`checkInstallingAppPortAvailable - ${askingIP} read something other than this node on port ${notOurs}; asking another peer before refusing`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-
-            if (refused === null) {
-              // One peer's word, and nobody left to ask. Not enough to stop this
-              // node installing: it takes the same "nothing was learned" path an
-              // older peer produces.
-              log.warn(`checkInstallingAppPortAvailable - only ${askingIP} read a port that was not ours and no second peer could be asked; proceeding on reachability alone`);
-              fluxEventBus.publish('ports:unproven', {
-                reason: 'singleWitness',
-                port: notOurs,
-                peers: [...disagreements.keys()],
-              });
-              portsStatus = true;
-            } else {
-              // Behind a shared address that is a neighbour's application
-              // holding the router's forward, which is exactly what this
-              // refuses - and now more than one peer has seen it.
-              log.warn(`checkInstallingAppPortAvailable - port ${refused} is answered by something other than this node at this address, as read by ${disagreements.size} peers (${[...disagreements.keys()].join(', ')}). Installation aborted.`);
-              fluxEventBus.publish('ports:notOurs', {
-                port: refused,
-                peers: [...disagreements.keys()],
-              });
-              portsStatus = false;
-            }
-            finished = true;
-          }
+          sawUnreadablePeer = true;
+          // eslint-disable-next-line no-continue
+          continue;
         }
+
+        const notOurs = portNotOurs(portsToTest, answered, portTestToken);
+
+        if (notOurs === null) {
+          // Our own token came back. Proof, not report - only this node could
+          // have produced it - so one peer settles it.
+          verdict = true;
+          break;
+        }
+
+        log.info(`checkInstallingAppPortAvailable - ${askingIP} read something other than this node on port ${notOurs}`);
+        reportedPort = notOurs;
+      } else {
+        // An answer in a shape this node does not understand is not an answer.
+        sawSilentPeer = true;
+        // eslint-disable-next-line no-continue
+        continue;
       }
+
+      disagreements.set(askingIP, reportedPort);
+
+      const refused = refusedPort(disagreements, PORT_TEST_CORROBORATION);
+
+      if (refused === null) {
+        log.info(`checkInstallingAppPortAvailable - one peer so far says port ${reportedPort} is not ours; asking another before refusing`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      // Behind a shared address that is a neighbour's application holding the
+      // router's forward, which is exactly what this refuses - and now more than
+      // one peer has read it that way. Each peer's own reading is named, because
+      // two peers tripping on different ports is still corroboration and a line
+      // naming only the first port would be describing something else.
+      const readings = [...disagreements.entries()].map(([peer, port]) => `${peer} on port ${port}`);
+      log.warn(`checkInstallingAppPortAvailable - port ${refused} at this address is answered by something other than this node, as read by `
+        + `${disagreements.size} peers (${readings.join(', ')}). Installation aborted.`);
+      fluxEventBus.publish('ports:notOurs', {
+        port: refused,
+        peers: [...disagreements.keys()],
+        readings: Object.fromEntries(disagreements),
+      });
+      verdict = false;
     }
+
+    if (verdict === null) {
+      // Nothing proved and nothing corroborated. What was not learned does not
+      // refuse an install: this is the check this node made before the token
+      // existed, and it is what stops the first nodes to upgrade refusing
+      // everything while the rest of the network catches up.
+      let reason;
+      if (disagreements.size) {
+        reason = ranOutOfObservers ? 'noOtherObserver' : 'singleWitness';
+      } else if (ranOutOfObservers) {
+        reason = 'noObserver';
+      } else if (sawUnreadablePeer) {
+        reason = 'noReader';
+      } else {
+        reason = 'noneAnswered';
+      }
+
+      const witnesses = [...disagreements.keys()];
+      const disputed = disagreements.size ? [...disagreements.values()][0] : null;
+
+      if (witnesses.length) {
+        log.warn(`checkInstallingAppPortAvailable - ${witnesses.length} peer(s) read a port that was not ours `
+          + `(${witnesses.join(', ')}) and no other Flux node outside this address could be asked; `
+          + 'proceeding on reachability alone');
+      } else {
+        log.warn(`checkInstallingAppPortAvailable - nothing was learned about these ports from ${asked.length} peer(s) asked `
+          + `(${reason}); proceeding on reachability alone`);
+      }
+
+      fluxEventBus.publish('ports:unproven', {
+        reason,
+        port: disputed,
+        // Unchanged in meaning: the peers that disagreed, where any did. `asked`
+        // carries everyone who was asked, which is the other question a reader
+        // of this event wants answered and could not previously get.
+        peers: reason === 'noReader' ? asked.map(extractIp) : witnesses,
+        asked: asked.map(extractIp),
+        silent: sawSilentPeer,
+      });
+
+      verdict = true;
+    }
+
     // stop listening on the port, close the port
     // eslint-disable-next-line no-restricted-syntax
     for (const portToTest of portsToTest) {
@@ -976,7 +1090,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         });
       })),
     );
-    return portsStatus;
+    return verdict;
   } catch (error) {
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));

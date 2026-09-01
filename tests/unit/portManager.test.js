@@ -12,6 +12,8 @@ const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUnins
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 
 describe('portManager tests', () => {
   before(requireMongo);
@@ -673,7 +675,23 @@ describe('portManager tests', () => {
 
     const nodesAt = (...addresses) => addresses.map((ip) => ({ ip }));
 
-    const answering = (ports) => ({ data: { status: 'success', data: ports } });
+    const SIBLING = '86.9.47.94:16137';
+    const SIBLING_KEY = '04siblingpubkey';
+
+    // The answer is signed now: a node's own record of what it has installed is
+    // the truth about which ports are spoken for here, but only once it is that
+    // node saying it rather than whatever is listening on the address.
+    const answering = (heldPorts) => ({
+      data: { status: 'success', data: { pubKey: SIBLING_KEY, ports: heldPorts, signature: 'sig' } },
+    });
+
+    // Lets the real verifier run: the key is on the list, it belongs to the
+    // address that was dialled, and the signature checks out.
+    const canVerify = (...addresses) => {
+      const listed = addresses.length ? addresses : [SIBLING];
+      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').resolves(listed.map((ip) => ({ ip })));
+      sinon.stub(verificationHelper, 'verifyMessage').returns(true);
+    };
 
     // The ask is signed now, so every test that expects a sibling to be asked
     // has to let the signing succeed. Without this the six tests below that
@@ -699,6 +717,7 @@ describe('portManager tests', () => {
       canSign();
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
+      canVerify();
       sinon.stub(axios, 'post').resolves(answering([31000, 31005]));
 
       const held = await portManager.siblingHoldingPort(ports, ours);
@@ -706,10 +725,36 @@ describe('portManager tests', () => {
       expect(held).to.deep.equal({ address: '86.9.47.94:16137', port: 31000 });
     });
 
+    // The point of signing the answer: this address is only as trustworthy as
+    // whatever is listening on it, and a listed Fluxnode signing from somewhere
+    // else says nothing about what is installed HERE.
+    it('ignores an answer signed by a Fluxnode at a different address', async () => {
+      canSign();
+      canVerify('9.9.9.9:16127');
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, SIBLING));
+      sinon.stub(axios, 'post').resolves(answering([31000]));
+
+      expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
+    });
+
+    it('ignores an answer that is not signed at all', async () => {
+      canSign();
+      canVerify();
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, SIBLING));
+      sinon.stub(axios, 'post').resolves({
+        data: { status: 'success', data: { pubKey: SIBLING_KEY, ports: [31000] } },
+      });
+
+      expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
+    });
+
     it('answers null when the sibling holds other ports', async () => {
       canSign();
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, '86.9.47.94:16137'));
+      canVerify();
       sinon.stub(axios, 'post').resolves(answering([31005, 31006]));
 
       expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
@@ -774,6 +819,7 @@ describe('portManager tests', () => {
       sinon.stub(networkStateService, 'isReady').returns(true);
       sinon.stub(networkStateService, 'networkState')
         .returns(nodesAt(ours, '86.9.47.94:16137', '86.9.47.94:16147', '86.9.47.94:16157'));
+      canVerify('86.9.47.94:16137', '86.9.47.94:16147', '86.9.47.94:16157');
       const get = sinon.stub(axios, 'post');
       get.onCall(0).resolves(answering([31005]));
       get.onCall(1).resolves(answering([31000]));
@@ -817,8 +863,18 @@ describe('portManager tests', () => {
     // catch that, and nothing was calling this function at all before.
     const resStub = () => { const r = { json: sinon.stub() }; return r; };
 
+    // The answer is signed, so a handler that can answer at all must be able to
+    // sign; a node that cannot says so rather than sending something the caller
+    // will discard without a word.
+    const canSignAnswer = () => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('04pubkey');
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').resolves('Kwif');
+      sinon.stub(verificationHelper, 'signMessage').returns('signature');
+    };
+
     it('answers a request that carries operator privilege', async () => {
-      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(false);
+      canSignAnswer();
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(false);
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(portManager, 'portsInUse').resolves([31000]);
       const res = resStub();
@@ -830,7 +886,8 @@ describe('portManager tests', () => {
     });
 
     it('answers a Fluxnode that signed the question', async () => {
-      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(true);
+      canSignAnswer();
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(true);
       const privilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
       const res = resStub();
 
@@ -843,7 +900,7 @@ describe('portManager tests', () => {
     });
 
     it('refuses a caller that neither signed nor is entitled, and still answers', async () => {
-      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(false);
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(false);
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
       const res = resStub();
 
@@ -855,7 +912,7 @@ describe('portManager tests', () => {
     });
 
     it('answers rather than hanging when there is no body at all', async () => {
-      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeRequest').resolves(false);
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(false);
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
       const res = resStub();
 
@@ -973,5 +1030,159 @@ describe('portManager tests', () => {
       expect(result.length).to.be.greaterThan(0);
       expect(result).to.equal('test-signature-string');
     });
+  });
+});
+
+// The port test's own loop, which had no unit coverage of any kind: suite 98 is
+// the only thing that has ever run it. Everything here is about what the loop
+// does when it does NOT get a clean answer, which is where its two rules live -
+// one witness to accept, two to refuse - and where the exits that skip them are.
+describe('checkInstallingAppPortAvailable decides on every way of running out', () => {
+  let port;
+  let published;
+
+  const PEERS = ['10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127', '10.0.0.4:16127', '10.0.0.5:16127'];
+
+  const answeringSomethingElse = (p) => ({
+    data: { status: 'success', data: { answered: { [p]: 'HTTP/1.1 200 OK\r\n\r\nsomebody else entirely' } } },
+  });
+  const couldNotReach = (p) => ({
+    data: { status: 'error', data: { message: `Flux Applications on 1.2.3.4:16127 are not available. Failed port: ${p}` } },
+  });
+  const wouldNotAnswer = () => ({
+    data: { status: 'error', data: { message: 'Unable to verify request authenticity' } },
+  });
+  const UNREACHABLE = 'unreachable';
+
+  // A free port, taken and released, so two runs of the suite cannot collide on
+  // a hard-coded one. The test servers below bind it for real.
+  before(async () => {
+    const probe = require('node:net').createServer();
+    await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
+    ({ port } = probe.address());
+    await new Promise((resolve) => probe.close(resolve));
+  });
+
+  beforeEach(() => {
+    published = [];
+
+    sinon.stub(serviceHelper, 'delay').resolves();
+    sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('1.2.3.4:16127');
+    sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('04pubkey');
+    sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').resolves('privkey');
+    sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+    sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
+    sinon.stub(verificationHelper, 'signMessage').resolves('signature');
+    sinon.stub(upnpService, 'isUPNP').returns(false);
+    sinon.stub(fluxEventBus, 'publish').callsFake((name, data) => published.push({ name, data }));
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  // One attempt per drawn peer: the observer is drawn first, so the attempt
+  // index advances there and the answer is looked up against it.
+  const withPeers = (answers, peers = PEERS) => {
+    let attempt = -1;
+
+    sinon.stub(networkStateService, 'getRandomExternalObserver').callsFake(async () => {
+      attempt += 1;
+      return peers[attempt] || null;
+    });
+
+    sinon.stub(axios, 'post').callsFake(async () => {
+      const answer = answers[attempt];
+      if (!answer || answer === UNREACHABLE) throw new Error('connect ECONNREFUSED');
+      return answer;
+    });
+
+    return portManager.checkInstallingAppPortAvailable([port]);
+  };
+
+  const reasonOf = (name) => (published.find((e) => e.name === name) || {}).data;
+
+  // The bug: a verdict and "nobody has decided" were the same value, so a last
+  // attempt that never got an answer fell out of the bottom of the loop onto the
+  // false it started with - and refused the install on one peer's word, which is
+  // the exact thing the two-witness rule exists to stop.
+  it('proceeds when one peer disagreed and every peer after it went silent', async () => {
+    const result = await withPeers([
+      answeringSomethingElse(port), UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE,
+    ]);
+
+    expect(result, 'refused on a single witness after running out of peers').to.equal(true);
+    expect(reasonOf('ports:unproven').reason).to.equal('singleWitness');
+    expect(reasonOf('ports:unproven').port).to.equal(port);
+  });
+
+  it('proceeds when no peer answered at all, and says so', async () => {
+    const result = await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
+
+    expect(result, 'refused having learned nothing from anybody').to.equal(true);
+    expect(reasonOf('ports:unproven').reason).to.equal('noneAnswered');
+    expect(reasonOf('ports:unproven').silent).to.equal(true);
+  });
+
+  // A peer refusing the question is not a report about our ports. Read as one it
+  // refuses an install that was fine and records a cause that never happened.
+  it('does not treat a peer that rejects the request as a witness', async () => {
+    const result = await withPeers([
+      wouldNotAnswer(), UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE,
+    ]);
+
+    expect(result, 'a peer rejecting the request refused the install').to.equal(true);
+    expect(published.some((e) => e.name === 'ports:notOurs'), 'refused on an authentication failure').to.equal(false);
+    expect(reasonOf('ports:unproven').reason).to.equal('noneAnswered');
+  });
+
+  // A peer that NAMES the port it could not reach has read something at this
+  // address. That is evidence, and it goes to the same rule everything else
+  // does - one peer's report is not enough to refuse.
+  it('counts a peer that could not reach a port as one witness, not a verdict', async () => {
+    const result = await withPeers([
+      couldNotReach(port), UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE,
+    ]);
+
+    expect(result, 'refused on one peer failing to reach the port').to.equal(true);
+    expect(reasonOf('ports:unproven').reason).to.equal('singleWitness');
+  });
+
+  it('refuses once two distinct peers agree the port is not ours', async () => {
+    const result = await withPeers([
+      answeringSomethingElse(port), answeringSomethingElse(port), UNREACHABLE, UNREACHABLE, UNREACHABLE,
+    ]);
+
+    expect(result, 'two corroborating witnesses did not refuse').to.equal(false);
+    expect(reasonOf('ports:notOurs').port).to.equal(port);
+    expect(reasonOf('ports:notOurs').peers).to.have.length(2);
+  });
+
+  // Corroboration counts distinct peers, not identical readings - so an
+  // unreachable-port report and a token mismatch corroborate each other, and the
+  // line has to name what each peer actually read rather than one port twice.
+  it('corroborates across the two kinds of disagreement and records both readings', async () => {
+    const result = await withPeers([
+      couldNotReach(port), answeringSomethingElse(port), UNREACHABLE, UNREACHABLE, UNREACHABLE,
+    ]);
+
+    expect(result).to.equal(false);
+    expect(Object.keys(reasonOf('ports:notOurs').readings)).to.have.length(2);
+  });
+
+  it('proceeds when every peer reached the ports but was too old to read them', async () => {
+    const older = { data: { status: 'success', data: {} } };
+    const result = await withPeers([older, older, older, older, older]);
+
+    expect(result).to.equal(true);
+    expect(reasonOf('ports:unproven').reason).to.equal('noReader');
+  });
+
+  it('proceeds, naming the disagreement, when there is nobody else outside this address', async () => {
+    const result = await withPeers([answeringSomethingElse(port)], [PEERS[0]]);
+
+    expect(result).to.equal(true);
+    expect(reasonOf('ports:unproven').reason).to.equal('noOtherObserver');
+    expect(reasonOf('ports:unproven').peers).to.have.length(1);
   });
 });
