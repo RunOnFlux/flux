@@ -218,17 +218,65 @@ async function benchLinkSpeeds() {
   }
 }
 
+// How long until the next pass, by outcome.
+const AWAITING_IP_RETRY_MS = 10 * 1000;
+const REFRESH_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
+const FAILURE_RETRY_MS = 5 * 60 * 1000;
+
+// THE LOOP IS A SINGLETON, because it has two callers and it reschedules itself.
+// serviceManager starts it at boot and fluxNetworkHelper restarts it on EVERY IP
+// change, and each pass used to arm a bare setTimeout whose handle nobody kept.
+// So a second caller did not resume the loop, it forked another one, and no
+// chain could ever be stopped: a node that changed IP three times ran four
+// independent loops for the life of the process, each hitting the geolocation
+// API and writing the same record, and on a node that never detected its IP each
+// one logged an error every ten seconds. Only restarting FluxOS ended any of it.
+//
+// One handle, cancelled before it is re-armed, is what makes a second caller
+// resume the loop instead of adding one.
+let scheduledRun = null;
+// The pass currently executing, and whether a caller arrived while it ran. That
+// is the normal case rather than the exotic one - an IP change lands while the
+// previous pass is still awaiting the geolocation API - and letting the two
+// interleave would settle lastIpChangeDate on whichever finished last rather
+// than on the order the addresses actually changed. The late caller is not
+// dropped; it runs once the pass in flight is done.
+let runInFlight = null;
+let rerunRequested = false;
+
 /**
- * Method responsable for setting node geolocation information
+ * Arms the next pass, cancelling any pass already pending. Every exit from
+ * runGeolocationPass goes through here, so there is at most one at any moment.
+ * @param {number} delayMs
  */
-async function setNodeGeolocation() {
+function scheduleNext(delayMs) {
+  if (scheduledRun) clearTimeout(scheduledRun);
+  scheduledRun = setTimeout(() => {
+    scheduledRun = null;
+    setNodeGeolocation();
+  }, delayMs);
+}
+
+/**
+ * Ends the geolocation loop. Exported because a timer nobody can stop is a leak
+ * wherever it runs - a node that wants to shut down cleanly, and a test that
+ * would otherwise leave a three-day timer armed for the rest of the run.
+ */
+function stopNodeGeolocation() {
+  if (scheduledRun) clearTimeout(scheduledRun);
+  scheduledRun = null;
+  rerunRequested = false;
+}
+
+/**
+ * One pass: read the address, classify it, persist it, and arm the next.
+ */
+async function runGeolocationPass() {
   try {
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
       log.error('Flux IP not detected. Flux geolocation service is awaiting');
-      setTimeout(() => {
-        setNodeGeolocation();
-      }, 10 * 1000);
+      scheduleNext(AWAITING_IP_RETRY_MS);
       return;
     }
 
@@ -472,16 +520,35 @@ async function setNodeGeolocation() {
       networkEvidence,
     });
     execution += 1;
-    setTimeout(() => { // executes again in 3 days
-      setNodeGeolocation();
-    }, 3 * 24 * 60 * 60 * 1000);
+    scheduleNext(REFRESH_INTERVAL_MS);
   } catch (error) {
     log.error(`Failed to get Geolocation with ${error}`);
     log.error(error);
-    setTimeout(() => {
-      setNodeGeolocation();
-    }, 5 * 60 * 1000);
+    scheduleNext(FAILURE_RETRY_MS);
   }
+}
+
+/**
+ * Method responsable for setting node geolocation information. Safe to call from
+ * anywhere, any number of times: it resumes the one loop rather than starting
+ * another, and never runs two passes at once.
+ */
+async function setNodeGeolocation() {
+  if (runInFlight) {
+    rerunRequested = true;
+    return runInFlight;
+  }
+  runInFlight = runGeolocationPass();
+  try {
+    await runInFlight;
+  } finally {
+    runInFlight = null;
+  }
+  if (rerunRequested) {
+    rerunRequested = false;
+    return setNodeGeolocation();
+  }
+  return undefined;
 }
 
 /**
@@ -646,6 +713,7 @@ async function hasPublicIp() {
 
 module.exports = {
   setNodeGeolocation,
+  stopNodeGeolocation,
   getNodeGeolocation,
   isStaticIP,
   getStaticIpState,

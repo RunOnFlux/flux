@@ -16,6 +16,7 @@ describe('geolocationService tests', () => {
   // with a wildcard carrying `client`, `server`, `cloud` or `pool` inverts the
   // tests asserting UNKNOWN and DATACENTER. Tests that want a PTR set it here.
   let dnsStub;
+  let clock;
 
   const mockGeolocationData = {
     ip: '185.199.108.1',
@@ -51,9 +52,12 @@ describe('geolocationService tests', () => {
     // The service reschedules itself with setTimeout on every path it takes,
     // including a ten-second retry when no IP is detected. A real timer there
     // outlives this file and re-enters the service against restored stubs, so
-    // it reaches the network for the rest of the run. Only setTimeout is faked:
-    // the service reads Date for its IP-change window.
-    sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+    // it reaches the network for the rest of the run. clearTimeout is faked
+    // alongside it, because the real one cannot cancel a fake id - the loop's
+    // own cancellation would silently do nothing and its timers would all fire.
+    // Date is deliberately NOT faked: the service reads it for the IP-change
+    // window.
+    clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
 
     // Create stubs
     const mockDb = {
@@ -305,6 +309,86 @@ describe('geolocationService tests', () => {
 
       expect(geolocationService.getStaticIpState()).to.equal('STATIC');
       expect(geolocationService.isStaticIP()).to.equal(true);
+    });
+  });
+
+  describe('the geolocation loop is one owned chain, not one per caller', () => {
+    // serviceManager starts this at boot and fluxNetworkHelper restarts it on
+    // every IP change. Before the loop had an owner, the second caller forked a
+    // second self-perpetuating chain and neither could be stopped.
+    beforeEach(() => {
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success',
+          query: '185.199.108.1',
+          continent: 'Europe',
+          continentCode: 'EU',
+          country: 'Germany',
+          countryCode: 'DE',
+          region: 'HE',
+          regionName: 'Hesse',
+          lat: 50.1109,
+          lon: 8.6821,
+          org: 'Hetzner Online GmbH',
+          isp: 'Hetzner Online GmbH',
+          proxy: false,
+          hosting: true,
+        },
+      });
+    });
+
+    it('a second caller resumes the one loop rather than starting another', async () => {
+      await geolocationService.setNodeGeolocation();
+      await geolocationService.setNodeGeolocation();
+      // The first statement of every pass, so it counts passes. axiosGet does
+      // not - a pass can return before it reaches the API.
+      fluxNetworkHelperStub.getLocalSocketAddress.resetHistory();
+
+      // Both calls armed a reschedule. Two chains would wake twice here.
+      await clock.tickAsync(3 * 24 * 60 * 60 * 1000 + 1000);
+
+      sinon.assert.calledOnce(fluxNetworkHelperStub.getLocalSocketAddress);
+    });
+
+    it('stops when it is told to, so nothing wakes again', async () => {
+      await geolocationService.setNodeGeolocation();
+      geolocationService.stopNodeGeolocation();
+      fluxNetworkHelperStub.getLocalSocketAddress.resetHistory();
+
+      await clock.tickAsync(3 * 24 * 60 * 60 * 1000 + 1000);
+
+      sinon.assert.notCalled(fluxNetworkHelperStub.getLocalSocketAddress);
+    });
+
+    it('a caller arriving mid-pass waits for it instead of running beside it', async () => {
+      let releaseFirst;
+      fluxNetworkHelperStub.getLocalSocketAddress
+        .onFirstCall().returns(new Promise((resolve) => {
+          releaseFirst = () => resolve('185.199.108.1:16127');
+        }))
+        .onSecondCall().resolves('185.199.108.1:16127');
+
+      const first = geolocationService.setNodeGeolocation();
+      const arrivedDuring = geolocationService.setNodeGeolocation();
+
+      // Drained, or this asserts nothing: both calls park on their first await,
+      // so a synchronous check here passes whether or not they run concurrently.
+      await clock.tickAsync(0);
+
+      // One pass has begun, not two. Counted on the address read rather than on
+      // the API call, because a pass whose address has not changed deliberately
+      // skips the API (see the guard on storedIp) - so axiosGet counts changes,
+      // not passes.
+      sinon.assert.calledOnce(fluxNetworkHelperStub.getLocalSocketAddress);
+
+      releaseFirst();
+      await Promise.all([first, arrivedDuring]);
+
+      // And the late caller was not dropped - a second pass ran once the first
+      // had finished, which is the point of holding it rather than ignoring it.
+      sinon.assert.calledTwice(fluxNetworkHelperStub.getLocalSocketAddress);
     });
   });
 
