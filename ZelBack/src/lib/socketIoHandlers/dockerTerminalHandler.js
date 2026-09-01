@@ -17,6 +17,29 @@ async function dockerTerminalHandler(socket) {
   // socket callbacks registered inside it run LATER, after the try has exited, so
   // they are each wrapped in `guard` rather than relying on it.
   socket.on('exec', async (zelidauth, nameOrId, dockerCmd, dockerEnv, dockerUser) => {
+    // Ahead of everything, because both of these are read before the try below
+    // and this namespace takes no middleware: the five arguments are whatever an
+    // unauthenticated client serialised, and nothing upstream makes them strings
+    // the way node's http parser does for a header.
+    //
+    // nameOrId is split to name the app while the try is still two statements
+    // away, so a client that emitted exec without one threw where nothing
+    // catches. A rejection from an async socket.io listener is handled by
+    // nobody - socket.io calls it and discards the promise - so it reached
+    // apiServer's uncaughtException handler and exited the node.
+    //
+    // zelidauth is refused here rather than at verifyPrivilege, which throws a
+    // TypeError for a non-string on purpose: that TypeError says our own code
+    // wired the call wrongly, and it cannot go on meaning that while any
+    // stranger can raise it on demand.
+    if (typeof nameOrId !== 'string') {
+      socket.emit('error', 'No container specified.');
+      return;
+    }
+    if (typeof zelidauth !== 'string') {
+      socket.emit('error', 'Not authorized.');
+      return;
+    }
     // wrap a callback that runs outside this listener's try/catch
     const guard = (label, fn) => (...args) => {
       try {

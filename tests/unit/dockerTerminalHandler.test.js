@@ -112,4 +112,47 @@ describe('dockerTerminalHandler tests', () => {
       { appName: 'myapp' },
     );
   });
+
+  // Every argument arrives as whatever the client serialised: this is a socket
+  // event, and nothing upstream turns it into a string the way node's http
+  // parser does for a header. The namespace takes no middleware, so an
+  // unauthenticated caller chooses all five.
+  //
+  // nameOrId is split to name the app BEFORE the try begins, so a caller that
+  // omitted it threw where nothing catches - and a rejection in an async
+  // socket.io listener is one nobody handles: node raises it to apiServer's
+  // uncaughtException handler, which exits the process. Emitting exec with no
+  // arguments was an unauthenticated restart of the node.
+  describe('arguments the client chose', () => {
+    const malformed = [
+      { what: 'no container at all', args: ['zelidauth'], answer: 'No container specified.' },
+      { what: 'a container that is a number', args: ['zelidauth', 12345], answer: 'No container specified.' },
+      { what: 'a container that is an object', args: ['zelidauth', { name: 'x' }], answer: 'No container specified.' },
+      { what: 'an auth that is an object', args: [{ zelidauth: 'x' }, 'fluxcomp_myapp'], answer: 'Not authorized.' },
+    ];
+
+    malformed.forEach(({ what, args, answer }) => {
+      it(`answers ${what} instead of taking the node down`, async () => {
+        const socket = makeSocket();
+        dockerTerminalHandler(socket);
+
+        await socket.fire('exec', ...args);
+
+        sinon.assert.calledOnceWithExactly(socket.emit, 'error', answer);
+        expect(verifyPrivilege.called, 'a malformed call reached the privilege check').to.equal(false);
+      });
+    });
+
+    // The control: the same path with every argument the shape it should be
+    // still opens a session, so the refusals above are not a handler that has
+    // stopped working.
+    it('opens a session when they are the shape they should be', async () => {
+      const socket = makeSocket();
+      dockerTerminalHandler(socket);
+
+      await socket.fire('exec', 'zelidauth', 'fluxcomp_myapp', 'sh', '', 'root');
+
+      expect(verifyPrivilege.calledOnce).to.equal(true);
+    });
+  });
 });
