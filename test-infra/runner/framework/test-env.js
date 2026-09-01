@@ -492,10 +492,30 @@ function makeEnvShell(networkName) {
         list.map((c) => c.stop().catch((e) => warn('container stop', e))),
       );
       await stopAll(nodeStarted);
-      await stopAll(infraStarted);
-      step(`stops(${nodeStarted.length} nodes, ${infraStarted.length} infra)`);
+      step(`stops(${nodeStarted.length} nodes)`);
+      // The harness's own mongo client is closed while mongo is STILL UP, and the
+      // cost of getting this backwards is 30 seconds that nothing logs. mongodb
+      // 7.5.0's _close() ends its pooled sessions with `endSessions`, a w:0 write
+      // that needs a connection but never a reply, and it skips that call ONLY
+      // when server selection over its CACHED topology description comes back
+      // empty. Stop mongo first and that cache is a coin flip: usually the monitor
+      // has already marked the server Unknown and the call is skipped, but when it
+      // has not, close() commits to an operation whose server goes Unknown
+      // mid-flight, and waits out the full 30s serverSelectionTimeoutMS before
+      // squashError swallows the error. An `after all` budget that is a flat 30s
+      // cannot absorb that, so the suite fails with every one of its tests green -
+      // which is how suite 02 lost the f8fe3db1b gate: `db 32831ms`, against the
+      // other 145 teardowns in that same gate at 0-2ms.
+      //
+      // Measured on chud, six suite-02 runs at a time so the stops land together:
+      // closing after the stop was slow in 27 of 30 runs at ~33s, the in-flight
+      // snapshot showing Standalone on entry and Unknown two seconds later;
+      // closing before it, 0 of 30, slowest 3ms. The nodes are already down by
+      // here, so nothing is still writing.
       await closeDb();
       step('db');
+      await stopAll(infraStarted);
+      step(`stops(${infraStarted.length} infra)`);
       const cleanupClient = await getContainerRuntimeClient();
       // The EPERM fallback below boots a whole container per volume, so how many times
       // it fired is the difference between a two-second volume phase and a long one.
