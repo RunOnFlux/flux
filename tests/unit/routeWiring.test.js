@@ -21,7 +21,9 @@ const request = require('supertest');
 const apicache = require('apicache');
 
 const registerRoutes = require('../../ZelBack/src/routes');
-const { asyncRoute, rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
+const {
+  asyncRoute, cache, rejectQueryParameters, requireBootSettled,
+} = require('../../ZelBack/src/services/utils/routeGuards');
 
 /**
  * The route table routes.js builds, as a list of {method, path, chain}.
@@ -227,23 +229,33 @@ describe('route wiring', () => {
   // later caller for the whole window, up to a day on the longest of these, and
   // only a restart clears it.
   //
-  // Asserted through a real express stack rather than by reading the option
-  // back: the property is that a failure is not remembered, and the option is
-  // only the mechanism that currently delivers it. Requiring routes.js above is
-  // what applies it.
+  // A failure arrives in two shapes and the store has to refuse both. Express
+  // writes a 500 when a handler rejects; a handler that catches its own error
+  // answers 200 and says so in the body, which no status rule can see.
+  // /benchmark/getstoredbenchmark is the one that shows the cost: it reports
+  // no benchmark data for as long as a booted node has not benchmarked, and it
+  // caches for an hour.
+  //
+  // Asserted through a real express stack rather than by reading the options
+  // back: the property is that a failure is not remembered, and the options are
+  // only the mechanism that currently delivers it.
   describe('what a cache is allowed to remember', () => {
     let app;
     let calls;
 
     beforeEach(() => {
       apicache.clear();
-      calls = { boom: 0, fine: 0 };
+      calls = { boom: 0, reported: 0, fine: 0 };
       app = express();
-      app.get('/boom', apicache.middleware('30 seconds'), asyncRoute(async () => {
+      app.get('/boom', cache('30 seconds'), asyncRoute(async () => {
         calls.boom += 1;
         throw new Error('transient');
       }));
-      app.get('/fine', apicache.middleware('30 seconds'), asyncRoute(async (req, res) => {
+      app.get('/reported', cache('30 seconds'), asyncRoute(async (req, res) => {
+        calls.reported += 1;
+        res.json({ status: 'error', data: { message: 'transient' } });
+      }));
+      app.get('/fine', cache('30 seconds'), asyncRoute(async (req, res) => {
         calls.fine += 1;
         res.json({ status: 'success', data: 42 });
       }));
@@ -262,7 +274,16 @@ describe('route wiring', () => {
       expect(calls.boom, 'the second caller was served the first one\'s failure').to.equal(2);
     });
 
-    // The control: without it the assertion above passes on a cache that is
+    it('does not answer a later caller from a handler that reported a failure at 200', async () => {
+      const first = await request(app).get('/reported');
+      const second = await request(app).get('/reported');
+
+      expect(first.body.status).to.equal('error');
+      expect(second.body.status).to.equal('error');
+      expect(calls.reported, 'the second caller was served the first one\'s error').to.equal(2);
+    });
+
+    // The control: without it the two assertions above pass on a cache that is
     // simply not working at all.
     it('still answers a later caller from a handler that succeeded', async () => {
       await request(app).get('/fine');

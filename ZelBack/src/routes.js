@@ -1,5 +1,3 @@
-const apicache = require('apicache');
-
 const daemonServiceAddressRpcs = require('./services/daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('./services/daemonService/daemonServiceBlockchainRpcs');
@@ -17,7 +15,9 @@ const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
-const { asyncRoute, rejectQueryParameters, requireBootSettled } = require('./services/utils/routeGuards');
+const {
+  asyncRoute, cache, rejectQueryParameters, requireBootSettled,
+} = require('./services/utils/routeGuards');
 const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
 
 // App modular services
@@ -55,23 +55,6 @@ const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
-
-// An error must never be remembered. apicache stores whatever the handler
-// produced and serves it to everyone who asks next, so a transient failure
-// would be pinned for the whole cache window after the condition cleared - up
-// to a day on the longest of them, with a restart the only way to clear it.
-// Every route hands its failures to express now, which is what makes those
-// failures a response rather than a crash.
-//
-// An allowlist, not a blocklist: a status not named here is not cached, so a
-// failure nobody predicted is excluded by default rather than stored until
-// someone notices. It costs nothing today - a handler in this tree answers 200
-// even when it is reporting an error, which it puts in the body - so the only
-// responses this keeps out are the ones express itself writes. A route that
-// ever wants a 201 or a redirect cached names it here, deliberately.
-apicache.options({ statusCodes: { include: [200], exclude: [] } });
-
-const cache = apicache.middleware;
 
 module.exports = (app) => {
   // GET PUBLIC methods
