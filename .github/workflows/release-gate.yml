@@ -12,6 +12,9 @@ name: release-gate
 # gate that passes when its source is missing is not a gate.
 #
 # Read-only: no secrets, no pushes.
+#
+# Tests: tests/ci/release-workflows.sh -- runs offline, no secrets. It extracts steps from this
+# file verbatim, so renaming one breaks it loudly rather than silently skipping it.
 
 on:
   pull_request:
@@ -40,13 +43,56 @@ jobs:
           echo "master: ${BASE}  candidate: ${CANDIDATE}"
           # Strictly newer, compared numerically per part. String inequality would call 8.17.10
           # older than 8.17.9.
+          #
+          # The shape is checked before anything is compared. Splitting on dots and comparing
+          # whatever falls out lets a version the parser cannot read be judged by whichever part
+          # happens to differ: "8.18" has no third part and passes, "8.18.0-rc1" passes on its
+          # minor while "8.17.2-rc1" is refused on a NaN. Refuse what cannot be read instead.
           node -e '
-            const [base, head] = process.argv.slice(1).map((v) => v.split(".").map(Number));
+            const parse = (label, value) => {
+              const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+              if (!parts) {
+                throw new Error(`the ${label} version is not three numeric parts: ${value}`);
+              }
+              return parts.slice(1).map(Number);
+            };
+            const base = parse("master", process.argv[1]);
+            const head = parse("candidate", process.argv[2]);
             const delta = head[0] - base[0] || head[1] - base[1] || head[2] - base[2];
             if (!(delta > 0)) {
               throw new Error("the candidate version does not move past master -- bump package.json in the release PR");
             }
           ' "$BASE" "$CANDIDATE"
+
+      # The tree judged below is the merge preview, which is a ref nowhere. Its hash is in the
+      # signed document only because some branch tip already holds the same ZelBack subtree --
+      # normally this PR's head, because master carries no code of its own: every commit landing
+      # directly on master has been version metadata or operational data under helpers/, outside
+      # the hashed tree.
+      #
+      # When master DOES carry ZelBack changes the head lacks, the merged tree exists on no branch,
+      # no signing run can ever cover it, and the check below fails telling the reader to wait for
+      # a signing run that will never come. Refuse here instead, and name the thing that fixes it.
+      #
+      # Deliberately compares the ZelBack subtree, not the whole tree: master diverging under
+      # helpers/ is routine and cannot change the hash.
+      - name: The merged ZelBack is a tree the signer can have seen
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eo pipefail
+          git fetch --quiet --depth 1 origin "refs/pull/${PR_NUMBER}/head"
+          PREVIEW=$(git rev-parse 'HEAD:ZelBack')
+          HEAD_TREE=$(git rev-parse 'FETCH_HEAD:ZelBack')
+          if [ "$PREVIEW" != "$HEAD_TREE" ]; then
+            echo "the merge preview's ZelBack is ${PREVIEW}, this PR head's is ${HEAD_TREE}."
+            echo "master carries ZelBack changes that are not on ${GITHUB_HEAD_REF}, so the merged"
+            echo "tree exists on no branch and no signing run can ever cover it."
+            echo "fix: merge master into ${GITHUB_HEAD_REF} and re-run -- its tip will then carry the"
+            echo "merged tree and the signer will pick it up. Waiting will not help."
+            exit 1
+          fi
+          echo "the merged ZelBack is this PR head's ZelBack (${PREVIEW})"
 
       - name: Tree hash is in the signed document central serves
         run: |

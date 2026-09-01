@@ -12,7 +12,7 @@ name: release-tag
 # A red run here means the release is stuck loudly with no tag -- the fleet is already on the
 # verified merge tree, so nothing is half-made.
 #
-# Tests: tests/ci/release-tag.sh -- runs offline, no secrets. It extracts steps from this file
+# Tests: tests/ci/release-workflows.sh -- runs offline, no secrets. It extracts steps from this file
 # verbatim, so renaming one breaks it loudly rather than silently skipping it. Run it after any
 # change here.
 
@@ -29,6 +29,9 @@ concurrency:
 
 jobs:
   tag:
+    # Only the real repository. A fork pushing to its own master has neither our credentials
+    # nor a tree on the signed list, so every run there is noise. Matches nodejs.yml.
+    if: github.repository == 'RunOnFlux/flux'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -136,7 +139,10 @@ jobs:
             ' 2> poll-error.txt; then
               exit 0
             fi
-            echo "attempt ${attempt}: $(cat poll-error.txt) -- retrying in 30s"
+            # the message line, not the 15-line trace, times thirty attempts. Node prints the
+            # file marker first, so the first line is never the message; head -1 is the fallback
+            # for a failure that is not a Node error at all, so the log cannot go silent.
+            echo "attempt ${attempt}: $(grep -m1 -E '^[A-Za-z]*Error: ' poll-error.txt || head -1 poll-error.txt) -- retrying in 30s"
             sleep 30
           done
 
@@ -165,8 +171,8 @@ jobs:
         if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION=${{ steps.version.outputs.version }}
           git config user.email runonfluxbot@gmail.com
           git config user.name runonfluxbot
           git tag -a "v${VERSION}" -m "FluxOS v${VERSION}"
@@ -191,10 +197,11 @@ jobs:
         if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
         env:
           GH_TOKEN: ${{ steps.dispatch-token.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh api -X POST repos/RunOnFlux/fluxhashes/actions/workflows/sign-hashlist.yml/dispatches \
             -f ref=master \
             -f "inputs[commit]=${GITHUB_SHA}" \
-            -f "inputs[ref]=v${{ steps.version.outputs.version }}" \
+            -f "inputs[ref]=v${VERSION}" \
             -f "inputs[ref_type]=tag" \
             -f "inputs[claimed_hash]=${NEW_HASH}"
