@@ -4760,6 +4760,34 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
 
       sinon.assert.calledTwice(stopStub);
     });
+
+    it('does not mark a component whose stop was refused rather than thrown', async () => {
+      // THE SHAPE A LIVE NODE SEES. appDockerStop REPORTS a refusal instead of
+      // throwing one - it catches internally and answers { stopped, running,
+      // unavailable, errors } - so the catch beside it fires only on an
+      // unexpected throw. The test above passes because dockerActual throws in
+      // this environment; on a node docker answers cleanly and simply says the
+      // container is still up, no throw happens, and the component was marked on
+      // the strength of the stop having been CALLED.
+      //
+      // Marking it there excludes this node from the election for a component it
+      // is still running - precisely the state the guard's own comment says it
+      // exists to avoid - for up to STAND_DOWN_PASSES_BEFORE_GIVING_UP passes.
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      sinon.stub(appReconciler, 'dockerActual')
+        .resolves({ reachable: true, indeterminate: false, running: true });
+      const logWarn = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      // Unmarked, so the next pass tries the stop again.
+      sinon.assert.calledTwice(stopStub);
+      const stoodDown = logWarn.getCalls()
+        .map((c) => String(c.args[0]))
+        .filter((line) => line.includes('standing down as'));
+      expect(stoodDown, 'reported a stand-down for a component still running').to.have.lengthOf(0);
+    });
   });
 
   describe('pacing', () => {
