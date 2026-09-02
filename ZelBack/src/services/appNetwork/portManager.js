@@ -403,9 +403,9 @@ async function getAllUsedPorts() {
 async function portsInUse() {
   // Cached as a VALUE rather than as a response. A route cache stores whatever
   // the handler produced, so a transient failure answered with a 200 and an
-  // error body was pinned for the whole window after the condition cleared -
-  // which routes.js says in as many words must never happen. A throw produces
-  // no value, so there is nothing here to remember.
+  // error body stays pinned for the rest of the window after the condition has
+  // cleared - and a sibling acts on this answer. A throw produces no value, so
+  // there is nothing here to remember.
   const cache = fluxCaching.default.portsInUseCache;
 
   const cached = cache.get(PORTS_IN_USE_KEY);

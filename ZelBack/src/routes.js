@@ -348,24 +348,15 @@ module.exports = (app) => {
   app.post('/flux/keepupnpportsopen', asyncRoute((req, res) => {
     return fluxNetworkHelper.keepUPNPPortsOpen(req, res);
   }));
-  // Read by another Flux node at this public address, before it installs onto a
-  // port. Unauthenticated and reachable by anyone, and EVERY answer is expensive:
-  // checkAndDecryptAppSpecs holds no cache of its own, so an uncached request
-  // costs two globalAppsMessages queries and a benchd round trip per enterprise
-  // app on this node. The cache is the only thing bounding that rate, which is
-  // why it is thirty seconds and not the one second its neighbours under /apps
-  // take - those list containers, this one decrypts.
+  // POST because the ask carries a signature, which makes it a body and not a
+  // URL. No cache() follows from that: apicache keys on the URL alone, so it
+  // would answer every different ask alike and answer it before the handler ran
+  // - and it caches only GETs regardless. portsInUse caches the value instead.
+  // No rejectQueryParameters, because with the ask in the body there is no URL
+  // surface for a query string to reach.
   //
-  // Thirty seconds of staleness costs nothing here. A sibling's ports change
-  // only when it installs or removes an app, and this answer never decides: it
-  // narrows the field before the firewall is opened, and the port test that
-  // follows is what refuses. The cache keys on the request URL, so the bound
-  // holds only while the URL is the endpoint and nothing else - hence the guard.
-  // POST and uncached, unlike its neighbours. It carries a signature, so it is
-  // a body rather than a URL - and apicache only caches GETs in any case. The
-  // thirty seconds did not go away: portsInUse caches the VALUE, which is what
-  // was expensive, and which cannot remember an error the way a cached response
-  // could.
+  // What this endpoint is for, who may call it and why it is signed is on
+  // portsInUseApi, with the code that enforces it.
   app.post('/flux/portsinuse', asyncRoute((req, res) => {
     return portManager.portsInUseApi(req, res);
   }));
