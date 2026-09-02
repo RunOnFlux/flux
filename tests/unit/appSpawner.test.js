@@ -6,6 +6,7 @@ const realPlacementFeasibility = require('../../ZelBack/src/services/appPlacemen
 describe('appSpawner tests', () => {
   let appSpawner;
   let logStub;
+  let eventBusStub;
   let configStub;
   let globalStateStub;
   let aggregateStub;
@@ -60,6 +61,10 @@ describe('appSpawner tests', () => {
     }
 
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
+    // The real bus publishes nothing under the unit config, so the one thing a
+    // stand-down produces that a throw does not is observable only through a
+    // stub.
+    eventBusStub = { publish: sinon.stub() };
     placementFeasibilityStub = {
       // the selection filter runs the real shared matcher - a pure function;
       // re-stating its semantics in a stub is the defect class the parity
@@ -199,6 +204,7 @@ describe('appSpawner tests', () => {
         isStoreUnavailable: () => false,
       },
       '../utils/globalState': globalStateStub,
+      '../utils/fluxEventBus': eventBusStub,
       '../geolocationService': {
         isStaticIP: sinon.stub().returns(false),
         isDataCenter: sinon.stub().returns(false),
@@ -659,11 +665,11 @@ describe('appSpawner tests', () => {
     };
 
     // A port a neighbour holds is an ANSWER, not a fault, and the difference is
-    // the whole decision. Raising would file the app in the pre-install error
-    // cache, and an error is what this is not - this node simply cannot host
-    // this application while the sibling holds the port. Nothing asserted that
-    // until now: the stand-down was covered by the fleet suite alone, so a
-    // refactor turning it into a throw would have passed every unit test.
+    // how the spawner tells it: an answer is one log line and a published
+    // deferral, a throw is an error with a stack trace and no event. The spawn
+    // cache holds the app for the same time either way, so the event is what a
+    // refactor turning this path into a throw would lose - and it is what the
+    // fleet suite observes.
     it('stands down when a Flux node at this address holds the port', async () => {
       buildModule({
         aggregateResult: [spawnableApp],
@@ -678,12 +684,7 @@ describe('appSpawner tests', () => {
       expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at 86.9.47.94:16137'))).to.be.true;
     });
 
-    it('does not treat a port a sibling holds as an error against the app', async () => {
-      // The app keeps the ordinary spawn-cache entry every selection takes, so
-      // this node stops considering it until that expires - which is right,
-      // because nothing changes until the sibling gives the port up. What it
-      // must NOT get is the long-term error cache, which is for apps that are
-      // broken rather than apps this node cannot host.
+    it('publishes the stand-down as a deferral naming the sibling and the port', async () => {
       buildModule({
         aggregateResult: [spawnableApp],
         appSpec: fullSpec,
@@ -693,6 +694,15 @@ describe('appSpawner tests', () => {
 
       await appSpawner.trySpawningGlobalApplication();
 
+      sinon.assert.calledWith(eventBusStub.publish, 'spawner:deferred', sinon.match({
+        appName: 'testApp',
+        reason: 'sibling_holds_port',
+        port: 31000,
+        address: '86.9.47.94:16137',
+      }));
+      // The long-term error cache is for apps that are broken. The user-blocked
+      // port stand-down above this one files the app there; this one must not,
+      // because the app is fine and it is this address that cannot host it.
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.false;
     });
 

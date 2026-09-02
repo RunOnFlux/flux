@@ -544,9 +544,11 @@ function siblingSocketAddresses(localSocketAddress) {
  * refusal costs nothing to unwind.
  *
  * Answers rather than throws. This is the same class of fact as "the ports are
- * not reachable from outside" and is handled on the same path. A thrown error
- * would file the app in the pre-install error cache, and a port that belongs to
- * a neighbour is an ordinary answer rather than a fault.
+ * not reachable from outside" and is handled on the same path. A port that
+ * belongs to a neighbour is an ordinary answer rather than a fault, and the
+ * spawner tells the two apart only by how they arrive: an answer is one log
+ * line and a published deferral, a throw is an error with a stack trace and
+ * no event. The spawn cache holds the app for the same time either way.
  *
  * Advisory. A sibling that is down, or answers nothing we can read, leaves us no
  * wiser - and silence is never read as clearance, because the port test that
@@ -572,13 +574,11 @@ async function siblingHoldingPort(appPorts, localSocketAddress) {
     return await askSiblingsForHeldPort(appPorts, localSocketAddress);
   } catch (error) {
     // The contract above - answers, never throws - held here rather than line
-    // by line. Enforcing it a line at a time means guessing every time which
-    // one can fail, and the guess was already wrong once: the dial was guarded
-    // and the verification beside it was not, so a failure there left this
-    // function through the spawner's catch and filed a perfectly good
-    // application in the six-hour pre-install error cache. Nothing about this
-    // question is the application's fault, and no future line added here can
-    // make it so.
+    // by line. Enforcing it a line at a time means guessing which line can
+    // fail, and a line that was not guessed leaves through the spawner's catch
+    // as an error against an application that did nothing wrong. Nothing about
+    // this question is the application's fault, and no future line added here
+    // can make it so.
     log.warn(`siblingHoldingPort - the question could not be asked: ${error.message || error}; `
       + 'which ports this address holds is unknown to this node');
     return null;

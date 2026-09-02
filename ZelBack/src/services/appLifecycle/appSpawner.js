@@ -518,11 +518,13 @@ async function trySpawningGlobalApplication() {
     //
     // Answered rather than raised, and handled exactly as an unreachable port is
     // below: this node cannot host this app, which is an ordinary answer and not
-    // a fault. Raising it would file the app in the pre-install error cache, and
-    // an error is what it is not. The app keeps the entry every selection takes
-    // in the spawn cache, so this node stops considering it until that expires -
-    // which is right, because nothing changes here until the sibling gives the
-    // port up.
+    // a fault. What separates the two is how it is told, not what it costs the
+    // app: raised, this is an error with a stack trace and no event; answered,
+    // it is one line and a deferral the fleet can observe. The app holds the
+    // entry every selection takes in the spawn cache either way - it was filed
+    // at selection, and the catch below adds nothing for a hash already there -
+    // so this node stops considering it until that expires, which is right,
+    // because nothing changes here until the sibling gives the port up.
     const sibling = await portManager.siblingHoldingPort(appPorts, localSocketAddr);
     if (sibling) {
       log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
