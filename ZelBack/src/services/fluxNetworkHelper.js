@@ -518,6 +518,40 @@ async function verifySignedFluxnodeMessage(processedBody, options = {}) {
  */
 const MAX_TESTABLE_PORTS = 50;
 
+// Every installed application's ports plus the four node service ports the
+// keep-alive caller adds - maxAppsPerNode x MAX_TESTABLE_PORTS + 4. A bound on
+// how long one request can keep this node poking, and nothing tighter: the
+// honest list really can be that long.
+const NODE_SERVICE_PORTS_KEPT_ALIVE = 4;
+const MAX_KEEPALIVE_PORTS = config.fluxapps.maxAppsPerNode * MAX_TESTABLE_PORTS + NODE_SERVICE_PORTS_KEPT_ALIVE;
+
+/**
+ * The address a peer endpoint acts on: the one the caller connected from, or the
+ * one it named when it holds the privilege to name one.
+ *
+ * Never an input otherwise. A caller that names the address chooses where this
+ * node connects, which makes the endpoint a probe aimed at anything the caller
+ * likes - the loopback and the RFC1918 side of its own router included. The
+ * honest caller never needed it: it is asking about ITS OWN ports, so the
+ * address it means is the one it is connecting from. That is the rule
+ * /flux/addpeer already applies, and every inbound peer is already identified by
+ * its socket address - a Fluxnode whose egress differed from its declared
+ * address could not hold a peer slot anywhere on the network, so nothing
+ * legitimate is lost by insisting on it.
+ *
+ * An IPv4 connection to a dual-stack listener arrives as ::ffff:a.b.c.d, and an
+ * address that does not match itself would refuse every honest caller.
+ *
+ * @param {object} req
+ * @param {string|undefined} namedAddress - what the body says, if anything
+ * @param {boolean} mayName - whether this caller may choose the address
+ * @returns {string} the address, or '' when there is none to act on
+ */
+function addressToProbe(req, namedAddress, mayName) {
+  const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
+  return mayName === true ? (namedAddress || remoteIp) : remoteIp;
+}
+
 async function checkAppAvailability(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -551,25 +585,16 @@ async function checkAppAvailability(req, res) {
         throw new Error('Unable to verify request authenticity');
       }
 
-      // The address to probe is NOT an input. A caller that names it chooses
-      // where this node connects, and the echo below hands back the first bytes
-      // of what answered - so a body-supplied address turns every Flux node into
-      // a fetch primitive aimed at anything a signed peer likes, the loopback and
-      // the RFC1918 side of its own router included. The range guard does not
-      // help: portMin is 1 and portMax is 65535, and bannedPorts names this
+      // The address to probe is NOT an input - see addressToProbe. Here the
+      // stakes are highest: the echo below hands back the first bytes of what
+      // answered, so a body-supplied address turns every Flux node into a fetch
+      // primitive aimed at anything a signed peer likes. The range guard does
+      // not help: portMin is 1 and portMax is 65535, and bannedPorts names this
       // node's own services rather than a database's.
-      //
-      // The honest caller never needed it. It is asking whether ITS OWN ports
-      // are reachable, so the address it means is the one it is connecting from.
-      // This is the rule /flux/addpeer already applies, and every inbound peer is
-      // already identified by its socket address - a Fluxnode whose egress
-      // differed from its declared address could not hold a peer slot anywhere on
-      // the network, so nothing legitimate is lost by insisting on it here.
       //
       // Flux team may still name one, which is the whole of what the privilege
       // above is for: see it.
-      const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
-      const ip = authorized === true ? (processedBody.ip || remoteIp) : remoteIp;
+      const ip = addressToProbe(req, processedBody.ip, authorized);
 
       if (!ip) {
         throw new Error('Unable to determine which address to test');
@@ -681,16 +706,33 @@ function tcpConnectAndDestroy(host, port, timeout) {
  * @param {object} res Response
  * @returns {Promise<void>}
  */
+/**
+ * POST /flux/keepupnpportsopen - poke the caller's ports so its router keeps the
+ * UPnP mappings for them alive.
+ *
+ * The address poked is the one the caller connected from, never one it names -
+ * the rule /flux/checkappavailability applies, for the reason on addressToProbe.
+ * Naming one by hand is the same single privilege as skipping the signature:
+ * Flux team, not one every node operator holds. The API port stays the caller's
+ * to name, being a port on the address just bound.
+ *
+ * NO range or banned-port filter on the ports, deliberately, and unlike the
+ * availability endpoint beside this one. The caller sends its own service ports
+ * alongside its application ports - the API port minus one, minus five, plus one
+ * and plus two - and every one of those sits inside the banned 16100-16299
+ * block. The filter that is right there would silently end the keep-alive here.
+ *
+ * @param {object} req
+ * @param {object} res
+ */
 async function keepUPNPPortsOpen(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
 
     const { body } = req;
     const processedBody = serviceHelper.ensureObject(body);
 
-    const {
-      ip, apiPort, ports, pubKey, timestamp, signature,
-    } = processedBody;
+    const { apiPort, ports, timestamp } = processedBody;
 
     const now = Math.floor(Date.now() / 1000);
 
@@ -700,12 +742,12 @@ async function keepUPNPPortsOpen(req, res) {
       return;
     }
 
-    if (!ip || !apiPort || !pubKey || !signature) {
+    if (!apiPort) {
       res.status(422).end();
       return;
     }
 
-    if (!Array.isArray(ports)) {
+    if (!Array.isArray(ports) || ports.length > MAX_KEEPALIVE_PORTS) {
       res.status(422).end();
       return;
     }
@@ -719,14 +761,16 @@ async function keepUPNPPortsOpen(req, res) {
     }
 
     // pubkey of the message has to be on the list
-    const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
-    const dataToVerify = processedBody;
-    delete dataToVerify.signature;
-    const messageToVerify = JSON.stringify(dataToVerify);
-    const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-    if ((verified !== true || !nodes.length) && authorized !== true) {
+    const verified = await verifySignedFluxnodeMessage(processedBody);
+    if (!verified && authorized !== true) {
       res.status(401).end();
       throw new Error('Unable to verify request authenticity');
+    }
+
+    const ip = addressToProbe(req, processedBody.ip, authorized);
+    if (!ip) {
+      res.status(422).end();
+      return;
     }
 
     // make sure that we can reach the api port first. This is in case of nodes that
@@ -2501,6 +2545,7 @@ module.exports = {
   getLocalSocketAddress,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
+  MAX_KEEPALIVE_PORTS,
   checkDeterministicNodesCollisions,
   getIncomingConnections,
   getIncomingConnectionsInfo,

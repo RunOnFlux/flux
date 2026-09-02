@@ -8,6 +8,9 @@ const { FluxHttpTestServer } = require('../../ZelBack/src/services/utils/fluxHtt
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dgram = require('node:dgram');
+const net = require('node:net');
 
 // The three parts of the port test, wired together, because each is sound alone
 // and the thing that matters is that they compose: this node publishes a secret
@@ -237,5 +240,115 @@ describe('checkAppAvailability probes the address that asked', () => {
 
     expect(answer.status).to.equal('error');
     expect(answer.data.message).to.include('Too many ports');
+  });
+});
+
+// The keep-alive is the availability endpoint's twin: a signed peer asks this
+// node to connect to its ports. The address it connects to is the one the
+// caller came from, for the same reason, under the same privilege to name one.
+describe('keepUPNPPortsOpen pokes the address that asked', () => {
+  let sandbox;
+  const HERE = '198.51.100.7';
+  const SOMEWHERE_ELSE = '203.0.113.9';
+
+  beforeEach(() => {
+    sandbox = sinon.createSandbox();
+    sandbox.stub(fluxCommunicationUtils, 'deterministicFluxList').resolves([{ ip: `${HERE}:16127` }]);
+    sandbox.stub(verificationHelper, 'verifyMessage').returns(true);
+    sandbox.stub(verificationHelper, 'verifyPrivilege').resolves(false);
+    // The connect-back to the caller's API port is the one observable that
+    // carries the address; the pokes themselves return nothing to anyone.
+    sandbox.stub(serviceHelper, 'axiosGet').resolves({ data: {} });
+  });
+
+  afterEach(() => sandbox.restore());
+
+  const ask = async (body, remoteAddress) => {
+    const req = { body, socket: { remoteAddress }, headers: {} };
+    const res = { status: sinon.stub().returnsThis(), end: sinon.stub() };
+    await fluxNetworkHelper.keepUPNPPortsOpen(req, res);
+    return res;
+  };
+
+  const signedBody = (overrides = {}) => ({
+    ip: SOMEWHERE_ELSE,
+    apiPort: 16127,
+    ports: [],
+    pubKey: 'k',
+    signature: 's',
+    timestamp: Math.floor(Date.now() / 1000),
+    ...overrides,
+  });
+
+  const connectedBackTo = () => serviceHelper.axiosGet.firstCall.args[0];
+
+  it('ignores an address in the body and pokes the one that connected', async () => {
+    const res = await ask(signedBody(), HERE);
+
+    sinon.assert.calledWith(res.status, 202);
+    expect(connectedBackTo()).to.equal(`http://${HERE}:16127/flux/uptime`);
+  });
+
+  it('reads an IPv4-mapped remote address as the address it is', async () => {
+    await ask(signedBody(), `::ffff:${HERE}`);
+
+    expect(connectedBackTo()).to.equal(`http://${HERE}:16127/flux/uptime`);
+  });
+
+  it('lets Flux team name an address by hand', async () => {
+    verificationHelper.verifyPrivilege.resolves(true);
+
+    await ask(signedBody(), HERE);
+
+    expect(connectedBackTo()).to.equal(`http://${SOMEWHERE_ELSE}:16127/flux/uptime`);
+  });
+
+  it('asks for Flux team, not for a privilege every node operator holds', async () => {
+    await ask(signedBody(), HERE);
+
+    sinon.assert.calledWith(verificationHelper.verifyPrivilege, Privilege.FLUX_TEAM);
+    sinon.assert.neverCalledWith(
+      verificationHelper.verifyPrivilege,
+      Privilege.NODE_OPERATOR_OR_FLUX_TEAM,
+    );
+  });
+
+  it('refuses an ask that is neither signed by a listed Fluxnode nor from Flux team', async () => {
+    verificationHelper.verifyMessage.returns(false);
+
+    const res = await ask(signedBody(), HERE);
+
+    sinon.assert.calledWith(res.status, 401);
+    sinon.assert.notCalled(serviceHelper.axiosGet);
+  });
+
+  // maxAppsPerNode x MAX_TESTABLE_PORTS + the four node service ports: a bound
+  // on how long one request can keep this node poking, and the honest list can
+  // be that long.
+  it('refuses more ports than a node could hold', async () => {
+    const tooMany = Array.from({ length: fluxNetworkHelper.MAX_KEEPALIVE_PORTS + 1 }, (unused, i) => 20000 + i);
+
+    const res = await ask(signedBody({ ports: tooMany }), HERE);
+
+    sinon.assert.calledWith(res.status, 422);
+    sinon.assert.notCalled(serviceHelper.axiosGet);
+  });
+
+  // No range or banned-port filter, unlike the availability endpoint: the
+  // caller keeps its own service ports alive too - the API port minus one,
+  // minus five, plus one and plus two - and those sit inside the banned
+  // 16100-16299 block. The filter that is right there would end the keep-alive.
+  it('pokes the caller\'s own service ports, which the app-port ban would refuse', async () => {
+    const udp = { send: sinon.stub().callsArg(5), close: sinon.stub() };
+    sandbox.stub(dgram, 'createSocket').returns(udp);
+    sandbox.stub(net.Socket.prototype, 'connect');
+    sandbox.stub(serviceHelper, 'delay').resolves();
+    const servicePorts = [16126, 16122, 16128, 16129];
+
+    await ask(signedBody({ ports: servicePorts }), HERE);
+
+    const poked = udp.send.args.map((args) => args[3]);
+    expect(poked).to.deep.equal(servicePorts);
+    udp.send.args.forEach((args) => expect(args[4]).to.equal(HERE));
   });
 });
