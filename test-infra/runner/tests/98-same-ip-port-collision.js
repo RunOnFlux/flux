@@ -6,8 +6,8 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   bootAndPeer, installOnNodes, seedSpawnerApp,
 } from '../framework/reconciler-suite.js';
-import { authenticate } from '../auth.js';
-import { fluxTeamKey } from '../framework/keys.js';
+import { authenticate, signBtcMessage } from '../auth.js';
+import { fluxTeamKey, nodeKey } from '../framework/keys.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -151,6 +151,32 @@ describe('a port another Flux node at this address holds', function () {
 
     expect(answer.status).to.equal('error');
     expect(answer.data.message).to.match(/verify request authenticity/i);
+  });
+
+  // The keep-alive is the availability endpoint's twin: a signed peer asks this
+  // node to connect to its ports, and the address it connects to is the one the
+  // caller came from, never one the body names. Driven from the runner because
+  // no node in this fleet is behind UPnP, so nothing here sends the ask itself.
+  // What this proves that a unit test cannot: a real FluxOS answers it through
+  // express.json() and a real socket, and the refusal is a bare status code.
+  it('keeps UPnP ports alive at the address that asked, not the one named', async function () {
+    this.timeout(60000);
+    const asker = nodeKey(5);
+    const ask = {
+      ip: subnet.nodeIp(5), apiPort: 16127, ports: [], pubKey: asker.pubkey, timestamp: Math.floor(Date.now() / 1000),
+    };
+    const signature = await signBtcMessage(JSON.stringify(ask), asker.privkey);
+
+    // Signed by a listed Fluxnode and sent from here, which is not that node.
+    // The connect-back goes to this runner, where nothing listens, and fails;
+    // were the body's address used it would reach node 5 and succeed.
+    const fromHere = await env.clients[1].request('POST', '/flux/keepupnpportsopen', { body: { ...ask, signature } });
+    expect(fromHere.status, 'the body address was used to pick the target').to.equal(503);
+
+    // Flux team may name one, and the connect-back then reaches the node named.
+    const auth = await authenticate(env.clients[1].url, fluxTeamKey());
+    const named = await env.clients[1].request('POST', '/flux/keepupnpportsopen', { body: ask, headers: { zelidauth: auth.zelidauth } });
+    expect(named.status, 'the carve-out was lost').to.equal(202);
   });
 
   // The front door. The asker reports itself at the sibling's address on a
