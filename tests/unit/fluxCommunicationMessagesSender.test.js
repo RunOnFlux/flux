@@ -207,7 +207,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('sends nothing when this node cannot sign as itself', async () => {
       fluxNetworkHelperPublicKeyStub.returns(null);
-      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
       const websocket = generateWebsocket();
 
       await fluxCommunicationMessagesSender.sendSignedMessage({ title: 'message' }, websocket);
