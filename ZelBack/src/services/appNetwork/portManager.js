@@ -12,6 +12,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
+const appUtilities = require('../utils/appUtilities');
 const { Privilege, authOf } = require('../utils/privileges');
 const fluxCaching = require('../utils/cacheManager');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -82,122 +83,114 @@ function ensureAppUniquePorts(appSpecFormatted) {
 }
 
 /**
- * Get ports assigned by currently installed applications
- * @returns {Promise<Array>} Array of objects with app names and their assigned ports
+ * The applications in a set of stored specifications, and the host ports each
+ * one declares.
+ *
+ * Enterprise specifications are decrypted before anything is read out of them. A
+ * version 8 specification seals `contacts` and `compose`, and every port an
+ * application holds lives inside `compose` - so a reader that skips the decrypt
+ * does not see an application it cannot read. It sees one holding no ports at
+ * all, and a hole in the answer reads as "those ports are free".
+ *
+ * Through the cached path rather than checkAndDecryptAppSpecs directly. That
+ * primitive holds no cache: it costs two globalAppsMessages queries and a benchd
+ * RSA decrypt per enterprise application on every call, and these lists are
+ * reached from an unauthenticated endpoint and from every spawn attempt. The
+ * wrapper answers from enterpriseAppDecryptionCache (keyed on spec.hash, seven
+ * days), shares one in-flight attempt between concurrent callers, and remembers
+ * a failure briefly. formatSpecs is false because the formatter strips the hash
+ * the cache keys on.
+ *
+ * The ports come from getAppPorts, which is the one place that derivation lives.
+ * What to do about a specification that would not open is left to the caller,
+ * and the two callers answer it differently - each says why.
+ *
+ * @param {Array<object>} specs - stored application specifications
+ * @returns {Promise<{apps: Array<{name: string, ports: number[]}>, unreadable: Array<object>}>}
+ */
+async function appsWithPorts(specs) {
+  // eslint-disable-next-line global-require
+  const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+  const { readable, unreadable } = await decryptEnterpriseApps(specs, { formatSpecs: false });
+
+  const apps = readable.map((app) => ({
+    name: app.name,
+    ports: appUtilities.getAppPorts(app),
+  }));
+
+  return { apps, unreadable };
+}
+
+/**
+ * The host ports the applications installed on this node hold.
+ *
+ * Refuses rather than answering short. This list is what portsInUse publishes to
+ * a Flux node sharing our public address, so a hole in it does not merely lead
+ * this node astray - it tells a sibling a port is free when it is not.
+ *
+ * A specification here that will not open is a genuine fault rather than a key
+ * this node was never meant to hold: an enterprise application only ever
+ * installs on ArcaneOS (appSpawner), so a node holding one can always read it.
+ *
+ * @returns {Promise<Array<{name: string, ports: number[]}>>} the applications
+ *   and the ports each holds
  */
 async function assignedPortsInstalledApps() {
-  // construct object ob app name and ports array
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appslocal.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, localAppsInformation, query, projection);
-  // Through the cached path, not checkAndDecryptAppSpecs directly. That
-  // primitive holds no cache: it costs two globalAppsMessages queries and a
-  // benchd RSA decrypt per enterprise app on every call, and this function is
-  // reached from an unauthenticated endpoint. The wrapper answers from
-  // enterpriseAppDecryptionCache (keyed on spec.hash, seven days), shares one
-  // in-flight attempt between concurrent callers, and remembers a failure
-  // briefly. formatSpecs is false because the formatter strips the hash the
-  // cache keys on.
-  //
-  // An app that cannot be read throws, which is what the per-spec call it
-  // replaces already did. A port list missing an app's ports is worse than no
-  // list: every caller here is asking which ports are taken, and a hole in the
-  // answer reads as "free".
-  // eslint-disable-next-line global-require
-  const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
-  const { inPlace: decryptedApps, unreadable } = await decryptEnterpriseApps(results, { formatSpecs: false });
+
+  const { apps, unreadable } = await appsWithPorts(results);
+
   if (unreadable.length) {
     throw new Error(`Cannot list ports in use: ${unreadable.length} of ${results.length} application specifications could not be read`);
   }
-  const apps = [];
-  decryptedApps.forEach((app) => {
-    // there is no app
-    if (app.version === 1) {
-      const appSpecs = {
-        name: app.name,
-        ports: [Number(app.port)],
-      };
-      apps.push(appSpecs);
-    } else if (app.version <= 3) {
-      const appSpecs = {
-        name: app.name,
-        ports: [],
-      };
-      app.ports.forEach((port) => {
-        appSpecs.ports.push(Number(port));
-      });
-      apps.push(appSpecs);
-    } else if (app.version >= 4) {
-      const appSpecs = {
-        name: app.name,
-        ports: [],
-      };
-      app.compose.forEach((component) => {
-        component.ports.forEach((port) => {
-          appSpecs.ports.push(Number(port));
-        });
-      });
-      apps.push(appSpecs);
-    }
-  });
+
   return apps;
 }
 
 /**
- * Get ports assigned by global applications
- * @param {string[]} appNames - Array of app names to check
- * @returns {Promise<Array>} Array of objects with app names and their assigned ports
+ * The host ports named applications hold, read from the network-wide
+ * specifications.
+ *
+ * These are other nodes' applications - the ones the network reports as running
+ * at a public address this node shares - so their ports come from the broadcast
+ * specification, there being nothing about them installed here to read.
+ *
+ * Answers short rather than refusing, which is the opposite of the installed
+ * list above and deliberately so. Every node stores every global specification,
+ * including enterprise ones sealed to a key that a node not running ArcaneOS
+ * does not hold, and those are the majority of what cannot be opened here.
+ * Refusing would stop every installation on every such node over a specification
+ * it was never meant to read. The gap is said out loud and siblingHoldingPort
+ * covers it by asking the node that holds the port instead of reading its
+ * specification.
+ *
+ * @param {string[]} appNames - the applications to look up
+ * @returns {Promise<Array<{name: string, ports: number[]}>>} the applications
+ *   whose ports could be read, and the ports each holds
  */
 async function assignedPortsGlobalApps(appNames) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
   if (!appNames || appNames.length === 0) {
     return [];
   }
 
-  const appsQuery = appNames.map((app) => ({ name: app }));
-  const query = { $or: appsQuery };
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { $or: appNames.map((name) => ({ name })) };
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
 
-  const appsWithPorts = [];
+  const { apps, unreadable } = await appsWithPorts(results);
 
-  results.forEach((app) => {
-    const appPorts = [];
+  if (unreadable.length) {
+    log.warn(`assignedPortsGlobalApps - ${unreadable.length} of ${results.length} specifications at this address could not be read; `
+      + 'the ports those applications hold are not in this answer');
+  }
 
-    if (app.version === 1) {
-      if (app.port) {
-        appPorts.push(Number(app.port));
-      }
-    } else if (app.version <= 3) {
-      if (app.ports && Array.isArray(app.ports)) {
-        app.ports.forEach((port) => {
-          appPorts.push(Number(port));
-        });
-      }
-    } else if (app.version >= 4 && app.compose) {
-      // For compose applications, collect ports from all components
-      app.compose.forEach((component) => {
-        if (component.ports && Array.isArray(component.ports)) {
-          component.ports.forEach((port) => {
-            appPorts.push(Number(port));
-          });
-        }
-      });
-    }
-
-    if (appPorts.length > 0) {
-      appsWithPorts.push({
-        name: app.name,
-        ports: appPorts,
-      });
-    }
-  });
-
-  return appsWithPorts;
+  return apps;
 }
 
 /**
@@ -782,51 +775,6 @@ function portNotOurs(portsToTest, answered, token) {
 }
 
 /**
- * Check if a specific port is available
- * @param {number} port - Port number to check
- * @param {string} excludeApp - App name to exclude from check (for updates)
- * @returns {Promise<boolean>} True if port is available
- */
-async function isPortAvailable(port, excludeApp = null) {
-  const usedPorts = await assignedPortsInstalledApps();
-
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of usedPorts) {
-    if (excludeApp && app.name === excludeApp) {
-      continue; // eslint-disable-line no-continue
-    }
-    if (app.ports.includes(Number(port))) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/**
- * Find the next available port in a given range
- * @param {number} startPort - Starting port to check
- * @param {number} endPort - Ending port range
- * @param {string} excludeApp - App name to exclude from check
- * @returns {Promise<number|null>} Next available port or null if none found
- */
-async function findNextAvailablePort(startPort, endPort, excludeApp = null) {
-  for (let port = startPort; port <= endPort; port += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    const available = await isPortAvailable(port, excludeApp);
-    if (available) {
-      return port;
-    }
-  }
-  return null;
-}
-
-/**
- * Sign application data for verification
- * @param {string} message - Message to sign
- * @returns {Promise<string>} Signature
- */
-/**
  * To check if app ports are available publicly before installation
  * @param {Array} portsToTest Array of ports to test
  * @returns {Promise<boolean>} True if ports are available, false otherwise
@@ -1307,8 +1255,6 @@ module.exports = {
   portNotOurs,
   refusedPort,
   siblingHoldingPort,
-  isPortAvailable,
-  findNextAvailablePort,
   checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
   failedNodesTestPortsCache,

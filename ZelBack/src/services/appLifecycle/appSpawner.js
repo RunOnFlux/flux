@@ -500,11 +500,18 @@ async function trySpawningGlobalApplication() {
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
-    // The check above reads a sibling's ports from its broadcast specification,
-    // which an enterprise app does not carry, and it can only see nodes already
-    // running something. Ask the other Flux nodes at this address directly, here
-    // rather than during the port test, so a refusal costs no firewall rule and
-    // no port mapping to unwind.
+    // The check above reads a sibling's ports from the specifications the
+    // network broadcasts, so it sees only what has been reported as RUNNING. A
+    // sibling that has installed an application and not started it, or is still
+    // installing it, appears nowhere in that list and holds the router's forward
+    // regardless. Ask the other Flux nodes at this address directly, here rather
+    // than during the port test, so a refusal costs no firewall rule and no port
+    // mapping to unwind.
+    //
+    // Not because an enterprise application hides its ports. It seals them, and
+    // a node running ArcaneOS opens them - assignedPortsGlobalApps decrypts. On
+    // a node that is not running ArcaneOS it cannot, and there this ask is the
+    // only thing that sees a sealed neighbour's ports at all.
     //
     // Answered rather than raised, and handled exactly as an unreachable port is
     // below: this node cannot host this app, which is an ordinary answer and not

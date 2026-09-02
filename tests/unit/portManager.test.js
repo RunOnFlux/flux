@@ -170,9 +170,10 @@ describe('portManager tests', () => {
       await dbHelper.insertOneToDatabase(database, collection, {
         name: 'EnterpriseApp', version: 8, enterprise: 'blob', hash: 'h1',
       });
+      const decrypted = { name: 'EnterpriseApp', version: 4, compose: [{ name: 'c', ports: [31000] }] };
       const decrypt = sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({
-        inPlace: [{ name: 'EnterpriseApp', version: 4, compose: [{ name: 'c', ports: [31000] }] }],
-        readable: [],
+        inPlace: [decrypted],
+        readable: [decrypted],
         unreadable: [],
       });
 
@@ -245,6 +246,74 @@ describe('portManager tests', () => {
       expect(composedApp.ports).to.include(30006);
       expect(composedApp.ports).to.include(30007);
       expect(composedApp.ports).to.include(30008);
+    });
+  });
+
+  describe('assignedPortsGlobalApps tests', () => {
+    let database;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+      try {
+        await database.collection(config.database.appsglobal.collections.appsInformation).drop();
+      } catch (err) {
+        // collection does not exist
+      }
+    });
+
+    // These are OTHER nodes' applications - the ones the network reports running
+    // at a public address this node shares. A version 8 specification seals its
+    // compose, and every port lives in there, so a reader that does not decrypt
+    // sees an enterprise application as holding no ports at all. The caller is
+    // asking which ports are already taken before installing onto one of them.
+    it('reads the ports an enterprise application holds, rather than seeing none', async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'SealedApp', version: 8, enterprise: 'blob', hash: 'h1',
+      });
+      const decrypted = { name: 'SealedApp', version: 8, compose: [{ name: 'c', ports: [31500] }] };
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({
+        inPlace: [decrypted], readable: [decrypted], unreadable: [],
+      });
+
+      const result = await portManager.assignedPortsGlobalApps(['SealedApp']);
+
+      const sealed = result.find((app) => app.name === 'SealedApp');
+      expect(sealed, 'a sealed specification was read as holding no ports').to.exist;
+      expect(sealed.ports).to.include(31500);
+    });
+
+    // The opposite rule to assignedPortsInstalledApps, and deliberately so. Every
+    // node stores every global specification, including enterprise ones sealed to
+    // a key a node not running ArcaneOS does not hold. Refusing there would stop
+    // every installation on every such node over a specification it was never
+    // meant to read; siblingHoldingPort covers what is missed.
+    //
+    // Nothing is stubbed here. This process has no FLUXOS_PATH, so it IS a node
+    // that cannot decrypt and checkAndDecryptAppSpecs refuses outright - which is
+    // the case being asserted, rather than a stand-in for it.
+    it('on a node that cannot decrypt, answers with the applications it can read', async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+      await dbHelper.insertManyToDatabase(database, collection, [
+        { name: 'SealedApp', version: 8, enterprise: 'blob', hash: 'h-cannot-decrypt' },
+        { name: 'PlainApp', version: 3, ports: [31600] },
+      ]);
+
+      const result = await portManager.assignedPortsGlobalApps(['SealedApp', 'PlainApp']);
+
+      const plain = result.find((app) => app.name === 'PlainApp');
+      expect(plain, 'one sealed specification took the whole answer with it').to.exist;
+      expect(plain.ports).to.include(31600);
+      expect(result.find((app) => app.name === 'SealedApp'), 'a specification that would not open was answered as holding no ports').to.not.exist;
+    });
+
+    it('asks nothing when there are no applications to look up', async () => {
+      const decrypt = sinon.stub(appQueryService, 'decryptEnterpriseApps');
+
+      expect(await portManager.assignedPortsGlobalApps([])).to.deep.equal([]);
+      expect(await portManager.assignedPortsGlobalApps(undefined)).to.deep.equal([]);
+      sinon.assert.notCalled(decrypt);
     });
   });
 
@@ -342,107 +411,6 @@ describe('portManager tests', () => {
       } catch (error) {
         expect(error.message).to.include('port 30001 already used');
       }
-    });
-  });
-
-  describe('isPortAvailable tests', () => {
-    let db;
-    let database;
-
-    beforeEach(async () => {
-      await dbHelper.initiateDB();
-      db = dbHelper.databaseConnection();
-      database = db.db(config.database.appslocal.database);
-
-      const collection = config.database.appslocal.collections.appsInformation;
-      const testApps = [
-        {
-          name: 'App1',
-          version: 3,
-          ports: [30001, 30002],
-        },
-        {
-          name: 'App2',
-          version: 3,
-          ports: [30003],
-        },
-      ];
-
-      try {
-        await database.collection(collection).drop();
-      } catch (err) {
-        // Collection doesn't exist
-      }
-      await dbHelper.insertManyToDatabase(database, collection, testApps);
-    });
-
-    it('should return false if port is used', async () => {
-      const result = await portManager.isPortAvailable(30001);
-
-      expect(result).to.be.false;
-    });
-
-    it('should return true if port is not used', async () => {
-      const result = await portManager.isPortAvailable(30100);
-
-      expect(result).to.be.true;
-    });
-
-    it('should exclude specified app from check', async () => {
-      const result = await portManager.isPortAvailable(30001, 'App1');
-
-      expect(result).to.be.true;
-    });
-
-    it('should not exclude different app from check', async () => {
-      const result = await portManager.isPortAvailable(30001, 'App2');
-
-      expect(result).to.be.false;
-    });
-  });
-
-  describe('findNextAvailablePort tests', () => {
-    let db;
-    let database;
-
-    beforeEach(async () => {
-      await dbHelper.initiateDB();
-      db = dbHelper.databaseConnection();
-      database = db.db(config.database.appslocal.database);
-
-      const collection = config.database.appslocal.collections.appsInformation;
-      const testApps = [
-        {
-          name: 'App1',
-          version: 3,
-          ports: [30001, 30002, 30003],
-        },
-      ];
-
-      try {
-        await database.collection(collection).drop();
-      } catch (err) {
-        // Collection doesn't exist
-      }
-      await dbHelper.insertManyToDatabase(database, collection, testApps);
-    });
-
-    it('should find next available port', async () => {
-      const result = await portManager.findNextAvailablePort(30001, 30010);
-
-      expect(result).to.equal(30004);
-    });
-
-    it('should return null if no available port in range', async () => {
-      const result = await portManager.findNextAvailablePort(30001, 30003);
-
-      expect(result).to.be.null;
-    });
-
-    it('should return first port if available', async () => {
-      const result = await portManager.findNextAvailablePort(30010, 30020);
-
-      expect(result).to.equal(30010);
     });
   });
 
