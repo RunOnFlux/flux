@@ -145,6 +145,11 @@ async function trySpawningGlobalApplication() {
       throw new Error('Unable to detect Flux IP address');
     }
 
+    // Our address without the port, derived once. It was being recomputed in
+    // four places under three different names, so nothing told a reader they
+    // were the same value.
+    const localIp = extractIp(localSocketAddr);
+
     const runningApps = await appQueryService.listRunningApps();
     if (runningApps.status !== 'success') {
       throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
@@ -321,7 +326,7 @@ async function trySpawningGlobalApplication() {
       let myCountryCode = selfCountryCode ?? null;
       let myTableRegion = null;
       try {
-        const localHit = await ipLocationStore.lookup(extractIp(localSocketAddr));
+        const localHit = await ipLocationStore.lookup(localIp);
         // Both or neither: a hit carrying one without the other cannot place the
         // node any better than its own report can.
         if (localHit?.continentCode && localHit?.countryCode) {
@@ -364,10 +369,10 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       let random = Math.floor(Math.random() * globalAppNamesLocation.length);
       appToRunAux = globalAppNamesLocation[random];
-      const filterAppsWithNyNodeIP = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
-      if (filterAppsWithNyNodeIP.length > 0) {
-        random = Math.floor(Math.random() * filterAppsWithNyNodeIP.length);
-        appToRunAux = filterAppsWithNyNodeIP[random];
+      const appsPinnedToThisNode = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
+      if (appsPinnedToThisNode.length > 0) {
+        random = Math.floor(Math.random() * appsPinnedToThisNode.length);
+        appToRunAux = appsPinnedToThisNode[random];
       }
 
       appToRun = appToRunAux.name;
@@ -402,13 +407,12 @@ async function trySpawningGlobalApplication() {
 
     runningAppList = await registryManager.appLocation(appToRun);
 
-    const adjustedIP = extractIp(localSocketAddr); // just IP address
     // check if app not running on this device
-    if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
+    if (runningAppList.find((document) => document.ip.includes(localIp))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already running on this Flux IP`);
       return delayTime;
     }
-    if (installingAppList.find((document) => document.ip.includes(adjustedIP))) {
+    if (installingAppList.find((document) => document.ip.includes(localIp))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already being installed on this Flux IP`);
       return delayTime;
     }
@@ -494,9 +498,8 @@ async function trySpawningGlobalApplication() {
 
     // ensure ports unused
     // Get apps running specifically on this IP
-    const localSocketAddrAddress = extractIp(localSocketAddr); // just IP address without port
-    const runningAppsOnThisIP = await registryManager.getRunningAppIpList(localSocketAddrAddress);
-    const runningAppsNames = runningAppsOnThisIP.map((app) => app.name);
+    const appsRunningAtOurIp = await registryManager.getRunningAppIpList(localIp);
+    const runningAppsNames = appsRunningAtOurIp.map((app) => app.name);
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
@@ -569,8 +572,6 @@ async function trySpawningGlobalApplication() {
     } else {
       syncthingApp = appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
     }
-
-    const localIp = extractIp(localSocketAddr);
 
     // An owner who names exactly as many nodes as instances has assigned the
     // placement, and the diversity share does not second-guess it. A longer
