@@ -369,10 +369,10 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       let random = Math.floor(Math.random() * globalAppNamesLocation.length);
       appToRunAux = globalAppNamesLocation[random];
-      const appsPinnedToThisNode = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
-      if (appsPinnedToThisNode.length > 0) {
-        random = Math.floor(Math.random() * appsPinnedToThisNode.length);
-        appToRunAux = appsPinnedToThisNode[random];
+      const appsNamingThisNode = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
+      if (appsNamingThisNode.length > 0) {
+        random = Math.floor(Math.random() * appsNamingThisNode.length);
+        appToRunAux = appsNamingThisNode[random];
       }
 
       appToRun = appToRunAux.name;
@@ -580,11 +580,11 @@ async function trySpawningGlobalApplication() {
     // over that pool (placementFeasibility restricts its candidate set to it).
     // The bypass applies only when THIS node is named: a v8+ app spawning on
     // an off-list node is subject to the share either way.
-    let pinnedHere = false;
+    let ownerNamedThisNode = false;
     if (syncthingApp) {
       const pinList = appSpecifications.nodes ?? [];
-      pinnedHere = pinList.length > 0 && pinList.length <= minInstances
-        && await placementFeasibility.isNodePinnedHere(appSpecifications, localSocketAddr);
+      ownerNamedThisNode = pinList.length > 0 && pinList.length <= minInstances
+        && await placementFeasibility.specNamesThisNode(appSpecifications, localSocketAddr);
     }
 
     // A synced app may only be refused when a better-placed candidate provably
@@ -593,7 +593,7 @@ async function trySpawningGlobalApplication() {
     let placementShare = null;
     let placementDomainOf = null;
     let myDomain = null;
-    if (syncthingApp && !pinnedHere) {
+    if (syncthingApp && !ownerNamedThisNode) {
       // placementComputation refuses a geo-restricted question while the location
       // table is still loading, because answering it over the whole network would
       // advise on numbers that mean nothing. That refusal is addressed to the HTTP
@@ -891,7 +891,7 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    if (syncthingApp && !pinnedHere && placementShare) {
+    if (syncthingApp && !ownerNamedThisNode && placementShare) {
       // Re-check the domain share against the propagated lists, keyed by the
       // same computation that produced the share - a fresher view of the
       // network would move nodes between domains the share was never computed

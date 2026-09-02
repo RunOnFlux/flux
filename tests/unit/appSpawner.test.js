@@ -65,7 +65,7 @@ describe('appSpawner tests', () => {
       // re-stating its semantics in a stub is the defect class the parity
       // suite exists to prevent
       nodeLocationMatchesGeolocation: realPlacementFeasibility.nodeLocationMatchesGeolocation,
-      isNodePinnedHere: sinon.stub().resolves(opts.pinnedHere ?? false),
+      specNamesThisNode: sinon.stub().resolves(opts.namesThisNode ?? false),
       // one computation carries both the share and the domain function it was
       // computed with - the spawner keys every domain through the latter
       placementComputation: sinon.stub().resolves({
@@ -967,7 +967,7 @@ describe('appSpawner tests', () => {
 
     it('bypasses the share entirely when the owner pinned this node', async () => {
       const { installStub } = await runAttempt({
-        pinnedHere: true,
+        namesThisNode: true,
         appSpec: { ...syncedSpec, nodes: ['192.168.1.1:16127', '10.0.0.2:16127', '10.0.0.3:16127'] },
         appLocations: sameDomainLocation,
         placementShare: { domainCount: 10, maxPerDomain: 1 },
@@ -981,7 +981,7 @@ describe('appSpawner tests', () => {
       // a pool that large expresses no co-location intent, so the share applies
       const manyNodes = Array.from({ length: 30 }, (unused, i) => `10.0.0.${i + 1}:16127`);
       const { installStub, logged } = await runAttempt({
-        pinnedHere: true,
+        namesThisNode: true,
         appSpec: { ...syncedSpec, nodes: manyNodes },
         appLocations: sameDomainLocation,
         placementShare: { domainCount: 10, maxPerDomain: 1 },
