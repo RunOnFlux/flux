@@ -416,20 +416,20 @@ async function portsInUse() {
  * POST /flux/portsinuse - the ports this node holds, to a Fluxnode that signed
  * the question.
  *
- * Read by another Flux node on the same public address, deciding whether a port
- * it is about to install onto is already spoken for. The router forwards each
- * port to exactly one node, so two applications wanting the same port at one
- * address cannot both be reached, whichever applications they are - which is why
- * the answer is ports alone and names no application.
+ * Asked today by another Flux node on the same public address, deciding whether
+ * a port it is about to install onto is already spoken for. The router forwards
+ * each port to exactly one node, so two applications wanting the same port at
+ * one address cannot both be reached, whichever applications they are - which
+ * is why the answer is ports alone and names no application.
  *
- * SIGNED, not open. What it discloses is small - port numbers, no application
+ * SIGNED, not open - and answered to any listed Fluxnode, not to siblings alone.
+ * Which ports a node holds is a fact about that node, and a sibling is one
+ * caller for it. What it discloses is small: port numbers, no application
  * identity, and a port scan of the address finds most of it anyway. The reason
- * is the other half: answering means reading this node's own specifications,
- * decrypting the enterprise ones, and an anonymous caller could ask for that as
- * often as it liked. The only real caller is a sibling Fluxnode, and this
- * codebase already verifies exactly that on /flux/checkappavailability - the
- * endpoint this feature's own port test posts to. Same check, same list, same
- * signature.
+ * for the signature is the other half. Answering means reading this node's own
+ * specifications, decrypting the enterprise ones, and signing the answer, and
+ * an anonymous caller could ask for that as often as it liked. It is the check
+ * /flux/checkappavailability makes - same list, same signature.
  *
  * An operator asking by hand is accepted on the usual privilege, so the endpoint
  * stays usable directly.
@@ -451,6 +451,27 @@ async function portsInUseApi(req, res) {
     // of them works for both kinds of caller.
     const processedBody = serviceHelper.ensureObject(req.body);
 
+    // A signed ask is good for its window and no longer, and the window is
+    // checked before the signature is: an ask outside it costs nothing to
+    // refuse, whoever sent it. Refused as STALE rather than as unauthentic,
+    // because the two want different fixes and a node whose clock has drifted
+    // should be able to read which from one line.
+    //
+    // Inside the window a captured ask is answered. What a replay yields is the
+    // port list below, signed to the ask's own time - and nothing else.
+    //
+    // Not asked of an operator: they authenticate as themselves, and a person
+    // asking by hand has no signature for anyone to capture.
+    const claimsSignature = Boolean(processedBody.pubKey && processedBody.signature);
+    const askedAt = claimsSignature ? Number(processedBody.timestamp) : null;
+
+    if (claimsSignature) {
+      const drift = Math.abs(Date.now() - askedAt);
+      if (!Number.isFinite(askedAt) || drift > config.fluxapps.siblingAskValidityMs) {
+        throw new Error('Request is stale or carries no timestamp');
+      }
+    }
+
     const signed = await fluxNetworkHelper.verifySignedFluxnodeMessage(processedBody);
     const authorized = signed
       ? true
@@ -458,21 +479,6 @@ async function portsInUseApi(req, res) {
 
     if (signed !== true && authorized !== true) {
       throw new Error('Unable to verify request authenticity');
-    }
-
-    // A signed ask is good for its window and no longer. Refused as STALE rather
-    // than as unauthentic, because the two want different fixes and a node whose
-    // clock has drifted should be able to read which from one line.
-    //
-    // Not asked of an operator: they authenticated as themselves, and a person
-    // asking by hand has no signature for anyone to capture.
-    const askedAt = signed === true ? Number(processedBody.timestamp) : null;
-
-    if (signed === true) {
-      const drift = Math.abs(Date.now() - askedAt);
-      if (!Number.isFinite(askedAt) || drift > config.fluxapps.siblingAskValidityMs) {
-        throw new Error('Request is stale or carries no timestamp');
-      }
     }
 
     const ports = await portsInUse();

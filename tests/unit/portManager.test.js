@@ -930,9 +930,12 @@ describe('portManager tests', () => {
     // The body is otherwise constant - a key and a fixed word - so without a time
     // in it one captured signature is a bearer token for this endpoint on every
     // node, for ever.
-    it('refuses a signed ask that is older than its window', async () => {
+    // The window is checked before the signature: an ask outside it is refused
+    // for nothing, whoever sent it, rather than after a signature check it
+    // would fail anyway.
+    it('refuses a signed ask that is older than its window, before verifying it', async () => {
       canSignAnswer();
-      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(true);
+      const verify = sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(true);
       const res = resStub();
 
       const stale = Date.now() - (config.fluxapps.siblingAskValidityMs + 1000);
@@ -940,17 +943,19 @@ describe('portManager tests', () => {
 
       expect(res.json.firstCall.args[0].status).to.equal('error');
       expect(res.json.firstCall.args[0].data.message).to.match(/stale/i);
+      sinon.assert.notCalled(verify);
     });
 
-    it('refuses a signed ask that carries no time at all', async () => {
+    it('refuses a signed ask that carries no time at all, before verifying it', async () => {
       canSignAnswer();
-      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(true);
+      const verify = sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage').resolves(true);
       const res = resStub();
 
       await portManager.portsInUseApi({ body: { pubKey: '04', signature: 'sig' } }, res);
 
       expect(res.json.firstCall.args[0].status).to.equal('error');
       expect(res.json.firstCall.args[0].data.message).to.match(/stale|timestamp/i);
+      sinon.assert.notCalled(verify);
     });
 
     // Not asked of an operator: they authenticated as themselves, and a person
