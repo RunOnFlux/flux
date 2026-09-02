@@ -1117,19 +1117,6 @@ describe('portManager tests', () => {
     });
   });
 
-  describe('signCheckAppData tests', () => {
-    it('should sign message data', async () => {
-      const message = JSON.stringify({ test: 'data' });
-      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').resolves('testprivkey');
-      sinon.stub(verificationHelper, 'signMessage').resolves('test-signature-string');
-
-      const result = await portManager.signCheckAppData(message);
-
-      expect(result).to.be.a('string');
-      expect(result.length).to.be.greaterThan(0);
-      expect(result).to.equal('test-signature-string');
-    });
-  });
 });
 
 // The port test's own loop, which had no unit coverage of any kind: suite 98 is

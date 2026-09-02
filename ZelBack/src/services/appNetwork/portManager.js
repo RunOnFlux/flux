@@ -15,6 +15,7 @@ const { localAppsInformation, globalAppsInformation } = require('../utils/appCon
 const { Privilege, authOf } = require('../utils/privileges');
 const fluxCaching = require('../utils/cacheManager');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { nodeSigner } = require('../utils/nodeSigner');
 
 // Global cache for failed nodes
 const failedNodesTestPortsCache = new Map();
@@ -489,18 +490,17 @@ async function portsInUseApi(req, res) {
     // is the whole reason to act on the answer - but only once it is that node
     // saying it. The request side has always established who is ASKING; without
     // this the reply established nothing at all.
-    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const signer = await nodeSigner();
+    if (!signer) throw new Error('Unable to sign the answer');
+
     // askedAt is the ASK's time signed back, not this answer's. It is what makes
     // the answer good for one question rather than for every later one.
-    const answer = { pubKey, ports, askedAt };
-    const signature = await signCheckAppData(JSON.stringify(answer));
+    const answer = { pubKey: signer.pubKey, ports, askedAt };
+    const signature = signer.sign(JSON.stringify(answer));
 
-    // signMessage catches its own failures and answers with nothing, so an
-    // unsigned answer is a real possibility rather than a throw. It would be
+    // A key this node has is not a signature it produced. An unsigned answer is
     // discarded at the other end without a word; say what happened instead.
-    if (!signature || typeof signature !== 'string') {
-      throw new Error('Unable to sign the answer');
-    }
+    if (!signature) throw new Error('Unable to sign the answer');
 
     res.json(messageHelper.createDataMessage({ ...answer, signature }));
   } catch (error) {
@@ -603,21 +603,24 @@ async function askSiblingsForHeldPort(appPorts, localSocketAddress) {
 
   // Signed for the sibling to verify, the same way the port test signs what it
   // sends to /flux/checkappavailability.
-  const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+  const signer = await nodeSigner();
+
+  // An unsigned ask is refused by every sibling, and that reads back as "no
+  // sibling holds the port" - the advisory check failing open, and silently, on
+  // a node whose key is briefly unavailable. Answer no information instead.
+  if (!signer) {
+    log.warn('siblingHoldingPort - this node cannot sign the request; no sibling was asked');
+    return null;
+  }
   // Timestamped. Without it the body is constant - a key and a fixed word - so
   // one captured signature is a bearer token for this endpoint on every node in
   // the network, for ever. It is also what binds the ANSWER to this question:
   // the sibling signs the time back, so a captured answer cannot be replayed
   // into a later ask either. One field, both directions.
-  const ask = { pubKey, asking: 'portsInUse', timestamp: Date.now() };
-  const signature = await signCheckAppData(JSON.stringify(ask));
+  const ask = { pubKey: signer.pubKey, asking: 'portsInUse', timestamp: Date.now() };
+  const signature = signer.sign(JSON.stringify(ask));
 
-  // signMessage catches its own failures and answers with nothing, so an
-  // unsigned ask is a real possibility rather than a throw. Sending it anyway
-  // would have every sibling refuse it and read back as "no sibling holds the
-  // port" - the advisory check failing open, silently, on a node whose key is
-  // briefly unavailable. Say what happened and answer no information instead.
-  if (!signature || typeof signature !== 'string') {
+  if (!signature) {
     log.warn('siblingHoldingPort - could not sign the request; no sibling was asked');
     return null;
   }
@@ -823,12 +826,6 @@ async function findNextAvailablePort(startPort, endPort, excludeApp = null) {
  * @param {string} message - Message to sign
  * @returns {Promise<string>} Signature
  */
-async function signCheckAppData(message) {
-  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey();
-  const signature = await verificationHelper.signMessage(message, privKey);
-  return signature;
-}
-
 /**
  * To check if app ports are available publicly before installation
  * @param {Array} portsToTest Array of ports to test
@@ -851,7 +848,9 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     const localIp = extractIp(localSocketAddress);
     const localPort = extractPort(localSocketAddress);
 
-    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const signer = await nodeSigner();
+    if (!signer) throw new Error('Unable to sign the port test');
+
     let somePortBanned = false;
     portsToTest.forEach((portToTest) => {
       const iBP = fluxNetworkHelper.isPortBanned(portToTest);
@@ -929,7 +928,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       port: localPort,
       appname: 'appPortsTest',
       ports: portsToTest,
-      pubKey,
+      pubKey: signer.pubKey,
       // Asks the peer to READ each port and hand back what it found. The token
       // it should find is deliberately not here: a peer that never learns it
       // cannot produce it without actually reaching us.
@@ -937,7 +936,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     };
     const stringData = JSON.stringify(data);
     // eslint-disable-next-line no-await-in-loop
-    const signature = await signCheckAppData(stringData);
+    const signature = signer.sign(stringData);
     data.signature = signature;
     // Every attempt does one of two things: it DECIDES, or it records what it
     // learned and asks somebody else. Running out - of attempts, of peers, of
@@ -1231,7 +1230,9 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       return;
     }
     const apps = installedAppsRes.data;
-    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const signer = await nodeSigner();
+    if (!signer) throw new Error('Unable to sign the UPnP request');
+
     const ports = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
@@ -1271,12 +1272,12 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       ip: localIp,
       apiPort,
       ports,
-      pubKey,
+      pubKey: signer.pubKey,
       timestamp: Math.floor(Date.now() / 1000),
     };
 
     const stringData = JSON.stringify(dataUPNP);
-    const signature = await signCheckAppData(stringData);
+    const signature = signer.sign(stringData);
     dataUPNP.signature = signature;
 
     const logMsg = `callOtherNodeToKeepUpnpPortsOpen - calling ${askingIP}:${askingIpPort} to test ports: ${ports}`;
@@ -1308,7 +1309,6 @@ module.exports = {
   siblingHoldingPort,
   isPortAvailable,
   findNextAvailablePort,
-  signCheckAppData,
   checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
   failedNodesTestPortsCache,

@@ -4,7 +4,6 @@ const config = require('config');
 const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const upnpService = require('../upnpService');
 const networkStateService = require('../networkStateService');
@@ -12,13 +11,7 @@ const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
-
-// Helper function to sign check app data
-async function signCheckAppData(message) {
-  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey();
-  const signature = await verificationHelper.signMessage(message, privKey);
-  return signature;
-}
+const { nodeSigner } = require('../utils/nodeSigner');
 
 // Helper function to handle test shutdown
 async function handleTestShutdown(testingPort, testHttpServer, isArcane, options = {}) {
@@ -298,7 +291,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       headers: { 'content-type': '' },
     };
 
-    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const signer = await nodeSigner();
+    if (!signer) throw new Error('checkMyAppsAvailability - this node cannot sign the port test');
+
     const localIp = extractIp(localSocketAddress);
     const localPort = extractPort(localSocketAddress);
     const remoteIp = extractIp(remoteSocketAddress);
@@ -309,10 +304,11 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       port: String(localPort),
       appname: 'appPortsTest',
       ports: [dosState.testingPort],
-      pubKey,
+      pubKey: signer.pubKey,
     };
 
-    const signature = await signCheckAppData(JSON.stringify(data));
+    const signature = signer.sign(JSON.stringify(data));
+    if (!signature) throw new Error('checkMyAppsAvailability - the port test could not be signed');
     data.signature = signature;
 
     const resMyAppAvailability = await axios

@@ -122,12 +122,13 @@ describe('AppSyncOrchestrator', () => {
         encodeRequestAppInstalling: sinon.stub().returns(Buffer.alloc(9, 0x22)),
         encodeRequestAppInstallingErrors: sinon.stub().returns(Buffer.alloc(9, 0x23)),
       },
-      '../fluxNetworkHelper': {
-        getFluxNodePublicKey: getFluxNodePublicKeyStub,
-        getFluxNodePrivateKey: getFluxNodePrivateKeyStub,
-      },
-      '../verificationHelper': {
-        signMessage: signMessageStub,
+      '../utils/nodeSigner': {
+        nodeSigner: async () => {
+          const pubKey = await getFluxNodePublicKeyStub();
+          const privKey = await getFluxNodePrivateKeyStub();
+          if (!pubKey || typeof pubKey !== 'string' || !privKey || typeof privKey !== 'string') return null;
+          return { pubKey, sign: (message) => signMessageStub(message, privKey) };
+        },
       },
       '../utils/appSyncEvents': appSyncEventsModule,
     });

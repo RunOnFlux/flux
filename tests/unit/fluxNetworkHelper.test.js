@@ -489,12 +489,16 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
     });
 
-    it('Should throw error if private key is invalid', async () => {
+    // Null rather than the Error itself. It never threw despite the name this
+    // test used to carry, and an Error returned as if it were a key is truthy,
+    // is not a string, and stringifies to {} - so it travelled as a pubKey
+    // field and was refused at the far end instead of here.
+    it('Should answer nothing if private key is invalid', async () => {
       const privateKey = 'asdf';
 
       const result = await fluxNetworkHelper.getFluxNodePublicKey(privateKey);
 
-      expect(result).to.be.an('Error');
+      expect(result).to.equal(null);
     });
   });
 

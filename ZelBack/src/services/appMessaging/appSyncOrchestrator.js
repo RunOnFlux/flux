@@ -7,10 +7,9 @@ const peerNotification = require('./peerNotification');
 const registryManager = require('../appDatabase/registryManager');
 const globalState = require('../utils/globalState');
 const peerCodec = require('../utils/peerCodec');
-const fluxNetworkHelper = require('../fluxNetworkHelper');
-const verificationHelper = require('../verificationHelper');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { nodeSigner } = require('../utils/nodeSigner');
 
 const startupCollection = config.database.local.collections.nodeStartupTracker;
 
@@ -238,12 +237,13 @@ class AppSyncOrchestrator {
     let requestTs;
     let signMsg;
     try {
-      pubkey = await fluxNetworkHelper.getFluxNodePublicKey();
-      const privkey = await fluxNetworkHelper.getFluxNodePrivateKey();
+      const signer = await nodeSigner();
+      if (!signer) throw new Error('this node cannot sign as itself');
+      pubkey = signer.pubKey;
       requestTs = Date.now();
       signMsg = (type, sinceTs) => {
         const msg = peerCodec.buildSyncSignatureMessage(type, sinceTs, requestTs);
-        return verificationHelper.signMessage(msg, privkey);
+        return signer.sign(msg);
       };
     } catch (error) {
       log.error(`AppSyncOrchestrator - Failed to sign sync requests: ${error.message}`);

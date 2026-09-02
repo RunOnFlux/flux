@@ -890,7 +890,14 @@ async function getFluxNodePublicKey(privatekey) {
     const pubKey = privKeyToPubKey(privateKey, isCompressed);
     return pubKey;
   } catch (error) {
-    return error;
+    // Null, not the Error. An Error here is the worst of both: truthy, so a
+    // guard on the value passes; not a string, so nothing type-based notices;
+    // and `{}` once JSON.stringify reaches it - which is how a node with a
+    // briefly unavailable key went on broadcasting messages that every peer
+    // silently refused. Said out loud too, because it was silent at the point
+    // it happened and loud only at the far end.
+    log.error(`getFluxNodePublicKey - unable to derive this node's public key: ${error.message || error}`);
+    return null;
   }
 }
 
