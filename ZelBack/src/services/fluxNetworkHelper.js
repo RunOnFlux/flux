@@ -525,7 +525,19 @@ async function checkAppAvailability(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+      // The other way in. This endpoint's caller is a Fluxnode proving itself by
+      // signature; this is for a PERSON driving it by hand instead, and the only
+      // thing a person gets out of it is naming the address to probe below -
+      // asking whether the ports are open on the machine they happen to be
+      // sitting at answers nothing anyone wants. Skipping the signature and
+      // choosing the address are therefore one question, and it is asked once.
+      //
+      // Not the node operator. NODE_OPERATOR_OR_FLUX_TEAM reads node-local and is
+      // not: it is thousands of separate credentials, one per node, holding what
+      // is a Flux team diagnostic. An operator wanting to dial out of their own
+      // box has a shell on it, and their node still reaches this endpoint the way
+      // every node does - by signing.
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
 
       const processedBody = serviceHelper.ensureObject(body);
 
@@ -554,8 +566,8 @@ async function checkAppAvailability(req, res) {
       // differed from its declared address could not hold a peer slot anywhere on
       // the network, so nothing legitimate is lost by insisting on it here.
       //
-      // The operator of THIS node may still name an address: probing elsewhere by
-      // hand is a real thing to want, and that privilege is already node-local.
+      // Flux team may still name one, which is the whole of what the privilege
+      // above is for: see it.
       const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
       const ip = authorized === true ? (processedBody.ip || remoteIp) : remoteIp;
 

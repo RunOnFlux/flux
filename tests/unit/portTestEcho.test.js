@@ -7,6 +7,7 @@ const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunica
 const { FluxHttpTestServer } = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 
 // The three parts of the port test, wired together, because each is sound alone
 // and the thing that matters is that they compose: this node publishes a secret
@@ -189,7 +190,7 @@ describe('checkAppAvailability probes the address that asked', () => {
     expect(answer.status).to.equal('success');
   });
 
-  it('lets this node\'s own operator name an address by hand', async () => {
+  it('lets Flux team name an address by hand', async () => {
     verificationHelper.verifyPrivilege.resolves(true);
 
     const answer = await ask(
@@ -199,8 +200,27 @@ describe('checkAppAvailability probes the address that asked', () => {
       SOMEWHERE_ELSE,
     );
 
-    expect(answer.status, 'the operator carve-out was lost').to.equal('success');
+    expect(answer.status, 'the carve-out was lost').to.equal('success');
     expect(answer.data.answered[port]).to.include(TOKEN);
+  });
+
+  // Skipping the signature and choosing the address are the same question, so
+  // there is one privilege and it is not node-local. NODE_OPERATOR_OR_FLUX_TEAM
+  // would put a fetch primitive aimed anywhere behind thousands of separate
+  // credentials, one per node, for a Flux team diagnostic.
+  it('asks for Flux team, not for a privilege every node operator holds', async () => {
+    await ask(
+      {
+        ip: HERE, port: 16127, ports: [port], pubKey: 'k', signature: 's', echo: true,
+      },
+      SOMEWHERE_ELSE,
+    );
+
+    sinon.assert.calledWith(verificationHelper.verifyPrivilege, Privilege.FLUX_TEAM);
+    sinon.assert.neverCalledWith(
+      verificationHelper.verifyPrivilege,
+      Privilege.NODE_OPERATOR_OR_FLUX_TEAM,
+    );
   });
 
   // maxComponents (10) x ports per component (5) in appValidator. Each port
