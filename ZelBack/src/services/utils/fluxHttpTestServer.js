@@ -36,7 +36,6 @@ class FluxHttpTestServer extends http.Server {
 
   #currentConnectionId = 0;
 
-
   /**
    * The secret this server answers with, for this port test only.
    *
@@ -93,8 +92,6 @@ class FluxHttpTestServer extends http.Server {
       delete this.#connections[connectionid];
     });
   }
-
-
 
   close(callback) {
     super.close(callback);
