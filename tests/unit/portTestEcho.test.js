@@ -30,7 +30,7 @@ describe('the pre-install port test, end to end', () => {
   };
 
   it('proves the port when our own test server is what answers', async () => {
-    const token = 'f00dcafe';
+    const token = 'f00dcafe'.repeat(4);
     await listen(new FluxHttpTestServer(token));
 
     const answer = await fluxNetworkHelper.portAnswered('127.0.0.1', port);
@@ -52,7 +52,21 @@ describe('the pre-install port test, end to end', () => {
     const answer = await fluxNetworkHelper.portAnswered('127.0.0.1', port);
 
     expect(answer, 'the neighbour answered nothing at all').to.be.a('string');
-    expect(portManager.portNotOurs([port], { [port]: answer }, 'f00dcafe')).to.equal(port);
+    expect(portManager.portNotOurs([port], { [port]: answer }, 'f00dcafe'.repeat(4))).to.equal(port);
+  });
+
+  // The two halves meet here and nowhere else: the server decides where the
+  // secret sits, the reader decides how much it keeps, and neither file
+  // mentions the other. tokenEnd <= MAX_ECHO_BYTES is the whole contract.
+  it('leaves the secret inside the prefix the peer keeps', async () => {
+    const token = 'b'.repeat(32);
+    await listen(new FluxHttpTestServer(token));
+
+    const answer = await fluxNetworkHelper.portAnswered('127.0.0.1', port);
+
+    expect(answer, 'the secret did not survive the cap').to.include(token);
+    expect(answer.indexOf(token) + token.length)
+      .to.be.below(fluxNetworkHelper.MAX_ECHO_BYTES);
   });
 
   // Nothing listening is not a port to install on either.
@@ -95,7 +109,7 @@ describe('checkAppAvailability probes the address that asked', () => {
   // spending a connect timeout.
   const HERE = '127.0.0.1';
   const SOMEWHERE_ELSE = '127.0.0.2';
-  const TOKEN = 'deadbeefcafe';
+  const TOKEN = 'deadbeefcafe0123456789abcdef0123';
 
   beforeEach(async () => {
     sandbox = sinon.createSandbox();

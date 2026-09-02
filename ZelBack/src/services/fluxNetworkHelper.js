@@ -273,13 +273,22 @@ function isPortUPNPBanned(port) {
 }
 
 /**
- * To perform a basic check if TCP port on an ip is open. I.e. that we receive a
- * SYN-ACK in response to a SYN. If connected, we send an RST and close the port.
- * @param {string} ip IP address
- * @param {number} port Port
- * @param {{timeout?:Number}} options
- * @returns {Promise<boolean>} Returns true if opened, otherwise false
+ * The most a peer will hand back from a port it was asked to read.
+ *
+ * A DISCLOSURE bound, and only that. The port may be forwarded to a neighbour at
+ * the same public address, so what comes back can be a stranger's response, and
+ * nobody should be askable to shuttle a payload. Choose it on that question
+ * alone.
+ *
+ * It is NOT what makes the proof survive. The test server writes its secret into
+ * the first response header, so the thing the requester has to find sits at byte
+ * 67 of an answer that server authors in full - inside this prefix however large
+ * the rest of what a port says turns out to be. The two were entangled once: the
+ * token was last in the body, and any 48 bytes appearing before it silently
+ * turned every install on the network into "a neighbour holds this port".
  */
+const MAX_ECHO_BYTES = 256;
+
 /**
  * What a port answered, capped, for the requester to judge.
  *
@@ -290,8 +299,10 @@ function isPortUPNPBanned(port) {
  * address - so a peer is not in a position to judge, and one that is old,
  * broken or lying cannot manufacture a secret it was never given.
  *
- * Bounded, because this relays bytes read from a stranger's port: enough for a
- * token and no more, so nobody can be asked to shuttle a payload.
+ * Bounded by MAX_ECHO_BYTES, because this relays bytes read from a stranger's
+ * port and nobody can be asked to shuttle a payload. That bound cannot cost the
+ * requester its answer: the secret is in the first header of a reply the test
+ * server writes in full, so it is inside any prefix this returns.
  *
  * @param {string} ip - the requester's address
  * @param {number} port - the port to read
@@ -300,7 +311,6 @@ function isPortUPNPBanned(port) {
  */
 async function portAnswered(ip, port, options = {}) {
   const timeout = options.timeout || 5_000;
-  const MAX_ECHO_BYTES = 256;
 
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -329,6 +339,14 @@ async function portAnswered(ip, port, options = {}) {
   });
 }
 
+/**
+ * To perform a basic check if TCP port on an ip is open. I.e. that we receive a
+ * SYN-ACK in response to a SYN. If connected, we send an RST and close the port.
+ * @param {string} ip IP address
+ * @param {number} port Port
+ * @param {{timeout?:Number}} options
+ * @returns {Promise<boolean>} Returns true if opened, otherwise false
+ */
 async function isPortOpen(ip, port, options = {}) {
   const timeout = options.timeout || 5_000;
 
@@ -2508,6 +2526,7 @@ module.exports = {
   lruRateLimit,
   isPortOpen,
   portAnswered,
+  MAX_ECHO_BYTES,
   checkAppAvailability,
   verifySignedFluxnodeMessage,
   isPortEnterprise,
