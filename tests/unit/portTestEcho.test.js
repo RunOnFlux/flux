@@ -104,11 +104,16 @@ describe('checkAppAvailability probes the address that asked', () => {
   let port;
   let sandbox;
 
-  // Bound to loopback; the "somewhere else" address below is a different
-  // loopback address with nothing on it, so it refuses at once rather than
-  // spending a connect timeout.
+  // Bound to loopback; "somewhere else" is a local address that is NOT the one
+  // the server is on, so it refuses at once rather than spending a connect
+  // timeout. ::1 rather than another 127 address: 127.0.0.2 is assigned to the
+  // loopback on Linux and refuses there, and is not assigned on macOS, where
+  // the dial hangs until the port test's own five-second timeout and the test
+  // dies on mocha's two. Nothing here is about a platform - it is about an
+  // address the caller named not being the address that gets probed - so it
+  // runs everywhere rather than being skipped off Linux.
   const HERE = '127.0.0.1';
-  const SOMEWHERE_ELSE = '127.0.0.2';
+  const SOMEWHERE_ELSE = '::1';
   const TOKEN = 'deadbeefcafe0123456789abcdef0123';
 
   beforeEach(async () => {
