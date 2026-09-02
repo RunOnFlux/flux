@@ -868,6 +868,42 @@ describe('portManager tests', () => {
       expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
       sinon.assert.notCalled(post);
     });
+
+    // The dial was guarded and the verification beside it was not, so one
+    // sibling breaking took the answers of every sibling that had replied.
+    it('loses only the sibling that broke, not the ones that answered', async () => {
+      canSign();
+      const broken = '86.9.47.94:16137';
+      const good = '86.9.47.94:16147';
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, broken, good));
+      sinon.stub(axios, 'post').callsFake(async (url, sent) => (
+        url.includes('16137') ? answering([31005], sent.timestamp) : answering([31000], sent.timestamp)
+      ));
+      sinon.stub(fluxNetworkHelper, 'verifySignedFluxnodeMessage')
+        .callsFake(async (answer, options) => {
+          if (options.socketAddress === broken) throw new Error('node list unavailable');
+          return true;
+        });
+
+      const held = await portManager.siblingHoldingPort(ports, ours);
+
+      expect(held).to.deep.equal({ address: good, port: 31000 });
+    });
+
+    // Everything outside the per-sibling loop - the key, the signing, building
+    // the list - reaches the spawner's catch if it throws, and the spawner
+    // reads that as the APPLICATION having failed: six hours in the pre-install
+    // error cache for a question this node could not ask.
+    it('answers no information when the question cannot be asked at all', async () => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').rejects(new Error('daemon down'));
+      sinon.stub(networkStateService, 'isReady').returns(true);
+      sinon.stub(networkStateService, 'networkState').returns(nodesAt(ours, SIBLING));
+      const post = sinon.stub(axios, 'post');
+
+      expect(await portManager.siblingHoldingPort(ports, ours)).to.equal(null);
+      sinon.assert.notCalled(post);
+    });
   });
 
   // What the peer's pass is worth. It reports that something answered at our

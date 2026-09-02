@@ -575,6 +575,24 @@ function siblingSocketAddresses(localSocketAddress) {
  *   port it holds, or null when none of them reported one
  */
 async function siblingHoldingPort(appPorts, localSocketAddress) {
+  try {
+    return await askSiblingsForHeldPort(appPorts, localSocketAddress);
+  } catch (error) {
+    // The contract above - answers, never throws - held here rather than line
+    // by line. Enforcing it a line at a time means guessing every time which
+    // one can fail, and the guess was already wrong once: the dial was guarded
+    // and the verification beside it was not, so a failure there left this
+    // function through the spawner's catch and filed a perfectly good
+    // application in the six-hour pre-install error cache. Nothing about this
+    // question is the application's fault, and no future line added here can
+    // make it so.
+    log.warn(`siblingHoldingPort - the question could not be asked: ${error.message || error}; `
+      + 'which ports this address holds is unknown to this node');
+    return null;
+  }
+}
+
+async function askSiblingsForHeldPort(appPorts, localSocketAddress) {
   const wanted = new Set((appPorts || []).map(Number).filter(Number.isInteger));
   if (!wanted.size) return null;
 
@@ -607,49 +625,59 @@ async function siblingHoldingPort(appPorts, localSocketAddress) {
   const signedAsk = { ...ask, signature };
 
   const answers = await Promise.all(siblings.map(async (address) => {
-    const response = await axios.post(
-      `http://${extractIp(address)}:${extractPort(address)}/flux/portsinuse`,
-      signedAsk,
-      // A list of port numbers, so the ceiling is generous by orders of
-      // magnitude. Bounded at all because axios does not bound a response body
-      // by default, and this address is only as trustworthy as whatever is
-      // answering on it.
-      { timeout, maxContentLength: 64 * 1024, maxBodyLength: 64 * 1024 },
-    ).catch(() => null);
+    try {
+      const response = await axios.post(
+        `http://${extractIp(address)}:${extractPort(address)}/flux/portsinuse`,
+        signedAsk,
+        // A list of port numbers, so the ceiling is generous by orders of
+        // magnitude. Bounded at all because axios does not bound a response body
+        // by default, and this address is only as trustworthy as whatever is
+        // answering on it.
+        { timeout, maxContentLength: 64 * 1024, maxBodyLength: 64 * 1024 },
+      ).catch(() => null);
 
-    const body = response && response.data;
-    if (!body || body.status !== 'success') {
-      // Said out loud. A sibling refusing the question - a stale ask, a clock
-      // that has drifted, a key it will not accept - is a different thing from a
-      // sibling that holds nothing, and both used to be the same silence.
-      const refusal = body && body.data && body.data.message;
-      if (refusal) log.warn(`siblingHoldingPort - ${address} refused the question: ${refusal}`);
+      const body = response && response.data;
+      if (!body || body.status !== 'success') {
+        // Said out loud. A sibling refusing the question - a stale ask, a clock
+        // that has drifted, a key it will not accept - is a different thing from a
+        // sibling that holds nothing, and both used to be the same silence.
+        const refusal = body && body.data && body.data.message;
+        if (refusal) log.warn(`siblingHoldingPort - ${address} refused the question: ${refusal}`);
+        return null;
+      }
+
+      const answer = body.data;
+      if (!answer || !Array.isArray(answer.ports)) return null;
+
+      // The answer names the question it answers. An answer signed for some other
+      // ask is a recording, and a recording says what was true then.
+      if (answer.askedAt !== ask.timestamp) {
+        log.warn(`siblingHoldingPort - ${address} answered a question other than the one asked; ignoring it`);
+        return null;
+      }
+
+      // Verified as the answer of the node AT THIS ADDRESS. A listed Fluxnode
+      // elsewhere signing a port list says nothing about what is installed here,
+      // and this address is only as trustworthy as whatever is answering on it.
+      // The body is passed through as it arrived, because that is what was signed.
+      // eslint-disable-next-line no-await-in-loop
+      const verified = await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: address });
+
+      if (!verified) {
+        log.warn(`siblingHoldingPort - ${address} did not answer as the Flux node at that address; ignoring it`);
+        return null;
+      }
+
+      return { address, ports: answer.ports.map(Number) };
+    } catch (error) {
+      // One sibling breaking is not the others breaking, so this loses that
+      // sibling and no more. A dial that fails is handled above and stays
+      // quiet - where the router does not hairpin that is every sibling on
+      // every cycle, and a line each would bury everything else. Anything
+      // reaching HERE is not the expected silence, so it says so.
+      log.warn(`siblingHoldingPort - ${address} could not be asked: ${error.message || error}`);
       return null;
     }
-
-    const answer = body.data;
-    if (!answer || !Array.isArray(answer.ports)) return null;
-
-    // The answer names the question it answers. An answer signed for some other
-    // ask is a recording, and a recording says what was true then.
-    if (answer.askedAt !== ask.timestamp) {
-      log.warn(`siblingHoldingPort - ${address} answered a question other than the one asked; ignoring it`);
-      return null;
-    }
-
-    // Verified as the answer of the node AT THIS ADDRESS. A listed Fluxnode
-    // elsewhere signing a port list says nothing about what is installed here,
-    // and this address is only as trustworthy as whatever is answering on it.
-    // The body is passed through as it arrived, because that is what was signed.
-    // eslint-disable-next-line no-await-in-loop
-    const verified = await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: address });
-
-    if (!verified) {
-      log.warn(`siblingHoldingPort - ${address} did not answer as the Flux node at that address; ignoring it`);
-      return null;
-    }
-
-    return { address, ports: answer.ports.map(Number) };
   }));
 
   const heard = answers.filter(Boolean);
