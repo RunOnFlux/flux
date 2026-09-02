@@ -23,6 +23,7 @@ const myMessageCache = cacheManager.tempMessageCache;
 async function sendSignedMessage(message, peer, options = {}) {
   try {
     const messageSigned = await serialiseAndSignFluxBroadcast(message);
+    if (!messageSigned) return;
     if (options.awaitDrain) {
       await peer.sendAsync(messageSigned);
     } else {
@@ -136,6 +137,7 @@ async function relay(data, excludeKey) {
  */
 async function broadcastMessageToAll(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
+  if (!serialisedData) return null;
   await relay(serialisedData);
   return JSON.parse(serialisedData);
 }
@@ -146,6 +148,7 @@ async function broadcastMessageToAll(dataToBroadcast) {
  */
 async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
+  if (!serialisedData) return;
   const peer = peerManager.getRandomPeer('outbound');
   if (peer) peer.send(serialisedData);
 }
@@ -156,6 +159,7 @@ async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
  */
 async function broadcastMessageToRandomIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
+  if (!serialisedData) return;
   const peer = peerManager.getRandomPeer('inbound');
   if (peer) peer.send(serialisedData);
 }

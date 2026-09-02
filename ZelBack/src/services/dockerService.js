@@ -512,6 +512,7 @@ async function obtainPayloadFromStorage(url, appName) {
     const timestamp = Date.now();
     const message = version + url + timestamp;
     const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
+    if (!signature) throw new Error('This node cannot sign the request as itself');
     const axiosConfig = {
       headers: {
         'flux-message': message,

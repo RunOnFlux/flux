@@ -488,6 +488,7 @@ async function broadcastHashRequest(hashes, peers) {
     hashes,
   };
   const signed = await serialiseAndSignFluxBroadcast(message);
+  if (!signed) return;
   for (const peer of peers) {
     peer.send(signed);
   }
