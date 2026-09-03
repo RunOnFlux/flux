@@ -4,6 +4,7 @@ import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
 import { assertHermeticRepotags } from './app-helper.js';
+import { allocatePortFor, assignPorts } from './port-allocator.js';
 import chainStart from './chain-start.cjs';
 
 const { DEFAULT_INITIAL_HEIGHT } = chainStart;
@@ -37,6 +38,9 @@ export async function buildSeedableApp({
   enterprise = '',
   expire = 22000,
   allowExternalRepotag = false,
+  // Two apps in a suite wanting one port is refused here by default. A suite
+  // for which the collision IS the subject - 98 - says so.
+  allowPortReuse = false,
 }) {
   const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
@@ -53,7 +57,7 @@ export async function buildSeedableApp({
       // pull over live internet (rate-limit flakes); the env registry is
       // seeded with this image at bootstrap (test-env.js)
       repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-      ports: [31111],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -72,6 +76,18 @@ export async function buildSeedableApp({
     staticip,
     enterprise,
   };
+
+  // Components copied before anything is written into them: assignPorts sets the
+  // allocated port on the component it is given, and a caller that reuses the array
+  // it passed in would get a port stamped into its own object.
+  spec.compose = spec.compose.map((component) => ({ ...component }));
+
+  // Before the signature and the hash, never after: both are taken over
+  // JSON.stringify(spec), so a port added later leaves the app carrying a hash
+  // of a specification that no longer exists. An enterprise app has an empty
+  // compose here - its components are already inside the blob, ported by
+  // buildSeedableEnterpriseApp before it encrypted them.
+  if (spec.compose.length) assignPorts(spec.compose, name, { allowPortReuse });
 
   const type = 'fluxappregister';
   const version = 1;
@@ -133,7 +149,6 @@ export async function buildSeedableLegacyApp({
   name,
   version = 3,
   containerData = '/appdata',
-  port = 32001,
   // Chain-relative, same as buildSeedableApp above and for the same reason its
   // comment gives: a literal height seeds an app already expired on any suite
   // whose chain starts later, and assertAliveOnThisChain refuses it.
@@ -153,7 +168,10 @@ export async function buildSeedableLegacyApp({
     description: `Seeded legacy test app ${name}`,
     owner: appOwner,
     repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
-    ports: [String(port)],
+    // A v3 spec spells its ports as STRINGS, so this is the one builder that
+    // has to ask the allocator for a number rather than leave the field absent
+    // for buildSeedableApp to fill in - it builds its own spec.
+    ports: [String(allocatePortFor(name))],
     domains: [''],
     enviromentParameters: [],
     commands: [],
@@ -213,7 +231,6 @@ export async function buildSeedableSyncthingApp({
   name,
   mode = 'g',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [31111],
   containerPorts = [80],
   sibling = false,
   ...rest
@@ -222,7 +239,7 @@ export async function buildSeedableSyncthingApp({
     name,
     description: `${mode}: sync component`,
     repotag,
-    ports: [ports[0]],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],
@@ -239,7 +256,7 @@ export async function buildSeedableSyncthingApp({
       name: `${name}sib`,
       description: 'plain sibling component',
       repotag,
-      ports: [ports[0] + 1],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -263,7 +280,7 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, port = 31111, ...rest
+  name, exitCode = 0, exitAfterS = null, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
@@ -272,7 +289,7 @@ export async function buildSeedableTestApp({
     name,
     description: 'configurable exit test container',
     repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
-    ports: [port],
+    ports: [],
     domains: [''],
     environmentParameters,
     commands: [],
@@ -300,7 +317,6 @@ export async function buildSeedableMixedMountApp({
   plainPath = '/data',
   syncPath = '/db',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [31111],
   containerPorts = [80],
   ...rest
 }) {
@@ -308,7 +324,7 @@ export async function buildSeedableMixedMountApp({
     name,
     description: `mixed plain + ${mode}: component`,
     repotag,
-    ports: [ports[0]],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],
@@ -334,7 +350,6 @@ export async function buildSeedableMultiSyncthingApp({
   mode = 'g',
   components = 2,
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  basePort = 31111,
   containerPorts = [80],
   ...rest
 }) {
@@ -344,7 +359,7 @@ export async function buildSeedableMultiSyncthingApp({
       name: `${name}c${i}`,
       description: `${mode}: component ${i}`,
       repotag,
-      ports: [basePort + i],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -393,7 +408,7 @@ export async function buildSeedableIndexRefApp({
       ...base,
       name,
       description: 'invalid self-referencing component (index 0 -> 0)',
-      ports: [31111],
+      ports: [],
       containerData: `${mode}:/appdata|0:/selfref`,
     }]
     : [
@@ -401,14 +416,14 @@ export async function buildSeedableIndexRefApp({
         ...base,
         name: `${name}c0`,
         description: `${mode}: base component (index 0)`,
-        ports: [31111],
+        ports: [],
         containerData: `${mode}:/appdata`,
       },
       {
         ...base,
         name: `${name}c1`,
         description: 'component referencing component 0 volume (index 1 -> 0)',
-        ports: [31112],
+        ports: [],
         containerData: '/own|0:/shared',
       },
     ];
@@ -489,12 +504,14 @@ export async function seedAppWithRunningState(dbClients, nodeIps, {
  * node decrypts it through the normal path). Pass the same `compose` you would
  * give buildSeedableApp.
  */
-export async function buildSeedableEnterpriseApp({ name, compose, contacts = [], ...rest }) {
+export async function buildSeedableEnterpriseApp({
+  name, compose, contacts = [], allowPortReuse = false, ...rest
+}) {
   const components = compose ?? [{
     name,
     description: 'seeded enterprise component',
     repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-    ports: [31131],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],
@@ -505,7 +522,12 @@ export async function buildSeedableEnterpriseApp({ name, compose, contacts = [],
     hdd: 1,
     repoauth: '',
   }];
-  const enterprise = buildEnterpriseBlob(components, contacts);
+  // Ported here, not in buildSeedableApp: once these are encrypted into the
+  // blob the spec's own compose is empty and there is nothing left to give a
+  // port to. Copied first, for the reason buildSeedableApp copies.
+  const ported = components.map((component) => ({ ...component }));
+  assignPorts(ported, name, { allowPortReuse });
+  const enterprise = buildEnterpriseBlob(ported, contacts);
   return buildSeedableApp({
     name, compose: [], enterprise, ...rest,
   });

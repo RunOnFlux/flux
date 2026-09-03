@@ -1051,9 +1051,9 @@ describe('placementFeasibility tests', () => {
     });
   });
 
-  describe('isNodePinnedHere', () => {
+  describe('specNamesThisNode', () => {
     it('recognises a socket address pin', async () => {
-      const pinned = await placementFeasibility.isNodePinnedHere(
+      const pinned = await placementFeasibility.specNamesThisNode(
         { nodes: ['1.2.3.4:16127', '80.95.213.209:16127'] },
         '80.95.213.209:16127',
       );
@@ -1061,7 +1061,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('recognises a collateral outpoint pin', async () => {
-      const pinned = await placementFeasibility.isNodePinnedHere(
+      const pinned = await placementFeasibility.specNamesThisNode(
         { nodes: [`${'aa'.repeat(32)}:0`] },
         '80.95.213.209:16127',
       );
@@ -1069,11 +1069,11 @@ describe('placementFeasibility tests', () => {
     });
 
     it('is false without a pin list, on no match, or when collateral is unavailable', async () => {
-      expect(await placementFeasibility.isNodePinnedHere({ nodes: [] }, '1.2.3.4:16127')).to.equal(false);
-      expect(await placementFeasibility.isNodePinnedHere({}, '1.2.3.4:16127')).to.equal(false);
-      expect(await placementFeasibility.isNodePinnedHere({ nodes: ['9.9.9.9:16127'] }, '1.2.3.4:16127')).to.equal(false);
+      expect(await placementFeasibility.specNamesThisNode({ nodes: [] }, '1.2.3.4:16127')).to.equal(false);
+      expect(await placementFeasibility.specNamesThisNode({}, '1.2.3.4:16127')).to.equal(false);
+      expect(await placementFeasibility.specNamesThisNode({ nodes: ['9.9.9.9:16127'] }, '1.2.3.4:16127')).to.equal(false);
       collateralStub.rejects(new Error('daemon unavailable'));
-      expect(await placementFeasibility.isNodePinnedHere({ nodes: ['9.9.9.9:16127'] }, '1.2.3.4:16127')).to.equal(false);
+      expect(await placementFeasibility.specNamesThisNode({ nodes: ['9.9.9.9:16127'] }, '1.2.3.4:16127')).to.equal(false);
     });
   });
 });

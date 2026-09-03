@@ -10,6 +10,7 @@ import {
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
 import { appOwnerKey } from '../framework/keys.js';
+import { assignPorts } from '../framework/port-allocator.js';
 import { signBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -48,7 +49,7 @@ const GATE_IMAGE = 'e2e-region-probe';
 // before it proves anything about placement (the registration-gate suite's
 // gateSpec, with the probe image and port this suite pushes).
 function gateSpec({ name, instances = 3, geolocation = [] }) {
-  return {
+  const spec = {
     version: 8,
     name,
     description: `region pin probe ${name}`,
@@ -57,7 +58,7 @@ function gateSpec({ name, instances = 3, geolocation = [] }) {
       name: 'probe',
       description: 'probe component',
       repotag: `${REGISTRY_REPO_HOST}/${GATE_IMAGE}:v1`,
-      ports: [31161],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -76,6 +77,12 @@ function gateSpec({ name, instances = 3, geolocation = [] }) {
     staticip: false,
     enterprise: '',
   };
+
+  // Hand-rolled rather than built, so it goes to the allocator itself -
+  // the one place a seeded port comes from. Stable per app name, so every
+  // spec built for one app here carries the same port.
+  assignPorts(spec.compose, name);
+  return spec;
 }
 
 // buildSeedableApp signs the spec it builds and takes no geolocation, so a
@@ -352,7 +359,7 @@ describe('placement honours region pins on proof from the shared table', functio
     const appName = `e2eregionpin${Date.now()}`;
     await pushTestApp(appName);
     const app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [31171], instances: inRegionA.length,
+      name: appName, mode: 'g', instances: inRegionA.length,
     });
     await seedSpawnerApp(env, await pinGeolocation(app, [allowRegion(regionA)]));
 
@@ -371,7 +378,7 @@ describe('placement honours region pins on proof from the shared table', functio
     const appName = `e2eregiondeny${Date.now()}`;
     await pushTestApp(appName);
     const app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [31172], instances: 3,
+      name: appName, mode: 'g', instances: 3,
     });
     // allowed across the whole fleet's continent, denied in organisation 1's
     // region. The continent is what leaves every organisation a candidate: the

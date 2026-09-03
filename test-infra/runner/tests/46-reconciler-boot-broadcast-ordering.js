@@ -28,7 +28,7 @@ describe('first post-boot broadcast: complete, never empty, never destructive', 
     this.timeout(420000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
-    ({ index: idx } = await seedSimpleApp(env, appName, { port: 31119 }));
+    ({ index: idx } = await seedSimpleApp(env, appName));
     peerIdx = (idx + 1) % env.clients.length;
     await waitForUp(env.clients[idx], appName, 'app running before the reboot');
     // the peer must have learned the location before the reboot

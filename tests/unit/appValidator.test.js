@@ -117,7 +117,6 @@ describe('appValidator tests', () => {
         checkAndDecryptAppSpecs: sinon.stub().returnsArg(0),
       },
       '../appNetwork/portManager': {
-        isPortAvailable: sinon.stub().returns(true),
         ensureAppUniquePorts: sinon.stub().resolves(true),
       },
       '../utils/peerState': {

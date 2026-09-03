@@ -82,7 +82,7 @@ describe('one unmountable app does not block g: election node-wide', function ()
         name: jamName,
         description: 'test container',
         repotag: `${REGISTRY_REPO_HOST}/${jamName}:v1`,
-        ports: [31601],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

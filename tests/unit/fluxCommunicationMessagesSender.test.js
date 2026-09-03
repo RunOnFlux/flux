@@ -45,6 +45,19 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.restore();
     });
 
+    // A message with null where the key and signature go is refused by every
+    // peer without a word. Nothing goes on the wire, and the caller is told so
+    // by the answer rather than by silence at the far end.
+    it('broadcastMessageToAll relays nothing and answers null when this node cannot sign', async () => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(null);
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, { source: PEER_SOURCE.RANDOM });
+
+      const answer = await fluxCommunicationMessagesSender.broadcastMessageToAll({ type: 'fluxapprunning' });
+
+      expect(answer).to.equal(null);
+      sinon.assert.notCalled(ws1.send);
+    });
+
     it('should send data to all peers (both directions)', async () => {
       const data = 'test-message';
       const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, { source: PEER_SOURCE.RANDOM });
@@ -81,6 +94,18 @@ describe('fluxCommunicationMessagesSender tests', () => {
   });
 
   describe('serialiseAndSignFluxBroadcast tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('answers nothing when this node cannot sign as itself', async () => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(null);
+
+      const signedData = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast({ title: 'message' });
+
+      expect(signedData).to.equal(null);
+    });
+
     it('should return serialised and signed message', async () => {
       const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const data = {
@@ -153,13 +178,13 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
     });
 
-    it('Should return an error if private key is invalid', async () => {
+    it('Should answer nothing if private key is invalid', async () => {
       const privateKey = 'asdf';
       const message = 'testing1234';
 
       const result = await fluxCommunicationMessagesSender.getFluxMessageSignature(message, privateKey);
 
-      expect(result).to.be.an('Error');
+      expect(result).to.equal(null);
     });
   });
 
@@ -178,6 +203,15 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     afterEach(() => {
       sinon.restore();
+    });
+
+    it('sends nothing when this node cannot sign as itself', async () => {
+      fluxNetworkHelperPublicKeyStub.returns(null);
+      const websocket = generateWebsocket();
+
+      await fluxCommunicationMessagesSender.sendSignedMessage({ title: 'message' }, websocket);
+
+      sinon.assert.notCalled(websocket.send);
     });
 
     it('should send a message to the given websocket if keys are accessible through config', async () => {

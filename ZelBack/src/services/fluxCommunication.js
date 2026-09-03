@@ -1039,13 +1039,48 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
     const key = `${ip}:${port}`;
     if (peerManager.has(key) || peerManager.isPending(key)) return;
     peerManager.markPending(key);
-    if (!myPort) {
-      const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
-      if (!localSocketAddr) {
-        peerManager.clearPending(key);
-        return;
-      }
-      myPort = extractPort(localSocketAddr);
+
+    // This node's own address, asked of the peer manager rather than of
+    // benchmark. That is where the fact lives - fluxNetworkHelper pushes every
+    // refresh into it from the one place the node learns what it is - and the
+    // peer manager already answers this exact question for the sync draw.
+    // Asking benchmark is an uncached RPC (executeCall), and this runs on every
+    // dial: discovery's deterministic loop, the reconnect queue, the random
+    // draw, the manual add and /flux/addpeer. It also made all five hard
+    // dependent on benchd answering, which only discovery already was.
+    //
+    // Fresh enough by construction: fluxDiscovery refreshes it once per cycle
+    // before it dials anything, and so do the availability checker and the
+    // address-change handler. That is a bound the form this replaces did not
+    // have - it read the port once per process and never again, so after an
+    // address change a node announced a stale one for as long as it ran.
+    let localSocketAddr = peerManager.getOwnSocketAddress?.() || null;
+
+    if (!localSocketAddr) {
+      // Never been told, which a dial arriving before the first refresh
+      // genuinely is. Ask once - the answer fills the peer manager's copy on its
+      // way through, so this costs one call rather than one per dial.
+      localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    }
+
+    if (!localSocketAddr) {
+      peerManager.clearPending(key);
+      return;
+    }
+    myPort = extractPort(localSocketAddr);
+
+    // Never ourselves, and refused HERE rather than by each caller. fluxDiscovery
+    // filters its own address before dialling, but it is one of four ways in -
+    // manual, deterministic, reconnect and random all arrive through this
+    // function, and the reconnect queue in particular re-dials whatever it holds
+    // without asking whose address it is. A self-connection is not merely a
+    // wasted socket: it occupies a peer slot, is offered back as a peer to
+    // gossip and to sync from, and answers every question with what this node
+    // already knows.
+    if (socketAddressesMatch(key, localSocketAddr)) {
+      log.warn(`initiateAndHandleConnection - refusing to connect to ourselves at ${key} (source ${source})`);
+      peerManager.clearPending(key);
+      return;
     }
     const options = {
       handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,

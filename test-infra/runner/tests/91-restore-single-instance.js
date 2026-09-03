@@ -44,12 +44,12 @@ describe('a restore with no peer to fall back on', function () {
   let auth;
   let client;
 
-  function component(app, port, containerData) {
+  function component(app, containerData) {
     return {
       name: `${app}c`,
       description: 'single instance component',
       repotag: `${REGISTRY_REPO_HOST}/${app}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -84,14 +84,14 @@ describe('a restore with no peer to fall back on', function () {
     await resetSyncState();
     client = env.clients[0];
 
-    for (const [app, port, data] of [[syncedApp, 31901, 'r:/appdata'], [plainApp, 31902, '/appdata']]) {
+    for (const [app, data] of [[syncedApp, 'r:/appdata'], [plainApp, '/appdata']]) {
       // eslint-disable-next-line no-await-in-loop
       await pushImage(app, 'v1');
       // eslint-disable-next-line no-await-in-loop
       const spec = await buildSeedableApp({
         name: app,
         instances: 1,
-        compose: [component(app, port, data)],
+        compose: [component(app, data)],
       });
       const after = client.getLastEventId();
       // eslint-disable-next-line no-await-in-loop

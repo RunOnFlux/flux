@@ -47,6 +47,25 @@ let promotedFoldersStatus = 200;
 // holder which is alive but unanswerable has to be able to produce it.
 let promotedFoldersRefuse = false;
 
+// Whether this peer passes a port test WITHOUT connecting to the asker.
+//
+// This is what a shared public address looks like from the asker's side. Several
+// Flux nodes commonly sit behind one router, which forwards each port to exactly
+// one of them, so a peer probing the shared address can reach a sibling node's
+// application while the asker's own test server sits unreached behind the same
+// NAT. The peer is not lying and cannot tell: something genuinely answered.
+//
+// The stub cannot reproduce the NAT, but it can reproduce what the asker
+// receives - a pass for a port the asker was never reached on - which is the
+// only part of it the asker can act on.
+let portProbeAnswersBlind = false;
+
+// Answers the port test with a reading that is NOT the asker's - what the asker
+// receives when the router forwarded that port to a neighbour and a different
+// application replied. The stub cannot reproduce the NAT; it reproduces what
+// comes back through it, which is the only part the asker can act on.
+let portProbeAnswersForeign = false;
+
 // The nodes currently connected to this peer. Held so the stub can SAY things
 // rather than only answer them: a suite that needs a rival claim, a stale
 // broadcast or a message a real node would never send gets a real peer sending
@@ -128,7 +147,16 @@ async function handleMessage(ws, rawData) {
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('headers', (headers) => {
-  headers.push('X-Flux-Capabilities: peerExchange,appStateSync');
+  // peerExchange only. This stub does NOT implement the app-state sync
+  // endpoints - apprunning, appinstalling and apperrors are all absent - and a
+  // real node picks its sync peers by exactly this capability
+  // (FluxPeerManager.getEligibleSyncPeers). Claiming it made stubs eligible,
+  // so a node would ask one, get nothing, time out, and never publish
+  // SPAWNER_READY - which never starts the spawn loop. A fleet with several
+  // stubs then had a real chance of drawing only stubs, and every test needing
+  // an app to be spawned waited out its whole budget for a spawner that was
+  // never running. Suite 98 lost a gate to it.
+  headers.push('X-Flux-Capabilities: peerExchange');
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
 });
@@ -144,6 +172,33 @@ wss.on('connection', (ws) => {
 // Whether a TCP connection to the asker's port completes. A timeout answers for
 // a port that is filtered rather than refused - to the node asking, both mean
 // the same thing.
+// Reads what a port replies, capped, the way a node on current code does.
+function portRead(ip, port, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: ip, port });
+    let received = '';
+    let settled = false;
+    const done = (answer) => {
+      if (settled) return;
+      settled = true;
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(answer);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => {
+      socket.write(`GET / HTTP/1.1\r\nHost: ${ip}:${port}\r\nConnection: close\r\n\r\n`);
+    });
+    socket.on('data', (chunk) => {
+      received += chunk.toString('utf8');
+      if (received.length >= 256) done(received.slice(0, 256));
+    });
+    socket.once('end', () => done(received || null));
+    socket.once('timeout', () => done(received || null));
+    socket.once('error', () => done(null));
+  });
+}
+
 function portAnswers(ip, port, timeoutMs = 5000) {
   return new Promise((resolve) => {
     const socket = net.connect({ host: ip, port });
@@ -187,6 +242,37 @@ const wsServer = http.createServer(async (req, res) => {
       // one timeout, and a serial walk of several ports spends that budget before
       // it can answer.
       const ports = Array.isArray(asked.ports) ? asked.ports : [];
+      if (portProbeAnswersBlind) {
+        // Passed without connecting: see portProbeAnswersBlind.
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'success', data: { message: 'Ports are available' } }));
+        return;
+      }
+      // A requester asking for proof gets what each port actually said. One that
+      // is not - an older node - gets the reachability answer it always got, and
+      // no `answered` field, which is how the asker knows this peer cannot prove
+      // anything either way.
+      if (asked.echo && !portProbeAnswersBlind) {
+        const answered = {};
+        for (const port of ports) {
+          // eslint-disable-next-line no-await-in-loop
+          const reply = portProbeAnswersForeign
+            ? 'HTTP/1.1 200 OK\r\n\r\n{"status":"success","data":{"token":"a-neighbours-application"}}'
+            : await portRead(asked.ip, port);
+          if (reply === null) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'error', data: { message: `Failed port: ${port}` } }));
+            return;
+          }
+          answered[port] = reply;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'success',
+          data: { message: 'Ports are available', answered },
+        }));
+        return;
+      }
       const reachable = await Promise.all(ports.map((port) => portAnswers(asked.ip, port)));
       const failedAt = reachable.indexOf(false);
       if (failedAt !== -1) {
@@ -339,6 +425,22 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/port-probe-foreign') {
+      const body = await readBody(req);
+      portProbeAnswersForeign = JSON.parse(body).foreign !== false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', portProbeAnswersForeign }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/port-probe-blind') {
+      const body = await readBody(req);
+      portProbeAnswersBlind = JSON.parse(body).blind !== false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', portProbeAnswersBlind }));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/load-message') {
       const body = await readBody(req);
       const msg = JSON.parse(body);
@@ -366,6 +468,8 @@ const controlServer = http.createServer(async (req, res) => {
       promotedFolders = { ready: true, folders: [] };
       promotedFoldersStatus = 200;
       promotedFoldersRefuse = false;
+      portProbeAnswersBlind = false;
+      portProbeAnswersForeign = false;
       broadcastsSent = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));

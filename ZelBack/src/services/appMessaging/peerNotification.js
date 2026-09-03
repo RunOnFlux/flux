@@ -13,6 +13,7 @@ const appQueryService = require('../appQuery/appQueryService');
 const appReconciler = require('../appMonitoring/appReconciler');
 
 const fluxEventBus = require('../utils/fluxEventBus');
+const { nodeSigner } = require('../utils/nodeSigner');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -154,6 +155,16 @@ async function checkAndNotifyPeersOfRunningApps() {
         osUptime: os.uptime(),
         staticIp: geolocationService.isStaticIP(),
       };
+      // The announcement is one fact, recorded twice - the location table, and
+      // the event log that peers sync from - and sent once. A node that cannot
+      // sign as itself sends nothing a peer would accept, so it records nothing
+      // either: its own view of where it runs stays the network's view. Asked
+      // before the first write, for that reason.
+      const signer = await nodeSigner();
+      if (!signer) {
+        log.warn('checkAndNotifyPeersOfRunningApps - this node cannot sign as itself; its running apps are not announced');
+        return;
+      }
       await messageStore.storeAppRunningMessage(appRunningMessage);
       const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });

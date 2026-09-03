@@ -5,6 +5,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer, waitForLocationTable } from '../framework/reconciler-suite.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { assignPorts } from '../framework/port-allocator.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // The registration front door and the placement advice endpoint, against a
@@ -28,7 +29,7 @@ const APP_IMAGE = 'e2e-gate-probe';
 // a hand-rolled spec fails on a missing field long before it proves anything
 // about placement.
 function gateSpec({ name, instances = 3, geolocation = [] }) {
-  return {
+  const spec = {
     version: 8,
     name,
     description: `placement gate probe ${name}`,
@@ -37,7 +38,7 @@ function gateSpec({ name, instances = 3, geolocation = [] }) {
       name: 'probe',
       description: 'probe component',
       repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
-      ports: [31151],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -56,6 +57,12 @@ function gateSpec({ name, instances = 3, geolocation = [] }) {
     staticip: false,
     enterprise: '',
   };
+
+  // Hand-rolled rather than built, so it goes to the allocator itself -
+  // the one place a seeded port comes from. Stable per app name, so every
+  // spec built for one app here carries the same port.
+  assignPorts(spec.compose, name);
+  return spec;
 }
 
 describe('placement gate at registration and the advice endpoint', function () {

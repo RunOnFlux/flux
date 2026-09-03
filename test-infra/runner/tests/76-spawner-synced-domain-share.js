@@ -46,7 +46,7 @@ describe('spawner shares one fault domain among synced-app instances', function 
     const appName = `e2esyncshare${Date.now()}`;
     await pushTestApp(appName);
     const app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [31131], instances: 3,
+      name: appName, mode: 'g', instances: 3,
     });
     await seedSpawnerApp(env, app);
 
@@ -80,7 +80,7 @@ describe('spawner shares one fault domain among synced-app instances', function 
     const appName = `e2esynccap${Date.now()}`;
     await pushTestApp(appName);
     const app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [31132], instances: 3,
+      name: appName, mode: 'g', instances: 3,
     });
     await seedSpawnerApp(env, app);
 

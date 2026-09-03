@@ -145,6 +145,11 @@ async function trySpawningGlobalApplication() {
       throw new Error('Unable to detect Flux IP address');
     }
 
+    // Our address without the port, derived once. It was being recomputed in
+    // four places under three different names, so nothing told a reader they
+    // were the same value.
+    const localIp = extractIp(localSocketAddr);
+
     const runningApps = await appQueryService.listRunningApps();
     if (runningApps.status !== 'success') {
       throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
@@ -321,7 +326,7 @@ async function trySpawningGlobalApplication() {
       let myCountryCode = selfCountryCode ?? null;
       let myTableRegion = null;
       try {
-        const localHit = await ipLocationStore.lookup(extractIp(localSocketAddr));
+        const localHit = await ipLocationStore.lookup(localIp);
         // Both or neither: a hit carrying one without the other cannot place the
         // node any better than its own report can.
         if (localHit?.continentCode && localHit?.countryCode) {
@@ -364,10 +369,10 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       let random = Math.floor(Math.random() * globalAppNamesLocation.length);
       appToRunAux = globalAppNamesLocation[random];
-      const filterAppsWithNyNodeIP = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
-      if (filterAppsWithNyNodeIP.length > 0) {
-        random = Math.floor(Math.random() * filterAppsWithNyNodeIP.length);
-        appToRunAux = filterAppsWithNyNodeIP[random];
+      const appsNamingThisNode = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
+      if (appsNamingThisNode.length > 0) {
+        random = Math.floor(Math.random() * appsNamingThisNode.length);
+        appToRunAux = appsNamingThisNode[random];
       }
 
       appToRun = appToRunAux.name;
@@ -402,13 +407,12 @@ async function trySpawningGlobalApplication() {
 
     runningAppList = await registryManager.appLocation(appToRun);
 
-    const adjustedIP = extractIp(localSocketAddr); // just IP address
     // check if app not running on this device
-    if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
+    if (runningAppList.find((document) => document.ip.includes(localIp))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already running on this Flux IP`);
       return delayTime;
     }
-    if (installingAppList.find((document) => document.ip.includes(adjustedIP))) {
+    if (installingAppList.find((document) => document.ip.includes(localIp))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already being installed on this Flux IP`);
       return delayTime;
     }
@@ -494,17 +498,62 @@ async function trySpawningGlobalApplication() {
 
     // ensure ports unused
     // Get apps running specifically on this IP
-    const localSocketAddrAddress = extractIp(localSocketAddr); // just IP address without port
-    const runningAppsOnThisIP = await registryManager.getRunningAppIpList(localSocketAddrAddress);
-    const runningAppsNames = runningAppsOnThisIP.map((app) => app.name);
+    const appsRunningAtOurIp = await registryManager.getRunningAppIpList(localIp);
+    const runningAppsNames = appsRunningAtOurIp.map((app) => app.name);
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
+    // The check above reads a sibling's ports from the specifications the
+    // network broadcasts, so it sees only what has been reported as RUNNING. A
+    // sibling that has installed an application and not started it, or is still
+    // installing it, appears nowhere in that list and holds the router's forward
+    // regardless. Ask the other Flux nodes at this address directly, here rather
+    // than during the port test, so a refusal costs no firewall rule and no port
+    // mapping to unwind.
+    //
+    // Not because an enterprise application hides its ports. It seals them, and
+    // a node running ArcaneOS opens them - assignedPortsGlobalApps decrypts. On
+    // a node that is not running ArcaneOS it cannot, and there this ask is the
+    // only thing that sees a sealed neighbour's ports at all.
+    //
+    // Answered rather than raised, and handled exactly as an unreachable port is
+    // below: this node cannot host this app, which is an ordinary answer and not
+    // a fault. What separates the two is how it is told, not what it costs the
+    // app: raised, this is an error with a stack trace and no event; answered,
+    // it is one line and a deferral the fleet can observe. The app holds the
+    // entry every selection takes in the spawn cache either way - it was filed
+    // at selection, and the catch below adds nothing for a hash already there -
+    // so this node stops considering it until that expires, which is right,
+    // because nothing changes here until the sibling gives the port up.
+    const sibling = await portManager.siblingHoldingPort(appPorts, localSocketAddr);
+    if (sibling) {
+      log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
+      // A deferral, published as one: this stands the node down and returns
+      // shortDelayTime exactly as the seven reasons below it do, so it belongs
+      // in that vocabulary rather than in an event of its own.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'sibling_holds_port',
+        delayMs: shortDelayTime,
+        port: sibling.port,
+        address: sibling.address,
+      });
+      return shortDelayTime;
+    }
+
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
-    const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);
-    if (portsPubliclyAvailable === false) {
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts);
+    if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
+      // The cause lives in portManager, which says which port and which peers;
+      // this says the spawner deferred, and on which of its verdicts.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'ports_not_available',
+        portVerdict: portVerdict.reason,
+        delayMs: shortDelayTime,
+      });
       return shortDelayTime;
     }
 
@@ -526,8 +575,6 @@ async function trySpawningGlobalApplication() {
       syncthingApp = appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
     }
 
-    const localIp = extractIp(localSocketAddr);
-
     // An owner who names exactly as many nodes as instances has assigned the
     // placement, and the diversity share does not second-guess it. A longer
     // list is a candidate pool - `nodes` may carry up to 120 entries against
@@ -535,11 +582,11 @@ async function trySpawningGlobalApplication() {
     // over that pool (placementFeasibility restricts its candidate set to it).
     // The bypass applies only when THIS node is named: a v8+ app spawning on
     // an off-list node is subject to the share either way.
-    let pinnedHere = false;
+    let ownerNamedThisNode = false;
     if (syncthingApp) {
       const pinList = appSpecifications.nodes ?? [];
-      pinnedHere = pinList.length > 0 && pinList.length <= minInstances
-        && await placementFeasibility.isNodePinnedHere(appSpecifications, localSocketAddr);
+      ownerNamedThisNode = pinList.length > 0 && pinList.length <= minInstances
+        && await placementFeasibility.specNamesThisNode(appSpecifications, localSocketAddr);
     }
 
     // A synced app may only be refused when a better-placed candidate provably
@@ -548,7 +595,7 @@ async function trySpawningGlobalApplication() {
     let placementShare = null;
     let placementDomainOf = null;
     let myDomain = null;
-    if (syncthingApp && !pinnedHere) {
+    if (syncthingApp && !ownerNamedThisNode) {
       // placementComputation refuses a geo-restricted question while the location
       // table is still loading, because answering it over the whole network would
       // advise on numbers that mean nothing. That refusal is addressed to the HTTP
@@ -846,7 +893,7 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    if (syncthingApp && !pinnedHere && placementShare) {
+    if (syncthingApp && !ownerNamedThisNode && placementShare) {
       // Re-check the domain share against the propagated lists, keyed by the
       // same computation that produced the share - a fresher view of the
       // network would move nodes between domains the share was never computed

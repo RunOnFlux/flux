@@ -83,11 +83,11 @@ describe('a node whose address changed restarts the apps that stay', function ()
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
 
     await pushImage(appName, 'v1');
-    const component = (name, port) => ({
+    const component = (name) => ({
       name,
       description: 'address-change component',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -100,7 +100,7 @@ describe('a node whose address changed restarts the apps that stay', function ()
     });
     const app = await buildSeedableApp({
       name: appName,
-      compose: [component(COMPONENT_A, 31801), component(COMPONENT_B, 31802)],
+      compose: [component(COMPONENT_A), component(COMPONENT_B)],
     });
     idx = await seedAndInstall(env, app);
     nodeIp = subnet.nodeIp(idx + 1);
@@ -133,24 +133,61 @@ describe('a node whose address changed restarts the apps that stay', function ()
     await env?.teardown();
   });
 
+  // The order below is the order the product produces these facts in:
+  //
+  //   1. adjustExternalIP's app loop asks for the restarts, and appReconciler
+  //      LOGS what it asked for: "restart requested for N/M components (<reason>)"
+  //   2. it broadcasts fluxipchanged, which a peer publishes as network:ipchanged
+  //   3. the reconciler actuates, publishing reconciler:actuated per component
+  //
+  // The first test waits on (1) and carries the whole detection budget, because
+  // that is the slow part and nothing after it is slow. The second reads (2),
+  // which by then has already happened.
+  const linesFor = (index) => env.nodeDiagnostics().find((n) => n.index === index)?.lines ?? [];
+
   it('restarts every component of a composed app, not just the first', async function () {
     // Detection is not immediate and cannot be hurried: a node only asks benchmark
     // about its address after a peer has failed to reach it, and it takes several
     // availability cycles - the collision check re-arms on a 60s timer - to get
-    // there. Measured at ~4 minutes from the block to the broadcast, so this covers
-    // that plus the reconciler actuating the restarts it queued, which follows.
-    //
-    // This is the LATER of the two events the suite waits on: the handler records
-    // the restart intents, broadcasts, and only then does the reconciler act. Test
-    // two's marker has already arrived by the time this one does, and is served from
-    // the event buffer rather than waited for.
-    this.timeout(480000);
+    // there. Measured on one gate at 4m12s across eight probes.
+    this.timeout(600000);
     const client = env.clients[idx];
 
-    // Both, each on its own identifier. Asserting only component A would pass on a
-    // node that never reached component B, which is precisely the failure here.
-    await waitForReconcileActuated(client, idA, 'restarted', 360000, { afterId: baseline });
-    await waitForReconcileActuated(client, idB, 'restarted', 360000, { afterId: baseline });
+    // Waited on the HANDLER'S OWN LINE rather than on the restarts, because
+    // reconciler:actuated carries an identifier and an action and NO cause
+    // (appReconciler.js) - so a restart queued by the ports-unreachable path,
+    // which fires early in this same detection ramp and did, is the identical
+    // event to one the address change queued. Waiting on the actuation alone went
+    // green on the wrong cause, before the handler under test had run at all.
+    //
+    // This line comes from appReconciler.requestRestartOf, which fluxNetworkHelper
+    // reaches only through setOnAddressChanged (serviceManager.js) - so the reason
+    // it carries can have come from nowhere else. It is also the direct statement
+    // of what this test is named for: N/M is how many components the loop ASKED
+    // for, so "not just the first" is asserted rather than inferred from two
+    // actuations that something else could equally have produced.
+    const ipInPattern = movedIp.replace(/\./g, '\\.');
+    const asked = new RegExp(`restart requested for (\\d+)/(\\d+) components \\(node ip changed to ${ipInPattern}\\)`);
+
+    let line;
+    await waitFor(() => {
+      line = linesFor(idx).find((l) => asked.test(l));
+      return Boolean(line);
+    }, {
+      timeout: 480000,
+      interval: 3000,
+      label: `node ${idx} logs the restart request its own address change caused`,
+    });
+
+    const [, requested, total] = asked.exec(line);
+    expect(Number(total), 'the loop reached both components of the composed app').to.equal(2);
+    expect(Number(requested), 'and asked for every one of them').to.equal(Number(total));
+
+    // Then the reconciler acts on what was asked for. Both, each on its own
+    // identifier: asserting only component A would pass on a node that never
+    // reached component B, which is precisely the failure here.
+    await waitForReconcileActuated(client, idA, 'restarted', 240000, { afterId: baseline });
+    await waitForReconcileActuated(client, idB, 'restarted', 240000, { afterId: baseline });
 
     await waitFor(async () => (await isUp(client, idA)) && (await isUp(client, idB)), {
       timeout: 120000,
@@ -169,8 +206,17 @@ describe('a node whose address changed restarts the apps that stay', function ()
     // the confirmation transaction that follows it: adjustExternalIP is the only
     // sender of fluxipchanged, whereas createConfirmationTransaction is also sent by
     // the collateral-takeover path in checkDeterministicNodesCollisions - so that RPC
-    // arriving would not have told us which handler ran.
-    this.timeout(120000);
+    // arriving would not have told us which handler ran. The mover has no event of
+    // its own to read: network:ipchanged is published where the message is RECEIVED
+    // (fluxCommunication.js), so a peer is the only place it exists.
+    //
+    // Ninety seconds is honest here, where it was not before. The test above has
+    // already waited past the app loop and the broadcast is the very next thing the
+    // handler does, so this is a short hop rather than the whole ramp. Previously
+    // this ran on the stated grounds that its marker "has already arrived" - true
+    // only while the restart test happened to outlast detection, and on the gate
+    // where it did not, this got 90 seconds of a four-minute process.
+    this.timeout(180000);
     const peer = env.clients[peerIdx];
 
     // The addresses are carried as ip:port, so compare the address alone rather
@@ -186,3 +232,4 @@ describe('a node whose address changed restarts the apps that stay', function ()
     expect(await isUp(env.clients[idx], idA), 'and the app is still running').to.equal(true);
   });
 });
+

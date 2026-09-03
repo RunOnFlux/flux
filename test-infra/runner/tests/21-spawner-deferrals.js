@@ -17,7 +17,7 @@ function localRegistryCompose(appName) {
     name: appName,
     description: 'test container',
     repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-    ports: [31111],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],

@@ -89,7 +89,7 @@ describe('app volume file operations - safety and recovery', function () {
         name: appName,
         description: 'file operation safety',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31701],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

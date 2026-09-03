@@ -462,6 +462,21 @@ describe('appHashSyncService tests', () => {
       expect(calledPeers.length).to.equal(3);
     });
 
+    it('sends no request when this node cannot sign it', async () => {
+      fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.resolves(null);
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+      ];
+      dbHelperStub.findInDatabase.onFirstCall().resolves(missing);
+      dbHelperStub.findInDatabase.resolves([]);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      const peers = peerManagerStub.allValues();
+      expect(peers.filter((p) => p.send.called)).to.have.length(0);
+    });
+
     it('should not reuse peers across rounds', async () => {
 
       const missing = [

@@ -61,7 +61,7 @@ async function isUp(client, appName) {
 }
 
 // targeted install of a plain (non-sync) app on one node
-async function installPlainApp(env, name, index, port) {
+async function installPlainApp(env, name, index) {
   await pushImage(name, 'v1');
   const app = await buildSeedableApp({
     name,
@@ -69,7 +69,7 @@ async function installPlainApp(env, name, index, port) {
       name,
       description: 'test container',
       repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -113,9 +113,9 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await seedSyncScopedData(env, syncName, 0);
     // pin the folder synced so the leader promotes and the app runs steadily
     await setSynced({ ip: subnet.nodeIp(1), folder: appId(syncName) });
-    await installPlainApp(env, rebootName, 1, 31201);
-    await installPlainApp(env, inertName, 2, 31301);
-    await installPlainApp(env, rmName, 3, 31401);
+    await installPlainApp(env, rebootName, 1);
+    await installPlainApp(env, inertName, 2);
+    await installPlainApp(env, rmName, 3);
 
     await pushImage(entName, 'v1');
     const entApp = await buildSeedableEnterpriseApp({
@@ -124,7 +124,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
         name: entName,
         description: 'test container',
         repotag: `${REGISTRY_REPO_HOST}/${entName}:v1`,
-        ports: [31501],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

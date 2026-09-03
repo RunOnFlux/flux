@@ -227,6 +227,19 @@ async function getRandomSocketAddress(socketAddress) {
 }
 
 /**
+ * A random node that can observe this one from outside its address - i.e. not a
+ * Flux node sharing our public address. Null when there is no such node.
+ *
+ * @param {string} socketAddress
+ * @returns {Promise<string | null>}
+ */
+async function getRandomExternalObserver(socketAddress, options = {}) {
+  if (!stateManager) return null;
+
+  return stateManager.getRandomExternalObserver(socketAddress, options);
+}
+
+/**
  *
  * @param {string} socketAddress
  * @returns {Promise<Fluxnode | null>}
@@ -259,6 +272,7 @@ module.exports = {
   getFluxnodeBySocketAddress,
   getFluxnodesByPubkey,
   getRandomSocketAddress,
+  getRandomExternalObserver,
   isReady,
   networkState,
   nodeCount,

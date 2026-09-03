@@ -190,8 +190,15 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   // config is derived to satisfy that, so outbound and inbound both settle at k.
   // A suite may still ask for its own numbers; they are capped by what a fleet of
   // this size can hold rather than waiting out a timeout on an impossible one.
-  // Stubs are excluded: a stub holds a ring slot but supplies no connection.
-  const dialers = dialerCount(env.clients.length, env.stubPeerClients?.size ?? 0);
+  // Stubs are excluded: a stub holds a ring slot but supplies no connection. So
+  // does a DEFERRED node that has not been started - it is in the deterministic
+  // list, the ring routes through its index, and it neither dials nor answers an
+  // addoutgoingpeer request. Counting it as a dialer asks each node for a peer
+  // that cannot exist, and the wait then times out on arithmetic rather than on
+  // anything the fleet did. env.clients carries a hole for both, which is what
+  // the filter above removes, so the difference IS the absent count.
+  const absent = env.clients.length - nodes.length;
+  const dialers = dialerCount(env.clients.length, absent);
   const ceiling = Math.max(dialers - 1, 1);
   const outboundTarget = minOutbound ?? Math.min(4, ceiling);
   const inboundTarget = minInbound ?? Math.min(2, ceiling);
@@ -199,8 +206,7 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   // but a suite that overrides the arc into an overlapping shape hands the split
   // to whichever half reaches the shared peer first - a race. The sum survives
   // both, and is the same demand either way.
-  const stubCount = env.stubPeerClients?.size ?? 0;
-  const totalTarget = expectedPeerTotal(outboundTarget, inboundTarget, dialers, stubCount);
+  const totalTarget = expectedPeerTotal(outboundTarget, inboundTarget, dialers, absent);
   // Every real node, not nodes[0]. One node's counts are not the fleet's, and
   // node 0 is the least representative of them: it is the index every other
   // node's backward arc wraps onto, so it is where an overlapping ring strands
@@ -440,7 +446,7 @@ export async function seedTestApp(env, { name, exitCode = 0, exitAfterS = null }
   return { app, index, identifier: `${name}_${name}` };
 }
 
-export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
+export async function seedSimpleApp(env, appName) {
   await pushImage(appName, 'v1');
   const app = await buildSeedableApp({
     name: appName,
@@ -448,7 +454,7 @@ export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
       name: appName,
       description: 'test container',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],

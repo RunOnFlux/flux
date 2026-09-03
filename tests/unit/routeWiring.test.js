@@ -137,6 +137,30 @@ describe('route wiring', () => {
     expect(table.length).to.be.greaterThan(100);
   });
 
+  describe('the ports a node holds', () => {
+    // A POST rather than a guarded GET, and that is the point rather than an
+    // oversight: it carries a signature, so the question is a body. Answering it
+    // means reading and decrypting this node's own specifications, which is why
+    // it is not open - the same signature check /flux/checkappavailability makes.
+    it('is registered as a POST, not a GET', () => {
+      const post = table.find((entry) => entry.path === '/flux/portsinuse' && entry.method === 'post');
+      const get = table.find((entry) => entry.path === '/flux/portsinuse' && entry.method === 'get');
+
+      expect(post, '/flux/portsinuse is not registered as a POST').to.not.equal(undefined);
+      expect(get, '/flux/portsinuse is still registered as a GET').to.equal(undefined);
+    });
+
+    it('caches no response, because the value it wraps is what is cached', () => {
+      // A route cache stores whatever the handler produced, including a 200
+      // carrying an error - which is what routes.js says must never be
+      // remembered. portsInUse caches the value instead, and a throw produces
+      // no value to cache.
+      const post = table.find((entry) => entry.path === '/flux/portsinuse' && entry.method === 'post');
+
+      expect(post.chain.some((fn) => fn && fn.name === 'cache')).to.equal(false);
+    });
+  });
+
   describe('endpoints that take no query parameters', () => {
     // Unauthenticated, read by peers mid-election, and each one either does
     // backend work per request or sits beside one that does.

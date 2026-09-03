@@ -59,6 +59,36 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Make this peer pass a port test without connecting to the asker at all.
+    //
+    // What the asker receives from a peer probing a shared public address: the
+    // router forwarded the port to a sibling node, the sibling's application
+    // answered, and the peer reports a pass for a port that never reached the
+    // asker. The peer is not lying - something did answer - so the asker cannot
+    // learn this from the reply, only from whether anything arrived at its own
+    // test server.
+    // An OLD peer: it reaches the ports and passes them, but returns no reading,
+    // so the asker learns nothing it can act on and must ask someone else.
+    async answerPortProbeBlind(blind = true) {
+      const res = await fetch(`${controlUrl}/port-probe-blind`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blind }),
+      });
+      return res.json();
+    },
+
+    // A peer that reads the port and finds somebody ELSE on it - which is what
+    // the asker receives when the router forwarded that port to a neighbour.
+    async answerPortProbeForeign(foreign = true) {
+      const res = await fetch(`${controlUrl}/port-probe-foreign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ foreign }),
+      });
+      return res.json();
+    },
+
     // Arrival times of the node's "what are you holding?" requests.
     async promotedFolderRequests() {
       const stats = await this.getStats();

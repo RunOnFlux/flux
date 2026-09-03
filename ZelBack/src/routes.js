@@ -50,6 +50,7 @@ const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
+const portManager = require('./services/appNetwork/portManager');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
@@ -346,6 +347,18 @@ module.exports = (app) => {
   }));
   app.post('/flux/keepupnpportsopen', asyncRoute((req, res) => {
     return fluxNetworkHelper.keepUPNPPortsOpen(req, res);
+  }));
+  // POST because the ask carries a signature, which makes it a body and not a
+  // URL. No cache() follows from that: apicache keys on the URL alone, so it
+  // would answer every different ask alike and answer it before the handler ran
+  // - and it caches only GETs regardless. portsInUse caches the value instead.
+  // No rejectQueryParameters, because with the ask in the body there is no URL
+  // surface for a query string to reach.
+  //
+  // What this endpoint is for, who may call it and why it is signed is on
+  // portsInUseApi, with the code that enforces it.
+  app.post('/flux/portsinuse', asyncRoute((req, res) => {
+    return portManager.portsInUseApi(req, res);
   }));
 
   // ArcaneOS Authentication Endpoints (HTTPS only)

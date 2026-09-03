@@ -9,6 +9,8 @@ const path = require('path');
 const { PassThrough } = require('stream');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -1183,7 +1185,28 @@ describe('dockerService tests', () => {
     });
 
     afterEach(() => {
-      dockerStub.restore();
+      sinon.restore();
+    });
+
+    // The request to Flux Storage is signed as this node. A node that cannot
+    // sign refuses here rather than sending a header with null where the
+    // signature goes and reading the storage's refusal back as a bad URL.
+    it('refuses to fetch parameters from Flux Storage when this node cannot sign the request', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves(null);
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=https://storage.example/env'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('failed to be obtained');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
     });
 
     it('should create an app given proper parameters for specs version > 1', async () => {

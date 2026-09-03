@@ -270,14 +270,14 @@ async function countHeldInDomain(locations, domainKey, domainOf) {
 }
 
 /**
- * Whether the app's spec explicitly pins this node, by socket address or by
- * collateral outpoint. A pinned placement is the owner's choice and bypasses
- * the diversity share.
+ * Whether the app's spec names this node, by socket address or by collateral
+ * outpoint. Being named is the owner's own placement choice and bypasses the
+ * diversity share.
  * @param {object} appSpecifications App specifications
  * @param {string} localSocketAddr This node's ip:port
  * @returns {Promise<boolean>}
  */
-async function isNodePinnedHere(appSpecifications, localSocketAddr) {
+async function specNamesThisNode(appSpecifications, localSocketAddr) {
   const nodes = appSpecifications.nodes ?? [];
   if (!nodes.length) return false;
   if (nodes.some((node) => socketAddressesMatch(node, localSocketAddr))) return true;
@@ -807,7 +807,7 @@ module.exports = {
   placementCategory,
   changesPlacement,
   countHeldInDomain,
-  isNodePinnedHere,
+  specNamesThisNode,
   checkPlacementFeasibility,
   normalizeGeolocation,
   placementAdvice,

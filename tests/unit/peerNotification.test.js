@@ -8,7 +8,9 @@ describe('peerNotification tests', () => {
   let enqueueAllStub;
   let waitForBootDrainSettledStub;
   let storeAppRunningMessageStub;
+  let storeAppStateEventStub;
   let broadcastMessageToAllStub;
+  let nodeSignerStub;
   let installedAppsStub;
   let listRunningAppsStub;
 
@@ -22,7 +24,9 @@ describe('peerNotification tests', () => {
     enqueueAllStub = sinon.stub().resolves();
     waitForBootDrainSettledStub = sinon.stub().resolves();
     storeAppRunningMessageStub = sinon.stub().resolves();
+    storeAppStateEventStub = sinon.stub().resolves();
     broadcastMessageToAllStub = sinon.stub().resolves('signed');
+    nodeSignerStub = sinon.stub().resolves({ pubKey: '04', sign: () => 'sig' });
     installedAppsStub = sinon.stub().resolves({
       status: 'success',
       data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
@@ -79,7 +83,7 @@ describe('peerNotification tests', () => {
       },
       './messageStore': {
         storeAppRunningMessage: storeAppRunningMessageStub,
-        storeAppStateEvent: sinon.stub().resolves(),
+        storeAppStateEvent: storeAppStateEventStub,
         APP_STATE_EVENT_TYPES: { APPRUNNING: 'apprunning' },
       },
       '../appDatabase/registryManager': {
@@ -120,6 +124,7 @@ describe('peerNotification tests', () => {
         restoreInProgress: [],
         runningAppsCache: new Set(),
       },
+      '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
       '../../lib/log': logStub,
     });
   });
@@ -145,6 +150,22 @@ describe('peerNotification tests', () => {
       expect(message.type).to.equal('fluxapprunning');
       expect(message.ip).to.equal('192.168.1.1:16127');
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
+      expect(storeAppStateEventStub.calledOnce, 'the announcement is recorded in the event log').to.be.true;
+    });
+
+    // The announcement is one fact recorded twice - the location table and the
+    // event log peers sync from - and sent once. A node that cannot sign as
+    // itself sends nothing a peer would accept, so it records nothing either:
+    // its own view of where it runs is the network's view.
+    it('records nothing and announces nothing when this node cannot sign as itself', async () => {
+      nodeSignerStub.resolves(null);
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.called, 'wrote its own location').to.be.false;
+      expect(broadcastMessageToAllStub.called, 'sent an announcement').to.be.false;
+      expect(storeAppStateEventStub.called, 'wrote the event log').to.be.false;
+      expect(logStub.warn.calledWith(sinon.match('cannot sign'))).to.be.true;
     });
 
     it('does not broadcast a plain app with a stopped component', async () => {

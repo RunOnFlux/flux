@@ -207,6 +207,11 @@ export function nodeClient(nodeNum) {
         'imageUpdate:checked',
         'imageUpdate:redeployTriggered',
         'imageUpdate:redeployComplete',
+        // The port test's own findings. Not deferrals - the spawner publishes
+        // those - but the evidence behind them: which port, and which peers read
+        // it. Nothing existing carries that.
+        'ports:notOurs',
+        'ports:unproven',
         'peers:added',
         'peers:belowThreshold',
         'peers:removed',

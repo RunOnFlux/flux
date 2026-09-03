@@ -441,6 +441,15 @@ module.exports = {
     portTestPropagationDelayMs: 10000,
     portTestPeerTimeoutMs: 30000,
     portTestMaxAttempts: 5,
+    // Asking the other Flux nodes at our own public address which ports they
+    // hold. Short: they are one hop away, and a sibling that does not answer
+    // promptly is left unasked rather than delaying an install - the port test
+    // that follows is what decides.
+    siblingPortsTimeoutMs: 5000,
+    // How long a signed sibling ask stays good for. The exchange itself is
+    // bounded by siblingPortsTimeoutMs; the rest is allowance for two nodes
+    // that were never required to agree on the time.
+    siblingAskValidityMs: 60000,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,

@@ -175,13 +175,17 @@ describe('verificationHelper tests', () => {
       expect(signature).to.be.a('string');
     });
 
-    it('should throw error if private key is invalid', async () => {
+    // Null rather than the Error itself, and it never threw despite the name
+    // this test used to carry. An Error returned as if it were a signature is
+    // truthy and is not a string, so it passed every guard that was not looking
+    // for it and travelled as a signature field.
+    it('should answer nothing if private key is invalid', async () => {
       const message = 'abc';
       const privKey = 'test123';
 
       const signature = signMessage(message, privKey);
 
-      expect(signature).to.be.an('error');
+      expect(signature).to.equal(null);
     });
   });
 });

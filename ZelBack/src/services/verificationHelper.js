@@ -143,7 +143,10 @@ function signMessage(message, pk) {
     // => different (but valid) signature each time
   } catch (e) {
     log.error(e);
-    signature = e;
+    // Null, not the Error, for the reason getFluxNodePublicKey gives: an Error
+    // returned as if it were the value is truthy and survives every guard that
+    // is not looking for it specifically.
+    signature = null;
   }
   return signature;
 }

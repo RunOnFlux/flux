@@ -69,6 +69,8 @@ class FluxPeerManager extends EventEmitter {
   #pendingRemoves = new Set();
 
   #syncRequestedPeers = new Set();
+
+  #ownSocketAddress = null;
   /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
   #peerUpdateTimer = null;
   /** @type {Array<object>} Circular buffer of peer lifecycle events */
@@ -471,6 +473,31 @@ class FluxPeerManager extends EventEmitter {
     return this.#peers.size;
   }
 
+  /**
+   * This node's own socket address, so it can be told apart from a peer.
+   *
+   * Set rather than derived here: this class is deliberately free of the
+   * network helpers, and the address is known by the time peering starts.
+   */
+  setOwnSocketAddress(socketAddress) {
+    this.#ownSocketAddress = socketAddress;
+  }
+
+  /**
+   * This node's own socket address, as last learned.
+   *
+   * Answered from here rather than fetched, because this is where the fact
+   * already lives: fluxNetworkHelper pushes every refresh in through
+   * setOwnSocketAddress, from the one place the node learns what it is. The
+   * alternative - asking benchmark - is an RPC with no cache behind it, and the
+   * dial path needs this on every attempt.
+   *
+   * @returns {string|null} ip:port, or null while the node has not been told
+   */
+  getOwnSocketAddress() {
+    return this.#ownSocketAddress;
+  }
+
   getPeerFluxUptime(key) {
     const peer = this.#peers.get(key);
     if (!peer || peer.remoteFluxUptime === null) return null;
@@ -479,7 +506,16 @@ class FluxPeerManager extends EventEmitter {
 
   getEligibleSyncPeers(minUptimeSeconds, count) {
     const eligible = [];
+    const ownKey = this.#ownSocketAddress;
     for (const peer of this.#peers.values()) {
+      // Never ourselves. A node that syncs from itself learns nothing it does
+      // not already hold, and this asks for a fixed small number of peers - so
+      // drawing self spends one of very few attempts on a guaranteed
+      // non-answer, and on a small fleet that is the difference between the
+      // spawner starting and never starting at all. Observed doing exactly
+      // that: a node asked its own address, timed out at zero completions, and
+      // never published SPAWNER_READY.
+      if (ownKey && peer.key === ownKey) continue;
       if (peer.missedPongs !== 0) continue;
       if (!peer.remoteCapabilities.has('appStateSync')) continue;
       const uptime = this.getPeerFluxUptime(peer.key);

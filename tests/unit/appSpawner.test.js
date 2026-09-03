@@ -65,7 +65,7 @@ describe('appSpawner tests', () => {
       // re-stating its semantics in a stub is the defect class the parity
       // suite exists to prevent
       nodeLocationMatchesGeolocation: realPlacementFeasibility.nodeLocationMatchesGeolocation,
-      isNodePinnedHere: sinon.stub().resolves(opts.pinnedHere ?? false),
+      specNamesThisNode: sinon.stub().resolves(opts.namesThisNode ?? false),
       // one computation carries both the share and the domain function it was
       // computed with - the spawner keys every domain through the latter
       placementComputation: sinon.stub().resolves({
@@ -180,7 +180,11 @@ describe('appSpawner tests', () => {
       },
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
-        checkInstallingAppPortAvailable: sinon.stub().resolves(true),
+        siblingHoldingPort: sinon.stub().resolves(opts.siblingHoldingPort ?? null),
+        checkInstallingAppPortAvailable: sinon.stub().resolves({
+          ok: opts.portsAvailable ?? true,
+          reason: (opts.portsAvailable ?? true) ? 'proven' : 'notOurs',
+        }),
       },
       '../appQuery/resourceQueryService': {
         appsResources: sinon.stub().resolves({ status: 'success', data: { unreadable: opts.unaccounted ?? [] } }),
@@ -657,6 +661,53 @@ describe('appSpawner tests', () => {
       compose: [{ repotag: 'testimage:latest', containerData: '' }],
     };
 
+    // A port a neighbour holds is an ANSWER, not a fault: the spawner stands the
+    // app down for the short delay rather than faulting it. That the answer is
+    // returned rather than thrown is held at siblingHoldingPort's own boundary,
+    // where it is a verdict this suite cannot see - see portManager.test.js.
+    it('stands down when a Flux node at this address holds the port', async () => {
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        siblingHoldingPort: { address: '86.9.47.94:16137', port: 31000 },
+      });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+    });
+
+    // The control: the same app, same everything, with no sibling holding the
+    // port. Without this the one above would pass on an app that never reached
+    // the check at all.
+    it('does not stand down when no sibling holds the port', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0 });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at'))).to.be.false;
+    });
+
+    // The port check answers with a verdict rather than a bare boolean, so the
+    // caller reads `ok`. Compared whole against false an object never matches,
+    // and every refusal would install anyway - which is what this holds.
+    it('stands down when the port check refuses, and installs nothing', async () => {
+      const installStub = sinon.stub().resolves(true);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        portsAvailable: false,
+        installStub,
+      });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+      sinon.assert.notCalled(installStub);
+    });
+
     it('should add to short-term cache when network error count >= 5', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
@@ -917,7 +968,7 @@ describe('appSpawner tests', () => {
 
     it('bypasses the share entirely when the owner pinned this node', async () => {
       const { installStub } = await runAttempt({
-        pinnedHere: true,
+        namesThisNode: true,
         appSpec: { ...syncedSpec, nodes: ['192.168.1.1:16127', '10.0.0.2:16127', '10.0.0.3:16127'] },
         appLocations: sameDomainLocation,
         placementShare: { domainCount: 10, maxPerDomain: 1 },
@@ -931,7 +982,7 @@ describe('appSpawner tests', () => {
       // a pool that large expresses no co-location intent, so the share applies
       const manyNodes = Array.from({ length: 30 }, (unused, i) => `10.0.0.${i + 1}:16127`);
       const { installStub, logged } = await runAttempt({
-        pinnedHere: true,
+        namesThisNode: true,
         appSpec: { ...syncedSpec, nodes: manyNodes },
         appLocations: sameDomainLocation,
         placementShare: { domainCount: 10, maxPerDomain: 1 },

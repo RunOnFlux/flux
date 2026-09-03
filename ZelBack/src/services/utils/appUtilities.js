@@ -362,27 +362,33 @@ async function getContainerStorage(appName) {
 }
 
 /**
- * Get app ports from specifications
+ * The host ports an application specification declares, across every version.
+ *
+ * The one place this is derived. A second extraction living somewhere else is
+ * two answers to one question that nothing keeps in agreement, and whichever is
+ * fixed the other stays wrong.
+ *
+ * A field the shape does not have yields nothing rather than throwing or a NaN.
+ * A missing `ports` used to throw and a version-1 spec with no `port` used to
+ * produce `[NaN]` - and NaN is worse than an exception here, because it is a
+ * number that compares unequal to everything and fails a long way from home.
+ *
  * @param {object} appSpecs - Application specifications
  * @returns {Array<number>} Array of port numbers
  */
 function getAppPorts(appSpecs) {
-  const appPorts = [];
-  // eslint-disable-next-line no-restricted-syntax
+  if (!appSpecs) return [];
+
   if (appSpecs.version === 1) {
-    appPorts.push(+appSpecs.port);
-  } else if (appSpecs.version <= 3) {
-    appSpecs.ports.forEach((port) => {
-      appPorts.push(+port);
-    });
-  } else {
-    appSpecs.compose.forEach((component) => {
-      component.ports.forEach((port) => {
-        appPorts.push(+port);
-      });
-    });
+    return appSpecs.port ? [Number(appSpecs.port)] : [];
   }
-  return appPorts;
+
+  if (appSpecs.version <= 3) {
+    return (appSpecs.ports || []).map(Number);
+  }
+
+  return (appSpecs.compose || [])
+    .flatMap((component) => (component.ports || []).map(Number));
 }
 
 /**
