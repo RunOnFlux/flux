@@ -4145,10 +4145,18 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.softRedeployInProgress).to.be.false;
     });
 
-    it('still cleans up when the reinstall fails after the app is down', async () => {
-      // The other half of the gate. Once the removal has completed, the app IS
-      // down: a failure from here on leaves a half-installed app that only the
-      // forced uninstall can clear, so it must still run.
+    it('records that a failure after the app is down still force-uninstalls it', async () => {
+      // Pins CURRENT behaviour, not desired behaviour. The gate covers a removal
+      // that never finished; past that point a failure still force-uninstalls
+      // the app and broadcasts the removal. That is the shape that cost a live
+      // app 43 minutes of outage on 2026-08-04 - the removal completed, the
+      // requirements check then failed on RAM, and a healthy app was destroyed.
+      //
+      // Closing that half means not uninstalling here either: release, and leave
+      // down-vs-remove to the reconciler (fluxModels
+      // workstreams/fluxos-core-cutover/SPEC_CHANGE_CONTINUITY.md §1 and §9;
+      // feat/fluxos-v9 already has that shape). This assertion is expected to go
+      // red when that lands, and is here so the change is deliberate.
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
       sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
       sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
@@ -4157,9 +4165,117 @@ describe('advancedWorkflows tests', () => {
 
       await advancedWorkflows.softRedeploy(v3Spec, null);
 
-      expect(removeAppLocally.calledOnce, 'the app is down and half-installed - it must be cleaned up').to.be.true;
+      expect(removeAppLocally.calledOnce, 'today the app is force-uninstalled once it is down').to.be.true;
       expect(removeAppLocally.calledWith('TestApp', null, true, true, true)).to.be.true;
       expect(globalState.softRedeployInProgress).to.be.false;
+    });
+  });
+
+  describe('component redeploy argument contract tests', () => {
+    // softUninstallComponent and hardUninstallComponent take (appName, appId, ...)
+    // where appName is the BARE app name - they join it with the component's own
+    // name to build the monitoring key - and appId is the component's docker id.
+    // softUninstallComposedApp is the reference caller for both.
+    //
+    // Passing the joined name doubles the component into the monitoring key
+    // (`web_web_myapp`), so the stop targets a monitor that does not exist and the
+    // live one keeps sampling a container that is being removed. Passing a null id
+    // reaches getAppIdentifier and throws on `null.startsWith` before any container
+    // is looked up - upstream of dockerService's not-found guard - and on the soft
+    // path that throw is answered by force-uninstalling the whole app and
+    // broadcasting it to the network.
+    //
+    // Nothing else covers /apps/redeploycomponent: it has no harness suite, so
+    // these arguments are only ever checked here.
+    const composedSpec = {
+      version: 4,
+      name: 'myapp',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      compose: [{
+        name: 'web',
+        description: 'web component',
+        repotag: 'nginx:latest',
+        ports: ['31000'],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: ['80'],
+        containerData: '/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      }],
+    };
+
+    let globalState;
+    let appUninstaller;
+    let appInstaller;
+    let appNetworkLinker;
+    let generalService;
+    let serviceHelper;
+
+    beforeEach(() => {
+      /* eslint-disable global-require */
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+      generalService = require('../../ZelBack/src/services/generalService');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      /* eslint-enable global-require */
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(composedSpec);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      // The hard path reinstalls through registerAppLocally, which needs a
+      // detectable Flux IP; the soft path builds its own install inline.
+      sinon.stub(appInstaller, 'registerAppLocally').resolves();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+    });
+
+    it('soft redeploy tears down the component by its docker id, under the bare app name', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeployComponent('myapp', 'web', null);
+
+      expect(softUninstallComponent.calledOnce).to.be.true;
+      const [appNameArg, appIdArg, componentSpecArg] = softUninstallComponent.firstCall.args;
+      expect(appNameArg, 'the bare app name - the callee joins the component itself').to.equal('myapp');
+      expect(appIdArg, "the component's docker id").to.equal('fluxweb_myapp');
+      expect(componentSpecArg.name).to.equal('web');
+      expect(removeAppLocally.called, 'a successful component redeploy must not uninstall the app').to.be.false;
+    });
+
+    it('hard redeploy tears down the component by its docker id, under the bare app name', async () => {
+      // The same contract on the hard path. hardUninstallComponent wraps its
+      // remove in a .catch, so a wrong id is swallowed there and the teardown is
+      // silently skipped rather than failing loudly - the arguments are the only
+      // thing that decides whether the container is really torn down.
+      const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.hardRedeployComponent('myapp', 'web', null);
+
+      expect(hardUninstallComponent.calledOnce).to.be.true;
+      const [appNameArg, appIdArg, componentSpecArg] = hardUninstallComponent.firstCall.args;
+      expect(appNameArg).to.equal('myapp');
+      expect(appIdArg).to.equal('fluxweb_myapp');
+      expect(componentSpecArg.name).to.equal('web');
+      expect(removeAppLocally.called, 'a successful component redeploy must not uninstall the app').to.be.false;
     });
   });
 

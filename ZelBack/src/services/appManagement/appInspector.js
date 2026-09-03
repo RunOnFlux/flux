@@ -180,14 +180,16 @@ async function appLogPolling(req, res) {
 
       const logs = [];
       await new Promise((resolve, reject) => {
-        // The `.catch` is what keeps this honest. dockerContainerLogsPolling is
-        // async and is called from inside this executor, so its promise is not
-        // covered by the surrounding try/catch - anything it rejects with and
-        // that the callback does not also report is an unhandled rejection, and
-        // FluxOS installs no `unhandledRejection` handler, so Node kills the
-        // process. Routing the rejection into `reject` covers every path
-        // through that function, present and future, rather than only the ones
-        // its own catch happens to reach.
+        // `.catch` is required here, not defensive. dockerContainerLogsPolling
+        // is async and is called from inside this executor, so its promise is
+        // not covered by the surrounding try/catch, and FluxOS installs no
+        // `unhandledRejection` handler - a rejection with nothing attached to it
+        // exits the process, on an endpoint a browser polls on a timer.
+        //
+        // It is not redundant with the callback: the callback carries what that
+        // function's own catch reaches, `.catch` carries every rejection it can
+        // produce. Whichever arrives first settles this promise; the second is a
+        // no-op.
         dockerService.dockerContainerLogsPolling(appname, parsedLineCount, since, (err, logLine) => {
           if (err) {
             reject(err);
