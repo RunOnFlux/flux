@@ -536,17 +536,16 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
     }
   } catch (error) {
     log.error('Error in dockerContainerLogsPolling:', error);
-    if (callback) {
-      // The callback is the single reporting channel for everything above.
-      // Rethrowing as well rejects the promise this function returns, and the
-      // caller invokes it from inside a `new Promise` executor without awaiting
-      // it - so that rejection had no handler and Node killed the process. A
-      // browser left on an app's log page after the container went away was
-      // enough to restart-loop FluxOS indefinitely. The call site now attaches
-      // its own `.catch` too, so this is a belt as well as braces.
-      callback(error);
-      return;
-    }
+    // A failure reports on both channels and resolves on neither. The callback
+    // is what a callback-passing caller reads; the rejection is what anyone
+    // awaiting this reads. Reporting on only one of them lets the other read a
+    // failed poll as a completed one.
+    //
+    // The rejection obliges every call site to handle it: FluxOS installs no
+    // `unhandledRejection` handler, so one with nothing attached exits the
+    // process. Both channels reaching the same caller is harmless - whichever
+    // settles first wins.
+    if (callback) callback(error);
     throw error;
   } finally {
     if (followStream) {
@@ -1191,6 +1190,11 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     throw error;
   });
 
+  // The container exists, so there is no absence of it to attribute to anyone.
+  // The other half of the removal funnels' record: while an entry stands, this
+  // container is missing because FluxOS took it.
+  globalState.fluxRemovedContainers.delete(getDockerName(identifier));
+
   return app;
 }
 
@@ -1359,6 +1363,9 @@ async function appDockerRemove(idOrName) {
 
   globalState.stoppingContainers.delete(getDockerName(idOrName));
   await dockerContainer.remove();
+  // Recorded only once the container is actually gone - this is a record of what
+  // FluxOS removed, and a remove that threw removed nothing.
+  globalState.fluxRemovedContainers.add(getDockerName(idOrName));
   return `Flux App ${idOrName} successfully removed.`;
 }
 
@@ -1375,7 +1382,30 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
 
   globalState.stoppingContainers.delete(getDockerName(idOrName));
   await dockerContainer.remove({ force: true, v: removeVolumes });
+  globalState.fluxRemovedContainers.add(getDockerName(idOrName));
   return `Flux App ${idOrName} successfully force removed.`;
+}
+
+/**
+ * Drop every fluxRemovedContainers entry belonging to an app. Called when the
+ * app's local row goes: nothing reconciles an app with no row, so there is no
+ * absence left to attribute, and an entry with no reader would otherwise outlive
+ * the app for the life of the process.
+ *
+ * Lives here because the entries are keyed by docker name and this module owns
+ * that naming: a component is `flux<component>_<app>`, a v<=3 app is `flux<app>`,
+ * and an app name never contains an underscore (the codebase splits component
+ * identifiers on it throughout).
+ *
+ * @param {string} appName - bare app name
+ */
+function clearFluxRemovedContainers(appName) {
+  const appDockerName = getDockerName(appName);
+  for (const container of globalState.fluxRemovedContainers) {
+    if (container === appDockerName || container.endsWith(`_${appName}`)) {
+      globalState.fluxRemovedContainers.delete(container);
+    }
+  }
 }
 
 /**
@@ -2282,6 +2312,7 @@ module.exports = {
   appDockerKill,
   appDockerRemove,
   appDockerForceRemove,
+  clearFluxRemovedContainers,
   appDockerRestart,
   appDockerStart,
   appDockerStop,

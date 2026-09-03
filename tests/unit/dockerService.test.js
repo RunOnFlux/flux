@@ -612,20 +612,24 @@ describe('dockerService tests', () => {
   });
 
   describe('dockerContainerLogsPolling tests', () => {
-    it('reports a missing container through the callback without rejecting', async () => {
-      // The polling endpoint calls this from inside a `new Promise` executor and
-      // does not await the returned promise. Reporting the failure through the
-      // callback AND rethrowing left that rejection unhandled, which takes the
-      // whole FluxOS process down - a browser sitting on the log page of an app
-      // whose container had gone away restart-looped the node indefinitely.
+    it('reports a missing container on both channels and never resolves', async () => {
+      // A failure reaches the callback AND rejects, carrying the same error. On
+      // only one channel the other reads a failed poll as a completed one.
+      //
+      // The rejection is what obliges every call site to attach a handler: FluxOS
+      // installs no `unhandledRejection` handler, so an unhandled rejection from
+      // this endpoint - which a browser polls on a timer - exits the process.
       const errors = [];
+      let rejection = null;
 
       await dockerService.dockerContainerLogsPolling('testing1234', 10, '', (err) => {
         if (err) errors.push(err);
-      });
+      }).catch((err) => { rejection = err; });
 
       expect(errors).to.have.lengthOf(1);
       expect(errors[0].message).to.equal('Container testing1234 not found');
+      expect(rejection, 'the promise must not resolve after the poll failed').to.not.equal(null);
+      expect(rejection.message).to.equal('Container testing1234 not found');
     });
 
     it('completes the poll and reports the end exactly once', async function test() {
