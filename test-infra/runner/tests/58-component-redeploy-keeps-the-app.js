@@ -9,7 +9,8 @@
  * `null.startsWith` before any container was looked up. On the soft path that throw
  * was answered by force-uninstalling the WHOLE APP and broadcasting the removal to
  * the network. Every call. Asking to replace one container destroyed the app and
- * told every peer it was gone.
+ * told every peer it was gone. Both paths are driven here: the argument fix
+ * changes both.
  *
  * Nothing caught it because the arguments are the whole behaviour: a unit test can
  * pin them (advancedWorkflows.test.js, 'component redeploy argument contract') but
@@ -46,7 +47,10 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { getAppContainerId, killAppContainer, listAppContainers } from '../framework/container.js';
+import {
+  execInContainer, getAppContainerId, killAppContainer, listAppContainers,
+} from '../framework/container.js';
+import { exists } from '../framework/volume-fixture.js';
 import { waitFor, waitForComponentRedeployed, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
@@ -85,6 +89,20 @@ describe('a component redeploy replaces that component and leaves the app alone'
   async function componentStatus(client, componentName) {
     const containers = await listAppContainers(client.container, { all: true });
     return containers.find((c) => c.name === `flux${componentName}_${appName}`) ?? null;
+  }
+
+  // Each component has its own volume under its own identifier. volume-fixture's
+  // volumeRoot builds the single-component form, which is a different directory.
+  const componentVolume = (componentName) => `/mnt/appdata/flux-apps/flux${componentName}_${appName}`;
+  const markerPath = (componentName) => `${componentVolume(componentName)}/appdata/redeploy-marker`;
+
+  // A marker that was never written makes "the data is gone" true for the wrong
+  // reason.
+  async function seedMarker(client, componentName) {
+    const path = markerPath(componentName);
+    const r = await execInContainer(client.container, `printf '%s' ${componentName} > ${path}`);
+    if (r.exitCode !== 0) throw new Error(`could not seed ${path}: ${r.output}`);
+    if (!await exists(client.container, path)) throw new Error(`${path} was not written`);
   }
 
   before(async function () {
@@ -152,13 +170,11 @@ describe('a component redeploy replaces that component and leaves the app alone'
     const body = await holder.redeployComponent(appName, subject, auth.zelidauth);
 
     // The body is the progress stream, one envelope per step, so an error
-    // anywhere in it is not the same thing as a refusal. The teardown reports a
-    // tolerated one every time this suite runs: both components share a repotag,
-    // so removing the subject's image is refused with `409 conflict - container
-    // ... is using its referenced image` while the sibling still holds it. FluxOS
-    // records that and carries on, which is correct - the image is still in use.
-    // What a refusal looks like is the LAST envelope: an auth refusal is the
-    // whole body, and a mid-stream failure is what the stream now closes on.
+    // anywhere in it is not a refusal. This suite produces a tolerated one every
+    // run: both components share a repotag, so removing the subject's image is
+    // refused with 409 while the sibling holds it. The last envelope is what
+    // answers - an auth refusal is the whole body, and a mid-stream failure is
+    // what the stream closes on.
     const statuses = [...body.matchAll(/"status"\s*:\s*"([^"]*)"/g)].map((m) => m[1]);
     expect(body, `redeploycomponent refused: ${body.slice(0, 400)}`).to.not.match(/Unauthorized/i);
     expect(
@@ -208,6 +224,69 @@ describe('a component redeploy replaces that component and leaves the app alone'
     // watching node is where "the network was told" is either true or false. This
     // is the assertion that used to fail — a component redeploy broadcast the app's
     // removal to every peer.
+    const removedOnFleet = observer.getEventBuffer()
+      .filter((e) => e.id > observerFrom && e.event === 'network:appremoved' && e.data.name === appName);
+    expect(
+      removedOnFleet,
+      `a peer was told ${appName} had been removed: ${JSON.stringify(removedOnFleet.map((e) => e.data))}`,
+    ).to.have.lengthOf(0);
+  });
+
+  // force=true unmounts the component's volume, wipes its app data and rm -rf's
+  // the volume file before reinstalling. Runs before the removal test below,
+  // which kills the sibling: the sibling has to be intact here.
+  it('wipes only the component it was asked to wipe', async function () {
+    this.timeout(300000);
+
+    await Promise.all([subject, sibling].map((name) => seedMarker(holder, name)));
+
+    const wasRunning = {
+      subject: await getAppContainerId(holder.container, appName, subject),
+      sibling: await getAppContainerId(holder.container, appName, sibling),
+    };
+
+    const holderFrom = holder.getLastEventId();
+    const observerFrom = observer.getLastEventId();
+
+    const body = await holder.redeployComponent(appName, subject, auth.zelidauth, { force: true });
+    const statuses = [...body.matchAll(/"status"\s*:\s*"([^"]*)"/g)].map((m) => m[1]);
+    expect(body, `hard redeploycomponent refused: ${body.slice(0, 400)}`).to.not.match(/Unauthorized/i);
+    expect(
+      statuses[statuses.length - 1],
+      `hard redeploycomponent did not finish: ${body.slice(-600)}`,
+    ).to.equal('success');
+
+    await waitForComponentRedeployed(holder, appName, subject, true, 240000, { afterId: holderFrom });
+
+    const nowRunning = {
+      subject: await getAppContainerId(holder.container, appName, subject),
+      sibling: await getAppContainerId(holder.container, appName, sibling),
+    };
+    expect(nowRunning.subject, 'the hard-redeployed component has no container').to.be.a('string');
+    expect(nowRunning.subject, 'the component was not actually replaced').to.not.equal(wasRunning.subject);
+    expect(nowRunning.sibling, 'the sibling was rebuilt by a hard redeploy of its neighbour').to.equal(wasRunning.sibling);
+
+    // What separates wiping this component from wiping the app: a teardown that
+    // took the whole volume tree satisfies every assertion above.
+    await waitFor(
+      async () => (await componentStatus(holder, subject))?.status?.startsWith('Up'),
+      { timeout: 120000, interval: 2000, label: `${subject} running after the hard redeploy` },
+    );
+    expect(
+      await exists(holder.container, markerPath(subject)),
+      'a hard redeploy left the component data it is supposed to destroy',
+    ).to.equal(false);
+    expect(
+      await exists(holder.container, markerPath(sibling)),
+      "a hard redeploy of one component destroyed the other component's data",
+    ).to.equal(true);
+
+    const installed = await holder.getInstalledApps();
+    expect(
+      installed.data.some((app) => app.name === appName),
+      'the app was uninstalled by a request to hard redeploy one of its components',
+    ).to.equal(true);
+
     const removedOnFleet = observer.getEventBuffer()
       .filter((e) => e.id > observerFrom && e.event === 'network:appremoved' && e.data.name === appName);
     expect(
