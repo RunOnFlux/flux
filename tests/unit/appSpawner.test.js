@@ -181,7 +181,10 @@ describe('appSpawner tests', () => {
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
         siblingHoldingPort: sinon.stub().resolves(opts.siblingHoldingPort ?? null),
-        checkInstallingAppPortAvailable: sinon.stub().resolves(opts.portsAvailable ?? true),
+        checkInstallingAppPortAvailable: sinon.stub().resolves({
+          ok: opts.portsAvailable ?? true,
+          reason: (opts.portsAvailable ?? true) ? 'proven' : 'notOurs',
+        }),
       },
       '../appQuery/resourceQueryService': {
         appsResources: sinon.stub().resolves({ status: 'success', data: { unreadable: opts.unaccounted ?? [] } }),
@@ -684,6 +687,25 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at'))).to.be.false;
+    });
+
+    // The port check answers with a verdict rather than a bare boolean, so the
+    // caller reads `ok`. Compared whole against false an object never matches,
+    // and every refusal would install anyway - which is what this holds.
+    it('stands down when the port check refuses, and installs nothing', async () => {
+      const installStub = sinon.stub().resolves(true);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        portsAvailable: false,
+        installStub,
+      });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+      sinon.assert.notCalled(installStub);
     });
 
     it('should add to short-term cache when network error count >= 5', async () => {
