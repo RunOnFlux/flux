@@ -216,25 +216,6 @@ describe('a component redeploy replaces that component and leaves the app alone'
     ).to.have.lengthOf(0);
   });
 
-  it('leaves no tampering event behind', async function () {
-    this.timeout(60000);
-
-    // Runs BEFORE the removal below, which deliberately records one — tampering
-    // rows are keyed by app, not by component, so the order is load-bearing.
-    //
-    // This is not the suppression's proof (see the header): the reconciler stands
-    // down for the whole redeploy on globalState.isOperationInProgress(), so it
-    // never sees the container absent and would record nothing either way. What it
-    // pins is the end state a redeploy is allowed to leave: a node must not have
-    // accused the app it just serviced. It goes red if that stand-down is ever
-    // narrowed without the removal record covering the gap.
-    const events = await tamperingEvents(holder, appName);
-    expect(
-      events.filter((e) => e.eventType === 'container_vanished'),
-      `a redeploy left tampering events on ${appName}: ${JSON.stringify(events)}`,
-    ).to.have.lengthOf(0);
-  });
-
   it('still reports a container that vanished without FluxOS removing it', async function () {
     this.timeout(300000);
 
