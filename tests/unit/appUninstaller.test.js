@@ -74,6 +74,7 @@ describe('appUninstaller tests', () => {
       '../dockerService': {
         appDockerStop: sinon.stub().resolves(),
         appDockerRemove: sinon.stub().resolves(),
+        clearFluxRemovedContainers: sinon.stub(),
         appDockerImageRemove: sinon.stub().resolves(),
         getAppIdentifier: sinon.stub().returns('testapp'),
       },
@@ -293,6 +294,7 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
@@ -382,6 +384,7 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
@@ -472,6 +475,7 @@ describe('appUninstaller tests', () => {
           appDockerKill: sinon.stub().resolves(),
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerForceRemove: sinon.stub().resolves(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().callsFake((id) => `flux${id}`),
@@ -662,6 +666,7 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
@@ -762,6 +767,7 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns(100),
         },

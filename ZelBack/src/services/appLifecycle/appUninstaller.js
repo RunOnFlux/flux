@@ -1021,6 +1021,13 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         if (res.flush) res.flush();
       }
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      // The app is gone for good: nothing reconciles an app with no row, so its
+      // removal records have no reader left. Only this full-uninstall path clears
+      // them - softRemoveAppLocally deletes the row too, but as one step of a
+      // redeploy whose containers are coming straight back, and its records are
+      // exactly what stops a teardown that fails part way being read as
+      // tampering.
+      dockerService.clearFluxRemovedContainers(appName);
       const databaseStatus2 = {
         status: 'Database cleaned',
       };
