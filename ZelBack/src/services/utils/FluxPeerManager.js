@@ -198,6 +198,12 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peerThresholdReached', this.#peers.size);
       fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
     }
+    // Every join, not just the one that crosses the threshold. The threshold is
+    // a latched edge and is cleared only below the DEGRADED level, so once it
+    // has fired it says nothing further about a pool that has since lost a
+    // member. A listener that has to top a pool of peers back up needs to hear
+    // about the peer that could fill it.
+    this.emit('peerAdded', peer.key, this.#peers.size);
     return peer;
   }
 

@@ -736,6 +736,43 @@ describe('FluxPeerManager tests', () => {
       expect(peer.port).to.equal('16127');
       expect(peer.key).to.equal('10.0.0.1:16127');
     });
+
+    // `peerThresholdReached` is a latched edge, cleared only below the DEGRADED
+    // level, so after it has fired it says nothing about a pool that has since
+    // lost a member. A listener that has to top such a pool back up hears about
+    // every join or it hears about none of the ones that matter.
+    it('announces every join, not only the one that crosses the threshold', () => {
+      const joined = [];
+      const crossings = [];
+      manager.on('peerAdded', (key) => joined.push(key));
+      manager.on('peerThresholdReached', (count) => crossings.push(count));
+
+      // appSyncPeerThreshold is 12, so the edge fires on the twelfth and the
+      // three after it are the ones a latched edge cannot report.
+      const total = 15;
+      for (let i = 1; i <= total; i += 1) {
+        manager.add(createMockWs(`10.0.0.${i}`, '16127'), `10.0.0.${i}`, '16127', { source: PEER_SOURCE.RANDOM });
+      }
+
+      expect(joined.length, 'a join went unannounced').to.equal(total);
+      expect(crossings, 'the threshold is an edge and fires once').to.deep.equal([12]);
+      expect(joined.slice(12), 'the joins after the edge were not announced').to.deep.equal([
+        '10.0.0.13:16127', '10.0.0.14:16127', '10.0.0.15:16127',
+      ]);
+    });
+
+    it('reports the peer count alongside the key', () => {
+      const seen = [];
+      manager.on('peerAdded', (key, count) => seen.push({ key, count }));
+
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+
+      expect(seen).to.deep.equal([
+        { key: '10.0.0.1:16127', count: 1 },
+        { key: '10.0.0.2:16127', count: 2 },
+      ]);
+    });
   });
 
   describe('remove', () => {

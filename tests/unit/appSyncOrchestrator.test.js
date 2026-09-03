@@ -383,6 +383,154 @@ describe('AppSyncOrchestrator', () => {
     });
   });
 
+  // The pool of outstanding requests equalled the requirement exactly: three
+  // asked, three completions needed, no spare. When one asked peer's connection
+  // went away the request went with it and nothing re-asked - the only trigger
+  // was `peerThresholdReached`, a latched edge that had already been spent and
+  // that is cleared only below the DEGRADED level, so the count never fell.
+  // The node then waited for the block timer: 125 minutes in SYNCING with the
+  // spawner paused, observed on a three-node fleet booting 50ms apart.
+  describe('re-driving the sync when a peer joins', () => {
+    it('asks a peer that joins after an asked one was lost, with no second threshold edge', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
+
+      // What remove() does: the mark dies with the connection, and the peer is
+      // no longer eligible because it is no longer in the peer map.
+      removePeer(peers[0].key);
+      const joiner = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub.returns([peers[1], peers[2], joiner]);
+
+      // No threshold event. The latch fired before the loss and the count never
+      // dropped below DEGRADED, so on `development` nothing happens here.
+      peerEmitter.emit('peerAdded', joiner.key, 12);
+      await clock.tickAsync(0);
+
+      expect(joiner.send.callCount, 'the peer that joined was never asked').to.equal(4);
+    });
+
+    it('sends nothing when a peer joins and the pool is still whole', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      // Nothing was lost, so nothing is owed. A boot brings peers in steadily
+      // and every one of them arrives here; asking on each is the over-asking
+      // this must not become - two extra event-log streams per node boot,
+      // fleet-wide and permanently, to cover a rare case.
+      const joiner = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub.returns([...peers, joiner]);
+      peerEmitter.emit('peerAdded', joiner.key, 13);
+      await clock.tickAsync(0);
+
+      expect(joiner.send.called, 'a joining peer was asked while the pool was whole').to.equal(false);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
+    });
+
+    it('asks the shortfall and no more when several peers are available', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      // Two of the three go; one asked peer is still outstanding, so the
+      // deficit is two - not a fresh round of three.
+      removePeer(peers[0].key);
+      removePeer(peers[1].key);
+      const joiners = [makePeer('10.0.0.7:16127'), makePeer('10.0.0.8:16127'), makePeer('10.0.0.9:16127')];
+      getEligibleSyncPeersStub.returns([peers[2], ...joiners]);
+
+      peerEmitter.emit('peerAdded', joiners[0].key, 12);
+      await clock.tickAsync(0);
+
+      const asked = joiners.filter((p) => p.send.called);
+      expect(asked.length, 'asked a different number of peers than were missing').to.equal(2);
+      expect(peers[2].send.callCount, 'the peer still outstanding was asked twice').to.equal(4);
+    });
+
+    it('asks nobody once the state sync is complete', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      for (let i = 0; i < 3; i += 1) {
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
+      }
+      await clock.tickAsync(0);
+
+      // Completion clears the marks, so without the state-sync guard every
+      // later join looks like a pool that owes three requests - and it is the
+      // ALREADY-ASKED peers it would ask again, since they come first in the
+      // eligible list. Asserting only that the joiner is quiet passes on the
+      // slice order rather than on the guard, so count every peer.
+      const before = peers.map((p) => p.send.callCount);
+      const joiner = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub.returns([...peers, joiner]);
+      peerEmitter.emit('peerAdded', joiner.key, 13);
+      await clock.tickAsync(0);
+
+      expect(joiner.send.called, 'a joining peer was asked after the sync was complete').to.equal(false);
+      expect(peers.map((p) => p.send.callCount), 'peers were asked again after the sync was complete').to.deep.equal(before);
+    });
+
+    it('does not ask before the threshold has started the sync', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+
+      // Peers arrive before the threshold is crossed. The first ask belongs to
+      // the threshold edge; joining early must not bring it forward.
+      peerEmitter.emit('peerAdded', peers[0].key, 1);
+      await clock.tickAsync(0);
+
+      for (const peer of peers) expect(peer.send.called, 'asked before the sync had started').to.equal(false);
+    });
+
+    // The fourth road out of #requestSyncs: too few eligible peers and none yet
+    // asked went straight to the block timer, and nothing revisited it when the
+    // fleet grew.
+    it('asks when a join takes the eligible pool up to the requirement', async () => {
+      const peers = makeEligiblePeers(2);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      for (const peer of peers) expect(peer.send.called).to.equal(false);
+
+      const joiner = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub.returns([...peers, joiner]);
+      peerEmitter.emit('peerAdded', joiner.key, 13);
+      await clock.tickAsync(0);
+
+      for (const peer of [...peers, joiner]) {
+        expect(peer.send.callCount, 'the fleet reached three eligible peers and still asked nobody').to.equal(4);
+      }
+    });
+  });
+
   describe('state sync readiness', () => {
     it('should reach READY when all 3 sync types complete from 3 peers', async () => {
       const peers = makeEligiblePeers(3);
@@ -814,6 +962,7 @@ describe('AppSyncOrchestrator', () => {
       expect(blockEmitter.listenerCount('hashesChanged')).to.equal(0);
       expect(peerEmitter.listenerCount('peerThresholdReached')).to.equal(0);
       expect(peerEmitter.listenerCount('peersBelowThreshold')).to.equal(0);
+      expect(peerEmitter.listenerCount('peerAdded')).to.equal(0);
     });
 
     it('should clear heartbeat interval on stop', () => {

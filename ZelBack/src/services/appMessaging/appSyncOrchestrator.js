@@ -50,6 +50,7 @@ class AppSyncOrchestrator {
   #blockReceivedHandler = null;
   #peerThresholdHandler = null;
   #peersBelowHandler = null;
+  #peerAddedHandler = null;
   #ephemeralSyncHandler = null;
   #hashUnresolvedHandler = null;
   #hashesChangedHandler = null;
@@ -120,8 +121,17 @@ class AppSyncOrchestrator {
       log.info(`AppSyncOrchestrator - Peers below threshold (${count} peers)`);
       this.#onPeersDegraded();
     };
+    // A peer that joins while the state sync is still short is the retry the
+    // request path already anticipates and never performed. The asked-mark
+    // lives on the peer so it dies with the connection that carried the
+    // request - the peer becomes askable again - but the only trigger was
+    // `peerThresholdReached`, which is a latched edge that had already been
+    // spent, so nothing asked. The remaining road was the block timer, 125
+    // minutes of SYNCING with the spawner paused.
+    this.#peerAddedHandler = () => this.#onPeerAdded();
     this.#onPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
     this.#onPeerEvent('peersBelowThreshold', this.#peersBelowHandler);
+    this.#onPeerEvent('peerAdded', this.#peerAddedHandler);
 
     // peerThresholdReached is edge-triggered and latched in FluxPeerManager:
     // if peers connected fast enough that the threshold was crossed BEFORE the
@@ -165,6 +175,20 @@ class AppSyncOrchestrator {
   #tryStartSync() {
     if (!this.#networkReady || !this.#peersReady) return;
     this.#onPeersReady();
+  }
+
+  /**
+   * Top the pool of outstanding sync requests back up when a peer joins.
+   *
+   * Only while the state sync is still incomplete, and only once it has
+   * started - before that the threshold edge owns the first ask. #requestSyncs
+   * asks the deficit, so this sends nothing while the pool is whole.
+   * @returns {void}
+   */
+  #onPeerAdded() {
+    if (!this.#networkReady || !this.#peersReady) return;
+    if (this.#stateSyncComplete) return;
+    this.#requestSyncs();
   }
 
   #onEphemeralSyncComplete(syncType) {
@@ -219,19 +243,32 @@ class AppSyncOrchestrator {
     // removed, which drops its mark with it - so it becomes askable again
     // instead of being permanently recorded as asked and never retried.
     const fresh = eligible.filter((p) => !this.#isSyncRequested(p.key));
-    const askedAny = eligible.some((p) => this.#isSyncRequested(p.key));
+    // Asked AND still able to answer. An asked peer drops out of `eligible` the
+    // moment its connection goes or it starts missing pongs, so this is the
+    // number of outstanding requests that can still be completed - not the
+    // number ever sent.
+    const liveAsked = eligible.length - fresh.length;
 
-    if (fresh.length < MIN_SYNC_COMPLETIONS && !askedAny) {
+    if (fresh.length < MIN_SYNC_COMPLETIONS && !liveAsked) {
       log.info(`AppSyncOrchestrator - Only ${fresh.length} eligible sync peers (need ${MIN_SYNC_COMPLETIONS}), falling back to block timer`);
       return;
     }
 
-    if (fresh.length === 0) {
+    // Ask up to the DEFICIT, not up to the requirement. Completion needs
+    // MIN_SYNC_COMPLETIONS answers, so what has to be maintained is that many
+    // outstanding requests - and a peer already asked and still connected is
+    // one of them. On a pool that is still whole the deficit is zero and a
+    // re-drive sends nothing at all, which is what keeps this from becoming a
+    // second round of requests on every peer that joins during a boot.
+    const deficit = MIN_SYNC_COMPLETIONS - liveAsked;
+    if (deficit <= 0) return;
+
+    const peersToAsk = fresh.slice(0, deficit);
+
+    if (peersToAsk.length === 0) {
       log.info('AppSyncOrchestrator - No new eligible sync peers to ask');
       return;
     }
-
-    const peersToAsk = fresh.slice(0, MIN_SYNC_COMPLETIONS);
 
     let pubkey;
     let requestTs;
@@ -643,6 +680,9 @@ class AppSyncOrchestrator {
     }
     if (this.#peersBelowHandler) {
       this.#offPeerEvent('peersBelowThreshold', this.#peersBelowHandler);
+    }
+    if (this.#peerAddedHandler) {
+      this.#offPeerEvent('peerAdded', this.#peerAddedHandler);
     }
     peerNotification.stopBroadcastInterval();
     this.#broadcastStarted = null;
