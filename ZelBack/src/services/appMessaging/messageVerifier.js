@@ -29,6 +29,40 @@ const globalState = require('../utils/globalState');
 const { Privilege, authOf } = require('../utils/privileges');
 
 /**
+ * The support team addresses a teamSupportAddress fork names.
+ *
+ * A fork used to name one address and now names a list, and both shapes have to
+ * be read: the forks already in force were written under the old one, and a
+ * message is verified against the fork in force at its own block. Rewriting those
+ * entries to the new shape would change which signatures the past accepts, so
+ * they stay as they are and this reads either.
+ *
+ * @param {{address?: string, addresses?: string[]}} fork
+ * @returns {string[]}
+ */
+function supportAddressesOf(fork) {
+  if (Array.isArray(fork.addresses)) return fork.addresses.filter(Boolean);
+  return fork.address ? [fork.address] : [];
+}
+
+/**
+ * Whether any of these addresses signed the message.
+ *
+ * Stops at the first that did, so a message signed by the first address costs
+ * exactly what it cost when a fork could only name one.
+ *
+ * @param {string} message
+ * @param {string[]} addresses
+ * @param {string} signature
+ * @returns {boolean}
+ */
+function verifySignatureFromAny(message, addresses, signature) {
+  return addresses.some(
+    (address) => signatureVerifier.verifySignature(message, address, signature) === true,
+  );
+}
+
+/**
  * Verify app hash against message content
  * @param {object} message - Message object to verify
  * @returns {Promise<boolean>} True if hash is valid
@@ -256,7 +290,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
 
   // signature is already validated as string in the if check above, no need to ensureString
   let marketplaceApp = false;
-  let fluxSupportTeamFluxID = null;
+  let supportTeamAddresses = [];
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
   let isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
   if (isValidSignature !== true) {
@@ -266,7 +300,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       if (intervals && intervals.length) {
         const addressInfo = intervals[intervals.length - 1]; // always defined
         if (addressInfo && addressInfo.height && daemonHeight >= addressInfo.height) { // unneeded check for safety
-          fluxSupportTeamFluxID = addressInfo.address;
+          supportTeamAddresses = supportAddressesOf(addressInfo);
           const numbersOnAppName = appSpec.name.match(/\d+/g);
           if (numbersOnAppName && numbersOnAppName.length > 0) {
             const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
@@ -278,7 +312,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
               }
             }
             if (marketplaceApp) {
-              isValidSignature = signatureVerifier.verifySignature(messageToVerify, fluxSupportTeamFluxID, signature); // btc, eth
+              isValidSignature = verifySignatureFromAny(messageToVerify, supportTeamAddresses, signature); // btc, eth
             }
           }
         }
@@ -307,7 +341,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
     isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
     if (isValidSignature !== true && marketplaceApp) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, fluxSupportTeamFluxID, signature); // btc, eth
+      isValidSignature = verifySignatureFromAny(messageToVerifyB, supportTeamAddresses, signature); // btc, eth
     }
     // fix for repoauth / secrets order change for apps created after 1750273721000
   } else if (isValidSignature !== true && appSpec.version === 7) {
@@ -326,7 +360,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     // we can just use the btc / eth verifier as v7 specs came out at 1688749251
     isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
     if (isValidSignature !== true && marketplaceApp) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, fluxSupportTeamFluxID, signature);
+      isValidSignature = verifySignatureFromAny(messageToVerifyC, supportTeamAddresses, signature);
     }
   }
 

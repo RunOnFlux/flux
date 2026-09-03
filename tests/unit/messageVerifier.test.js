@@ -473,6 +473,66 @@ describe('messageVerifier tests', () => {
       expect(signatureVerifierStub.verifySignature.getCall(3).args[1]).to.equal('1FluxTeamAddr');
     });
 
+    // A fork names the whole support team, so any of its addresses can sign. The
+    // shape it names them in is not fixed: the forks already in force name a single
+    // `address`, covered by the test above, and the ones added since name `addresses`.
+    it('should accept a signature from any address in a fork that names a list', async () => {
+      chainUtilitiesStub.getChainTeamSupportAddressUpdates.returns([
+        { height: 1000000, addresses: ['1FirstAddr', '1SecondAddr', '1ThirdAddr'] },
+      ]);
+      signatureVerifierStub.verifySignature
+        .returns(false)
+        .withArgs(sinon.match.string, '1ThirdAddr', sinon.match.string).returns(true);
+
+      const appSpec = {
+        version: 7,
+        name: 'MarketplaceApp1700000000000',
+        owner: 'ownerAddr',
+        compose: [{ name: 'comp1', repotag: 'repo/tag', repoauth: 'auth', secrets: 'sec' }],
+      };
+
+      const result = await verifierModule.verifyAppMessageUpdateSignature(
+        'fluxappupdate', 7, appSpec, Date.now(), 'someSig', 'ownerAddr', 2000000, null,
+      );
+      expect(result).to.be.true;
+    });
+
+    // A fork replaces its predecessor rather than adding to it, and the one that
+    // applies is the latest at or below the message's own block. This is what keeps
+    // a message signed before a fork verifying the same way after it.
+    it('should read the fork in force at the block, not the newest one', async () => {
+      chainUtilitiesStub.getChainTeamSupportAddressUpdates.returns([
+        { height: 1000000, address: '1OldAddr' },
+        { height: 2500000, addresses: ['1OldAddr', '1NewAddr'] },
+      ]);
+      signatureVerifierStub.verifySignature
+        .returns(false)
+        .withArgs(sinon.match.string, '1NewAddr', sinon.match.string).returns(true);
+
+      const appSpec = {
+        version: 7,
+        name: 'MarketplaceApp1700000000000',
+        owner: 'ownerAddr',
+        compose: [{ name: 'comp1', repotag: 'repo/tag', repoauth: 'auth', secrets: 'sec' }],
+      };
+
+      // Below the second fork, only the first is in force and 1NewAddr is nobody.
+      let refused = false;
+      try {
+        await verifierModule.verifyAppMessageUpdateSignature(
+          'fluxappupdate', 7, appSpec, Date.now(), 'someSig', 'ownerAddr', 2000000, null,
+        );
+      } catch (error) {
+        refused = true;
+      }
+      expect(refused, '1NewAddr must not sign below the fork that names it').to.be.true;
+
+      const result = await verifierModule.verifyAppMessageUpdateSignature(
+        'fluxappupdate', 7, appSpec, Date.now(), 'someSig', 'ownerAddr', 3000000, null,
+      );
+      expect(result).to.be.true;
+    });
+
     it('should skip isExpireOnlyUpdate and accept signature when isSystemSecure is false for enterprise v8', async () => {
       // Owner and team support fail — only userToExtend matches
       signatureVerifierStub.verifySignature

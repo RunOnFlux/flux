@@ -10,6 +10,7 @@ const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
+const verificationHelperUtils = require('./verificationHelperUtils');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -830,7 +831,9 @@ function getFluxZelID(req, res) {
 function getFluxIds(req, res) {
   const fluxConfig = {
     fluxTeamFluxID: configDefault.fluxTeamFluxID,
-    fluxSupportTeamFluxID: configDefault.fluxSupportTeamFluxID,
+    // An array. Read through the helper so a node whose local config still holds
+    // the single string this used to be reports the same shape as one that does not.
+    fluxSupportTeamFluxID: verificationHelperUtils.fluxSupportTeamZelids(),
   };
 
   const message = messageHelper.createDataMessage(fluxConfig);

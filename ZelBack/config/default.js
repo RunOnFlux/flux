@@ -123,7 +123,15 @@ module.exports = {
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-  fluxSupportTeamFluxID: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
+  // A list, so support can be granted to (or revoked from) an identity without
+  // touching every privilege check. A bare string is still read as a one entry
+  // list, so a node carrying an older local override keeps working.
+  fluxSupportTeamFluxID: [
+    '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',
+    '15c3aH6y9Koq1Dg1rGXE9Ypn5nL2AbSJCu',
+    '1NGqYirE4T9wzd1ZcGrw3HjETiuCkt6Sgy',
+    '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
+  ],
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
@@ -339,9 +347,24 @@ module.exports = {
       multiplier: 1, // multiplier in case we want to increase prices globaly
       minUSDPrice: 0.99, // min. usd price that can be paid with stripe/paypal.
     },
+    // Who the support team is, from which height. Only the latest fork at or below
+    // a message's own block is consulted, so entries are only ever appended: an
+    // edit to one below the tip changes which signatures the past accepts.
     teamSupportAddress: [{
       height: 1851659, // height from which address is valid
       address: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
+    }, {
+      // From here a fork names a list rather than one address. The address above
+      // is carried forward - a fork replaces its predecessor rather than adding
+      // to it, so leaving it out would stop it signing.
+      height: 2919141,
+      addresses: [
+        '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
+        '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',
+        '15c3aH6y9Koq1Dg1rGXE9Ypn5nL2AbSJCu',
+        '1NGqYirE4T9wzd1ZcGrw3HjETiuCkt6Sgy',
+        '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
+      ],
     }],
     usersToExtend: ['1MCBJn6qsy3YRY2YasdYMYdJcdhy1ev8Rd'], // addresses that can extend applications on behalf of app owners (expire-only updates) addresses cannot be deleted over time, just adding new ones
     // restartAlwaysOwners removed — all containers use restart policy 'no', FluxOS manages startup

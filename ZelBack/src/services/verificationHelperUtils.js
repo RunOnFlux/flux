@@ -35,6 +35,36 @@ function nodeOperatorZelid() {
 }
 
 /**
+ * The Flux IDs the support team holds, as a list.
+ *
+ * The config value is a list so support can be granted to more than one identity
+ * without a code change, but it is read defensively: a node whose own config still
+ * carries the single string this used to be must keep working, and reading that
+ * string as though it were an array would match nothing and lock support out of
+ * the node entirely rather than fail visibly.
+ *
+ * Falsy entries are dropped. An empty or missing value yields an empty list, which
+ * is the safe answer - it grants no one.
+ *
+ * @returns {string[]}
+ */
+function fluxSupportTeamZelids() {
+  const configured = config.fluxSupportTeamFluxID;
+  if (Array.isArray(configured)) return configured.filter(Boolean);
+  return configured ? [configured] : [];
+}
+
+/**
+ * Whether a Flux ID belongs to the support team.
+ *
+ * @param {string} zelid
+ * @returns {boolean}
+ */
+function isFluxSupportTeamZelid(zelid) {
+  return Boolean(zelid) && fluxSupportTeamZelids().includes(zelid);
+}
+
+/**
  * Verifies admin session
  * @param {string|object} zelidauth - the value of the zelidauth header
  *
@@ -120,7 +150,7 @@ async function verifyFluxTeamSession(zelidauth) {
   if (!zelidauth) return false;
   const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== config.fluxSupportTeamFluxID) return false;
+  if (auth.zelid !== config.fluxTeamFluxID && !isFluxSupportTeamZelid(auth.zelid)) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -154,7 +184,7 @@ async function verifyNodeOperatorOrFluxTeamSession(zelidauth) {
   if (!zelidauth) return false;
   const auth = serviceHelper.ensureObject(zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== nodeOperatorZelid() && auth.zelid !== config.fluxSupportTeamFluxID) return false; // admin is considered as fluxTeam
+  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== nodeOperatorZelid() && !isFluxSupportTeamZelid(auth.zelid)) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -264,7 +294,7 @@ async function verifyAppOwnerOrFluxTeamSession(zelidauth, appName) {
   // eslint-disable-next-line global-require
   const registryManager = require('./appDatabase/registryManager');
   const ownerFluxID = await registryManager.getApplicationOwner(appName);
-  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== config.fluxSupportTeamFluxID) return false;
+  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && !isFluxSupportTeamZelid(auth.zelid)) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -297,6 +327,8 @@ async function verifyAppOwnerOrFluxTeamSession(zelidauth, appName) {
 }
 
 module.exports = {
+  fluxSupportTeamZelids,
+  isFluxSupportTeamZelid,
   nodeOperatorZelid,
   verifyNodeOperatorOrFluxTeamSession,
   verifyNodeOperatorSession,

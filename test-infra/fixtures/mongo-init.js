@@ -7,7 +7,7 @@
 // covers the window before the first seed. Kept in step with
 // runner/framework/chain-start.cjs, which is where the number is decided; this
 // file runs under mongosh and cannot require it.
-const INITIAL_HEIGHT = 2200000;
+const INITIAL_HEIGHT = 2920000;
 const NODE_COUNT = 16;
 
 for (let i = 1; i <= NODE_COUNT; i++) {
