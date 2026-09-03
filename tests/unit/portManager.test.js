@@ -12,7 +12,6 @@ const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUnins
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
-const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 
 describe('portManager tests', () => {
@@ -1098,7 +1097,6 @@ describe('portManager tests', () => {
 // one witness to accept, two to refuse - and where the exits that skip them are.
 describe('checkInstallingAppPortAvailable decides on every way of running out', () => {
   let port;
-  let published;
 
   const PEERS = ['10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127', '10.0.0.4:16127', '10.0.0.5:16127'];
 
@@ -1123,8 +1121,6 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
   });
 
   beforeEach(() => {
-    published = [];
-
     sinon.stub(serviceHelper, 'delay').resolves();
     sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('1.2.3.4:16127');
     sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('04pubkey');
@@ -1133,7 +1129,6 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
     sinon.stub(verificationHelper, 'signMessage').resolves('signature');
     sinon.stub(upnpService, 'isUPNP').returns(false);
-    sinon.stub(fluxEventBus, 'publish').callsFake((name, data) => published.push({ name, data }));
   });
 
   afterEach(() => {
@@ -1159,8 +1154,6 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     return portManager.checkInstallingAppPortAvailable([port]);
   };
 
-  const reasonOf = (name) => (published.find((e) => e.name === name) || {}).data;
-
   // The bug: a verdict and "nobody has decided" were the same value, so a last
   // attempt that never got an answer fell out of the bottom of the loop onto the
   // false it started with - and refused the install on one peer's word, which is
@@ -1170,17 +1163,17 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       answeringSomethingElse(port), UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE,
     ]);
 
-    expect(result, 'refused on a single witness after running out of peers').to.equal(true);
-    expect(reasonOf('ports:unproven').reason).to.equal('singleWitness');
-    expect(reasonOf('ports:unproven').port).to.equal(port);
+    expect(result.ok, 'refused on a single witness after running out of peers').to.equal(true);
+    expect(result.reason).to.equal('singleWitness');
+    expect(result.port).to.equal(port);
   });
 
   it('proceeds when no peer answered at all, and says so', async () => {
     const result = await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
 
-    expect(result, 'refused having learned nothing from anybody').to.equal(true);
-    expect(reasonOf('ports:unproven').reason).to.equal('noneAnswered');
-    expect(reasonOf('ports:unproven').silent).to.equal(true);
+    expect(result.ok, 'refused having learned nothing from anybody').to.equal(true);
+    expect(result.reason).to.equal('noneAnswered');
+    expect(result.silent).to.equal(true);
   });
 
   // A peer refusing the question is not a report about our ports. Read as one it
@@ -1190,9 +1183,8 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       wouldNotAnswer(), UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE,
     ]);
 
-    expect(result, 'a peer rejecting the request refused the install').to.equal(true);
-    expect(published.some((e) => e.name === 'ports:notOurs'), 'refused on an authentication failure').to.equal(false);
-    expect(reasonOf('ports:unproven').reason).to.equal('noneAnswered');
+    expect(result.ok, 'a peer rejecting the request refused the install').to.equal(true);
+    expect(result.reason, 'refused on an authentication failure').to.equal('noneAnswered');
   });
 
   // A peer that NAMES the port it could not reach has read something at this
@@ -1203,8 +1195,8 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       couldNotReach(port), UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE,
     ]);
 
-    expect(result, 'refused on one peer failing to reach the port').to.equal(true);
-    expect(reasonOf('ports:unproven').reason).to.equal('singleWitness');
+    expect(result.ok, 'refused on one peer failing to reach the port').to.equal(true);
+    expect(result.reason).to.equal('singleWitness');
   });
 
   it('refuses once two distinct peers agree the port is not ours', async () => {
@@ -1212,9 +1204,10 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       answeringSomethingElse(port), answeringSomethingElse(port), UNREACHABLE, UNREACHABLE, UNREACHABLE,
     ]);
 
-    expect(result, 'two corroborating witnesses did not refuse').to.equal(false);
-    expect(reasonOf('ports:notOurs').port).to.equal(port);
-    expect(reasonOf('ports:notOurs').peers).to.have.length(2);
+    expect(result.ok, 'two corroborating witnesses did not refuse').to.equal(false);
+    expect(result.reason).to.equal('notOurs');
+    expect(result.port).to.equal(port);
+    expect(result.peers).to.have.length(2);
   });
 
   // Corroboration counts distinct peers, not identical readings - so an
@@ -1225,23 +1218,24 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       couldNotReach(port), answeringSomethingElse(port), UNREACHABLE, UNREACHABLE, UNREACHABLE,
     ]);
 
-    expect(result).to.equal(false);
-    expect(Object.keys(reasonOf('ports:notOurs').readings)).to.have.length(2);
+    expect(result.ok).to.equal(false);
+    expect(result.reason).to.equal('notOurs');
+    expect(Object.keys(result.readings)).to.have.length(2);
   });
 
   it('proceeds when every peer reached the ports but was too old to read them', async () => {
     const older = { data: { status: 'success', data: {} } };
     const result = await withPeers([older, older, older, older, older]);
 
-    expect(result).to.equal(true);
-    expect(reasonOf('ports:unproven').reason).to.equal('noReader');
+    expect(result.ok).to.equal(true);
+    expect(result.reason).to.equal('noReader');
   });
 
   it('proceeds, naming the disagreement, when there is nobody else outside this address', async () => {
     const result = await withPeers([answeringSomethingElse(port)], [PEERS[0]]);
 
-    expect(result).to.equal(true);
-    expect(reasonOf('ports:unproven').reason).to.equal('noOtherObserver');
-    expect(reasonOf('ports:unproven').peers).to.have.length(1);
+    expect(result.ok).to.equal(true);
+    expect(result.reason).to.equal('noOtherObserver');
+    expect(result.peers).to.have.length(1);
   });
 });

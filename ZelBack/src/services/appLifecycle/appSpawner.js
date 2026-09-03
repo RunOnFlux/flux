@@ -543,15 +543,15 @@ async function trySpawningGlobalApplication() {
 
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
-    const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);
-    if (portsPubliclyAvailable === false) {
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts);
+    if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      // This stand-down published nothing, so a suite could only read it as a
-      // log line. Its cause lives in portManager, which says which port and
-      // which peers; this says the spawner deferred, which is the decision.
+      // The cause lives in portManager, which says which port and which peers;
+      // this says the spawner deferred, and on which of its verdicts.
       fluxEventBus.publish('spawner:deferred', {
         appName: appSpecifications.name,
         reason: 'ports_not_available',
+        portVerdict: portVerdict.reason,
         delayMs: shortDelayTime,
       });
       return shortDelayTime;

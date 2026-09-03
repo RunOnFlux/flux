@@ -781,9 +781,17 @@ function portNotOurs(portsToTest, answered, token) {
 }
 
 /**
- * To check if app ports are available publicly before installation
+ * To check if app ports are available publicly before installation.
+ *
+ * Answers with the decision itself rather than a bare boolean: proceeding
+ * because our own token came back and proceeding because nothing could be
+ * learned are the same outcome for the caller and completely different facts
+ * about the network, and only one of them is evidence. The object returned is
+ * the one published to the harness bus, so the two cannot drift.
+ *
  * @param {Array} portsToTest Array of ports to test
- * @returns {Promise<boolean>} True if ports are available, false otherwise
+ * @returns {Promise<{ok: boolean, reason: string, port?: number, peers?: string[],
+ *   readings?: object, asked?: string[], silent?: boolean}>}
  */
 async function checkInstallingAppPortAvailable(portsToTest = []) {
   const beforeAppInstallTestingServers = [];
@@ -792,7 +800,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   const portTestToken = crypto.randomBytes(16).toString('hex');
   const isUPNP = upnpService.isUPNP();
   // null until something decides; see the loop below.
-  let verdict = null;
+  let decision = null;
 
   try {
     const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
@@ -813,7 +821,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
     });
     if (somePortBanned) {
-      return false;
+      return { ok: false, reason: 'portBanned' };
     }
     if (isUPNP) {
       somePortBanned = false;
@@ -824,7 +832,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         }
       });
       if (somePortBanned) {
-        return false;
+        return { ok: false, reason: 'portUpnpBanned' };
       }
     }
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -919,7 +927,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     let sawUnreadablePeer = false;
     let sawSilentPeer = false;
 
-    while (verdict === null && i < config.fluxapps.portTestMaxAttempts) {
+    while (decision === null && i < config.fluxapps.portTestMaxAttempts) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
       const randomSocketAddress = await networkStateService.getRandomExternalObserver(
@@ -1003,7 +1011,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         if (notOurs === null) {
           // Our own token came back. Proof, not report - only this node could
           // have produced it - so one peer settles it.
-          verdict = true;
+          decision = { ok: true, reason: 'proven', port: null };
           break;
         }
 
@@ -1034,15 +1042,17 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       const readings = [...disagreements.entries()].map(([peer, port]) => `${peer} on port ${port}`);
       log.warn(`checkInstallingAppPortAvailable - port ${refused} at this address is answered by something other than this node, as read by `
         + `${disagreements.size} peers (${readings.join(', ')}). Installation aborted.`);
-      fluxEventBus.publish('ports:notOurs', {
+      decision = {
+        ok: false,
+        reason: 'notOurs',
         port: refused,
         peers: [...disagreements.keys()],
         readings: Object.fromEntries(disagreements),
-      });
-      verdict = false;
+      };
+      fluxEventBus.publish('ports:notOurs', decision);
     }
 
-    if (verdict === null) {
+    if (decision === null) {
       // Nothing proved and nothing corroborated. What was not learned does not
       // refuse an install: this is the check this node made before the token
       // existed, and it is what stops the first nodes to upgrade refusing
@@ -1070,18 +1080,18 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
           + `(${reason}); proceeding on reachability alone`);
       }
 
-      fluxEventBus.publish('ports:unproven', {
+      decision = {
+        ok: true,
         reason,
         port: disputed,
-        // Unchanged in meaning: the peers that disagreed, where any did. `asked`
-        // carries everyone who was asked, which is the other question a reader
-        // of this event wants answered and could not previously get.
+        // The peers that disagreed, where any did. `asked` carries everyone who
+        // was asked, which is the other question a reader of this wants
+        // answered.
         peers: reason === 'noReader' ? asked.map(extractIp) : witnesses,
         asked: asked.map(extractIp),
         silent: sawSilentPeer,
-      });
-
-      verdict = true;
+      };
+      fluxEventBus.publish('ports:unproven', decision);
     }
 
     // stop listening on the port, close the port
@@ -1107,7 +1117,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         });
       })),
     );
-    return verdict;
+    return decision;
   } catch (error) {
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
@@ -1140,7 +1150,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       })),
     );
     log.error(error);
-    return false;
+    return { ok: false, reason: 'error' };
   }
 }
 
