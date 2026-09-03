@@ -652,6 +652,13 @@ class FluxPeerManager extends EventEmitter {
     if (closeCode === CLOSE_CODES.DEAD_CONNECTION) return true;
     // Max connections: remote is full, try again next cycle
     if (closeCode === CLOSE_CODES.MAX_CONNECTIONS) return true;
+    // Node unconfirmed: the remote is still booting and has not opened its
+    // application gate yet - a statement about when, not about us. It is the
+    // one refusal that is certain to stop applying, and on the fleet the same
+    // node dialled back 150ms later. A build that refuses the upgrade never
+    // gets this far, but the network is mixed and older nodes still close with
+    // it after the handshake.
+    if (closeCode === CLOSE_CODES.NODE_UNCONFIRMED) return true;
     // Everything else: policy violation, auth failure, admin close, duplicate — don't retry
     return false;
   }

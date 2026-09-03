@@ -6,6 +6,8 @@ const { FLUX_VERSION, FLUX_CAPABILITIES } = require('../services/utils/FluxPeerS
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
 
+  static defaultAdmit = () => null;
+
   #socketServer = new WebSocketServer({
     noServer: true,
     perMessageDeflate: {
@@ -43,6 +45,7 @@ class FluxWebsocketServer {
   constructor(options = {}) {
     this.#routes = options.routes || {};
     this.errorHandler = options.errorHandler || FluxWebsocketServer.defautlErrorHandler;
+    this.admit = options.admit || FluxWebsocketServer.defaultAdmit;
 
     this.#routeMatchers = Object.entries(this.#routes).map((entry) => {
       const [route, handler] = entry;
@@ -85,6 +88,14 @@ class FluxWebsocketServer {
     return this.#routeMatchers.slice();
   }
 
+  /**
+   * The underlying ws server, so a caller can observe what the handshake did.
+   * @returns {WebSocketServer}
+   */
+  get wsServer() {
+    return this.#socketServer;
+  }
+
   matchRoute(url) {
     let routeHandler = null;
     let params = {};
@@ -109,7 +120,37 @@ class FluxWebsocketServer {
     return null;
   }
 
+  /**
+   * Complete the websocket handshake, unless admission refuses it first.
+   *
+   * A refusal has to be answered here, with an HTTP status, because a handshake
+   * that completes is already a connection: the peer reads our capabilities out
+   * of the 101's headers, builds a peer object and can write to it before we
+   * have run a single line of our own. Closing afterwards does not undo any of
+   * that - it leaves the other side holding something it believes in, and what
+   * it wrote into it is gone. Answering the upgrade instead means no socket, no
+   * peer, and a dial that fails cleanly and is retried.
+   * @param {import('node:http').IncomingMessage} request
+   * @param {import('node:net').Socket} socket
+   * @param {Buffer} head
+   * @returns {void}
+   */
   handleUpgrade(request, socket, head) {
+    const refusal = this.admit(request);
+
+    if (refusal) {
+      const { status, message, reason } = refusal;
+      socket.write(
+        `HTTP/1.1 ${status} ${message}\r\n`
+        + 'Connection: close\r\n'
+        + `X-Flux-Refusal: ${reason}\r\n`
+        + 'Content-Length: 0\r\n'
+        + '\r\n',
+      );
+      socket.destroy();
+      return;
+    }
+
     this.#socketServer.handleUpgrade(request, socket, head, (ws) => {
       this.#socketServer.emit('connection', ws, request);
     });

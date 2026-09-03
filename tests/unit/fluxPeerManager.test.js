@@ -1648,6 +1648,14 @@ describe('FluxPeerManager tests', () => {
       expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.MAX_CONNECTIONS)).to.equal(true);
     });
 
+    // A statement about when, not about us: the remote's application gate has
+    // not opened yet and is certain to. Dropping the peer for good on it left a
+    // node that had dialled during someone else's boot never dialling again -
+    // and on the fleet that same node dialled back 150ms later.
+    it('should return true for NODE_UNCONFIRMED', () => {
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.NODE_UNCONFIRMED)).to.equal(true);
+    });
+
     it('should return false for DUPLICATE_PEER', () => {
       expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.DUPLICATE_PEER)).to.equal(false);
     });
