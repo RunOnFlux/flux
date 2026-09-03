@@ -161,15 +161,20 @@ describe('a port another Flux node at this address holds', function () {
   // express.json() and a real socket, and the refusal is a bare status code.
   it('keeps UPnP ports alive at the address that asked, not the one named', async function () {
     this.timeout(60000);
-    const asker = nodeKey(5);
+    // The address named is a real FluxOS, so the two cases end differently:
+    // taken from the body it reaches a node that answers /flux/uptime, taken
+    // from the socket it reaches this runner and does not. A stub peer's
+    // address fails the connect-back whichever one the handler picks, which
+    // would leave the refusal below holding for a reason that is not the rule.
+    const asker = nodeKey(1);
     const ask = {
-      ip: subnet.nodeIp(5), apiPort: 16127, ports: [], pubKey: asker.pubkey, timestamp: Math.floor(Date.now() / 1000),
+      ip: subnet.nodeIp(1), apiPort: 16127, ports: [], pubKey: asker.pubkey, timestamp: Math.floor(Date.now() / 1000),
     };
     const signature = await signBtcMessage(JSON.stringify(ask), asker.privkey);
 
     // Signed by a listed Fluxnode and sent from here, which is not that node.
     // The connect-back goes to this runner, where nothing listens, and fails;
-    // were the body's address used it would reach node 5 and succeed.
+    // were the body's address used it would reach node 1 and succeed.
     const fromHere = await env.clients[1].request('POST', '/flux/keepupnpportsopen', { body: { ...ask, signature } });
     expect(fromHere.status, 'the body address was used to pick the target').to.equal(503);
 
