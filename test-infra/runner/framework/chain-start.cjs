@@ -14,7 +14,11 @@
 // tests/unit reads this same file. Two copies of this number is the trap being
 // removed, not a detail.
 //
+// Kept in step with test-infra/fixtures/mongo-init.js, which carries the same
+// number as a first-boot default because it runs under mongosh and cannot
+// require this file.
+//
 // Pinned by tests/unit/harnessChainStart.test.js, which fails if any gate in the
 // production config rises above it. A suite that WANTS to be before a fork asks
 // for it: createTestEnv({ initialHeight }).
-module.exports = { DEFAULT_INITIAL_HEIGHT: 2200000 };
+module.exports = { DEFAULT_INITIAL_HEIGHT: 2920000 };
