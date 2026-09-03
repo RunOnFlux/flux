@@ -129,6 +129,18 @@ export async function crashAppContainer(container, appName, componentName) {
   return execInContainer(container, `docker kill ${appContainerName(appName, componentName)}`);
 }
 
+// The container's docker id, which is what distinguishes a container that was
+// REPLACED from one that was merely restarted: a redeploy removes and recreates,
+// so the id changes, while a restart keeps it. Status and image name are equal
+// either way, so neither can tell the two apart. null if the container is absent.
+export async function getAppContainerId(container, appName, componentName) {
+  const { stdout } = await execInContainer(container,
+    `docker inspect --format '{{.Id}}' ${appContainerName(appName, componentName)} 2>/dev/null || echo ""`,
+  );
+  const id = stdout.trim();
+  return id === '' ? null : id;
+}
+
 // the actual exit code the reconciler reads from Docker (null if container absent)
 export async function getAppContainerExitCode(container, appName, componentName) {
   const { stdout } = await execInContainer(container,
