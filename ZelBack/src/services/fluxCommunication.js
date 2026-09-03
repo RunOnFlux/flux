@@ -157,7 +157,16 @@ async function handleAppRunningSyncResponse(message, peerKey) {
   try {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
     if (!peerManager.isSyncRequested(peerKey)) return;
-    const { messages, done } = message.data;
+    const { messages, done, refused } = message.data;
+    // A peer that says its own app state is not worth surveying has ANSWERED,
+    // and the answer is not a completion. Marking it declined stops it being
+    // offered again on this connection, which opens a deficit in the pool of
+    // outstanding requests and gets another peer asked.
+    if (refused) {
+      log.info(`handleAppRunningSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', peerKey);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
 
@@ -282,7 +291,13 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
   try {
     if (!peerManager.isSyncRequested(peerKey)) return;
     if (!message.data || message.data.type !== 'fluxappinstallingsync') return;
-    const { messages, done } = message.data;
+    const { messages, done, refused } = message.data;
+    // A refusal is an answer and not a completion - see handleAppRunningSyncResponse.
+    if (refused) {
+      log.info(`handleAppInstallingSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, 'appinstalling', peerKey);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
@@ -305,7 +320,13 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
   try {
     if (!peerManager.isSyncRequested(peerKey)) return;
     if (!message.data || message.data.type !== 'fluxappinstallingerrorssync') return;
-    const { messages, done } = message.data;
+    const { messages, done, refused } = message.data;
+    // A refusal is an answer and not a completion - see handleAppRunningSyncResponse.
+    if (refused) {
+      log.info(`handleAppInstallingErrorsSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, 'apperrors', peerKey);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {

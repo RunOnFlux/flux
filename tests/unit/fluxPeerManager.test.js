@@ -697,6 +697,42 @@ describe('FluxPeerManager tests', () => {
 
       expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(2);
     });
+
+    // A peer that has answered a sync request by saying its own app state is
+    // not worth surveying stays connected and useful for everything else. It
+    // just stops being a candidate, which is what opens the deficit that gets
+    // somebody else asked.
+    it('stops offering a peer that declined a sync request', () => {
+      eligible(manager, '10.0.0.1');
+      eligible(manager, '10.0.0.2');
+
+      expect(manager.markSyncDeclined('10.0.0.1:16127')).to.equal(true);
+
+      const keys = manager.getEligibleSyncPeers(0).map((p) => p.key);
+      expect(keys).to.deep.equal(['10.0.0.2:16127']);
+      expect(manager.has('10.0.0.1:16127'), 'a declining peer was disconnected').to.equal(true);
+    });
+
+    it('says so when the peer that declined is not connected', () => {
+      eligible(manager, '10.0.0.1');
+
+      expect(manager.markSyncDeclined('203.0.113.9:16127')).to.equal(false);
+      expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(1);
+    });
+
+    // The flag lives on the socket, so a peer that comes back has had time to
+    // finish its own sync and is worth asking again. Remembering the refusal
+    // across connections would write off a node for the life of the process.
+    it('offers a peer that declined again once it reconnects', () => {
+      eligible(manager, '10.0.0.1');
+      manager.markSyncDeclined('10.0.0.1:16127');
+      expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(0);
+
+      manager.remove('10.0.0.1:16127', 1006);
+      eligible(manager, '10.0.0.1');
+
+      expect(manager.getEligibleSyncPeers(0).map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
   });
 
   describe('add', () => {

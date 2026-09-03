@@ -27,6 +27,9 @@ const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
 const HASH_SYNC_MAX_RETRIES = config.fluxapps.hashSyncMaxRetries ?? 3;
 const HASH_SYNC_RETRY_MS = config.fluxapps.hashSyncRetryMs ?? 300000;
 const FALLBACK_RECHECK_BLOCKS = config.fluxapps.hashSyncFallbackRecheckBlocks ?? 100;
+const FALLBACK_MINUTES = config.fluxapps.appSyncFallbackMinutes ?? 125;
+const FALLBACK_MINUTES_ENTERPRISE = config.fluxapps.appSyncFallbackMinutesEnterprise ?? 62;
+const BLOCKS_PER_MINUTE = 2;
 
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
@@ -35,6 +38,7 @@ class AppSyncOrchestrator {
   #onPeerEvent = null;
   #offPeerEvent = null;
   #markSyncRequested = null;
+  #markSyncDeclined = null;
 
   #isSyncRequested = null;
   #clearSyncRequested = null;
@@ -52,6 +56,7 @@ class AppSyncOrchestrator {
   #peersBelowHandler = null;
   #peerAddedHandler = null;
   #ephemeralSyncHandler = null;
+  #ephemeralRefusedHandler = null;
   #hashUnresolvedHandler = null;
   #hashesChangedHandler = null;
   #broadcastStarted = null;
@@ -79,6 +84,7 @@ class AppSyncOrchestrator {
     this.#onPeerEvent = options.onPeerEvent;
     this.#offPeerEvent = options.offPeerEvent;
     this.#markSyncRequested = options.markSyncRequested ?? (() => {});
+    this.#markSyncDeclined = options.markSyncDeclined ?? (() => false);
     // The peer manager owns the peers, so it owns which of them have been asked.
     // Keeping a second set here was the defect: remove() deletes its copy when a
     // peer goes, and nothing deleted this one.
@@ -150,6 +156,9 @@ class AppSyncOrchestrator {
     this.#ephemeralSyncHandler = (syncType, peerKey) => this.#onEphemeralSyncComplete(syncType, peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
 
+    this.#ephemeralRefusedHandler = (syncType, peerKey) => this.#onEphemeralSyncRefused(syncType, peerKey);
+    appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_REFUSED, this.#ephemeralRefusedHandler);
+
     this.#hashUnresolvedHandler = () => this.#onHashUnresolved();
     appSyncEvents.on(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
 
@@ -170,6 +179,10 @@ class AppSyncOrchestrator {
     } else {
       this.#networkReady = true;
     }
+    // Before any block arrives, because a node whose fallback is 0 blocks is
+    // authoritative from the moment it starts and a peer may ask it first.
+    this.#publishStateSyncAuthority();
+
     // #peersReady may already be true here (live edge during the network-state
     // wait, or the latched-level check above), so always attempt the start.
     this.#tryStartSync();
@@ -224,6 +237,7 @@ class AppSyncOrchestrator {
       && this.#syncCompletions.appinstalling.size >= MIN_SYNC_COMPLETIONS
       && this.#syncCompletions.apperrors.size >= MIN_SYNC_COMPLETIONS) {
       this.#stateSyncComplete = true;
+      this.#publishStateSyncAuthority();
       if (this.#syncTimeout) {
         clearTimeout(this.#syncTimeout);
         this.#syncTimeout = null;
@@ -237,6 +251,34 @@ class AppSyncOrchestrator {
       });
       this.#checkReadiness();
     }
+  }
+
+  /**
+   * A peer answered by declining, which is not a completion.
+   *
+   * Declining takes the peer out of the eligible pool for this connection, so
+   * the deficit that #requestSyncs asks against opens by one and the next pass
+   * fills it from a peer that may actually know something. A peer refuses all
+   * three types when it refuses any, and the passes after the first find the
+   * pool already topped up and send nothing.
+   * @param {string} syncType apprunning | appinstalling | apperrors
+   * @param {string} peerKey ip:port of the peer that declined.
+   * @returns {void}
+   */
+  #onEphemeralSyncRefused(syncType, peerKey) {
+    if (this.#stateSyncComplete) return;
+    if (!peerKey) {
+      log.error(`AppSyncOrchestrator - ${syncType} sync declined with no peer, cannot replace it`);
+      return;
+    }
+    if (this.#markSyncDeclined(peerKey)) {
+      log.info(`AppSyncOrchestrator - ${peerKey} declined the ${syncType} sync, asking another peer`);
+    }
+    // Unconditional, because the deficit decides. A refusal from a peer this
+    // node never had in its pool leaves the pool whole, and a whole pool asks
+    // nobody - so an early return here would only be a second way of saying
+    // the same thing, and one that no test could tell from its absence.
+    this.#requestSyncs();
   }
 
   async #onPeersReady() {
@@ -362,6 +404,7 @@ class AppSyncOrchestrator {
     this.#clearSyncRequested();
     this.#syncCompletions = { apprunning: new Set(), appinstalling: new Set(), apperrors: new Set() };
     this.#stateSyncComplete = false;
+    this.#publishStateSyncAuthority();
     this.#hashSyncAttempts = 0;
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);
@@ -387,6 +430,7 @@ class AppSyncOrchestrator {
     }
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY || this.#state === STATES.RESYNCING) {
       this.#blocksSinceSyncStarted += count;
+      this.#publishStateSyncAuthority();
       this.#checkReadiness();
       this.#checkHashRetry(blockHeight);
     }
@@ -515,14 +559,13 @@ class AppSyncOrchestrator {
     }
   }
 
+  // Derived on demand rather than in the constructor because enterprise
+  // identity resolves from a cache that may not be warm yet. A configured 0
+  // re-derives to 0, so the guard saves repeated work and decides nothing.
   #ensureBlockThreshold() {
-    if (this.#blockThreshold === 0) {
-      const enterprise = this.#isEnterprise();
-      const blocksPerMinute = 2;
-      this.#blockThreshold = enterprise
-        ? 62 * blocksPerMinute
-        : 125 * blocksPerMinute;
-    }
+    if (this.#blockThreshold !== 0) return;
+    const minutes = this.#isEnterprise() ? FALLBACK_MINUTES_ENTERPRISE : FALLBACK_MINUTES;
+    this.#blockThreshold = minutes * BLOCKS_PER_MINUTE;
   }
 
   #isBlockTimerExpired() {
@@ -533,6 +576,20 @@ class AppSyncOrchestrator {
   #isStateSyncReady() {
     if (this.#stateSyncComplete) return true;
     return this.#isBlockTimerExpired();
+  }
+
+  /**
+   * Mirror the state-sync verdict where the sync responder can read it.
+   *
+   * Called wherever an input to #isStateSyncReady moves, so the value never
+   * disagrees with the rule. A peer asking us for app state gets a refusal
+   * while this is false, because an empty answer from a node that does not yet
+   * know is indistinguishable from an empty answer from a node that does - and
+   * the asker counts both as a completed survey.
+   * @returns {void}
+   */
+  #publishStateSyncAuthority() {
+    globalState.appStateAuthoritative = this.#isStateSyncReady();
   }
 
   async #checkReadiness() {
@@ -684,6 +741,9 @@ class AppSyncOrchestrator {
     }
     if (this.#ephemeralSyncHandler) {
       appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
+    }
+    if (this.#ephemeralRefusedHandler) {
+      appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_REFUSED, this.#ephemeralRefusedHandler);
     }
     if (this.#hashUnresolvedHandler) {
       appSyncEvents.removeListener(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);

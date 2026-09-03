@@ -128,6 +128,16 @@ class FluxPeerSocket {
     this.nakWindowStart = Date.now();
     this.lastTransmissionDelay = null;
     this.badMessageTimestamps = [];
+    /**
+     * Whether this peer has told us its own app state is not worth surveying.
+     *
+     * On the socket rather than in a set beside the asked-marks, because it is
+     * true of this connection and not of the node: it stops the peer being
+     * offered as a sync candidate, and it dies with the connection - a peer
+     * that reconnects has had time to finish its own sync and deserves asking
+     * again.
+     */
+    this.declinedAppStateSync = false;
     this.remoteCapabilities = new Set();
     this.remoteClockOffsetMs = null;
     this.remoteVersion = null;

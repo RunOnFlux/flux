@@ -657,7 +657,7 @@ function nodeReadyWaitStrategy(nodeIp) {
 // correspondingly slower. A suite that asserts on transfers has to ask for it;
 // nothing else should.
 export async function createTestEnv({
-  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
+  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
@@ -666,6 +666,28 @@ export async function createTestEnv({
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
   }
+  // A node that can answer another node's app-state sync request from the
+  // moment it starts: it waits no blocks for its own, so it is authoritative
+  // immediately and behaves like an established peer rather than one still
+  // catching up. Every node in a fleet that boots together is still catching
+  // up, and a node still catching up declines - so without one of these a
+  // suite cannot observe a sync completing at all, only the fallback.
+  //
+  // Refused rather than clamped: an index outside the fleet is a suite asking
+  // for a synced peer and silently not getting one, which reads as covered.
+  for (const index of syncedNodes) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes) {
+      throw new Error(`createTestEnv: syncedNodes index ${index} is not a node in a fleet of ${nodes}`);
+    }
+  }
+  const syncedOverrides = {};
+  for (const index of syncedNodes) {
+    syncedOverrides[index] = mergeConfigs(
+      { fluxapps: { appSyncFallbackMinutes: 0, appSyncFallbackMinutesEnterprise: 0 } },
+      nodeConfigOverrides[index] ?? null,
+    );
+  }
+  const mergedNodeOverrides = { ...nodeConfigOverrides, ...syncedOverrides };
   // Only a legacy node ever installs its own packages, so unseeding a fleet without
   // one strips nothing and tests nothing. Refused rather than ignored: a flag that
   // silently does nothing reads as covered.
@@ -713,7 +735,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown

@@ -240,6 +240,7 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:requested',
         'ephemeralSync:peerComplete',
         'ephemeralSync:allComplete',
+        'sync:refused',
         'sync:chunkVerified',
         'hashSync:complete',
         'hashSync:failed',

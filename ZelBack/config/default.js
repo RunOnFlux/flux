@@ -386,6 +386,12 @@ module.exports = {
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     appSyncMinPeerUptime: 7500, // seconds a peer must have been running before we sync from it
     appSyncMinCompletions: 3, // sync responses needed per type before spawner can start
+    // How long a node waits for a state sync before deciding that what it has
+    // is what it gets. Both roads to readiness, and to answering another node's
+    // sync request, so a node with a 0 here is authoritative from the moment it
+    // starts - which is how a fleet gets a peer that can answer at all.
+    appSyncFallbackMinutes: 125,
+    appSyncFallbackMinutesEnterprise: 62,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

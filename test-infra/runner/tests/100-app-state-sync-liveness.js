@@ -1,0 +1,134 @@
+import { describe, it, before, after } from 'mocha';
+import { expect } from 'chai';
+import { createTestEnv } from '../framework/test-env.js';
+import { advanceBlock } from '../framework/daemon-control.js';
+import { waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
+// nodeIp is 1-based and env.clients is 0-based, so the two are one apart. Suite
+// 96 carries the same line for the same reason.
+const ipOfIndex = (index) => subnet.nodeIp(index + 1);
+
+// WHAT THIS SUITE IS FOR.
+//
+// A node's app-state sync needs answers from appSyncMinCompletions DISTINCT
+// peers, and until this branch an empty response counted as one of them. A node
+// booting beside other booting nodes could therefore ask three peers that knew
+// nothing, count three empty answers as a completed survey of the network, and
+// go READY believing the network held nothing - without any node having said
+// anything false.
+//
+// The fleet here is built so that nobody can answer: every node boots together,
+// none has completed its own sync, and appSyncFallbackMinutes is set high
+// enough that no node can reach authority by waiting instead. The one node that
+// CAN answer is held back, so the moment it joins is observable.
+//
+// Blocks are driven by hand. The fallback road is measured in blocks, so a
+// running ticker is a second clock racing the thing under test - and it is the
+// road the suite is deliberately keeping shut.
+const REAL_NODES = 6;
+const ANSWERER = REAL_NODES; // held back, and the only node that boots synced
+
+describe('a node that cannot answer a state sync declines it', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: REAL_NODES + 1,
+      deferredNodes: 1,
+      syncedNodes: [ANSWERER],
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: {
+          // 20 blocks, and this suite drives far fewer. Without it the harness
+          // default of 1 minute lets every node reach authority on its own and
+          // start answering, which is the opposite of the shape being built.
+          appSyncFallbackMinutes: 10,
+          appSyncFallbackMinutesEnterprise: 10,
+        },
+      },
+    });
+
+    const booted = Array.from({ length: REAL_NODES }, (_, i) => i);
+    const clients = booted.map((i) => env.clients[i]);
+    for (const client of clients) await waitForDaemonReady(client);
+    await Promise.all(clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await advanceBlock();
+    for (const client of clients) {
+      await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
+    }
+    await env.startDiscovery(booted);
+    await env.clients[0].waitForEvent('peers:added', (d) => d.total >= 2, 120000);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('declines a peer it cannot answer, and the peer says which node declined', async function () {
+    this.timeout(180000);
+
+    // The refusal is published by the node being ASKED, so this is the fleet
+    // telling us it knows it has nothing worth surveying.
+    const refusal = await env.clients[1].waitForEvent('sync:refused', () => true, 120000);
+    expect(refusal.data.peer, 'a refusal that names no peer cannot be replaced').to.be.a('string');
+    expect(refusal.data.peer).to.match(/^\d+\.\d+\.\d+\.\d+:\d+$/);
+  });
+
+  it('completes nothing while every peer is still catching up', async function () {
+    this.timeout(120000);
+
+    // Every candidate declines, so no peer is ever credited. This is the
+    // assertion that would have failed before the change: three empty answers
+    // used to be three completions and this node would have finished its sync.
+    const completed = await env.clients[0]
+      .waitForEvent('ephemeralSync:allComplete', () => true, 45000)
+      .then(() => true)
+      .catch(() => false);
+
+    // An absence proves nothing on its own - a dead event stream looks exactly
+    // like a node that never completed. So say what DID happen first: this node
+    // asked, and was turned down.
+    const asked = env.clients[0].getEventBuffer().filter((e) => e.event === 'ephemeralSync:requested');
+    const refused = env.clients[0].getEventBuffer().filter((e) => e.event === 'sync:refused');
+    expect(asked.length, 'this node never asked anyone, so being unfinished says nothing').to.be.greaterThan(0);
+    expect(refused.length + asked.length, 'no traffic at all - the stream, not the sync, is what is quiet').to.be.greaterThan(1);
+
+    expect(completed, 'a fleet where nobody could answer still completed a survey').to.equal(false);
+  });
+
+  it('asks the node that can answer as soon as it joins, and credits it by name', async function () {
+    this.timeout(240000);
+
+    // Anchored: node 0 has been asking and being declined for two tests, so an
+    // unanchored wait would answer from the buffer rather than from the join.
+    const afterId = env.clients[0].getLastEventId();
+
+    const answerer = await env.startNode(ANSWERER);
+    await waitForDaemonReady(answerer);
+    await waitForNodeStatus(answerer, (d) => d.confirmed === true, 60000);
+    await env.startDiscovery([ANSWERER]);
+
+    // No threshold edge is available here - it fired before the answerer
+    // existed and the count never fell - so this can only come from the join
+    // itself topping the pool back up.
+    const answererIp = ipOfIndex(ANSWERER);
+    const credited = await env.clients[0].waitForEvent(
+      'ephemeralSync:peerComplete',
+      (d) => String(d.peer ?? '').startsWith(answererIp),
+      180000,
+      { afterId },
+    );
+
+    expect(credited.data.peer).to.match(new RegExp(`^${answererIp.replace(/\./g, '\\.')}:`));
+    expect(credited.data.syncType).to.be.oneOf(['apprunning', 'appinstalling', 'apperrors']);
+
+    await env.clients[0].waitForEvent('ephemeralSync:allComplete', () => true, 120000, { afterId });
+  });
+});

@@ -13,6 +13,10 @@ describe('AppSyncOrchestrator', () => {
   let clock;
   let getEligibleSyncPeersStub;
   let syncRequested;
+  let proxyquireMap;
+  let loadWithConfig;
+  let declined;
+  let declinable;
   let logStub;
   let syncMissingHashesStub;
   let getMissingHashesStub;
@@ -58,6 +62,13 @@ describe('AppSyncOrchestrator', () => {
       markSyncRequested: (key) => syncRequested.add(key),
       isSyncRequested: (key) => syncRequested.has(key),
       clearSyncRequested: () => syncRequested.clear(),
+      // What FluxPeerManager.markSyncDeclined does: the peer keeps its mark and
+      // stops being offered as a candidate, so the pool shows a deficit.
+      markSyncDeclined: (key) => {
+        if (!declinable.has(key)) return false;
+        declined.add(key);
+        return true;
+      },
       ...overrides,
     };
   }
@@ -91,6 +102,8 @@ describe('AppSyncOrchestrator', () => {
     peerEmitter = new EventEmitter();
     getEligibleSyncPeersStub = sinon.stub().returns([]);
     syncRequested = new Set();
+    declined = new Set();
+    declinable = new Set();
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
@@ -98,6 +111,9 @@ describe('AppSyncOrchestrator', () => {
     reindexStub = sinon.stub().resolves();
     globalStateStub = {
       dbReady: false,
+      // globalState's own initial value: nothing is authoritative until the
+      // orchestrator says so.
+      appStateAuthoritative: false,
       waitForBootContainerStateSettled: () => Promise.resolve(),
     };
     checkAndNotifyStub = sinon.stub().resolves();
@@ -116,7 +132,9 @@ describe('AppSyncOrchestrator', () => {
     ({ appSyncEvents, EVENTS } = appSyncEventsModule);
     appSyncEvents.removeAllListeners();
 
-    const mod = proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', {
+    // Kept so a test that needs a different config can reload the module with
+    // the same doubles - the module reads its constants once, at require time.
+    proxyquireMap = {
       'fs': { promises: { readFile: sinon.stub().resolves('test-boot-id-12345\n') } },
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
@@ -143,8 +161,21 @@ describe('AppSyncOrchestrator', () => {
         },
       },
       '../utils/appSyncEvents': appSyncEventsModule,
-    });
-    ({ AppSyncOrchestrator, STATES } = mod);
+    };
+
+    loadWithConfig = (fluxappsOverrides) => {
+      const realConfig = require('config');
+      return proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', {
+        ...proxyquireMap,
+        config: {
+          ...realConfig,
+          database: realConfig.database,
+          fluxapps: { ...realConfig.fluxapps, ...fluxappsOverrides },
+        },
+      });
+    };
+
+    ({ AppSyncOrchestrator, STATES } = proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', proxyquireMap));
   });
 
   afterEach(() => {
@@ -593,6 +624,209 @@ describe('AppSyncOrchestrator', () => {
 
       expect(orchestrator.state, 'unattributed completions were counted').to.equal(STATES.SYNCING);
       expect(logStub.error.called, 'an unattributable completion was absorbed silently').to.equal(true);
+    });
+  });
+
+  // A peer that declines has ANSWERED, and the answer is not a completion. It
+  // leaves the candidate pool for that connection, so the deficit #requestSyncs
+  // asks against opens by one and someone who may actually know gets asked.
+  describe('a peer that declines is replaced', () => {
+    it('asks another peer when one declines', async () => {
+      const peers = makeEligiblePeers(3);
+      const spare = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+      declinable.add(peers[0].key);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
+
+      // Declining takes it out of the eligible list, exactly as the flag on the
+      // socket takes it out of getEligibleSyncPeers.
+      getEligibleSyncPeersStub.returns([peers[1], peers[2], spare]);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', peers[0].key);
+      await clock.tickAsync(0);
+
+      expect(spare.send.callCount, 'a peer declined and nobody else was asked').to.equal(4);
+    });
+
+    it('does not start a second round for a refusal from a peer it never asked', async () => {
+      const peers = makeEligiblePeers(3);
+      const spare = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      // Nothing was marked, so the pool never lost a member. The deficit is what
+      // decides, and a whole pool owes nothing however the pass was reached.
+      getEligibleSyncPeersStub.returns([...peers, spare]);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', '203.0.113.1:16127');
+      await clock.tickAsync(0);
+
+      expect(spare.send.called).to.equal(false);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
+    });
+
+    it('replaces a peer once however many types it declines', async () => {
+      const peers = makeEligiblePeers(3);
+      const spares = [makePeer('10.0.0.7:16127'), makePeer('10.0.0.8:16127'), makePeer('10.0.0.9:16127')];
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+      declinable.add(peers[0].key);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      // A node refuses all three types when it refuses any, and the passes
+      // after the first find the pool already topped up.
+      getEligibleSyncPeersStub.returns([peers[1], peers[2], ...spares]);
+      for (const type of ['apprunning', 'appinstalling', 'apperrors']) {
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, type, peers[0].key);
+      }
+      await clock.tickAsync(0);
+
+      const asked = spares.filter((p) => p.send.called);
+      expect(asked.length, 'one declining peer pulled in more than one replacement').to.equal(1);
+    });
+
+    it('asks nobody more once the state sync is complete', async () => {
+      const peers = makeEligiblePeers(3);
+      const spare = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+      declinable.add(peers[0].key);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      completeAllTypes(3);
+      await clock.tickAsync(0);
+
+      getEligibleSyncPeersStub.returns([peers[1], peers[2], spare]);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', peers[0].key);
+      await clock.tickAsync(0);
+
+      expect(spare.send.called).to.equal(false);
+    });
+
+    it('reports a refusal that names no peer instead of absorbing it', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning');
+      await clock.tickAsync(0);
+
+      expect(logStub.error.called, 'a refusal with no peer was absorbed silently').to.equal(true);
+    });
+
+    it('stops listening for refusals on stop', () => {
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      orchestrator.stop();
+
+      expect(appSyncEvents.listenerCount(EVENTS.EPHEMERAL_SYNC_REFUSED)).to.equal(0);
+    });
+  });
+
+  // The sync responder reads this to decide whether its own answer is worth
+  // another node's survey. It has to follow the rule, not a copy of it.
+  describe('the state-sync verdict is published for the responder', () => {
+    it('is false while the sync is incomplete and true once it completes', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      expect(globalStateStub.appStateAuthoritative, 'authoritative before anyone answered').to.equal(false);
+
+      completeAllTypes(3);
+      await clock.tickAsync(0);
+
+      expect(globalStateStub.appStateAuthoritative).to.equal(true);
+    });
+
+    it('goes false again when the peers go and the sync is reset', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      orchestrator.start(defaultBootContext);
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      completeAllTypes(3);
+      await clock.tickAsync(0);
+      expect(globalStateStub.appStateAuthoritative).to.equal(true);
+
+      peerEmitter.emit('peersBelowThreshold', 3);
+      await clock.tickAsync(0);
+
+      expect(globalStateStub.appStateAuthoritative, 'a degraded node still claimed authority').to.equal(false);
+    });
+  });
+
+  // The block fallback was two literals, so no fleet could have a node that
+  // was able to answer a sync request from the moment it started - and on a
+  // fleet where every node is still syncing, every node declines every other
+  // and they all wait out 250 blocks.
+  describe('the block fallback is configured, not hardcoded', () => {
+    it('is authoritative from the moment it starts when told to wait no blocks', async () => {
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 0, appSyncFallbackMinutesEnterprise: 0 });
+      const orchestrator = new mod.AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => false,
+      });
+      orchestrator.onMessageCapabilityChange(true);
+
+      await orchestrator.start(defaultBootContext);
+
+      expect(globalStateStub.appStateAuthoritative, 'a node told to wait no blocks still declined').to.equal(true);
+    });
+
+    it('is not authoritative at start on the production budget', async () => {
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 125, appSyncFallbackMinutesEnterprise: 62 });
+      const orchestrator = new mod.AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => false,
+      });
+      orchestrator.onMessageCapabilityChange(true);
+
+      await orchestrator.start(defaultBootContext);
+
+      expect(globalStateStub.appStateAuthoritative).to.equal(false);
+    });
+
+    it('reaches readiness on the configured number of blocks rather than 250', async () => {
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 2, appSyncFallbackMinutesEnterprise: 2 });
+      getEligibleSyncPeersStub = sinon.stub().returns([]);
+      const orchestrator = new mod.AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => false,
+      });
+      orchestrator.onMessageCapabilityChange(true);
+      await orchestrator.start(defaultBootContext);
+
+      // 2 minutes at 2 blocks a minute, so the fourth block is past it and the
+      // 250th is not the bar any more.
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      for (let i = 1; i <= 4; i += 1) blockEmitter.emit('blocksProcessed', 2555000 + i);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(mod.STATES.READY);
+      expect(globalStateStub.appStateAuthoritative).to.equal(true);
     });
   });
 

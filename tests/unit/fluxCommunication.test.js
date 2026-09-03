@@ -1809,15 +1809,20 @@ describe('fluxCommunication tests', () => {
   // peer it came from cannot be counted at all. These handlers have had the key
   // in scope all along - they log it, and publish it on sync:chunkVerified two
   // lines earlier - and this is what makes them hand it on.
-  describe('a sync response says which peer completed it', () => {
+  describe('a sync response says which peer completed it, and whether it declined', () => {
     const PEER = '198.51.100.7:16127';
     let completions;
+    let refusals;
     let handler;
+    let refusedHandler;
 
     beforeEach(() => {
       completions = [];
+      refusals = [];
       handler = (syncType, peerKey) => completions.push({ syncType, peerKey });
+      refusedHandler = (syncType, peerKey) => refusals.push({ syncType, peerKey });
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
+      appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
       peerManager.markSyncRequested(PEER);
       // An empty final batch is the whole path here: processInSlices does
       // nothing, and apprunning's pruning is the only step that needs a store.
@@ -1827,6 +1832,7 @@ describe('fluxCommunication tests', () => {
 
     afterEach(() => {
       appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
+      appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
       peerManager.clearSyncRequested();
       sinon.restore();
     });
@@ -1848,6 +1854,24 @@ describe('fluxCommunication tests', () => {
         await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER);
 
         expect(completions).to.deep.equal([]);
+      });
+
+      // Declining is an answer, and it is not a completion. Counting it was the
+      // defect: three booting peers could tell a node the network was empty.
+      it(`reports a declined ${syncType} response as a refusal, not a completion`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER);
+
+        expect(refusals).to.deep.equal([{ syncType, peerKey: PEER }]);
+        expect(completions, 'a refusal was counted as a completed survey').to.deep.equal([]);
+      });
+
+      // A network with nothing running answers with an empty list, and that IS
+      // a survey. If it read as a refusal such a fleet would never sync.
+      it(`counts an empty ${syncType} response as a completion`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER);
+
+        expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
+        expect(refusals).to.deep.equal([]);
       });
     });
   });

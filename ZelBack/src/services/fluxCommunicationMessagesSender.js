@@ -9,6 +9,7 @@ const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
+const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const myMessageCache = cacheManager.tempMessageCache;
@@ -330,6 +331,23 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
 
 async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validityMs, query, projection, messageType, label }) {
   try {
+    // A NODE THAT DOES NOT KNOW YET SAYS SO, rather than sending what it
+    // happens to hold. An empty response and a complete one are the same three
+    // fields on the wire, so the asker counted a booting node's nothing as one
+    // of the three surveys it needs - and three booting nodes could tell it the
+    // network was empty without one of them saying anything false.
+    //
+    // Refusing is cheaper than answering badly and it is decided here, at the
+    // moment of asking, so there is nothing cached to go stale. Older nodes
+    // send no such field, which reads as a refusal of nothing and leaves them
+    // behaving exactly as they do now.
+    if (!globalState.appStateAuthoritative) {
+      log.info(`${label} - Refusing ${peer.key}: this node's app state is not authoritative yet`);
+      await sendSignedMessage({ type: messageType, messages: [], done: true, refused: true }, peer, { awaitDrain: true });
+      fluxEventBus.publish('sync:refused', { syncType: messageType, peer: peer.key });
+      return;
+    }
+
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 

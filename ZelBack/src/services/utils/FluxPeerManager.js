@@ -523,6 +523,7 @@ class FluxPeerManager extends EventEmitter {
       // never published SPAWNER_READY.
       if (ownKey && peer.key === ownKey) continue;
       if (peer.missedPongs !== 0) continue;
+      if (peer.declinedAppStateSync) continue;
       if (!peer.remoteCapabilities.has('appStateSync')) continue;
       const uptime = this.getPeerFluxUptime(peer.key);
       if (uptime === null || uptime < minUptimeSeconds) continue;
@@ -539,7 +540,22 @@ class FluxPeerManager extends EventEmitter {
 
   isSyncRequested(key) { return this.#syncRequestedPeers.has(key); }
 
-  completeSyncRequest(key) { this.#syncRequestedPeers.delete(key); }
+  /**
+   * Record that a peer answered a sync request by declining it.
+   *
+   * The mark stays - the peer was asked, and asking again in the same breath
+   * would be a loop - but it stops being an eligible candidate, so the pool of
+   * outstanding requests shows a deficit and the next pass fills it from
+   * somewhere else.
+   * @param {string} key ip:port
+   * @returns {boolean} true if a connected peer was marked.
+   */
+  markSyncDeclined(key) {
+    const peer = this.#peers.get(key);
+    if (!peer) return false;
+    peer.declinedAppStateSync = true;
+    return true;
+  }
 
   clearSyncRequested() { this.#syncRequestedPeers.clear(); }
 
