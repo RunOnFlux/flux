@@ -126,7 +126,12 @@ module.exports = {
   // A list, so support can be granted to (or revoked from) an identity without
   // touching every privilege check. A bare string is still read as a one entry
   // list, so a node carrying an older local override keeps working.
-  fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
+  fluxSupportTeamFluxID: [
+    '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',
+    '15c3aH6y9Koq1Dg1rGXE9Ypn5nL2AbSJCu',
+    '1NGqYirE4T9wzd1ZcGrw3HjETiuCkt6Sgy',
+    '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
+  ],
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
