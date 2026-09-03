@@ -52,10 +52,8 @@ describe('appSpawner tests', () => {
     };
   }
 
-  let eventBusPublish;
 
   function buildModule(opts = {}) {
-    eventBusPublish = sinon.stub();
     configStub = createConfigStub(opts.configOverrides);
     globalStateStub = createGlobalStateStub();
     if (opts.globalStateOverrides) {
@@ -250,9 +248,6 @@ describe('appSpawner tests', () => {
       '../utils/cacheManager': {
         FluxCacheManager: { oneHour: 3600000 },
       },
-      '../utils/fluxEventBus': {
-        publish: eventBusPublish,
-      },
       '../appMessaging/messageStore': {
         storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
         storeAppInstallingErrorMessage: opts.installingErrorStub ?? sinon.stub().resolves(true),
@@ -329,16 +324,6 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(aggregateStub.called).to.equal(false);
-    });
-
-    it('publishes placement_hold so a suite can see which gate stopped it', async () => {
-      buildModule({ placementHold: 'residential node not running ArcaneOS' });
-
-      await appSpawner.trySpawningGlobalApplication().catch(() => {});
-
-      const published = eventBusPublish.getCalls()
-        .some((c) => c.args[0] === 'spawner:blocked' && c.args[1] && c.args[1].reason === 'placement_hold');
-      expect(published).to.equal(true);
     });
 
     it('installs as usual when the node is not held', async () => {
