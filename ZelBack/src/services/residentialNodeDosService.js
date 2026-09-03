@@ -141,6 +141,10 @@ let observedWindowMs = 0;
 // The network verdict behind the most recent isResidential(), carried into the
 // decision event so a consumer can tell the three nulls apart.
 let lastVerdict = { classification: null, source: null };
+// What the last evaluation concluded, in full. The tick answers with it, so a
+// caller that needs to know WHICH decision was reached does not have to read
+// the harness event stream to find out.
+let lastDecision = null;
 // Paces departures, on the MONOTONIC clock, and PERSISTED in the settle marker
 // rather than held for the process lifetime. Same reasoning as the settling
 // clock - a counter a restart resets makes restarting the way to go faster: a
@@ -637,7 +641,7 @@ function applyDos() {
  *   enforce: boolean|null, undecidedBecause: string|null}} verdict
  */
 function publishDecision(verdict) {
-  fluxEventBus.publish('residential:decided', {
+  lastDecision = {
     ...verdict,
     // Which network verdict produced this, and which authority reached it -
     // 'published-table' or 'node-veto'. Without these, enforce: null covers
@@ -645,7 +649,10 @@ function publishDecision(verdict) {
     // on a veto cannot tell it from a node that has read nothing.
     classification: lastVerdict.classification,
     source: lastVerdict.source,
-  });
+  };
+  // One object, answered to the caller and published to the harness. Two copies
+  // of a decision are two things that can disagree.
+  fluxEventBus.publish('residential:decided', lastDecision);
 }
 
 /**
@@ -656,7 +663,7 @@ function publishDecision(verdict) {
  * @returns {Promise<boolean>} True when the tick reached a decision, false when
  *   an input was unavailable and the caller should retry sooner.
  */
-async function enforceResidentialPolicy(deps) {
+async function runResidentialPolicy(deps) {
   const { installedAppsFn } = deps;
 
   const [arcane, residential] = await Promise.all([isArcaneOs(), isResidential()]);
@@ -785,13 +792,31 @@ function nextDelay(decided, streak) {
 }
 
 /**
+ * One evaluation of the policy, answered as what it concluded.
+ *
+ * `decided` is the caller's question - was every input available, or should the
+ * next tick come sooner. `decision` is what was actually concluded, and it is
+ * the same object published to the harness: enforce false and enforce null are
+ * opposite claims, and nothing outside this module could previously tell them
+ * apart without reading the event stream.
+ *
+ * @param {object} deps Injected collaborators.
+ * @returns {Promise<{decided: boolean, decision: object|null}>}
+ */
+async function enforceResidentialPolicy(deps) {
+  lastDecision = null;
+  const decided = await runResidentialPolicy(deps);
+  return { decided, decision: lastDecision };
+}
+
+/**
  * Run one tick and schedule the next one.
  * @param {object} deps Injected collaborators, as enforceResidentialPolicy.
  */
 async function tick(deps) {
   let decided = false;
   try {
-    decided = await enforceResidentialPolicy(deps);
+    ({ decided } = await enforceResidentialPolicy(deps));
   } catch (error) {
     log.error(`residentialNodeDos - tick error: ${error.message}`);
   }
