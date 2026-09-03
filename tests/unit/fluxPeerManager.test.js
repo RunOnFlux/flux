@@ -797,6 +797,28 @@ describe('FluxPeerManager tests', () => {
       ]);
     });
 
+    // The counterpart of peerAdded, and the reason a sync waiting on this peer
+    // does not have to wait out a deadline to learn the answer is not coming.
+    it('announces a removal, with the key and the count left', () => {
+      const seen = [];
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.on('peerRemoved', (key, count) => seen.push({ key, count }));
+
+      manager.remove('10.0.0.1:16127', 1006);
+
+      expect(seen).to.deep.equal([{ key: '10.0.0.1:16127', count: 1 }]);
+    });
+
+    it('announces nothing when the peer was not there', () => {
+      const seen = [];
+      manager.on('peerRemoved', (key) => seen.push(key));
+
+      manager.remove('203.0.113.9:16127', 1006);
+
+      expect(seen).to.deep.equal([]);
+    });
+
     it('reports the peer count alongside the key', () => {
       const seen = [];
       manager.on('peerAdded', (key, count) => seen.push({ key, count }));

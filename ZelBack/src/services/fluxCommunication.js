@@ -168,6 +168,10 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       return;
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
+    // EVERY arrival, not just the last. A peer mid-way through a large answer
+    // is plainly working, and the asker's slot clock has no other way to know
+    // that - a completion only arrives at the end.
+    appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peerKey);
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
 
     // A sync response is processed a slice at a time. Verifying and storing the
@@ -299,6 +303,10 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
       return;
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
+    // EVERY arrival, not just the last. A peer mid-way through a large answer
+    // is plainly working, and the asker's slot clock has no other way to know
+    // that - a completion only arrives at the end.
+    appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, 'appinstalling', peerKey);
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingSyncResponse');
@@ -328,6 +336,10 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
       return;
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
+    // EVERY arrival, not just the last. A peer mid-way through a large answer
+    // is plainly working, and the asker's slot clock has no other way to know
+    // that - a completion only arrives at the end.
+    appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apperrors', peerKey);
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingErrorsSyncResponse');

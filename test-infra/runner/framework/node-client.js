@@ -241,6 +241,7 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:peerComplete',
         'ephemeralSync:allComplete',
         'sync:refused',
+        'ephemeralSync:peerTimedOut',
         'sync:chunkVerified',
         'hashSync:complete',
         'hashSync:failed',

@@ -657,7 +657,7 @@ function nodeReadyWaitStrategy(nodeIp) {
 // correspondingly slower. A suite that asserts on transfers has to ask for it;
 // nothing else should.
 export async function createTestEnv({
-  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = [],
+  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = [], silentSyncPeers = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
@@ -678,6 +678,14 @@ export async function createTestEnv({
   for (const index of syncedNodes) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) {
       throw new Error(`createTestEnv: syncedNodes index ${index} is not a node in a fleet of ${nodes}`);
+    }
+  }
+  // A stub that offers to answer state syncs and then never does. Only a stub
+  // can be one: a real node either answers or declines, and both of those are
+  // already covered. Refused rather than ignored, for the same reason as above.
+  for (const index of silentSyncPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: silentSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
     }
   }
   const syncedOverrides = {};
@@ -735,7 +743,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -764,7 +772,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1160,6 +1168,15 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
         PRIVATE_KEY: key.privkey,
         PUBLIC_KEY: key.pubkey,
         NODE_IP: nodeIp,
+        SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
+        // Only a silent stub asks to be dialled, so no existing fleet acquires
+        // a connection it was not written to expect.
+        DIAL_TARGETS: silentSyncPeers.includes(stubIdx)
+          ? Array.from({ length: nodes }, (_, i) => i)
+            .filter((i) => !stubPeerSet.has(i))
+            .map((i) => subnet.nodeIp(i + 1))
+            .join(',')
+          : '',
       })
       .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16128/health`))
       .start();

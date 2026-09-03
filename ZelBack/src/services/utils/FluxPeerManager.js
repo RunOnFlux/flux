@@ -263,6 +263,10 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peersBelowThreshold', this.#peers.size);
       fluxEventBus.publish('peers:belowThreshold', { count: this.#peers.size, threshold: this.#syncDegradedThreshold });
     }
+    // The counterpart of peerAdded. A listener waiting on this peer for an
+    // answer now knows the answer is never coming, which is a fact rather than
+    // something to be inferred from a deadline passing.
+    this.emit('peerRemoved', key, this.#peers.size);
     return peer;
   }
 

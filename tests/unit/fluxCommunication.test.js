@@ -1813,16 +1813,21 @@ describe('fluxCommunication tests', () => {
     const PEER = '198.51.100.7:16127';
     let completions;
     let refusals;
+    let progress;
     let handler;
     let refusedHandler;
+    let progressHandler;
 
     beforeEach(() => {
       completions = [];
       refusals = [];
+      progress = [];
       handler = (syncType, peerKey) => completions.push({ syncType, peerKey });
       refusedHandler = (syncType, peerKey) => refusals.push({ syncType, peerKey });
+      progressHandler = (syncType, peerKey) => progress.push({ syncType, peerKey });
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
+      appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
       peerManager.markSyncRequested(PEER);
       // An empty final batch is the whole path here: processInSlices does
       // nothing, and apprunning's pruning is the only step that needs a store.
@@ -1833,6 +1838,7 @@ describe('fluxCommunication tests', () => {
     afterEach(() => {
       appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
       appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
+      appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
       peerManager.clearSyncRequested();
       sinon.restore();
     });
@@ -1872,6 +1878,26 @@ describe('fluxCommunication tests', () => {
 
         expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
         expect(refusals).to.deep.equal([]);
+      });
+
+      // The asker's slot clock has nothing else to read. A completion only
+      // arrives at the end, so without this a peer part-way through a large
+      // answer is indistinguishable from one that has said nothing at all.
+      it(`reports every ${syncType} batch as progress, not only the last`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER);
+
+        expect(progress).to.deep.equal([
+          { syncType, peerKey: PEER }, { syncType, peerKey: PEER }, { syncType, peerKey: PEER },
+        ]);
+        expect(completions, 'a mid-answer batch was counted as a completion').to.deep.equal([{ syncType, peerKey: PEER }]);
+      });
+
+      it(`reports no ${syncType} progress for a refusal`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER);
+
+        expect(progress, 'a refusal kept its slot alive as though it were working').to.deep.equal([]);
       });
     });
   });

@@ -29,7 +29,18 @@ const ipOfIndex = (index) => subnet.nodeIp(index + 1);
 // running ticker is a second clock racing the thing under test - and it is the
 // road the suite is deliberately keeping shut.
 const REAL_NODES = 6;
-const ANSWERER = REAL_NODES; // held back, and the only node that boots synced
+// ORDER MATTERS. deferredNodes holds back the LAST indices of the fleet
+// (test-env.js: firstDeferred = nodes - deferredNodes), so the node being held
+// back has to be the highest index. Putting the stub there instead gave the
+// deferred slot to a container that is not a flux node at all: the answerer
+// booted with everyone else, answered them, and the fleet completed the very
+// survey this suite exists to show it cannot.
+// A stub that offers to answer state syncs and never does. The real nodes all
+// decline and are set aside, which leaves this as the only candidate - so the
+// node under test is certain to ask it, and the only thing that can free that
+// slot is the slot's own deadline. No peer joins, nothing is refused.
+const SILENT = REAL_NODES;
+const ANSWERER = REAL_NODES + 1; // held back, and the only node that boots synced
 
 describe('a node that cannot answer a state sync declines it', function () {
   let env;
@@ -39,9 +50,11 @@ describe('a node that cannot answer a state sync declines it', function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: REAL_NODES + 1,
+      nodes: REAL_NODES + 2,
       deferredNodes: 1,
       syncedNodes: [ANSWERER],
+      stubPeers: [SILENT],
+      silentSyncPeers: [SILENT],
       tickerAutostart: false,
       configOverrides: {
         fluxapps: {
@@ -101,6 +114,26 @@ describe('a node that cannot answer a state sync declines it', function () {
     expect(refused.length + asked.length, 'no traffic at all - the stream, not the sync, is what is quiet').to.be.greaterThan(1);
 
     expect(completed, 'a fleet where nobody could answer still completed a survey').to.equal(false);
+  });
+
+  it('gives up on a peer that took the request and never answered', async function () {
+    this.timeout(180000);
+
+    // The real peers decline, which sets them aside, so the silent stub is what
+    // is left to ask. It keeps its socket healthy - it answers pings - so
+    // nothing at the transport level notices, and no completion ever arrives to
+    // start a clock. Only the slot's own deadline, armed when the request was
+    // sent, can end this wait.
+    const silentIp = ipOfIndex(SILENT);
+    const gaveUp = await env.clients[0].waitForEvent(
+      'ephemeralSync:peerTimedOut',
+      (d) => String(d.peer ?? '').startsWith(silentIp),
+      120000,
+    );
+
+    expect(gaveUp.data.peer).to.match(new RegExp(`^${silentIp.replace(/\./g, '\\.')}:`));
+    expect(gaveUp.data.reason, 'a peer that never spoke was reported as having stalled mid-answer')
+      .to.equal('said nothing');
   });
 
   it('asks the node that can answer as soon as it joins, and credits it by name', async function () {
