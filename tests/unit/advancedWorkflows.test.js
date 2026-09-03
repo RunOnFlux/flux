@@ -4279,6 +4279,133 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('component redeploy responds once tests', () => {
+    // The endpoint streams its progress, so the body starts on the first
+    // res.write and the status line is gone from that moment. A res.json after
+    // it goes through setHeader and throws ERR_HTTP_HEADERS_SENT into the catch,
+    // whose own res.json throws the same way - and that second throw escapes the
+    // handler, so the caller's connection is destroyed rather than answered.
+    // The 2026-09-03 fleet run saw exactly that: the component was replaced
+    // correctly and the client still got `TypeError: terminated`.
+    //
+    // A res double of bare stubs cannot see this - res.json records the call and
+    // returns - so the double below models what Express actually does.
+    const composedSpec = {
+      version: 4,
+      name: 'myapp',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      compose: [{
+        name: 'web',
+        description: 'web component',
+        repotag: 'nginx:latest',
+        ports: ['31000'],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: ['80'],
+        containerData: '/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      }],
+    };
+
+    function streamingRes() {
+      const res = {
+        headersSent: false,
+        written: [],
+        ended: false,
+        setHeader: sinon.stub(),
+        flush: sinon.stub(),
+      };
+      res.write = sinon.spy((chunk) => {
+        res.headersSent = true;
+        res.written.push(chunk);
+        return true;
+      });
+      res.end = sinon.spy(() => {
+        res.ended = true;
+      });
+      res.json = sinon.spy(() => {
+        if (res.headersSent) {
+          const err = new Error('Cannot set headers after they are sent to the client');
+          err.code = 'ERR_HTTP_HEADERS_SENT';
+          throw err;
+        }
+        res.headersSent = true;
+      });
+      return res;
+    }
+
+    let globalState;
+    let appUninstaller;
+    let appInstaller;
+    let appNetworkLinker;
+    let generalService;
+    let serviceHelper;
+    let verificationHelper;
+    let req;
+
+    beforeEach(() => {
+      /* eslint-disable global-require */
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+      generalService = require('../../ZelBack/src/services/generalService');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+      /* eslint-enable global-require */
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+      globalState.restoreInProgress = [];
+
+      req = { params: { appname: 'myapp', component: 'web' }, query: {}, headers: {} };
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(composedSpec);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+    });
+
+    it('answers a successful component redeploy through the stream and never a second time', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.write.called, 'the progress stream is the response').to.be.true;
+      expect(res.json.called, 'the stream already sent the headers - a res.json here throws').to.be.false;
+    });
+
+    // The failure a caller most needs to read is the one that arrives after the
+    // teardown, and that is exactly when the status line is already gone.
+    it('writes a failure that arrives mid-stream into the stream instead of sending headers', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.json.called, 'headers are gone once the body has started').to.be.false;
+      expect(res.ended, 'a caller left waiting on a stream nothing will close').to.be.true;
+      const tail = res.written[res.written.length - 1];
+      expect(tail, 'the error envelope goes into the stream where a client parses it out').to.include('Insufficient RAM');
+    });
+  });
+
   // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
   // stopSyncthingApp are complex integration functions or HTTP request handlers
   // that require extensive mocking of database connections, HTTP requests, and
