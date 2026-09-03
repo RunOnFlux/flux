@@ -1624,6 +1624,15 @@ async function softRedeployComponent(appName, componentName, res) {
       await softRegisterAppLocally(appSpecifications, componentSpec, res);
 
       log.info(`Component ${fullComponentName} softly redeployed`);
+      // The only report that a SINGLE component was replaced. app:installed and
+      // app:removed both speak for a whole app, so neither fires here and neither
+      // could: this path leaves the app installed throughout, which is the point
+      // of it. Nothing observing the node could tell a component redeploy from
+      // never having been asked - which is how this endpoint failing on every
+      // call went unnoticed.
+      fluxEventBus.publish('app:componentRedeployed', {
+        name: appName, component: componentName, identifier: fullComponentName, hard: false,
+      });
       globalState.softRedeployInProgress = false;
     } catch (error) {
       log.error(error);
@@ -1740,6 +1749,11 @@ async function hardRedeployComponent(appName, componentName, res) {
       await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
 
       log.info(`Component ${fullComponentName} hard redeployed`);
+      // Same fact as the soft path, and `hard` is the consequence that differs:
+      // the component's volume was rebuilt, so its data on this node is gone.
+      fluxEventBus.publish('app:componentRedeployed', {
+        name: appName, component: componentName, identifier: fullComponentName, hard: true,
+      });
       globalState.hardRedeployInProgress = false;
     } catch (error) {
       log.error(error);
