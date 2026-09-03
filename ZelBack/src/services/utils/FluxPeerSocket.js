@@ -481,6 +481,11 @@ const FLUX_CAPABILITIES = Object.freeze([
   'peerExchange',
   'binaryMessages',
   'appStateSync',
+  // This build answers a state-sync request it cannot usefully serve with a
+  // refusal, instead of an empty batch that reads as a completed survey. A peer
+  // that does not claim it cannot tell us it knows nothing, so it is still held
+  // to the uptime proxy - see getEligibleSyncPeers.
+  'appStateSyncRefusal',
 ]);
 
 module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };

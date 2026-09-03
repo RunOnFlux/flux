@@ -672,11 +672,22 @@ describe('FluxPeerManager tests', () => {
   // node asked its own address, timed out at zero completions, and never
   // published SPAWNER_READY.
   describe('getEligibleSyncPeers', () => {
+    // A current build: it can refuse, so it is asked whatever its uptime.
     const eligible = (m, ip) => {
       const ws = createMockWs(ip, '16127');
       const peer = m.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
       peer.remoteCapabilities.add('appStateSync');
-      peer.remoteFluxUptime = 99999;
+      peer.remoteCapabilities.add('appStateSyncRefusal');
+      return peer;
+    };
+
+    // A build that answers a request it cannot serve with an empty batch, which
+    // reads as a completed survey of an empty network.
+    const legacy = (m, ip, uptimeSeconds) => {
+      const ws = createMockWs(ip, '16127');
+      const peer = m.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
+      peer.remoteCapabilities.add('appStateSync');
+      peer.remoteFluxUptime = uptimeSeconds;
       return peer;
     };
 
@@ -685,7 +696,7 @@ describe('FluxPeerManager tests', () => {
       eligible(manager, '10.0.0.2');
       manager.setOwnSocketAddress('10.0.0.1:16127');
 
-      const keys = manager.getEligibleSyncPeers(0).map((p) => p.key);
+      const keys = manager.getEligibleSyncPeers().map((p) => p.key);
 
       expect(keys, 'a node was offered itself to sync from').to.not.include('10.0.0.1:16127');
       expect(keys).to.include('10.0.0.2:16127');
@@ -695,7 +706,49 @@ describe('FluxPeerManager tests', () => {
       eligible(manager, '10.0.0.1');
       eligible(manager, '10.0.0.2');
 
-      expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(2);
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(2);
+    });
+
+    // There is no uptime bar any more. It was 7500 seconds - the same 125
+    // minutes as the block fallback - so it only ever admitted peers that had
+    // already become authoritative the slow way, and it was read from a header
+    // the peer sets itself. A node that has just started is now asked like any
+    // other, and answers for itself: it refuses if it has not caught up.
+    it('offers a peer that has only just started but can refuse', () => {
+      const peer = eligible(manager, '10.0.0.1');
+      peer.remoteFluxUptime = 1;
+
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('offers a peer that can refuse and never said how long it had been up', () => {
+      const peer = eligible(manager, '10.0.0.1');
+      peer.remoteFluxUptime = null;
+
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    // THE MIXED FLEET. An older build cannot say it has nothing worth
+    // surveying: it answers with an empty batch, and the asker counts that as
+    // one of the three peers it needs. Asking young ones would put the original
+    // defect back during exactly the window that makes it likely - a rolling
+    // upgrade, when a great many nodes are young at once.
+    it('does not offer a young peer that cannot refuse', () => {
+      legacy(manager, '10.0.0.1', 60);
+
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(0);
+    });
+
+    it('offers an old peer that cannot refuse, because it has caught up by the slow road', () => {
+      legacy(manager, '10.0.0.1', 8000);
+
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('does not offer a peer that cannot refuse and never said how long it had been up', () => {
+      legacy(manager, '10.0.0.1', null);
+
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(0);
     });
 
     // A peer that has answered a sync request by saying its own app state is
@@ -708,7 +761,7 @@ describe('FluxPeerManager tests', () => {
 
       expect(manager.markSyncDeclined('10.0.0.1:16127')).to.equal(true);
 
-      const keys = manager.getEligibleSyncPeers(0).map((p) => p.key);
+      const keys = manager.getEligibleSyncPeers().map((p) => p.key);
       expect(keys).to.deep.equal(['10.0.0.2:16127']);
       expect(manager.has('10.0.0.1:16127'), 'a declining peer was disconnected').to.equal(true);
     });
@@ -717,7 +770,7 @@ describe('FluxPeerManager tests', () => {
       eligible(manager, '10.0.0.1');
 
       expect(manager.markSyncDeclined('203.0.113.9:16127')).to.equal(false);
-      expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(1);
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(1);
     });
 
     // The flag lives on the socket, so a peer that comes back has had time to
@@ -726,12 +779,12 @@ describe('FluxPeerManager tests', () => {
     it('offers a peer that declined again once it reconnects', () => {
       eligible(manager, '10.0.0.1');
       manager.markSyncDeclined('10.0.0.1:16127');
-      expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(0);
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(0);
 
       manager.remove('10.0.0.1:16127', 1006);
       eligible(manager, '10.0.0.1');
 
-      expect(manager.getEligibleSyncPeers(0).map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
     });
   });
 

@@ -90,8 +90,8 @@ module.exports = {
     defaultSwap: 0,
     appSyncPeerThreshold: 2,
     appSyncDegradedThreshold: 1,
-    appSyncMinPeerUptime: 0,
     appSyncMinCompletions: 1,
+    appSyncMinPeerUptime: 0,
     syncTimeoutMs: 30000,
     // 10 blocks at the stub's 5s tick, so 50s, against production's 250 blocks.
     // A fleet where every node boots at once has nobody who can answer a state

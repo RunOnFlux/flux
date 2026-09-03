@@ -28,6 +28,10 @@ const CLOSE_CODE_NAMES = Object.freeze(
   Object.fromEntries(Object.entries(CLOSE_CODES).map(([name, code]) => [code, name])),
 );
 
+// Only for peers whose build cannot refuse a sync request. Deleted with the
+// last of them, along with the branch in getEligibleSyncPeers.
+const LEGACY_MIN_PEER_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
+
 class FluxPeerManager extends EventEmitter {
   static CONNECTION_BACKOFF_MS = config.fluxapps.connectionBackoffMs ?? [2 * 60000, 5 * 60000, 10 * 60000, 15 * 60000];
 
@@ -514,7 +518,29 @@ class FluxPeerManager extends EventEmitter {
     return peer.remoteFluxUptime + (Date.now() - peer.connectedAt) / 1000;
   }
 
-  getEligibleSyncPeers(minUptimeSeconds, count) {
+  /**
+   * Peers worth asking for app state.
+   *
+   * A peer that can refuse is asked whatever its uptime, because it answers the
+   * question the uptime was standing in for. The bar was 7500 seconds and the
+   * block fallback is 125 minutes, which is the same 7500 seconds, so it only
+   * ever admitted peers that had already become authoritative by the slow road
+   * - and it was self-reported, read from a header the peer sets on its own
+   * upgrade response, so it excluded honest young nodes and no dishonest one.
+   *
+   * A peer that CANNOT refuse still has the bar, and this is the whole reason
+   * the capability exists rather than the bar simply being deleted. An older
+   * build answers a request it cannot serve with an empty batch, which is
+   * indistinguishable from a complete survey of an empty network - so dropping
+   * the bar for those would put the original defect back during exactly the
+   * window that makes it likely, a rolling upgrade with many young nodes.
+   *
+   * The branch retires with the last build that cannot refuse, and the bar and
+   * getPeerFluxUptime go with it.
+   * @param {number} [count] Cap on how many to return.
+   * @returns {Array} peers, shuffled.
+   */
+  getEligibleSyncPeers(count) {
     const eligible = [];
     const ownKey = this.#ownSocketAddress;
     for (const peer of this.#peers.values()) {
@@ -529,8 +555,10 @@ class FluxPeerManager extends EventEmitter {
       if (peer.missedPongs !== 0) continue;
       if (peer.declinedAppStateSync) continue;
       if (!peer.remoteCapabilities.has('appStateSync')) continue;
-      const uptime = this.getPeerFluxUptime(peer.key);
-      if (uptime === null || uptime < minUptimeSeconds) continue;
+      if (!peer.remoteCapabilities.has('appStateSyncRefusal')) {
+        const uptime = this.getPeerFluxUptime(peer.key);
+        if (uptime === null || uptime < LEGACY_MIN_PEER_UPTIME_SECONDS) continue;
+      }
       eligible.push(peer);
     }
     for (let i = eligible.length - 1; i > 0; i -= 1) {

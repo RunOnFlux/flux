@@ -482,7 +482,7 @@ async function startFluxFunctions() {
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({
       blockEmitter: explorerService.getBlockEmitter(),
-      getEligibleSyncPeers: (minUptime) => peerManager.getEligibleSyncPeers(minUptime)
+      getEligibleSyncPeers: () => peerManager.getEligibleSyncPeers()
         .map((p) => ({ key: p.key, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),

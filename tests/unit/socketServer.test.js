@@ -101,6 +101,34 @@ describe('FluxSocketServer tests', () => {
     });
   });
 
+  // The capability is a wire contract: a peer reads it off this header and uses
+  // it to decide whether we can be asked for app state without an uptime bar.
+  // Declaring it in the list and never sending it would leave every current
+  // build being treated as one that cannot refuse.
+  describe('the upgrade response advertises what this build speaks', () => {
+    const headersOf = () => {
+      const server = new socketServer.FluxWebsocketServer({ routes });
+      const headers = [];
+      server.wsServer.emit('headers', headers, { headers: {}, url: '/ws/flux' });
+      return headers;
+    };
+
+    it('says it can refuse a state-sync request', () => {
+      const capabilities = headersOf().find((h) => h.startsWith('X-Flux-Capabilities:'));
+
+      expect(capabilities, 'no capabilities header was sent at all').to.be.a('string');
+      expect(capabilities.split(':')[1].split(',').map((c) => c.trim()))
+        .to.include('appStateSyncRefusal');
+    });
+
+    it('still says it speaks the state sync at all', () => {
+      const capabilities = headersOf().find((h) => h.startsWith('X-Flux-Capabilities:'));
+
+      expect(capabilities.split(':')[1].split(',').map((c) => c.trim()))
+        .to.include('appStateSync');
+    });
+  });
+
   describe('admitUpgrade', () => {
     const load = (acceptingConnections) => proxyquire('../../ZelBack/src/lib/socketHandlers', {
       '../services/idService': { wsRespondLoginPhrase: sinon.stub(), wsRespondSignature: sinon.stub() },

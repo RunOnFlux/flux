@@ -241,8 +241,8 @@ module.exports = {
     minUpTime: 1800, // 30 mins
     appSyncPeerThreshold: 12,
     appSyncDegradedThreshold: 4,
-    appSyncMinPeerUptime: 60,
     appSyncMinCompletions: 3,
+    appSyncMinPeerUptime: 7500,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

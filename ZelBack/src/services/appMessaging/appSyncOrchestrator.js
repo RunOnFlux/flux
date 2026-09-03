@@ -23,7 +23,6 @@ const STATES = Object.freeze({
 
 const MIN_SYNC_COMPLETIONS = config.fluxapps.appSyncMinCompletions ?? 3;
 const SYNC_TIMEOUT_MS = config.fluxapps.syncTimeoutMs ?? 120000;
-const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
 const HASH_SYNC_MAX_RETRIES = config.fluxapps.hashSyncMaxRetries ?? 3;
 const HASH_SYNC_RETRY_MS = config.fluxapps.hashSyncRetryMs ?? 300000;
 const FALLBACK_RECHECK_BLOCKS = config.fluxapps.hashSyncFallbackRecheckBlocks ?? 100;
@@ -433,7 +432,7 @@ class AppSyncOrchestrator {
   }
 
   async #requestSyncs() {
-    const eligible = this.#getEligibleSyncPeers(MIN_UPTIME_SECONDS);
+    const eligible = this.#getEligibleSyncPeers();
     // Asked-ness is read from the peer manager rather than remembered here. A
     // peer whose connection dies between being marked and the bytes leaving is
     // removed, which drops its mark with it - so it becomes askable again
