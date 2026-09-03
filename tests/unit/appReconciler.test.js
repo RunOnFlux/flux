@@ -44,6 +44,7 @@ describe('appReconciler tests', () => {
       globalState: {
         appsMonitored: {},
         stoppingContainers: new Set(),
+        fluxRemovedContainers: new Set(),
         backupInProgress: [],
         restoreInProgress: [],
         isOperationInProgress: () => false,
@@ -621,6 +622,21 @@ describe('appReconciler tests', () => {
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'container_vanished')).to.be.true;
       expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('recreates a container FluxOS removed itself without calling it tampering', async () => {
+      // container_vanished is the heaviest tampering signal the node emits and
+      // it means one thing: a container went away and FluxOS did not take it.
+      // A teardown that fails part way leaves the app's row intact with one
+      // container already gone - an absence FluxOS caused, still reconciled -
+      // so the mark is what keeps the node from scoring its own removal against
+      // the app. The recreate is unaffected; only the accusation is withheld.
+      stubs.globalState.fluxRemovedContainers.add('fluxwww_App');
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      await appReconciler.reconcile('www_App');
+      expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'container_vanished')).to.be.false;
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
     });
 
     it('removes the app locally when recreation fails (docker reachable)', async () => {

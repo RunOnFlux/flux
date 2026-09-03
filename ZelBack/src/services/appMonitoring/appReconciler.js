@@ -440,7 +440,18 @@ async function desiredRunState(rawIdentifier) {
 async function recreateMissing(identifier) {
   const mainAppName = identifier.split('_')[1] || identifier;
 
-  await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
+  // `container_vanished` is the heaviest tampering signal this node emits and it
+  // asserts one thing: a container went away and FluxOS did not take it. FluxOS's
+  // own removals are in globalState.fluxRemovedContainers, and an absence FluxOS
+  // caused is evidence of nothing. Either way the container is recreated below -
+  // only the accusation is withheld - and the recreate drops the entry, so the
+  // next absence of this container is judged on its own.
+  const removedByFluxOs = globalState.fluxRemovedContainers.has(dockerService.getAppIdentifier(identifier));
+  if (removedByFluxOs) {
+    log.info(`appReconciler - ${identifier} is missing because FluxOS removed it; recreating without recording a tampering event`);
+  } else {
+    await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
+  }
   try {
     await containerHealthMonitor.recreateMissingContainers(identifier);
     appInspector.startAppMonitoring(identifier);
