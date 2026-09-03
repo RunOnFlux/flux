@@ -150,7 +150,21 @@ describe('a component redeploy replaces that component and leaves the app alone'
     const observerFrom = observer.getLastEventId();
 
     const body = await holder.redeployComponent(appName, subject, auth.zelidauth);
-    expect(body, `redeploycomponent refused: ${body.slice(-600)}`).to.not.match(/Unauthorized|"status"\s*:\s*"error"/i);
+
+    // The body is the progress stream, one envelope per step, so an error
+    // anywhere in it is not the same thing as a refusal. The teardown reports a
+    // tolerated one every time this suite runs: both components share a repotag,
+    // so removing the subject's image is refused with `409 conflict - container
+    // ... is using its referenced image` while the sibling still holds it. FluxOS
+    // records that and carries on, which is correct - the image is still in use.
+    // What a refusal looks like is the LAST envelope: an auth refusal is the
+    // whole body, and a mid-stream failure is what the stream now closes on.
+    const statuses = [...body.matchAll(/"status"\s*:\s*"([^"]*)"/g)].map((m) => m[1]);
+    expect(body, `redeploycomponent refused: ${body.slice(0, 400)}`).to.not.match(/Unauthorized/i);
+    expect(
+      statuses[statuses.length - 1],
+      `redeploycomponent did not finish: ${body.slice(-600)}`,
+    ).to.equal('success');
 
     await waitForComponentRedeployed(holder, appName, subject, false, 240000, { afterId: holderFrom });
 
