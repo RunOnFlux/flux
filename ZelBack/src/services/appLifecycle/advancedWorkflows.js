@@ -1822,14 +1822,15 @@ async function redeployComponentAPI(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
 
+    // The progress stream is the response: both paths write each step into it as
+    // they go, and the last thing they write is the outcome. A further res.json
+    // here would set headers on a body that has already started, which throws
+    // into the catch below and takes the connection down with it.
     if (force) {
       await hardRedeployComponent(appname, component, res);
     } else {
       await softRedeployComponent(appname, component, res);
     }
-
-    const successMessage = messageHelper.createSuccessMessage(`Component ${component} of ${appname} redeployed successfully`);
-    res.json(successMessage);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1837,6 +1838,18 @@ async function redeployComponentAPI(req, res) {
       error.name,
       error.code,
     );
+    // Before anything has been written the status line is still ours, so a
+    // refusal can be answered as one. Once the body has started it cannot, and
+    // the envelope goes into the stream where a client parses it out.
+    if (res.headersSent) {
+      try {
+        res.write(serviceHelper.ensureString(errorResponse));
+        res.end();
+      } catch (writeError) {
+        log.error(writeError);
+      }
+      return;
+    }
     res.json(errorResponse);
   }
 }
