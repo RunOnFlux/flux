@@ -54,6 +54,29 @@ let dosMessage = null;
 let stickyDosState = 0;
 let stickyDosMessage = null;
 
+// Who may hold this node back from placement. An owner is an IDENTITY, not a
+// message: the reason is what an operator reads, and the owner is what a release
+// is checked against. Adding a feature that holds placement means adding a value
+// here, which is the point - an unknown owner is refused rather than accepted as
+// a new one.
+const PlacementHoldOwner = Object.freeze({
+  RESIDENTIAL_DOS: 'residentialDos',
+});
+
+// Stops the node taking on NEW apps without declaring it unfit for the ones it
+// already runs. DOS conflates those: isNodeDos() makes appSpawner refuse
+// installs AND makes nodeStatusMonitor and appStartupManager delete every app on
+// the box. A node that must stop growing but keep its customer volumes needs
+// only the first, so this is a separate flag whose only consumer is the spawner.
+//
+// owner -> reason, rather than one slot. A single slot cannot express two
+// owners: a second hold OVERWROTE the first, and whoever cleared next released
+// both - so the node resumed taking apps for a condition that had not lifted.
+// Checking ownership on a single slot only moves the failure, because the
+// overwritten owner can then never clear and the node stays held forever. The
+// node is held while any owner holds it.
+const placementHolds = new Map();
+
 let storedFluxBenchAllowed = null;
 let ipChangeData = null;
 let dosTooManyIpChanges = false;
@@ -97,9 +120,12 @@ async function isInterfaceUp(interfaceName) {
 }
 
 /**
- * Gets the IP address assigned to a specific network interface.
+ * Gets the first routable IPv4 address assigned to a network interface. An
+ * interface can carry a private primary and a public secondary; stopping at
+ * the first non-internal address would answer for whichever the kernel lists
+ * first rather than for the interface.
  * @param {string} interfaceName - The name of the network interface
- * @returns {string|null} The IPv4 address or null if not found
+ * @returns {string|null} The routable IPv4 address or null if none is bound
  */
 function getInterfaceIp(interfaceName) {
   const interfaces = os.networkInterfaces();
@@ -107,7 +133,7 @@ function getInterfaceIp(interfaceName) {
   if (!iface) return null;
 
   for (const addr of iface) {
-    if (addr.family === 'IPv4' && !addr.internal) {
+    if (addr.family === 'IPv4' && !addr.internal && !serviceHelper.isNonRoutableAddress(addr.address)) {
       return addr.address;
     }
   }
@@ -119,7 +145,9 @@ function getInterfaceIp(interfaceName) {
  * This is a strong indicator of a static IP (data center/VPS/dedicated server).
  * Uses the Linux routing table to find the default route interface, then checks
  * if that interface has a public IP assigned.
- * @returns {Promise<boolean>} True if a public IP is configured on the default route interface
+ * @returns {Promise<boolean|null>} True if a public IP is configured on the
+ *   default route interface, false if none is, null if the routing table could
+ *   not be read - which is not the same answer as "there is none".
  */
 async function hasPublicIpOnInterface() {
   try {
@@ -172,7 +200,7 @@ async function hasPublicIpOnInterface() {
       const isUp = await isInterfaceUp(route.iface);
       if (isUp) {
         const ip = getInterfaceIp(route.iface);
-        if (ip && !serviceHelper.isNonRoutableAddress(ip)) {
+        if (ip) {
           log.info(`Public IP ${ip} found on default route interface ${route.iface}`);
           return true;
         }
@@ -181,8 +209,13 @@ async function hasPublicIpOnInterface() {
 
     return false;
   } catch (error) {
+    // Null, not false. "There is no public address on any interface" is a fact
+    // about the node; "I could not read the routing table" is a fact about this
+    // process, and answering the second with the first asserts NAT on a node
+    // that may well hold a public address. The one caller that decides anything
+    // on this treats null as unknown.
     log.error(`Failed to check network interfaces via routing table: ${error.message}`);
-    return false;
+    return null;
   }
 }
 
@@ -847,6 +880,7 @@ function getDosMessage() {
  */
 function setStickyDosMessage(message) {
   stickyDosMessage = message;
+  publishEffectiveDosState();
 }
 
 /**
@@ -863,6 +897,30 @@ function getStickyDosMessage() {
 function clearStickyDosMessage() {
   stickyDosMessage = null;
   stickyDosState = 0;
+  publishEffectiveDosState();
+}
+
+/**
+ * Publish the DOS state a reader would actually see.
+ *
+ * isNodeDos() answers on `stickyDosMessage ? stickyDosState : dosState`, so the
+ * effective value moves when EITHER half of the sticky pair moves, and neither
+ * setter emitted anything. A consumer therefore had to poll /flux/info, and a
+ * poll cannot order a DOS against anything else: the installed-apps record
+ * outlives the removal it follows by ~20s, so two polls of two sources disagree
+ * about what happened first. On one event stream the ids settle it.
+ *
+ * Inert in production - fluxEventBus.publish returns immediately unless
+ * config.testEventStream is set, which it is only under the harness. This is
+ * not the 21-site refactor noted below getDosStateValue; that one is about the
+ * product's own scattered dosState mutations.
+ */
+function publishEffectiveDosState() {
+  const effectiveDosState = stickyDosMessage ? stickyDosState : dosState;
+  fluxEventBus.publish('dos:changed', {
+    dosState: effectiveDosState,
+    dosMessage: stickyDosMessage || dosMessage,
+  });
 }
 
 /**
@@ -871,6 +929,7 @@ function clearStickyDosMessage() {
  */
 function setStickyDosStateValue(value) {
   stickyDosState = value;
+  publishEffectiveDosState();
 }
 
 /**
@@ -901,6 +960,53 @@ function getDosStateValue() {
 function isNodeDos() {
   const effectiveState = stickyDosMessage ? stickyDosState : dosState;
   return effectiveState >= 100;
+}
+
+/**
+ * Hold this node back from new placements. Idempotent per owner.
+ * @param {string} owner A PlacementHoldOwner value. An unknown one throws: it is
+ * a caller that was never given an identity, and accepting it would create an
+ * owner nothing can ever release.
+ * @param {string} reason Logged and reported.
+ */
+function setPlacementHold(owner, reason) {
+  if (!Object.values(PlacementHoldOwner).includes(owner)) {
+    throw new Error(`setPlacementHold: unknown owner ${owner}`);
+  }
+  if (placementHolds.get(owner) === reason) return;
+  placementHolds.set(owner, reason);
+  log.info(`Placement hold set by ${owner}: ${reason}`);
+}
+
+/**
+ * Release one owner's hold. Any other owner's hold stands, and the node stays
+ * held until every one of them has released - so a feature clearing its own
+ * condition can never speak for a condition it knows nothing about.
+ * @param {string} owner A PlacementHoldOwner value.
+ */
+function clearPlacementHold(owner) {
+  const reason = placementHolds.get(owner);
+  if (reason === undefined) return;
+  placementHolds.delete(owner);
+  log.info(`Placement hold cleared by ${owner} (was: ${reason})`);
+}
+
+/**
+ * @returns {string|null} Why the node is held, or null when it is not.
+ */
+function getPlacementHold() {
+  if (!placementHolds.size) return null;
+  // Every reason, not an arbitrary one: the spawner logs this to say why the
+  // node is not installing, and naming one of two holds would send an operator
+  // to lift a condition that would not release the node.
+  return [...placementHolds.values()].join('; ');
+}
+
+/**
+ * @returns {boolean} True when this node must not take on new apps.
+ */
+function isPlacementHeld() {
+  return placementHolds.size > 0;
 }
 
 /**
@@ -2580,6 +2686,11 @@ module.exports = {
   setDosStateValue,
   getDosStateValue,
   isNodeDos,
+  PlacementHoldOwner,
+  setPlacementHold,
+  clearPlacementHold,
+  getPlacementHold,
+  isPlacementHeld,
   setStickyDosMessage,
   getStickyDosMessage,
   clearStickyDosMessage,

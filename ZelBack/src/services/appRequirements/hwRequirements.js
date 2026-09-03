@@ -124,7 +124,15 @@ async function nodeFullGeolocation() {
 }
 
 /**
- * To check app requirements of staticip restrictions for a node
+ * To check app requirements of staticip restrictions for a node.
+ *
+ * `staticip` means the node is directly connected - a public address on its own
+ * interface - and has not been seen to move. Both halves are required: an app
+ * asking for this needs a fixed ip:port that stays REACHABLE, and a node
+ * reaching the world through a NAT port mapping promises neither, however
+ * stable its upstream address is. A range-level "this is a hosting network"
+ * verdict answers neither half, so it confers nothing here. The full rule, and
+ * the fleet census behind it, are in geolocationService's decision table.
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
  */

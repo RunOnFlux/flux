@@ -128,6 +128,31 @@ export function dbClient(nodeNum) {
       return cpDb.collection('chainmessages').find({}).toArray();
     },
 
+    // residentialNodeDosService's settling window. Persisted so that restarting
+    // FluxOS cannot restart the clock; a suite reads it to tell "held" from
+    // "evacuating", and writes it to put the window in the past.
+    async residentialMarker() {
+      const localDb = await db('local');
+      return localDb.collection('nodestartuptracker').findOne({ _id: 'residentialDos' });
+    },
+
+    // Serve the settling window without waiting it out.
+    //
+    // The gate counts time the node OBSERVED the verdict, not time that passed,
+    // so backdating residentialSince alone no longer serves it - that field is
+    // kept for the operator reading the record. observedMs is what the node
+    // compares against residentialSettleMs, and lastConfirmedAt is set to now so
+    // the node's next tick credits nothing on top and the total stays put.
+    async serveSettleWindow(observedMs = 48 * 60 * 60 * 1000) {
+      const localDb = await db('local');
+      const now = Date.now();
+      await localDb.collection('nodestartuptracker').updateOne(
+        { _id: 'residentialDos' },
+        { $set: { residentialSince: now - observedMs, lastConfirmedAt: now, observedMs } },
+        { upsert: true },
+      );
+    },
+
     async geolocation() {
       const localDb = await db('local');
       return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });
@@ -166,36 +191,6 @@ export function dbClient(nodeNum) {
       await explorerDb.collection('scannedheight').updateOne(
         {},
         { $set: { generalScannedHeight: height } },
-        { upsert: true },
-      );
-    },
-
-    async seedGeolocation(ip) {
-      const localDb = await db('local');
-      await localDb.collection('geolocation').updateOne(
-        { _id: 'nodeGeolocation' },
-        {
-          $set: {
-            geolocation: {
-              ip,
-              continent: 'Europe',
-              continentCode: 'EU',
-              country: 'Germany',
-              countryCode: 'DE',
-              region: 'HE',
-              regionName: 'Hesse',
-              lat: 50.1109,
-              lon: 8.6821,
-              org: 'Test Network',
-              static: true,
-              dataCenter: true,
-            },
-            staticIp: true,
-            dataCenter: true,
-            lastIpChangeDate: null,
-            updatedAt: Date.now(),
-          },
-        },
         { upsert: true },
       );
     },
@@ -276,6 +271,23 @@ export function dbClient(nodeNum) {
       await globalDb.collection('appstateevents').insertOne(event);
     },
 
+    /**
+     * The same, for a whole set, in ONE round trip.
+     *
+     * These events carry `broadcastedAt`, and the window that accepts them is
+     * real - messageStore refuses a broadcast older than locationTtlS, which the
+     * harness compresses to 63s. Seeding a few hundred of them an insertOne at a
+     * time costs more wall-clock than the window itself, so the events expire
+     * during their own seeding and the suite reads an empty location list rather
+     * than a rejected message. Ordered, because a suite that seeds two broadcasts
+     * from one node is usually proving which of them wins.
+     */
+    async seedAppStateEvents(events) {
+      if (!events.length) return;
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('appstateevents').insertMany(events, { ordered: true });
+    },
+
     async seedLocalApp(spec) {
       const localDb = await db('appsLocal');
       await localDb.collection('zelappsinformation').insertOne(spec);
@@ -304,15 +316,6 @@ export function dbClient(nodeNum) {
         broadcastedAt: new Date(ts),
         expireAt: new Date(ts + 24 * 60 * 60 * 1000),
       });
-    },
-
-    async dropAndReseed(ip, height) {
-      const client = await getClient();
-      for (const name of Object.values(dbNames)) {
-        await client.db(name).dropDatabase();
-      }
-      await this.seedScannedHeight(height);
-      await this.seedGeolocation(ip);
     },
 
     async failpointFind(collection, { times = 1, errorCode = 50 } = {}) {

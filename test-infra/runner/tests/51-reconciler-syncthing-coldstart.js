@@ -9,6 +9,7 @@ import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { syncthingSeedIndex } from '../framework/g-app-placement.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -59,7 +60,10 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
   const rApp = `e2ecoldr${Date.now()}`;
   const gApp = `e2ecoldg${Date.now()}`;
   const holders = [0, 1, 2];
-  const seedIndex = holders[0]; // lowest IP among the holders = the deterministic seed
+  // Asked rather than assumed. `holders[0]` is the lowest address only while the
+  // list happens to be written in order, and it silently names the wrong node
+  // for the first fixture that is not.
+  const seedIndex = syncthingSeedIndex(holders);
 
   before(async function () {
     this.timeout(480000);

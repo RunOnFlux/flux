@@ -88,6 +88,29 @@ let continentByCountry = new Map();
 // codes, while an app's geolocation may name a region the way ip-api does, and
 // this is what connects the two.
 let regionCodeByName = new Map();
+
+// Organisation token -> network class, from the header's optional orgClasses.
+// The classification is decided in the policy repo, where evidence a node cannot
+// gather for itself (the registries' own record of what a block was assigned
+// for) is available; here it is only read.
+const NETWORK_CLASS_BY_CODE = Object.freeze({ 1: 'RESIDENTIAL', 2: 'DATACENTER' });
+
+/**
+ * The class a wire code names, or null when this build does not know it.
+ *
+ * An explicit comparison rather than a property lookup: `NETWORK_CLASS_BY_CODE[code]`
+ * answers for every member of Object.prototype, so a header carrying
+ * `{"<token>": "toString"}` would pass a truthiness check and store an inherited
+ * function as an organisation's network class.
+ * @param {*} code The code as it appears in the header.
+ * @returns {string|null} The class name, or null.
+ */
+function classForCode(code) {
+  if (code === 1) return NETWORK_CLASS_BY_CODE[1];
+  if (code === 2) return NETWORK_CLASS_BY_CODE[2];
+  return null;
+}
+let networkClassByOrg = new Map();
 let minimumRowCount = MIN_ROW_COUNT;
 // The per-node view, resident. It is a decoration on the node list - one small
 // fact per listed address - and the node list lives in this process, so keeping
@@ -217,10 +240,12 @@ function parseHeader(buf) {
       throw malformed(`header continents.${country} is not a token`);
     }
   });
-  // The region-name vocabulary, keyed '<CC>|<name>'. Optional: a baseline built
-  // before it existed carries none, and without it a spec that names a region
-  // the way ip-api does is answered at country granularity - the same place a
-  // name this vocabulary cannot resolve lands, and the safe direction.
+  // The region-name vocabulary, keyed '<CC>|<name>'. Optional because its
+  // absence degrades safely: a spec naming a region the way ip-api does is then
+  // answered at country granularity, the same place a name this vocabulary
+  // cannot resolve lands. Requiring it would trade that conservative fallback
+  // for rejecting the whole table - losing country, region and organisation with
+  // it - which is the worse failure, not the stricter one.
   const regionNameEntries = Object.entries(header.regionNames ?? {});
   if (typeof (header.regionNames ?? {}) !== 'object' || Array.isArray(header.regionNames)) {
     throw malformed('header section regionNames is not an object');
@@ -231,11 +256,50 @@ function parseHeader(buf) {
       throw malformed(`header regionNames.${key} is not a token`);
     }
   });
+  // Which organisations run access networks and which sell hosting. Optional for
+  // the same reason regionNames is: an organisation absent from the map has no
+  // verdict, and a consumer that acts against nodes must do nothing without one,
+  // so its absence costs enforcement rather than misdirecting it.
+  const orgClassEntries = Object.entries(header.orgClasses ?? {});
+  if (typeof (header.orgClasses ?? {}) !== 'object' || Array.isArray(header.orgClasses)) {
+    throw malformed('header section orgClasses is not an object');
+  }
+  const orgClasses = new Map();
+  orgClassEntries.forEach(([token, code]) => {
+    // SKIPPED, not rejected. This vocabulary is a closed two-value enum here and
+    // a separate closed enum in the publisher's repo, and the artifact carries
+    // codes rather than names, so nothing binds them: adding a third class there
+    // and merging IS publishing - config.policy.baseUrl reads the branch head,
+    // with no FluxOS release in the loop. Throwing would take the next fetch on
+    // every node down with it, so a node holding no baseline yet would get none
+    // and every other node would silently stop updating - country, continent,
+    // region and organisation for two million rows, over one value in an
+    // optional section.
+    //
+    // That is the trade this file already refuses forty lines above, for
+    // regionNames: "the worse failure, not the stricter one". An organisation
+    // this build has no verdict for is a state lookup already returns
+    // (networkClass: null) and which enforces nothing, so an unreadable code
+    // costs exactly the enforcement it should and nothing else.
+    //
+    // Compared against the values rather than looked up, so a header saying
+    // "toString" cannot pass on an inherited function and store it as a class -
+    // the same hazard the Maps below are built to avoid, three lines away.
+    const known = classForCode(code);
+    if (!known) {
+      log.warn(`ipLocationStore - orgClasses.${token} carries class code ${JSON.stringify(code)},`
+        + ' which this build does not know; that organisation is left unclassified');
+      return;
+    }
+    orgClasses.set(token, known);
+  });
+
   return {
     header,
     // Maps, so a country named after an Object.prototype member reads as itself
     continents: new Map(continentEntries),
     regionNames: new Map(regionNameEntries),
+    orgClasses,
     rowCount: buf.readUInt32LE(rowCountOffset),
     rowsOffset: rowCountOffset + 4,
   };
@@ -391,6 +455,7 @@ async function writeIngestMarker(database, parsed) {
         // the artifact
         continents: Object.fromEntries(parsed.continents),
         regionNames: Object.fromEntries(parsed.regionNames),
+        orgClasses: Object.fromEntries(parsed.orgClasses),
         ingestedAt: Date.now(),
       },
     },
@@ -429,6 +494,7 @@ async function setArtifact(bytes) {
   status = { ready: true, generated: parsed.header.generated, rowCount: parsed.rowCount };
   continentByCountry = parsed.continents;
   regionCodeByName = parsed.regionNames;
+  networkClassByOrg = parsed.orgClasses;
   await writeIngestMarker(database, parsed);
   log.info(`ipLocationStore - baseline installed: ${parsed.rowCount} ranges, generated ${parsed.header.generated}`);
   return { generated: status.generated, rowCount: status.rowCount };
@@ -456,6 +522,7 @@ async function adoptPersistedStatus() {
   status = { ready: true, generated: marker.generated, rowCount: marker.rowCount ?? 0 };
   continentByCountry = new Map(Object.entries(marker.continents ?? {}));
   regionCodeByName = new Map(Object.entries(marker.regionNames ?? {}));
+  networkClassByOrg = new Map(Object.entries(marker.orgClasses ?? {}));
   log.info(`ipLocationStore - adopted the stored baseline: ${status.rowCount} ranges, generated ${status.generated}`);
   return true;
 }
@@ -602,6 +669,9 @@ async function lookup(ip) {
     countryCode: row.c ?? null,
     continentCode: row.n ?? null,
     region: row.r ?? null,
+    // null, never a third class value: an organisation with no published verdict
+    // is one nothing may act on, and that must not be confusable with a verdict.
+    networkClass: (row.o && networkClassByOrg.get(row.o)) || null,
   };
 }
 
@@ -732,6 +802,7 @@ function clear() {
   status = { ready: false, generated: null, rowCount: 0 };
   continentByCountry = new Map();
   regionCodeByName = new Map();
+  networkClassByOrg = new Map();
   minimumRowCount = MIN_ROW_COUNT;
   nodeView = new Map();
   nodeViewLoaded = false;

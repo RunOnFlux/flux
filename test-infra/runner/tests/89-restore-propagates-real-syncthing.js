@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
@@ -106,6 +106,30 @@ describe('a restore reaches the other instances through syncthing', function () 
   it('carries a restore to the other instance without redeploying it', async function () {
     this.timeout(420000);
     const [a, b] = env.clients;
+
+    // THE APP MUST BE SETTLED BEFORE ITS DATA IS REPLACED. A restore stops the
+    // component to swap what is underneath it, and appendRestoreTask refuses -
+    // correctly - when it cannot: "could not be stopped, so its data cannot be
+    // replaced safely".
+    //
+    // Test one waits for the two syncthing DAEMONS to find each other, which is a
+    // different fact from this app's own leader election having finished. On the
+    // 2026-08-31 gate the election named a leader and requested the start 11ms
+    // before the restore arrived, the stop met a start already in flight, and the
+    // refusal came back as a 200 whose body was still "Pausing syncthing folder".
+    //
+    // It only surfaced once findSyncedPeer was repaired: while that function
+    // returned null without asking a single device, the transition never got this
+    // far this early. The race was always there, waiting for the election to be
+    // able to run.
+    //
+    // Waited on the container's STATE, not on a `started` actuation: this suite's
+    // own before() installs the app, so an unanchored wait for that event is
+    // satisfied by the install rather than by the leader start.
+    await waitFor(async () => {
+      const status = await getAppContainerStatus(a.container, appName);
+      return Boolean(status && status.status.startsWith('Up'));
+    }, { timeout: 180000, interval: 3000, label: 'the app is running and stoppable before its data is replaced' });
 
     // an archive holding one identifiable file, so its arrival on the peer is
     // unambiguous rather than inferred from a byte count

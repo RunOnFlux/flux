@@ -11,6 +11,10 @@ const syncthingServiceMock = {
   systemRestart: sinon.stub(),
   getConfig: sinon.stub(),
   getDbCompletion: sinon.stub(),
+  // findSyncedPeer asks for this node's own device so it can skip it: every
+  // folder's device list begins with the local device, and its copy trivially
+  // reports 100% complete.
+  getDeviceId: sinon.stub().resolves('LOCAL-DEVICE'),
   getConfigDevices: sinon.stub(),
   dbRevert: sinon.stub(),
   systemPause: sinon.stub(),
@@ -1892,6 +1896,61 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
 
       expect(result.isSafe).to.be.true;
+    });
+  });
+
+  describe('findSyncedPeer excludes this node', () => {
+    // Every folder's device list BEGINS with the local device - see
+    // syncthingMonitorHelpers, `const devices = [{ deviceID: myDeviceId }]` -
+    // and this node's own copy trivially reports 100% with globalBytes > 0.
+    // What separated "a peer holds it" from "I hold it" was only that syncthing
+    // does not report remoteState 'valid' for the local device: an incidental
+    // property of a field read with a default, not an intention.
+    // getConfig and getDbCompletion answer with the value, not a {status, data}
+    // envelope. Stubbed the old way, findSyncedPeer bailed at the folder lookup
+    // and returned null without asking a device - which is what the first test
+    // below asserts, so it passed with the self-exclusion it exists to prove
+    // deleted.
+    beforeEach(() => {
+      syncthingServiceMock.getConfig.resolves({
+        folders: [{ id: 'fluxappone', devices: [{ deviceID: 'LOCAL-DEVICE' }] }],
+      });
+    });
+
+    it('does not accept this node\'s own copy as a peer holding the data', async () => {
+      // If it were asked, the local device would answer exactly like a healthy
+      // peer - so the test makes it answer that way.
+      syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+
+      const peer = await stateMachine.findSyncedPeer('fluxappone');
+
+      expect(peer).to.equal(null);
+      sinon.assert.notCalled(syncthingServiceMock.getDbCompletion);
+    });
+
+    it('still accepts a genuine peer alongside the local device', async () => {
+      syncthingServiceMock.getConfig.resolves({
+        folders: [{
+          id: 'fluxappone',
+          devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PEER-DEVICE' }],
+        }],
+      });
+      syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+
+      const peer = await stateMachine.findSyncedPeer('fluxappone');
+
+      expect(peer).to.not.equal(null);
+      expect(peer.deviceID).to.equal('PEER-DEVICE');
+    });
+
+    it('excludes nothing when this node cannot establish its own device id', async () => {
+      // The safe direction: the completion checks still have to pass.
+      syncthingServiceMock.getDeviceId.rejects(new Error('syncthing unreachable'));
+      syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+
+      const peer = await stateMachine.findSyncedPeer('fluxappone');
+
+      expect(peer).to.not.equal(null);
     });
   });
 });

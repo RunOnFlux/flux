@@ -10,6 +10,7 @@ import { waitFor } from '../framework/wait.js';
 import {
   bootAndPeer, placeGAppInOrder, electionIndexOf,
 } from '../framework/reconciler-suite.js';
+import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -39,9 +40,12 @@ describe('masterSlave election on a three-node fleet', function () {
   const appName = `e2esmall${Date.now()}`;
   const folder = `flux${appName}_${appName}`;
   const holders = [0, 1];
-  const seedIndex = 0; // lowest IP of the two holders
+  // The seed is the lowest address among the holders and the election does not
+  // choose it - g-app-placement.js owns that rule, so this suite states the
+  // shape it wants rather than re-deriving how to get there.
+  const seedIndex = syncthingSeedIndex(holders);
   // Seed placed second, so it carries the later runningSince and lands at index 1.
-  const placementOrder = [1, 0];
+  const placementOrder = placementOrderWithSeedAt(holders, 1);
 
   const countUp = async () => (await Promise.all(
     holders.map((i) => isUp(env.clients[i], appName)),

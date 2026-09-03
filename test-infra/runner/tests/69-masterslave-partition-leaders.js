@@ -11,6 +11,7 @@ import { waitFor } from '../framework/wait.js';
 import {
   bootAndPeer, placeGAppInOrder, electionIndexOf,
 } from '../framework/reconciler-suite.js';
+import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -51,8 +52,11 @@ describe('a g: app with holders on both sides of a partition', function () {
   const appName = `e2epart${Date.now()}`;
   const folder = `flux${appName}_${appName}`;
   const holders = [0, 1, 2];
-  const seedIndex = 0; // lowest IP among the holders = the syncthing seed
-  const placementOrder = [1, 0, 2]; // seed carries the middle runningSince
+  // The seed is the lowest address among the holders and the election does not
+  // choose it - g-app-placement.js owns that rule, so this suite states the
+  // shape it wants rather than re-deriving how to get there.
+  const seedIndex = syncthingSeedIndex(holders);
+  const placementOrder = placementOrderWithSeedAt(holders, 1); // seed carries the middle runningSince
   // The seed's side and the standbys' side. Non-holders pad each group so both stay
   // above the peer floor and neither degrades - the partition must be a network event,
   // not a peer-count event.

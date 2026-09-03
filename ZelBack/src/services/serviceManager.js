@@ -56,6 +56,7 @@ const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
+const residentialNodeDosService = require('./residentialNodeDosService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -421,6 +422,16 @@ async function startFluxFunctions() {
     // we can remove this.
     await dbHelper.repairNanInAppsMessagesDb();
 
+    // The location table this node already holds, brought back as soon as the
+    // database is up. Detached and best-effort - every consumer degrades safely
+    // without it. On a node that has run before this is a single marker read
+    // against rows already in mongo, so the residential verdict and placement's
+    // fault domains hold their table within milliseconds of boot rather than
+    // behind the app-database rebuild, which neither depends on. Fetching a NEW
+    // baseline is the expensive half and stays in startDbDependentServices,
+    // where its two-million-row ingest cannot land on top of that rebuild.
+    ipLocationSync.restoreCachedTable().catch((err) => log.error(`ipLocationSync restore error: ${err.message}`));
+
     // Check for apps with incorrect volume mounts (containing /flux/ path)
     log.info('Checking for apps with incorrect volume mounts...');
     setTimeout(() => {
@@ -518,6 +529,20 @@ async function startFluxFunctions() {
     fluxNetworkHelper.checkDeterministicNodesCollisions();
     appTamperingBlocklistService.start().catch((err) => {
       log.error(`appTamperingBlocklist start error: ${err.message}`);
+    });
+    // Not awaited, and started ahead of setNodeGeolocation below on purpose: the
+    // first tick reads geolocation from the db when there is one, and otherwise
+    // decides nothing and retries until the lookup this boot has landed.
+    //
+    // Injected the same way nodeStatusMonitor is, and for the same reason: the
+    // app list is read from a query service deep enough in the lifecycle graph
+    // that requiring it here would put geolocation and the network helper on
+    // that load path. Removing the app is not this service's job - the single
+    // give-up-an-app pass in advancedWorkflows does that.
+    residentialNodeDosService.start({
+      installedAppsFn: appQueryService.installedApps,
+    }).catch((err) => {
+      log.error(`residentialNodeDos start error: ${err.message}`);
     });
     log.info('Flux checks operational');
     fluxCommunication.initializeDiscovery();
@@ -630,8 +655,11 @@ async function startFluxFunctions() {
       await globalState.waitForDbReady();
       log.info('DB ready - starting db-dependent services');
       // Interim until policyStore supersedes it at the userconfig rebase (see the
-      // module header): restore the iplocation table from its GridFS cache and keep
-      // it fresh. Detached - placement degrades to /16 arithmetic without a table.
+      // module header): keep the iplocation table fresh. The cached copy is
+      // already back - restoreCachedTable ran with the schema prep above - so
+      // what starts here is the fetch loop, whose ingest is the half worth
+      // keeping clear of the rebuild that just finished. Detached; placement
+      // degrades to /16 arithmetic without a table.
       ipLocationSync.startSync().catch((err) => log.error(`ipLocationSync start error: ${err.message}`));
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
       await identityReady;

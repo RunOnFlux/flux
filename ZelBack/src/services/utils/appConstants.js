@@ -76,12 +76,37 @@ const defaultNodeSpecs = {
   ssdStorage: 0,
 };
 
-// Expiry / TTL constants (milliseconds)
+// Expiry / TTL constants (milliseconds).
+//
+// The three stamped onto records live in config as seconds, so the harness can
+// compress them the way it compresses every other cadence; the literal after
+// `??` is the production default and is what a node runs when the key is absent.
+// They lived here as bare literals from the day expiry moved per-document: the
+// config keys were wired to the collection-level TTL indexes that scheme
+// replaced, so when those indexes were dropped the keys were left reading
+// nothing, and a later unused-variable sweep removed the last binding to them.
+// Reading config here cannot reintroduce the cycle those literals were moved to
+// break - that was messageVerifier -> registryManager -> messageStore ->
+// messageVerifier, entirely between services, and `config` is a leaf this file
+// already requires for the collection names above.
 const GOSSIP_VALIDITY_MS = 5 * 60 * 1000;
-const RUNNING_EXPIRY_MS = 125 * 60 * 1000;
-const INSTALLING_EXPIRY_MS = 15 * 60 * 1000;
-const INSTALLING_ERRORS_EXPIRY_MS = 24 * 60 * 60 * 1000;
-const SIGTERM_EXPIRY_MS = 420 * 1000;
+const RUNNING_EXPIRY_MS = (config.fluxapps.locationTtlS ?? 7500) * 1000;
+const INSTALLING_EXPIRY_MS = (config.fluxapps.installingTtlS ?? 900) * 1000;
+const INSTALLING_ERRORS_EXPIRY_MS = (config.fluxapps.installErrorTtlS ?? 86400) * 1000;
+// The grace a node gets after announcing its own shutdown, before peers treat
+// its locations as gone. Config-driven like the three above, and for the same
+// reason they are: a harness that compresses RUNNING_EXPIRY_MS and cannot
+// compress this one inverts the pair. The `||` in appStartupManager's
+// locationsExpired then fires on the running expiry first and this window
+// becomes unreachable - a clean shutdown gets no grace at all, which is the
+// opposite of what it is for.
+//
+// NOT compressible by the same ratio as RUNNING_EXPIRY_MS, though. What that
+// one is coupled to is the announce interval, which is a compressed clock; what
+// THIS one is measured across is a node boot, and a boot is real work the
+// harness does not compress - see installingTtlS above for the same argument.
+// Bound it by what it must outlive, not by a factor.
+const SIGTERM_EXPIRY_MS = (config.fluxapps.sigtermExpiryS ?? 420) * 1000;
 const EVICTED_EXPIRY_MS = RUNNING_EXPIRY_MS;
 
 // Hash sync constants (blocks, at 30s per block)

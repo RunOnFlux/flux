@@ -113,9 +113,47 @@ module.exports = {
     bootDelayMultiplier: 0.01,
     spawnDelayMs: 10000,
     removalSpacingMs: 1000,
-    locationTtlS: 300,
-    installingTtlS: 60,
-    installErrorTtlS: 300,
+    // Per-document expiry for the ephemeral app collections, in seconds. These
+    // three also serve as GOSSIP ACCEPTANCE WINDOWS - messageStore drops an
+    // incoming broadcast whose broadcastedAt is older than the window - so a
+    // value below what the fleet takes to produce and deliver a message does
+    // not make a suite faster, it makes peers refuse each other.
+    //
+    // They read as 300/60/300 from the day the harness was first stood up until
+    // 2026-08-20 and none of them ever took effect: the config keys were wired
+    // to collection-level TTL indexes that were dropped when expiry moved
+    // per-document, so every suite ran on the production durations while this
+    // file claimed otherwise. The numbers below are derived; the old ones were
+    // round guesses that nothing could contradict.
+    //
+    // A running-app location record is refreshed by the peerNotifyIntervalMs
+    // re-announce, so the ratio between them IS the property: how many
+    // announcements a node may miss before its apps look gone. Production is
+    // 7500s/3600s = 2.08, so this tracks the announce interval's 120x.
+    locationTtlS: 63, // 2.10 announces, against production's 2.08
+    // NOT the announce ratio, deliberately. What locationTtlS is coupled to is
+    // a compressed clock; what this is measured across is a NODE BOOT, and the
+    // harness does not compress boots. Measured on cindy under a MAXN=6 gate: a
+    // fixture pinning 300s of downtime was read by the node as 316s, so a boot
+    // costs 16s of drift. At production's 120x this key would be 3.5s - smaller
+    // than the drift - and the within-the-window test could never pass.
+    //
+    // So it is bounded by what it must outlive, like installingTtlS below:
+    // comfortably above the 16s drift, comfortably below locationTtlS's 63s so
+    // the ordering holds and a clean shutdown still gets a grace the running
+    // expiry does not pre-empt. coupled-knobs.js asserts both ends.
+    sigtermExpiryS: 30,
+    // NOT compressed, and not compressible by a ratio. What this must outlive is
+    // an install, and the harness does not compress installs - they are real
+    // image pulls and real container starts. The suites' own budgets say so:
+    // waitForAppInstalled is given 120s routinely and 300s at the top end. At
+    // the old 60s the marker expired mid-install and peers rejected any
+    // installing claim older than a minute; suite 78 reads exactly that claim.
+    installingTtlS: 900,
+    // NOT compressed, for the same reason: the errors it accumulates come from
+    // real failed installs, and suite 27 waits for five of them to reach the
+    // network-wide threshold. No knob paces that, so there is no ratio to hold.
+    installErrorTtlS: 86400,
     tempMsgTtlS: 300,
     hashSyncIntervalMs: 30000,
     peerNotifyIntervalMs: 30000,
@@ -149,6 +187,29 @@ module.exports = {
     },
     spawnDelayMultiplier: 0.002,
     daemonInfoIntervalMs: 5000,
+    // The poll is NOT how often the chain is asked - pollForNewBlocks reads a
+    // height cached by daemonServiceMiscRpcs and refreshed on its own
+    // daemonInfoIntervalMs timer. It is the rate at which the node works
+    // through blocks once it knows it is behind, and its share of the
+    // tip-refresh window is what decides whether a block is still the tip when
+    // it is processed - which is what gates every maintenance pass hung off
+    // block processing.
+    //
+    // Both clocks are already 1:1 with block time at either scale - 30s/30s in
+    // production, 5s/5s here - so one block arrives per window either way. What
+    // has to hold is the poll's share of that window:
+    //
+    //   production   5000 / 30000  =  16.7%
+    //   here          833 /  5000  =  16.7%
+    //
+    // 250ms was three times MORE forgiving than production, which is the wrong
+    // direction: a node too slow to clear a window's block, so blocks bunch and
+    // maintenance is skipped, is a production failure the harness would never
+    // show. Suite 55 hit that failure twice and it was read as a harness
+    // artefact; making the harness faster until it stops happening is the same
+    // move one layer down. Measured at 4.8s a block at the old hardcoded 5000,
+    // which was poll-dominated - a block sat unnoticed for a whole window.
+    explorerPollIntervalMs: 833,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,
     imageUpdateCheckIntervalMs: 5000,

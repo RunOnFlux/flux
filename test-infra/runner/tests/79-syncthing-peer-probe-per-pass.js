@@ -135,10 +135,13 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
     expect(await isUp(env.clients[subject], appOne), 'fixture: the first app must still be waiting').to.be.false;
     expect(await isUp(env.clients[subject], appTwo), 'fixture: the second app must still be waiting').to.be.false;
 
-    // clear() resets the arrival log AND what the stub claims, so the claim has
-    // to be restated or the subject promotes and stops asking mid-measurement.
-    await stub.clear();
-    await stub.setPromotedFolders({ ready: true, folders: heldFolders });
+    // ONE call, because clear() drops the claim as well as the log. Cleared and
+    // then restated, this peer claims to hold nothing for the width of a round
+    // trip, and a subject polling inside it sees the folder free, promotes, and
+    // stops asking - which is exactly what the assertions below then report, as
+    // an app that started mid-measurement. Restating the claim and resetting the
+    // log in the same request removes the window rather than narrowing it.
+    await stub.setPromotedFolders({ ready: true, folders: heldFolders, resetRequests: true });
 
     // Three arrivals give two gaps to measure - enough to tell one question per
     // pass from two, without pinning how many passes it takes to get there.

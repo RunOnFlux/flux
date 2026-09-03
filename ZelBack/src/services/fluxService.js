@@ -1388,6 +1388,20 @@ async function getFluxInfo(req, res) {
     }
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
+    // How far this node is through being staged out of service, or null. Read
+    // beside `dos` below, which reports the last stage: the three read together
+    // as HOLD, then EVACUATE, then EVACUATE with a DOS.
+    //
+    // Reported at all because the first stage is otherwise invisible. A held
+    // node stops taking new apps and looks in every other way like one that has
+    // simply not been given work - and that stage is the whole settling window,
+    // the only part of this where an operator can still put the node right and
+    // lose nothing.
+    //
+    // Lazily required: this service is loaded by half the tree and the enforcer
+    // reaches back into fluxNetworkHelper, which reaches here.
+    // eslint-disable-next-line global-require
+    info.flux.dosStaging = require('./residentialNodeDosService').getDosStaging();
     info.flux.upnp = upnpService.isUPNP();
     info.flux.maxNumberOfIpChanges = fluxNetworkHelper.getMaxNumberOfIpChanges();
     const zelidRes = await getFluxZelID();

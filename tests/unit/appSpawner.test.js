@@ -52,6 +52,7 @@ describe('appSpawner tests', () => {
     };
   }
 
+
   function buildModule(opts = {}) {
     configStub = createConfigStub(opts.configOverrides);
     globalStateStub = createGlobalStateStub();
@@ -127,6 +128,8 @@ describe('appSpawner tests', () => {
         isPortOpen: sinon.stub().resolves(true),
         isPortUserBlocked: sinon.stub().returns(false),
         isNodeDos: sinon.stub().returns(false),
+        isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
+        getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
       },
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: daemonSyncStub,
@@ -139,21 +142,39 @@ describe('appSpawner tests', () => {
         // The post-install self-check re-reads the running list after this
         // node's own install; tests exercising it provide that view via
         // opts.finalAppLocations (returned once the install stub has run).
-        appLocation: sinon.stub().callsFake(() => Promise.resolve(
-          (opts.finalAppLocations && installStubRef.called)
-            ? opts.finalAppLocations
-            : (opts.appLocations || []),
-        )),
+        appLocation: (() => {
+          const stub = sinon.stub();
+          stub.callsFake(() => {
+            if (opts.finalAppLocations && installStubRef.called) {
+              return Promise.resolve(opts.finalAppLocations);
+            }
+            // The list as it stands by the spawner's SECOND count, for tests that
+            // need running copies to arrive between the two.
+            if (opts.recheckAppLocations && stub.callCount > 1) {
+              return Promise.resolve(opts.recheckAppLocations);
+            }
+            return Promise.resolve(opts.appLocations || []);
+          });
+          return stub;
+        })(),
         // The list after the collision wait includes this node's own claim; tests
         // exercising the post-broadcast share resolver provide it via
         // opts.finalInstallingLocations (returned from the 4th fetch onwards).
         appInstallingLocation: (() => {
           const stub = sinon.stub();
-          stub.callsFake(() => Promise.resolve(
-            (opts.finalInstallingLocations && stub.callCount > 3)
-              ? opts.finalInstallingLocations
-              : (opts.installingLocations || []),
-          ));
+          stub.callsFake(() => {
+            // The spawner counts twice: once while choosing, and again after it
+            // has selected and cached the app. Between the two, other nodes
+            // claim - which is the only way to reach the second check's decline.
+            // opts.recheckInstallingLocations is the list as it stands by then.
+            if (opts.finalInstallingLocations && stub.callCount > 3) {
+              return Promise.resolve(opts.finalInstallingLocations);
+            }
+            if (opts.recheckInstallingLocations && stub.callCount > 1) {
+              return Promise.resolve(opts.recheckInstallingLocations);
+            }
+            return Promise.resolve(opts.installingLocations || []);
+          });
           return stub;
         })(),
         // Claims held against each candidate, keyed by lowercased name. Empty
@@ -268,6 +289,53 @@ describe('appSpawner tests', () => {
 
     it('should be exported as a function', () => {
       expect(appSpawner.trySpawningGlobalApplication).to.be.a('function');
+    });
+  });
+
+  describe('placement hold', () => {
+    function infoLoggedIncludes(substr) {
+      return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
+    }
+
+    it('refuses to install while the node is held back', async () => {
+      // The hold is stage one of the residential design and the only stage that
+      // ships an immediate behaviour change, and nothing asserted it actually
+      // stops anything: deleting `return installDelay;` while keeping the log
+      // and the publish left the whole file green. aggregateStub is the first
+      // thing the install path reaches, so it not being called is the evidence
+      // the pass really stopped here.
+      buildModule({ placementHold: 'residential node not running ArcaneOS' });
+
+      const delay = await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('held back from new placements')).to.equal(true);
+      expect(aggregateStub.called).to.equal(false);
+      expect(delay).to.be.a('number');
+    });
+
+    it('goes no further than the hold, even with work waiting', async () => {
+      // Held with apps that WOULD be installable: without the return, the pass
+      // walks on into the spawn path and the log line above is decoration.
+      buildModule({
+        placementHold: 'residential node not running ArcaneOS',
+        aggregateResult: [{ name: 'someapp', hash: 'h1', height: 100 }],
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(aggregateStub.called).to.equal(false);
+    });
+
+    it('installs as usual when the node is not held', async () => {
+      buildModule();
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('held back from new placements')).to.equal(false);
+      // The other half of the pair: unheld, the pass reaches the install path,
+      // so the assertion above is about the hold and not about the pass being
+      // stopped by something else entirely.
+      expect(aggregateStub.called).to.equal(true);
     });
   });
 
@@ -1033,6 +1101,61 @@ describe('appSpawner tests', () => {
         withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true),
         'claimed and then retracted instead of standing aside',
       ).to.have.lengthOf(0);
+    });
+
+    it('stays eligible after standing aside on a count that included a claim', async () => {
+      // Standing aside was right; REMEMBERING it was not. The count that stood
+      // this node aside included nodes that had only CLAIMED to be installing,
+      // and a claim is withdrawn as soon as its node finds the share filled -
+      // seconds later, routinely. Left in the cache, this node holds "the network
+      // has it covered" for the cache's twelve hours and never looks again, so an
+      // app that falls back below its instance count waits out the day on every
+      // node that happened to glance inside that window.
+      //
+      // Observed on a gate: two nodes running an app, two more claimed and
+      // withdrew, and it stayed at two of three because the nodes that should
+      // have supplied the third had already written it off. The claimed-instance
+      // path clears the cache for exactly this reason; this one counted the same
+      // claims and did not.
+      // Short when it looked, covered by the time it re-counted: the app is
+      // selected and cached, and only then do the other claims land. That second
+      // check is the one that must not leave the cache set.
+      const { logged } = await runAttempt({
+        appLocations: [{ ip: '192.168.3.3:16127' }],
+        installingLocations: [],
+        recheckInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.4.4:16127', broadcastedAt: 1001 },
+        ],
+      });
+
+      expect(logged('already spawned or being installed'), 'never reached the decline').to.be.true;
+      expect(
+        globalStateStub.trySpawningGlobalAppCache.has('abc123'),
+        'cached a decline that a withdrawn claim invalidates seconds later',
+      ).to.be.false;
+    });
+
+    it('does remember an app the running copies alone already cover', async () => {
+      // The other half, and the reason the clear above is conditional. A running
+      // copy is durable: the app IS covered, and re-deciding that on every pass
+      // is the waste the cache exists to prevent. Cleared unconditionally, an app
+      // at full strength re-enters the candidate pool every pass and is declined
+      // again forever - never cached, because this node never installs it.
+      const { logged } = await runAttempt({
+        appLocations: [{ ip: '192.168.3.3:16127' }],
+        recheckAppLocations: [
+          { ip: '192.168.3.3:16127' },
+          { ip: '192.168.5.5:16127' },
+          { ip: '192.168.6.6:16127' },
+        ],
+      });
+
+      expect(logged('already spawned or being installed'), 'never reached the decline').to.be.true;
+      expect(
+        globalStateStub.trySpawningGlobalAppCache.has('abc123'),
+        'dropped a decline that three running copies fully justify',
+      ).to.be.true;
     });
 
     it('still claims when the network is one instance short', async () => {

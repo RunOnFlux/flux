@@ -469,6 +469,8 @@ describe('ipLocationStore tests', () => {
         countryCode: 'BH',
         continentCode: 'AS',
         region: null,
+        // no orgClasses in this fixture's header, so no verdict
+        networkClass: null,
       });
     });
 
@@ -482,7 +484,90 @@ describe('ipLocationStore tests', () => {
         countryCode: 'BG',
         continentCode: 'EU',
         region: null,
+        networkClass: null,
       });
+    });
+
+    it('carries the published network class for the row\'s organisation', async () => {
+      await store.setArtifact(encodeArtifact(
+        { ...fixtureHeader(), orgClasses: { a1b2c3d4e5f6: 1 } },
+        [[v4Int('80.95.208.0'), v4Int('80.95.223.255'), 0, 0, null]],
+      ));
+      dbHelperStub.findInDatabase.resolves([bahrainRow]);
+
+      const hit = await store.lookup('80.95.213.209');
+
+      expect(hit.networkClass).to.equal('RESIDENTIAL');
+    });
+
+    it('leaves the class null for an organisation the artifact does not classify', async () => {
+      // Sparse by design: only organisations the fleet occupies are classified,
+      // and an absent one has no verdict rather than a third verdict.
+      await store.setArtifact(encodeArtifact(
+        { ...fixtureHeader(), orgClasses: { ffffffffffff: 2 } },
+        [[v4Int('80.95.208.0'), v4Int('80.95.223.255'), 0, 0, null]],
+      ));
+      dbHelperStub.findInDatabase.resolves([bahrainRow]);
+
+      expect((await store.lookup('80.95.213.209')).networkClass).to.equal(null);
+    });
+
+    it('skips a class code this build does not know, and keeps the rest of the table', async () => {
+      // The publisher's vocabulary is a separate closed enum in a separate repo
+      // and the wire carries codes, not names, so nothing binds them: adding a
+      // third class there and merging IS publishing. Rejecting the artifact
+      // would cost country, continent, region and organisation for two million
+      // rows over one value in an optional section - the trade this file
+      // already refuses for regionNames.
+      await store.setArtifact(encodeArtifact(
+        { ...fixtureHeader(), orgClasses: { a1b2c3d4e5f6: 3, ffffffffffff: 1 } },
+        [[v4Int('80.95.208.0'), v4Int('80.95.223.255'), 0, 0, null]],
+      ));
+      dbHelperStub.findInDatabase.resolves([bahrainRow]);
+
+      const hit = await store.lookup('80.95.213.209');
+
+      // The table survived: the row still answers with everything else.
+      expect(hit.countryCode).to.equal('BH');
+      expect(hit.continentCode).to.equal('AS');
+      // And the organisation carrying the unknown code simply has no verdict.
+      expect(hit.networkClass).to.equal(null);
+      expect(store.status().ready).to.equal(true);
+    });
+
+    it('does not read a class code through Object.prototype', async () => {
+      // `NETWORK_CLASS_BY_CODE[code]` answers for every member of the prototype
+      // chain, so a header saying "toString" passed a truthiness check and
+      // stored an inherited FUNCTION as an organisation's network class -
+      // reported downstream as a published-table verdict. The Maps three lines
+      // below exist to avoid exactly this.
+      await store.setArtifact(encodeArtifact(
+        { ...fixtureHeader(), orgClasses: { a1b2c3d4e5f6: 'toString' } },
+        [[v4Int('80.95.208.0'), v4Int('80.95.223.255'), 0, 0, null]],
+      ));
+      dbHelperStub.findInDatabase.resolves([bahrainRow]);
+
+      expect((await store.lookup('80.95.213.209')).networkClass).to.equal(null);
+    });
+
+    it('still reads the classes it does know alongside one it does not', async () => {
+      await store.setArtifact(encodeArtifact(
+        { ...fixtureHeader(), orgClasses: { a1b2c3d4e5f6: 2, ffffffffffff: 99 } },
+        [[v4Int('80.95.208.0'), v4Int('80.95.223.255'), 0, 0, null]],
+      ));
+      dbHelperStub.findInDatabase.resolves([bahrainRow]);
+
+      expect((await store.lookup('80.95.213.209')).networkClass).to.equal('DATACENTER');
+    });
+
+    it('leaves the class null when the artifact carries no classes at all', async () => {
+      await store.setArtifact(encodeArtifact(
+        fixtureHeader(),
+        [[v4Int('80.95.208.0'), v4Int('80.95.223.255'), 0, 0, null]],
+      ));
+      dbHelperStub.findInDatabase.resolves([bahrainRow]);
+
+      expect((await store.lookup('80.95.213.209')).networkClass).to.equal(null);
     });
 
     it('returns null when the nearest row ends before the address, and when there is none', async () => {

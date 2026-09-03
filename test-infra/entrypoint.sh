@@ -3,6 +3,32 @@ set -e
 
 ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 
+# A default route, or deliberately none - declared by the suite, never inherited
+# from the topology.
+#
+# The harness network is created Internal, so docker gives the container no
+# default route at all. FluxOS decides whether this node holds a fixed public
+# address by looking for one (fluxNetworkHelper.hasPublicIpOnInterface reads
+# /proc/net/route), so left to the wiring EVERY node reads DYNAMIC - which is how
+# suite 21's static_ip deferrals silently stopped firing.
+#
+# This restores the FACT, not connectivity: an internal network's gateway
+# forwards nothing outward, so the fleet stays exactly as isolated as Internal
+# makes it. Installed here because a node reads its address once during boot -
+# anything applied after the fleet is up is never seen.
+#
+# NOT swallowed. A `|| true` here would make the one failure that matters -
+# the route not being installable - look exactly like a node that was never
+# asked for one, and the suite would then fail somewhere far away on a
+# classification it could not explain.
+if [ -n "$FLUX_E2E_DEFAULT_ROUTE" ]; then
+  if ! ip route replace default via "$FLUX_E2E_DEFAULT_ROUTE"; then
+    echo "ERROR: could not install default route via $FLUX_E2E_DEFAULT_ROUTE;" \
+         "this node would read DYNAMIC and any static-IP assertion would fail" >&2
+    exit 1
+  fi
+fi
+
 # App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
 # shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
 # typically 8) is small and on-demand creation races under concurrent installs, so a

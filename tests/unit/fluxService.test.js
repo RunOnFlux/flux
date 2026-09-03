@@ -1930,6 +1930,36 @@ describe('fluxService tests', () => {
       Status: 'Up 2 hours',
     };
 
+    it('carries the staging that is otherwise invisible', async () => {
+      // A held node takes no new apps and is in every other respect
+      // indistinguishable from one that has simply not been given work. This
+      // field is the only thing that says otherwise, and HOLD is the stage where
+      // the operator can still put the node right and lose nothing.
+      // eslint-disable-next-line global-require
+      const residentialNodeDosService = require('../../ZelBack/src/services/residentialNodeDosService');
+      sinon.stub(residentialNodeDosService, 'getDosStaging').returns('HOLD');
+      daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
+      benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
+      benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
+      appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
+      // The shapes the projection actually reads, not placeholder strings: a
+      // string here leaves result.data undefined and the assertion below fails
+      // on the projection rather than on the field it is about.
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
+      explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
+      fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
+      fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
+      const result = await fluxService.getFluxInfo();
+
+      expect(result.data.flux.dosStaging).to.equal('HOLD');
+    });
+
     it('should return flux info no response passed', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
       daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
@@ -1952,6 +1982,10 @@ describe('fluxService tests', () => {
       expect(result.data.daemon).to.eql({ info: 'info data', zmqEnabled: false });
       expect(result.data.node).to.eql({ status: 'status data' });
       expect(result.data.flux).to.be.an('object');
+      // Always present, never omitted: a field that only appears on affected
+      // nodes cannot be counted across the fleet, and counting it is half the
+      // reason it is here.
+      expect(result.data.flux.dosStaging).to.equal(null);
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',

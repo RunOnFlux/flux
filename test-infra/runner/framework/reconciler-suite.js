@@ -150,6 +150,30 @@ export async function placeGAppInOrder(env, app, {
     await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfter });
     // eslint-disable-next-line no-await-in-loop
     await seedSyncScopedData(env, app.spec.name, i);
+
+    // WAITED FOR, not slept past. The ordering these placements exist to create
+    // is the runningSince stamps, and a fixed gap produces it only while every
+    // install finishes inside the gap. Under a parallel gate they do not: suite
+    // 96 lost a run to a holder that registered after the next one had already
+    // been placed, so "the newest copy" named a different node than the fixture
+    // had arranged and the suite refused on its own precondition.
+    //
+    // Registration is the fact the order is ranked on, so waiting for it makes
+    // the order what the caller asked for at any speed. The gap below stays: it
+    // separates two stamps that would otherwise land in the same millisecond and
+    // fall through to the ip tiebreak.
+    // eslint-disable-next-line no-await-in-loop
+    await waitFor(async () => {
+      const res = await env.clients[i].getAppLocations(app.spec.name);
+      if (res?.status !== 'success' || !Array.isArray(res.data)) return false;
+      const mine = getSubnetConfig().nodeIp(i + 1);
+      return res.data.some((location) => location.ip.split(':')[0] === mine);
+    }, {
+      timeout: 120000,
+      interval: 1000,
+      label: `holder ${i} registered before the next is placed`,
+    });
+
     // eslint-disable-next-line no-await-in-loop
     await sleepUnlessInfraDead(gapMs);
   }

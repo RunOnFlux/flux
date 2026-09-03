@@ -627,7 +627,20 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const options = {
       upsert: true,
     };
-    // this should run only when node is synced
+    // True when this block was still the chain tip at the moment it was fetched,
+    // which is NOT the same as "the node is synced". The tip is read from a
+    // cache refreshed every daemonInfoIntervalMs, and the branch at the end of
+    // this function chains straight into the next block whenever it is behind -
+    // so a burst of blocks arriving between two refreshes is processed back to
+    // back and only the LAST of them qualifies. Everything gated below is
+    // skipped for the others, and skipped silently: expiring global app
+    // records, trimming surplus instances, reinstalling outdated apps.
+    //
+    // Post-PON that is a 30s block against a 30s refresh, and the refresh
+    // reschedules only after awaiting its RPC, so it drifts behind the chain and
+    // the bursts recur. v9 removes the race rather than tuning it - fluxd pushes
+    // hashblockheight to chainTipSource, which drives both the cached tip and
+    // this scan, so a block is processed while it is still the tip.
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
       blockEmitter.emit('blocksProcessed', scannedHeight);
@@ -1105,12 +1118,22 @@ async function checkAndHandleReorgs(database, scannedBlockHeight) {
   return height;
 }
 
+// How long the explorer waits before asking again whether the chain has moved.
+//
+// This is the floor on how fast a node can process blocks: a block is not looked
+// at until the next poll, so nothing downstream of block processing - expiring
+// app records, trimming surplus instances, the give-up pass - can run more often
+// than this however fast blocks are produced. Production wants 5s against a 30s
+// block; a harness driving its own chain wants it far shorter, and had no way to
+// say so.
+const POLL_INTERVAL_MS = config.fluxapps.explorerPollIntervalMs ?? 5000;
+
 async function pollForNewBlocks() {
   if (!blockProccessingCanContinue) return;
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
-      pollTimeout = setTimeout(pollForNewBlocks, 5000);
+      pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
       return;
     }
 
@@ -1132,10 +1155,10 @@ async function pollForNewBlocks() {
       return;
     }
 
-    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   } catch (error) {
     log.error(`Explorer poll error: ${error.message}`);
-    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   }
 }
 

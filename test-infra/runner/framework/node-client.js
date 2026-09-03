@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { controlFetch } from './control-fetch.js';
 import { EventSource } from 'eventsource';
 import { getSubnetConfig } from './subnet-config.js';
 import { infraDeathError, offInfraDeath, onInfraDeath } from './infra-death.js';
@@ -11,18 +12,18 @@ export function nodeClient(nodeNum) {
   let url = `http://${ip}:16127`;
 
   async function get(path) {
-    const res = await fetch(`${url}${path}`);
+    const res = await controlFetch(`${url}${path}`);
     return res.json();
   }
 
   async function getAuthed(path, zelidauth) {
-    const res = await fetch(`${url}${path}`, { headers: { zelidauth } });
+    const res = await controlFetch(`${url}${path}`, { headers: { zelidauth } });
     return res.json();
   }
 
   async function post(path, body, headers = {}) {
     const contentType = headers['Content-Type'] ?? 'application/json';
-    const res = await fetch(`${url}${path}`, {
+    const res = await controlFetch(`${url}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': contentType, ...headers },
       body: JSON.stringify(body),
@@ -44,7 +45,7 @@ export function nodeClient(nodeNum) {
       init.headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
       init.body = JSON.stringify(body);
     }
-    const res = await fetch(`${url}${path}`, init);
+    const res = await controlFetch(`${url}${path}`, init);
     const text = await res.text();
     let data = text;
     try {
@@ -56,7 +57,7 @@ export function nodeClient(nodeNum) {
   }
 
   async function del(path, zelidauth) {
-    const res = await fetch(`${url}${path}`, {
+    const res = await controlFetch(`${url}${path}`, {
       method: 'DELETE',
       headers: zelidauth ? { zelidauth } : {},
     });
@@ -91,7 +92,7 @@ export function nodeClient(nodeNum) {
     // Content-Type is deliberately not set: fetch fills it in with the
     // multipart boundary it generated, and overriding it produces a body no
     // parser can read.
-    const res = await fetch(`${url}${path}`, { method: 'POST', headers, body: form });
+    const res = await controlFetch(`${url}${path}`, { method: 'POST', headers, body: form });
     return { status: res.status, body: await res.text() };
   }
 
@@ -136,7 +137,7 @@ export function nodeClient(nodeNum) {
       },
     });
 
-    const res = await fetch(`${url}${path}`, {
+    const res = await controlFetch(`${url}${path}`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
       body,
@@ -249,6 +250,19 @@ export function nodeClient(nodeNum) {
         'reconciler:desiredChanged',
         'app:operatorIntent',
         'reconciler:swept',
+        'giveUp:considered',
+        'giveUp:safety',
+        'giveUp:standDown',
+        'residential:decided',
+        // spawner:noCandidates USED to be published here and was not subscribed:
+        // it fires on every pass of a fleet whose apps are all at their instance
+        // count, roughly every 240ms per node, and subscribing shrank the
+        // Last-Event-ID replay window from most of a suite to about four minutes.
+        // An event nothing could afford to receive is not a telemetry surface, so
+        // it is a counter now, and this is the fact it was standing in for: the
+        // pass over an app CHANGING - excluded becoming a candidate, or the
+        // reverse. That happens rarely, which is what makes it an event.
+        'spawner:candidacy',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
@@ -407,7 +421,7 @@ export function nodeClient(nodeNum) {
     // body as text; resolves when the install stream ends. Confirm completion via
     // the app:installed event (waitForAppInstalled).
     installAppLocally: async (appname, zelidauth) => {
-      const res = await fetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
+      const res = await controlFetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
       return res.text();
     },
     // Backup/restore drive the whole-app lease (B1). The endpoints stream chunked
@@ -418,7 +432,7 @@ export function nodeClient(nodeNum) {
     appendBackupTask: async (appname, components, zelidauth, { force = false } = {}) => {
       const body = { appname, backup: components.map((component) => ({ component, backup: true })) };
       if (force) body.force = true;
-      const res = await fetch(`${url}/apps/appendbackuptask`, {
+      const res = await controlFetch(`${url}/apps/appendbackuptask`, {
         method: 'POST',
         headers: { zelidauth, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -426,7 +440,7 @@ export function nodeClient(nodeNum) {
       return res.text();
     },
     appendRestoreTask: async (appname, restore, type, zelidauth, { force = false } = {}) => {
-      const res = await fetch(`${url}/apps/appendrestoretask`, {
+      const res = await controlFetch(`${url}/apps/appendrestoretask`, {
         method: 'POST',
         headers: { zelidauth, 'Content-Type': 'application/json' },
         // force is API-only by design - the UI cannot send it - so a suite is the

@@ -692,15 +692,22 @@ describe('advancedWorkflows tests', () => {
       const {
         selfRunningSince = '2026-01-01T00:00:00.000Z',
         receiveOnlyCache = new Map(),
+        // A v4+ spec elects on `<component>_<app>`, a v3 one on the bare app
+        // name. Both forms have to be reachable here: the election writes one
+        // and isElectedPrimaryHere matches the other back.
+        componentName = null,
       } = options;
+      const identifier = componentName ? `${componentName}_${appName}` : appName;
       // Mirror getAppIdentifier: a name that is neither zel- nor flux-prefixed gets
       // `flux`. The container names peers report are this exact string, and the
       // election compares whole names, so a stand-in value would not match.
-      const appId = `flux${appName}`;
+      const appId = `flux${identifier}`;
       dockerServiceStub.returns(appId);
       const installedApps = sinon.stub().resolves({
         status: 'success',
-        data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
+        data: [componentName
+          ? { name: appName, version: 8, compose: [{ name: componentName, containerData: 'g:/syncdata' }] }
+          : { name: appName, version: 3, containerData: 'g:/syncdata' }],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
       // Entries land in the real globalState cache - the election reads it off
@@ -952,6 +959,96 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'conditions not met')).to.have.lengthOf(0);
     });
 
+    describe('isElectedPrimaryHere answers in three states', () => {
+      // Finding 25 of the review: the true path had no coverage at all, and the
+      // false path could not be told apart from "the election never ran". Each
+      // test uses its own app name because the election tables are module state
+      // that outlives a sinon restore.
+      const runElection = async (appName, fdmResponse) => {
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmResponse);
+        await runPass();
+      };
+      const namesThisNode = { data: { status: 'success', data: { ips: ['192.168.1.5'] } } };
+      const namesAnotherNode = { data: { status: 'success', data: { ips: ['192.168.1.90'] } } };
+      const namesNobody = { data: { status: 'success', data: { ips: [] } } };
+
+      it('is true when the election named this node', async () => {
+        await runElection('electedhereapp', namesThisNode);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('electedhereapp', '192.168.1.5:16127')).to.equal(true);
+      });
+
+      it('matches the <component>_<app> identifier that v4+ specs elect on', async () => {
+        // The election keys a composed app on `<component>_<app>`, and the
+        // lookup is asked for the bare app name. Nothing exercised the
+        // endsWith half of that match before.
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const runPass = electionFixture('composedapp', ['192.168.1.90:16127'], { componentName: 'server' });
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(namesThisNode);
+
+        await runPass();
+
+        expect(advancedWorkflows.isElectedPrimaryHere('composedapp', '192.168.1.5:16127')).to.equal(true);
+      });
+
+      it('is false when the election named a different node', async () => {
+        await runElection('electedelsewhereapp', namesAnotherNode);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('electedelsewhereapp', '192.168.1.5:16127')).to.equal(false);
+      });
+
+      it('is null for an app the election has never reached', async () => {
+        expect(advancedWorkflows.isElectedPrimaryHere('neverelectedapp', '192.168.1.5:16127')).to.equal(null);
+      });
+
+      it('is null when FDM answered but named nobody', async () => {
+        // The ~110s registration lag: FDM reports no primary while an instance
+        // is live, so on a node running the component this is "cannot say",
+        // not "you are not it".
+        await runElection('noprimaryyetapp', namesNobody);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('noprimaryyetapp', '192.168.1.5:16127')).to.equal(null);
+      });
+
+      it('goes null once the verdict is older than the election that refreshes it', async () => {
+        // The election re-runs every masterSlaveIntervalMs. A verdict older
+        // than a run of those cycles means it has stopped - which is what
+        // happens while syncthing is unhealthy - and a stopped election must
+        // not keep answering from its last known state.
+        await runElection('staleverdictapp', namesThisNode);
+        const aDayLater = Date.now() + (24 * 60 * 60 * 1000);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('staleverdictapp', '192.168.1.5:16127')).to.equal(true);
+        expect(advancedWorkflows.isElectedPrimaryHere('staleverdictapp', '192.168.1.5:16127', aDayLater)).to.equal(null);
+      });
+
+      it('says so when no FDM region answered, instead of reading it as "no primary"', async () => {
+        // The `if (!fdmOk)` guard was unreachable: getMasterIpFromFdm returned
+        // fdmOk true on every path, so a total outage and an app with no
+        // primary produced the same verdict and this warning never appeared.
+        const logWarn = sinon.stub(log, 'warn');
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const runPass = electionFixture('fdmdownapp', ['192.168.1.90:16127']);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.rejects(new Error('getaddrinfo ENOTFOUND'));
+
+        await runPass();
+
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(1);
+        expect(advancedWorkflows.isElectedPrimaryHere('fdmdownapp', '192.168.1.5:16127')).to.equal(null);
+      });
+    });
+
     it('does not start at index 0 while a peer is already running the component', async () => {
       const appName = 'peerbusyapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
@@ -984,6 +1081,62 @@ describe('advancedWorkflows tests', () => {
 
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+    });
+
+    it('does not re-elect a component this node stood down to hand its app back', async () => {
+      // THE MECHANISM. Without this exclusion the election undoes the stand-down
+      // within one cycle and every cycle after it: the component is not running
+      // here, this node's own stale primary record is cleared, no peer has taken
+      // it up yet, and the index-0 branch starts it straight back. The node then
+      // never leaves and the app is restarted every 30s forever.
+      //
+      // Stood down through the real give-up pass rather than by reaching into
+      // module state, so the two halves are proven to agree on the identifier.
+      const appName = 'standdownapp';
+      const componentName = 'server';
+      const identifier = `${componentName}_${appName}`;
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+
+      const generalService = require('../../ZelBack/src/services/generalService');
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      const evacuationSafety = require('../../ZelBack/src/services/appLifecycle/appEvacuationSafety');
+      const residentialNodeDosService = require('../../ZelBack/src/services/residentialNodeDosService');
+      const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+
+      sinon.stub(generalService, 'checkSynced').resolves(true);
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: appName, version: 8 });
+      sinon.stub(appQueryService, 'listRunningApps').resolves({ status: 'success', data: [{ Names: [`/flux${identifier}`] }] });
+      sinon.stub(residentialNodeDosService, 'isEvacuating').returns(true);
+      sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
+      sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+      sinon.stub(residentialNodeDosService, 'noteEvacuated');
+      sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({
+        safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop the component first', standDown: [identifier],
+      });
+      const stopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      sinon.stub(dbHelper, 'findInDatabase').resolves([{ name: appName, instances: 3 }]);
+      // The give-up pass runs before electionFixture arms this, and a pass that
+      // cannot learn its own address returns before it reaches the safety gate.
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+      registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' }]);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      sinon.assert.calledWith(stopStub, identifier);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, [], { componentName });
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'standing down to be handed back')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
     it('seeds a confirmed leader even when a stagger was already scheduled for it', async () => {
@@ -3918,4 +4071,755 @@ describe('advancedWorkflows tests', () => {
   // unit tests. masterSlaveApps is included above with basic tests, but full
   // integration testing is recommended for comprehensive coverage of the
   // master-slave coordination logic.
+});
+
+describe('giving up an app: one pass, two reasons, one safety gate', () => {
+  const generalService = require('../../ZelBack/src/services/generalService');
+  const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+  const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+  const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+  const evacuationSafety = require('../../ZelBack/src/services/appLifecycle/appEvacuationSafety');
+  const residentialNodeDosService = require('../../ZelBack/src/services/residentialNodeDosService');
+
+  const LOCAL = '1.2.3.4:16127';
+
+  function locations(...ips) {
+    return ips.map((ip, index) => ({ ip, runningSince: new Date(1700000000000 + index) }));
+  }
+
+  function installed(...names) {
+    return names.map((name) => ({ name, instances: 3 }));
+  }
+
+  beforeEach(() => {
+    sinon.stub(generalService, 'checkSynced').resolves(true);
+    sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(LOCAL);
+    sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    sinon.stub(registryManager, 'appLocation');
+    sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: 'a', version: 8 });
+    sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({ safe: true, reason: 'peer holds it' });
+    sinon.stub(residentialNodeDosService, 'isEvacuating').returns(false);
+    sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
+    sinon.stub(residentialNodeDosService, 'noteEvacuated');
+    sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+
+    const db = { db: () => ({}) };
+    sinon.stub(dbHelper, 'databaseConnection').returns(db);
+    sinon.stub(dbHelper, 'findInDatabase').resolves(installed('appone'));
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  describe('reasonToGiveUpApp', () => {
+    it('names SURPLUS when this node holds the junior of too many instances', async () => {
+      // Three running against an instance count of two, and this node started
+      // last, so it is the one that stands aside.
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('SURPLUS');
+    });
+
+    it('does not name SURPLUS when this node holds a senior instance', async () => {
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(false);
+    });
+
+    it('names nothing when the app is at its instance count and the node is not evacuating', async () => {
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.reason).to.equal('NONE');
+    });
+
+    it('names EVACUATION when the node is evacuating and this app\'s turn has come', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('EVACUATION');
+    });
+
+    it('defers to the pacing when the app\'s turn has not come', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      residentialNodeDosService.mayEvacuateApp.returns({ ok: false, reason: 'its turn is in 20m' });
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.detail).to.contain('20m');
+    });
+
+    // A g: app: one component runs on a single node at a time and writes to the
+    // volume. `w_a` is what the election keys on and what the container is named.
+    const withWriter = { name: 'a', instances: 2, version: 8, compose: [{ name: 'w', containerData: 'g:/data' }] };
+    const writerAppId = require('../../ZelBack/src/services/dockerService').getAppIdentifier('w_a');
+
+    // The peer probe. A status IS an answer - the peer is alive and merely
+    // cannot say - so it reads as "cannot be ruled out", never as clearance.
+    const newestSays = ({ held = null, status = null }) => sinon.stub(axios, 'get').callsFake((url) => {
+      if (status) return Promise.reject(Object.assign(new Error(`status ${status}`), { response: { status } }));
+      if (url.includes('/apps/heldcomponents')) return Promise.resolve({ data: { data: held } });
+      return Promise.resolve({ data: { data: [] } });
+    });
+
+    it('leaves the newest copy alone when it is the one writing', async () => {
+      // "The newest stands aside" stands in for "the least valuable copy stands
+      // aside". The writer is the most valuable copy there is, so the stand-in
+      // is backwards here and the node stays.
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.detail).to.contain('w_a');
+    });
+
+    it('reaches the evacuation gate when the newest copy holding the writer is draining', async () => {
+      // The surplus answer here is "stay", and returning it ends the pass - so
+      // an evacuating node never got asked whether it should hand the app back.
+      // It is the same asymmetry the second-newest branch below was fixed for:
+      // the surplus verdict is carried out to the gate, not returned past it.
+      // Left as a return, a draining node that happens to be the newest copy of
+      // an over-served app AND runs its writer stalls on that app indefinitely,
+      // when the gate would have stood it down and let it leave.
+      residentialNodeDosService.isEvacuating.returns(true);
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.reason).to.equal('EVACUATION');
+      expect(decision.giveUp).to.equal(true);
+    });
+
+    it('still trims the newest copy when it is not the one writing', async () => {
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('SURPLUS');
+    });
+
+    it('trims the second-newest once the newest confirms it holds the writer', async () => {
+      newestSays({ held: [writerAppId] });
+
+      // LOCAL is second of three here: 9.9.9.9 started last.
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.detail).to.contain('w_a');
+    });
+
+    it('does not trim the second-newest when the newest cannot be ruled out', async () => {
+      // THE ONE THAT MATTERS. Every node ranks the same shared order, but "who
+      // is writing" is each node's own reading, and FDM lags it. A second node
+      // acting on anything less than a positive confirmation is how two copies
+      // leave at once. Alive-and-cannot-say must read as "do nothing".
+      newestSays({ status: 500 });
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      // AND IT SAYS SO. Declining is a decision, and it used to be reported as
+      // NONE - the same thing the pass reports for an app with no surplus at
+      // all. The one observation that would catch this rule failing open then
+      // read identically to a quiet pass over a healthy app.
+      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.code).to.equal('WRITER_UNCONFIRMED');
+    });
+
+    it('reports NONE rather than a declined surplus when there is no surplus', async () => {
+      // The contrast that gives the assertion above its meaning. Same node, same
+      // app, one fewer holder: there is nothing to trim, so there is nothing
+      // declined either, and no peer is asked.
+      const probe = sinon.stub(axios, 'get').rejects(new Error('no peer should be probed'));
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.reason).to.equal('NONE');
+      expect(decision.code).to.equal(undefined);
+      sinon.assert.notCalled(probe);
+    });
+
+    it('does not trim the second-newest when the newest says it is not writing', async () => {
+      // Then the newest is an ordinary surplus copy and trims itself. Two nodes
+      // acting on that same fact is exactly what must not happen.
+      newestSays({ held: [] });
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+    });
+
+    it('asks no peer anything for an app with no writer', async () => {
+      // Nothing to protect and nothing to ask. LOCAL is SECOND-newest here, so
+      // this sits exactly where the probe would fire if the rule stopped
+      // requiring a writer - a position-0 node would never reach that branch
+      // and the test would pass with the guard deleted.
+      const probe = sinon.stub(axios, 'get').rejects(new Error('no peer should be probed'));
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2, version: 8, compose: [{ name: 'w', containerData: '/data' }] },
+        locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      sinon.assert.notCalled(probe);
+    });
+
+    it('asks no peer anything when there is no surplus', async () => {
+      const probe = sinon.stub(axios, 'get').rejects(new Error('no peer should be probed'));
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        withWriter,
+        locations('5.6.7.8:16127', LOCAL),
+        LOCAL,
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+      );
+
+      expect(decision.reason).to.equal('NONE');
+      sinon.assert.notCalled(probe);
+    });
+  });
+
+  describe('a node held below the instance count stays visible', () => {
+    it('escalates a shortness refusal the way a safety refusal is escalated', async () => {
+      // The strength test moved INTO the queue ticket, so a short app is now
+      // refused before the pass ever consults the safety gate - and the gate is
+      // where this used to be counted and escalated. Without carrying that over,
+      // a node stuck on an app the fleet can never bring back to strength says
+      // nothing louder than an info line, forever.
+      const logWarn = sinon.stub(log, 'warn');
+      residentialNodeDosService.isEvacuating.returns(true);
+      residentialNodeDosService.mayEvacuateApp.returns({
+        ok: false, code: 'BELOW_INSTANCE_COUNT', reason: 'app is below its instance count (2/3); its turn starts again',
+      });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+
+      for (let pass = 0; pass < 12; pass += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      }
+
+      const escalations = logWarn.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((line) => /refused 12 passes running .*BELOW_INSTANCE_COUNT/.test(line));
+      expect(escalations, 'twelve passes short and nothing was escalated').to.have.lengthOf(1);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not escalate a node that is merely waiting its turn', async () => {
+      // Waiting is this working. Counting it would escalate every evacuating
+      // node on its twelfth pass and teach everyone to ignore the warning.
+      const logWarn = sinon.stub(log, 'warn');
+      residentialNodeDosService.isEvacuating.returns(true);
+      residentialNodeDosService.mayEvacuateApp.returns({
+        ok: false, code: 'AWAITING_TURN', reason: 'its turn is in 20m',
+      });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+
+      for (let pass = 0; pass < 12; pass += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      }
+
+      const escalations = logWarn.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((line) => /refused \d+ passes running/.test(line));
+      expect(escalations, 'waiting a turn is not a fault and must not escalate').to.be.empty;
+    });
+  });
+
+  describe('the safety gate applies to BOTH reasons', () => {
+    it('refuses a surplus removal that is not safe', async () => {
+      // Before this, surplus removal deleted on an instance count alone - one of
+      // the paths that has already destroyed customer volumes.
+      //
+      // LOCAL is LAST, so it is the junior instance and SURPLUS actually fires.
+      // Third of four made this node the second-newest, reasonToGiveUpApp
+      // returned giveUp: false, and the pass never reached the safety gate at
+      // all - the test went green with the whole gate deleted.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(evacuationSafety.canSafelyRemoveApp, 'appone');
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('performs a surplus removal that is safe', async () => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+    });
+
+    it('asks the safety gate whether this node is the elected primary', async () => {
+      // The gate refuses to hand back a `g:` app from under its primary - the
+      // node writing to the volume - but it can only do that if the pass gives
+      // it a way to ask. Without this the check defaults off and the primary
+      // leaves mid-write.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { isElectedPrimary } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(isElectedPrimary).to.be.a('function');
+      // No election has run in this pass, so the honest answer is "cannot say".
+      // It must not be false: an election that has never run and an election
+      // that has named another node are the difference between keeping a
+      // volume and deleting it out from under its writer.
+      expect(isElectedPrimary('appone')).to.equal(null);
+    });
+
+    it('tells the safety gate which components are running on this node', async () => {
+      // The local half of the primary question. A node not running the g:
+      // component cannot be the one writing, and that needs no FDM - which is
+      // what stops a load-balancer outage stalling the trim fleet-wide.
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      sinon.stub(appQueryService, 'listRunningApps').resolves({
+        status: 'success',
+        data: [{ Names: ['/fluxserver_appone'] }, { Names: ['/zelolderapp'] }],
+      });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { isComponentRunningLocally } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(await isComponentRunningLocally('server_appone')).to.equal(true);
+      // The pre-rename prefix is four characters, not five.
+      expect(await isComponentRunningLocally('olderapp')).to.equal(true);
+      expect(await isComponentRunningLocally('server_someotherapp')).to.equal(false);
+    });
+
+    it('treats an unreadable container list as "running here" rather than "not running"', async () => {
+      // Answering "not running" on a list this node could not read would route
+      // every app straight past the primary check - the exact shape of the
+      // defect being closed.
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      sinon.stub(appQueryService, 'listRunningApps').resolves({ status: 'error', data: 'docker down' });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { isComponentRunningLocally } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(await isComponentRunningLocally('anything_atall')).to.equal(true);
+    });
+
+    describe('a refusal that will not stop is a stuck node, and says so', () => {
+      // fluxEventBus is disabled on a real node (config.testEventStream is
+      // false), so the giveUp:safety event is a harness signal and nothing
+      // reads it in production. The log is the whole of what an operator sees,
+      // and a first refusal and a hundredth read identically at info.
+      // The refusal counter is module state keyed by app name, so each of these
+      // holds its own app: sharing one would make them depend on running order.
+      it('logs the first refusals at info, and escalates once they persist', async () => {
+        dbHelper.findInDatabase.resolves(installed('escalateapp'));
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds fluxappone in full',
+        });
+
+        for (let pass = 0; pass < 12; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await advancedWorkflows.checkAndRemoveApplicationInstance();
+        }
+
+        const escalations = logWarn.getCalls()
+          .map((c) => String(c.args[0]))
+          .filter((m) => m.includes('passes running'));
+        expect(escalations).to.have.lengthOf(1);
+        expect(escalations[0]).to.contain('12 passes running');
+        expect(escalations[0]).to.contain('NO_SYNCED_PEER');
+        // and the quiet ones stayed quiet
+        expect(logInfo.getCalls().filter((c) => String(c.args[0]).includes('not safe'))).to.have.lengthOf(11);
+      });
+
+      it('never removes the app, however long it has been refused', async () => {
+        dbHelper.findInDatabase.resolves(installed('neverremoveapp'));
+        // Every reason the gate refuses is a reason removing would be wrong:
+        // the peers really are incomplete, so this copy is one of the few that
+        // is not, or this node cannot see them, which is not evidence about
+        // them. A surplus app is over-served, not down - nothing about it is
+        // urgent enough to delete on evidence we have just said we lack.
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+
+        for (let pass = 0; pass < 40; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await advancedWorkflows.checkAndRemoveApplicationInstance();
+        }
+
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      });
+
+      it('starts counting again once the app can be given up', async () => {
+        dbHelper.findInDatabase.resolves(installed('resetapp'));
+        const logWarn = sinon.stub(log, 'warn');
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+        for (let pass = 0; pass < 11; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await advancedWorkflows.checkAndRemoveApplicationInstance();
+        }
+
+        // One clean pass, then refusals resume: the run is broken, so the next
+        // escalation is a fresh twelve rather than the very next pass.
+        evacuationSafety.canSafelyRemoveApp.resolves({ safe: true, code: 'STATELESS', reason: 'peer holds it' });
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+        expect(logWarn.getCalls().map((c) => String(c.args[0])).filter((m) => m.includes('passes running')))
+          .to.have.lengthOf(0);
+      });
+
+      it('does not restart the evacuation window on a surplus refusal', async () => {
+        dbHelper.findInDatabase.resolves(installed('surplusonlyapp'));
+        // forgetAppObservation clears the mark mayEvacuateApp paces on, and
+        // only the evacuation path sets one. Calling it here cleared something
+        // nothing had written.
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+        sinon.assert.notCalled(residentialNodeDosService.forgetAppObservation);
+      });
+    });
+
+    it('does not start a pass that removeAppLocally would refuse', async () => {
+      // removeAppLocally refuses when another removal holds the lock, and it
+      // refuses by RETURNING - no throw, no status. So the pass logged "locally
+      // removed", called noteEvacuated, burned the whole departure interval and
+      // discarded the queue wait, for a removal that never happened. They do
+      // collide: explorerService invokes this pass without awaiting it, and two
+      // blocks later awaits expireGlobalApplications, which holds the lock
+      // through a real uninstall.
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      const previous = globalState.removalInProgress;
+      globalState.removalInProgress = true;
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      try {
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      } finally {
+        globalState.removalInProgress = previous;
+      }
+
+      sinon.assert.notCalled(evacuationSafety.canSafelyRemoveApp);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not start a pass while an installation holds the lock', async () => {
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      const previous = globalState.installationInProgress;
+      globalState.installationInProgress = true;
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      try {
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      } finally {
+        globalState.installationInProgress = previous;
+      }
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('refuses an evacuation removal that is not safe, and restarts its observation', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledWith(residentialNodeDosService.forgetAppObservation, 'appone');
+    });
+
+    it('performs an evacuation removal that is safe and records it', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+      sinon.assert.calledWith(residentialNodeDosService.noteEvacuated, 'appone');
+    });
+
+    it('does not record an evacuation when the removal was a surplus', async () => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
+    });
+  });
+
+  describe('standing down to hand a g: app back', () => {
+    const dockerService = require('../../ZelBack/src/services/dockerService');
+    let stopStub;
+
+    beforeEach(() => {
+      stopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      evacuationSafety.canSafelyRemoveApp.resolves({
+        safe: false,
+        code: 'STAND_DOWN_REQUIRED',
+        reason: 'stop the component first',
+        standDown: ['server_appone'],
+      });
+    });
+
+    it('stops the component instead of removing the app', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledOnceWithExactly(stopStub, 'server_appone');
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('tells the controller the component should be stopped, not just docker', async () => {
+      // Found on a live fleet, not here. appReconciler takes a g: component's
+      // desired state from controllerDesired; stopping the container while that
+      // still reads 'running' means the reconciler starts it again on its next
+      // sweep. The stand-down then reports success, the component keeps running,
+      // and every later pass refuses with ELECTION_UNKNOWN because this node has
+      // excluded itself from the election that would refresh the verdict.
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const desiredStub = sinon.stub(appReconciler, 'setControllerDesired');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(desiredStub, 'server_appone', 'stopped');
+      // Before the container stop, so no sweep can land in between and undo it.
+      sinon.assert.callOrder(desiredStub, stopStub);
+    });
+
+    it('does not count as a departure, so the pacing interval is not spent', async () => {
+      // noteEvacuated starts the 6h gap before the next app may go. Spending it
+      // on a pass that removed nothing would leave the node stood down and then
+      // idle for hours before it could finish leaving.
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
+    });
+
+    it('is one action per pass, like a removal', async () => {
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo', 'appthree'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledOnce(stopStub);
+    });
+
+    it('never stands down for SURPLUS, only for EVACUATION', async () => {
+      // SURPLUS picks the JUNIOR instance and the primary is the senior one, so
+      // a surplus giver-up is never the primary. Acting on the code here would
+      // stop a container for a case that cannot arise.
+      residentialNodeDosService.isEvacuating.returns(false);
+      registryManager.appLocation.resolves(
+        locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL),
+      );
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(stopStub);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('gives up standing down after the cap, rather than holding a stopped app forever', async () => {
+      // The state this guards against: stood down, and then unable to leave
+      // anyway because the peer that held the folder went away. A component
+      // stopped HERE and running NOWHERE is worse than the stuck-but-serving
+      // state the stand-down exists to fix, so the node stops trying to leave
+      // and stands for election again.
+      const logWarn = sinon.stub(log, 'warn');
+      evacuationSafety.canSafelyRemoveApp.onFirstCall().resolves({
+        safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop first', standDown: ['server_appone'],
+      });
+      evacuationSafety.canSafelyRemoveApp.resolves({
+        safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+      });
+
+      // The pass that stands down, then the cap's worth of passes that cannot.
+      for (let i = 0; i < 8; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      }
+
+      const gaveUp = logWarn.getCalls()
+        .map((c) => String(c.args[0]))
+        .filter((line) => line.includes('standing for election again'));
+      expect(gaveUp).to.have.lengthOf(1);
+      expect(gaveUp[0]).to.include('server_appone');
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('holds the stand-down while it is still within the cap', async () => {
+      // Mutation guard for the test above: if the cap were off by enough to fire
+      // immediately, that test would still pass and this one would not.
+      const logWarn = sinon.stub(log, 'warn');
+      evacuationSafety.canSafelyRemoveApp.onFirstCall().resolves({
+        safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop first', standDown: ['server_appone'],
+      });
+      evacuationSafety.canSafelyRemoveApp.resolves({
+        safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+      });
+
+      for (let i = 0; i < 3; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      }
+
+      const gaveUp = logWarn.getCalls()
+        .map((c) => String(c.args[0]))
+        .filter((line) => line.includes('standing for election again'));
+      expect(gaveUp).to.have.lengthOf(0);
+    });
+
+    it('leaves a component it could not stop unmarked, so the next pass retries', async () => {
+      // Marking a component this node is still writing to would make it
+      // unelectable for something it is running - the worst of both states.
+      stopStub.rejects(new Error('docker unreachable'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledTwice(stopStub);
+    });
+
+    it('does not mark a component whose stop was refused rather than thrown', async () => {
+      // THE SHAPE A LIVE NODE SEES. appDockerStop REPORTS a refusal instead of
+      // throwing one - it catches internally and answers { stopped, running,
+      // unavailable, errors } - so the catch beside it fires only on an
+      // unexpected throw. The test above passes because dockerActual throws in
+      // this environment; on a node docker answers cleanly and simply says the
+      // container is still up, no throw happens, and the component was marked on
+      // the strength of the stop having been CALLED.
+      //
+      // Marking it there excludes this node from the election for a component it
+      // is still running - precisely the state the guard's own comment says it
+      // exists to avoid - for up to STAND_DOWN_PASSES_BEFORE_GIVING_UP passes.
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      sinon.stub(appReconciler, 'dockerActual')
+        .resolves({ reachable: true, indeterminate: false, running: true });
+      const logWarn = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      // Unmarked, so the next pass tries the stop again.
+      sinon.assert.calledTwice(stopStub);
+      const stoodDown = logWarn.getCalls()
+        .map((c) => String(c.args[0]))
+        .filter((line) => line.includes('standing down as'));
+      expect(stoodDown, 'reported a stand-down for a component still running').to.have.lengthOf(0);
+    });
+  });
+
+  describe('pacing', () => {
+    it('gives up at most one app per pass', async () => {
+      // Two removals in one pass would take two instances off the network before
+      // the spawner has replaced either.
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo', 'appthree'));
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+    });
+
+    it('does nothing at all when the node does not know its own address', async () => {
+      fluxNetworkHelper.getLocalSocketAddress.resolves(null);
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does nothing while the daemon is not synced', async () => {
+      generalService.checkSynced.resolves(false);
+      residentialNodeDosService.isEvacuating.returns(true);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+  });
 });

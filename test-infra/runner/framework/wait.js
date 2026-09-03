@@ -3,16 +3,38 @@ import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 
 export async function waitFor(condition, { timeout = 60000, interval = 2000, label = '' } = {}) {
   const start = Date.now();
+  let lastError = null;
   while (Date.now() - start < timeout) {
     // An infra container died: the condition is unreachable, not merely unmet.
     throwIfInfraDead();
-    if (await condition()) return true;
+    try {
+      if (await condition()) return true;
+      lastError = null;
+    } catch (error) {
+      // A POLL THAT COULD NOT BE TAKEN IS NOT A POLL THAT CAME BACK FALSE, and
+      // it is not a reason to abandon the wait. Under gate load a node's API
+      // refuses one connection and answers on the next tick: suite 96 lost a
+      // two-minute wait to a single `fetch failed`, on a fleet that was healthy
+      // either side of it, having passed that same wait twice on an idle box.
+      //
+      // Four suites had already worked this around one predicate at a time with
+      // `.catch(() => null)`; every other wait in the harness was exposed to it.
+      //
+      // Kept rather than swallowed. A predicate that throws EVERY time still
+      // times out - this cannot turn a red into a green - and the timeout now
+      // reports what it was throwing, instead of saying only that a condition
+      // never held.
+      lastError = error;
+    }
     await sleepUnlessInfraDead(interval);
   }
   // ...including a death that landed during the last sleep, which would
   // otherwise be reported as this wait's own timeout.
   throwIfInfraDead();
-  throw new Error(`Timeout after ${timeout}ms waiting for: ${label || 'condition'}`);
+  throw new Error(
+    `Timeout after ${timeout}ms waiting for: ${label || 'condition'}`
+    + (lastError ? ` - the last attempt failed with: ${lastError.message}` : ''),
+  );
 }
 
 // Container-state wait helpers (docker-level, via the node's DinD)
@@ -200,6 +222,51 @@ export async function waitForImageUpdateRedeploy(node, appName, timeout = 120000
 
 export async function waitForImageUpdateRedeployComplete(node, appName, timeout = 120000) {
   return node.waitForEvent('imageUpdate:redeployComplete', (d) => d.appName === appName, timeout);
+}
+
+/**
+ * The give-up pass reporting what it decided about one app. Emitted once per
+ * app per pass, whichever way the decision went, so a suite can tell "the pass
+ * declined" from "the pass never ran" - which the logs cannot, since a pass
+ * with nothing to give up says nothing at all.
+ */
+export async function waitForGiveUpConsidered(node, appName, predicate, timeout = 120000, opts) {
+  return node.waitForEvent('giveUp:considered', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);
+}
+
+/**
+ * This node's verdict on ONE app changing: `{ name, stage, candidate }`, where
+ * stage is 'candidate' or the filter that removed it - afterAlreadyHeldOrTried,
+ * afterNodePin, afterGeolocation, afterOwnership, afterClaims.
+ *
+ * Published on CHANGE only, so it says what happened rather than what is still
+ * true. That is what makes eligibility assertable: a node that stood down and is
+ * later allowed to take the app again reports exactly one of these, whether or
+ * not it goes on to win the draw - which is a lottery among every eligible node
+ * and proves nothing about this one.
+ */
+export async function waitForCandidacy(node, predicate, timeout = 60000, opts) {
+  return node.waitForEvent('spawner:candidacy', (d) => (!predicate || predicate(d)), timeout, opts);
+}
+
+/**
+ * One residential tick's conclusion.
+ *
+ * The reason this event exists: deciding NOT to enforce produces no placement
+ * hold, no settle marker and no DOS, so its whole signature is the absence of
+ * three things. Without an event a suite can only sleep and infer from nothing
+ * having happened - which reads the same as the tick never running.
+ *
+ * `enforce` is three-state. false means this node is fit to serve; null means
+ * the tick could not decide, with `undecidedBecause` naming the missing input.
+ */
+export async function waitForResidentialDecision(node, predicate, timeout = 60000, opts) {
+  return node.waitForEvent('residential:decided', (d) => (!predicate || predicate(d)), timeout, opts);
+}
+
+/** The safety gate's verdict on an app the pass wanted to give up. */
+export async function waitForGiveUpSafety(node, appName, predicate, timeout = 120000, opts) {
+  return node.waitForEvent('giveUp:safety', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);
 }
 
 export async function waitForSpawnerDeferred(node, appName, reason, timeout = 60000) {

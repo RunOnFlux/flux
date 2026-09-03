@@ -2,6 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import { nodeKey } from '../framework/keys.js';
 import { signBtcMessage } from '../auth.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
@@ -93,14 +94,51 @@ describe('Sync response: eviction, pruning and forged events', function () {
   const EVICTED_NODE = 9;
   const PRUNE_NODE = 8;
   const FORGERY_NODE = 7;
-  const stamp = Date.now();
+  // Stamped when the events are INJECTED, not when mocha loads this file.
+  //
+  // These are broadcasts, and a broadcast has an acceptance window:
+  // messageStore computes validTill = broadcastedAt + RUNNING_EXPIRY_MS
+  // (config.fluxapps.locationTtlS) and writes the location row with that same
+  // expireAt. At describe-body scope this was evaluated before the hook ran,
+  // before a twelve-node fleet booted, and under the parallel gate before the
+  // run had even claimed its subnet - minutes of it. Every event then arrived
+  // stamped in the past and its row was born expired, which reads as an empty
+  // location list rather than as a rejected message.
+  //
+  // It passed for as long as it did because locationTtlS was wired to nothing:
+  // the window was the production 125 minutes, wide enough to swallow any boot.
+  // Live at 63s it is 2.1 announce intervals, matching production's 2.08, and a
+  // broadcast stamped before the fleet existed is one production would refuse
+  // too.
+  let stamp;
 
   before(async function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false,
     });
-    await bootAndPeer(env, Array.from({ length: 10 }, (_, i) => i));
+    const RUNNING = Array.from({ length: 10 }, (_, i) => i);
+    await bootAndPeer(env, RUNNING);
+
+    // THE READER BOOTS BEFORE THE WINDOW OPENS, AND CANNOT SYNC WHILE IT DOES.
+    //
+    // Everything below is a broadcast, and messageStore refuses one older than
+    // locationTtlS - 63s here. Booting the reader after seeding put a node boot
+    // inside that window: 24.6s of it on an idle box, ~83s under a six-way gate,
+    // so the events expired during their own setup, were skipped in silence, and
+    // the suite read an empty location list rather than a rejected message.
+    //
+    // No number fixes that, because the boot's cost is whatever the box is doing.
+    // So the boot moves OUT of the window instead. The reader is refused by the
+    // running nodes before it starts, boots deaf for as long as it needs, and the
+    // window opens only once it is up - spanning a sync, which is seconds, rather
+    // than a boot, which is unbounded.
+    await env.holdOutPendingNode(10, RUNNING);
+    const joiner = await env.startNode(10);
+    await waitForDaemonReady(joiner);
+    await waitForNodeStatus(joiner, (d) => d.confirmed === true, 30000);
+
+    stamp = Date.now();
 
     const events = [];
 
@@ -155,18 +193,44 @@ describe('Sync response: eviction, pruning and forged events', function () {
       signedBy: FORGERY_NODE === 1 ? 2 : 1,
     }));
 
-    for (let i = 1; i <= 10; i++) {
-      const dc = dbClient(i);
-      for (const event of events) {
-        // eslint-disable-next-line no-await-in-loop
-        await dc.seedAppStateEvent({ ...event });
-      }
-    }
+    // Seeded in ONE round trip per node, not one per event.
+    //
+    // These are broadcasts and their acceptance window is live: messageStore
+    // refuses one older than locationTtlS, 63s here. Ten nodes times 326 events
+    // is 3,260 sequential insertOne round trips, which on a gate box outlives
+    // that window - every event then arrives already expired, is skipped without
+    // a word, and the suite reads an empty location list rather than a rejected
+    // message. The `stamp` comment above moved the clock's start into the hook;
+    // this keeps the hook short enough for that start to still mean something.
+    await Promise.all(Array.from({ length: 10 }, (_unused, n) => dbClient(n + 1).seedAppStateEvents(
+      // A copy per node: insertMany stamps _id onto the objects it is given, so
+      // one shared array would carry node 1's ids into every other node's insert.
+      events.map((event) => ({ ...event })),
+    )));
 
-    const joiner = await env.startNode(10);
-    await waitForDaemonReady(joiner);
-    await waitForNodeStatus(joiner, (d) => d.confirmed === true, 30000);
+    // Seeded, so let it in. It has never spoken to a peer, so its first sync is
+    // its only one, and it reads records written seconds ago rather than records
+    // written before it started booting.
+    await env.healPartition([10], RUNNING);
+    await env.startDiscovery([10]);
     await waitForOrchestratorState(joiner, 'READY', 180000);
+
+    // THE GUARD, not decoration. Every assertion below rests on the seeded
+    // broadcasts still being inside their acceptance window when the joiner
+    // reads them, and this suite has twice failed by spending that window on
+    // setup instead - the second time with the boot inside it, measured at 24.6s
+    // of 63s idle and ~83s under a six-way gate.
+    //
+    // Without this, moving the boot back inside the window reads as green on any
+    // idle box and red only on a loaded one, which is how it got here. Asserted
+    // against the live knob rather than a literal, so compressing locationTtlS
+    // further tightens this too, and a third of it is the margin: the gate must
+    // be able to treble what an idle box costs and still fit.
+    const windowMs = loadSharedConfig().fluxapps.locationTtlS * 1000;
+    const spent = Date.now() - stamp;
+    expect(spent, `setup spent ${spent}ms of the ${windowMs}ms acceptance window - `
+      + 'the seeded broadcasts expire before the joiner reads them under any load')
+      .to.be.lessThan(windowMs / 3);
   });
 
   after(async function () {

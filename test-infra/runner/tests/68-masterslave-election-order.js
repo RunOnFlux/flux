@@ -16,6 +16,7 @@ import { waitFor } from '../framework/wait.js';
 import {
   bootAndPeer, placeGAppInOrder, electionIndexOf,
 } from '../framework/reconciler-suite.js';
+import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -47,10 +48,10 @@ describe('primary election under a divergent placement order', function () {
   let env;
   dumpLogsOnFailure(() => env);
   const holders = [0, 1, 2];
-  const seedIndex = 0; // lowest IP among the holders = the syncthing seed
+  const seedIndex = syncthingSeedIndex(holders);
   // Placed in this order, so the seed carries the MIDDLE runningSince and node 2 sits
   // above it - the peer a lower-index-only probe cannot see.
-  const placementOrder = [1, 0, 2];
+  const placementOrder = placementOrderWithSeedAt(holders, 1);
   const stamp = Date.now();
 
   // One app per scenario, all on the one fleet. All five land on the same three
@@ -323,7 +324,7 @@ describe('primary election under a divergent placement order', function () {
     const app = await buildSeedableSyncthingApp({ name: pairApp, mode: 'g' });
     await pushImage(pairApp, 'v1');
     await placeGAppInOrder(env, app, {
-      placementOrder: [1, 0],
+      placementOrder: placementOrderWithSeedAt([0, 1], 1),
       folder: `flux${pairApp}_${pairApp}`,
       identifier: `${pairApp}_${pairApp}`,
     });

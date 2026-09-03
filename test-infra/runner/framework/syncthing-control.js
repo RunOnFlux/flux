@@ -4,13 +4,14 @@
 // syncthing folder id FluxOS assigns to the component (== the reconciler
 // identifier); read it from getSyncthingState() if unsure.
 import { getSubnetConfig } from './subnet-config.js';
+import { controlFetch } from './control-fetch.js';
 
 const CONTROL = process.env.SYNCTHING_CONTROL || `http://${getSubnetConfig().syncthing}:8385`;
 
 const GLOBAL_BYTES = 100000;
 
 async function post(path, body) {
-  const res = await fetch(`${CONTROL}${path}`, {
+  const res = await controlFetch(`${CONTROL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body != null ? JSON.stringify(body) : undefined,
@@ -19,7 +20,7 @@ async function post(path, body) {
 }
 
 async function get(path) {
-  const res = await fetch(`${CONTROL}${path}`);
+  const res = await controlFetch(`${CONTROL}${path}`);
   return res.json();
 }
 

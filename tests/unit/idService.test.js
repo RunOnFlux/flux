@@ -1469,7 +1469,7 @@ describe('idService tests', () => {
       sinon.restore();
     });
 
-    it('should return error message if no zelid parameter is passed', async () => {
+    it('should answer none, not the thrown text, if no zelid parameter is passed', async () => {
       const res = generateResponse();
       const params = {
         loginPhrase: 'phrase',
@@ -1487,12 +1487,12 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user Flux ID specificed',
+          message: 'none',
         },
       });
     });
 
-    it('should return error message if no loggedPhrase parameter is passed', async () => {
+    it('should answer none, not the thrown text, if no loggedPhrase parameter is passed', async () => {
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1510,12 +1510,12 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user loginPhrase specificed',
+          message: 'none',
         },
       });
     });
 
-    it('should return error message if no loggedPhrase parameter is passed', async () => {
+    it('should answer none, not the thrown text, if no signature parameter is passed', async () => {
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1533,7 +1533,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user Flux ID signature specificed',
+          message: 'none',
         },
       });
     });
@@ -1601,6 +1601,30 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
         data: { code: undefined, name: undefined, message: 'user' },
+      });
+    });
+
+    it('should answer none when the privilege check itself throws, so the session is cleared', async () => {
+      verifyPrivilegeStub.throws(new Error('database unavailable'));
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        loginPhrase: 'loginphrase',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      // 'none' is the only value that makes the frontend drop zelidauth, and a
+      // thrown error is exactly when the session should end. `name` is what
+      // still separates this from the refusal below, which carries none.
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'none' },
       });
     });
 

@@ -22,6 +22,7 @@ const WebSocket = require('ws');
 const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
+const os = require('os');
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -3054,6 +3055,128 @@ describe('fluxNetworkHelper tests', () => {
       expect(funcStub.callCount).to.eql(5);
 
       sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error allowing traffic on Flux interface docker0. Error');
+    });
+  });
+
+  describe('placement hold tests', () => {
+    const { RESIDENTIAL_DOS } = fluxNetworkHelper.PlacementHoldOwner;
+
+    afterEach(() => {
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+      fluxNetworkHelper.clearStickyDosMessage();
+    });
+
+    it('is not held by default', () => {
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+      expect(fluxNetworkHelper.getPlacementHold()).to.equal(null);
+    });
+
+    it('holds with the reason it was given', () => {
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential node not running ArcaneOS');
+    });
+
+    it('releases', () => {
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'some reason');
+
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    });
+
+    it('refuses an owner it does not know, rather than minting one', () => {
+      // An unknown owner is a caller that was never given an identity. Accepted,
+      // it would hold the node under a name no release path knows about.
+      expect(() => fluxNetworkHelper.setPlacementHold('someFeature', 'a reason')).to.throw('unknown owner');
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    });
+
+    it('does not release a hold it does not own', () => {
+      // The reason this is a map keyed by owner and not a single slot. With one
+      // slot, whoever cleared next released the node outright - including a
+      // caller whose own condition had nothing to do with the hold in place - so
+      // the node resumed taking apps for a condition that had not lifted.
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential');
+
+      fluxNetworkHelper.clearPlacementHold('someOtherOwner');
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential');
+    });
+
+    it('does NOT put the node into DOS', () => {
+      // The whole point of the hold: DOS >= 100 makes nodeStatusMonitor and
+      // appStartupManager rm -rf every app on the box. A node that should stop
+      // growing but keep its volumes must not cross that line.
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
+
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+    });
+
+    it('is independent of the sticky DOS slot in both directions', () => {
+      fluxNetworkHelper.setStickyDosMessage('someone else holds this');
+      fluxNetworkHelper.setStickyDosStateValue(100);
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+
+      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
+
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+    });
+  });
+
+  describe('hasPublicIpOnInterface', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('returns NULL when the routing table cannot be read, not false', async () => {
+      // The distinction the static-IP verdict turns on. "There is no public
+      // address on any interface" is a fact about the node and means it is
+      // behind NAT; "I could not read /proc/net/route" is a fact about this
+      // process, and answering the second with the first asserts NAT on a node
+      // that may well hold a public address on its own interface.
+      sinon.stub(fs, 'readFile').rejects(new Error('EACCES: permission denied'));
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(null);
+    });
+
+    it('returns false, not null, when the routing table simply has no routes', async () => {
+      // Readable and empty is an answer: there is no default route, so there is
+      // no public address on one.
+      sinon.stub(fs, 'readFile').resolves('Iface\tDestination\tGateway\n');
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(false);
+    });
+
+    it('finds a public address that is not the first one on the interface', async () => {
+      // An interface can carry a private primary and a public secondary - the
+      // shape add-on and failover addresses arrive in. The question is whether
+      // a public address is bound to the default-route interface; which address
+      // the kernel lists first is not part of the question.
+      const routeTable = 'Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n'
+        + 'eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n';
+      const readFile = sinon.stub(fs, 'readFile');
+      readFile.withArgs('/proc/net/route', 'utf8').resolves(routeTable);
+      readFile.withArgs('/sys/class/net/eth0/operstate', 'utf8').resolves('up\n');
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [
+          { family: 'IPv4', internal: false, address: '192.168.1.50' },
+          { family: 'IPv4', internal: false, address: '203.0.113.7' },
+        ],
+      });
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(true);
     });
   });
 });
