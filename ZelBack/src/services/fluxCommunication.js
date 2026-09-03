@@ -270,7 +270,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     }
 
     if (done) {
-      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning', peerKey);
       log.info('handleAppRunningSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -293,7 +293,7 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored });
     });
     if (done) {
-      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling', peerKey);
       log.info('handleAppInstallingSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -316,7 +316,7 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored });
     });
     if (done) {
-      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors', peerKey);
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -1762,6 +1762,9 @@ module.exports = {
   logSocketsEvery,
   handleAppRunningMessage,
   handleAppInstallingMessage,
+  handleAppRunningSyncResponse,
+  handleAppInstallingSyncResponse,
+  handleAppInstallingErrorsSyncResponse,
   handleIPChangedMessage,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,

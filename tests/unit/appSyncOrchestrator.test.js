@@ -67,6 +67,18 @@ describe('AppSyncOrchestrator', () => {
     syncRequested.delete(key);
   }
 
+  // A completion carries the peer it came from, exactly as the response
+  // handlers emit it - they have had the key all along. Distinct peers here, so
+  // a test that means "three peers answered" says so rather than relying on a
+  // count that three answers from one peer would also satisfy.
+  function completeAllTypes(count, types = ['apprunning', 'appinstalling', 'apperrors']) {
+    for (let i = 0; i < count; i += 1) {
+      for (const type of types) {
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, type, `10.0.0.${i + 1}:16127`);
+      }
+    }
+  }
+
   function makeOrchestrator(overrides = {}) {
     const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions(), ...overrides });
     orchestrator.onMessageCapabilityChange(true);
@@ -470,11 +482,7 @@ describe('AppSyncOrchestrator', () => {
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
 
-      for (let i = 0; i < 3; i += 1) {
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
-      }
+      completeAllTypes(3);
       await clock.tickAsync(0);
 
       // Completion clears the marks, so without the state-sync guard every
@@ -531,6 +539,63 @@ describe('AppSyncOrchestrator', () => {
     });
   });
 
+  // Completion needs MIN_SYNC_COMPLETIONS answers because three peers' views of
+  // the network are what make the result trustworthy. Counting answers rather
+  // than peers meant one peer could satisfy all three, and the node concluded
+  // it had surveyed the network when it had surveyed one node.
+  describe('a completion is a peer, not a tally', () => {
+    const driveToRequests = async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      orchestrator.start(defaultBootContext);
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      return orchestrator;
+    };
+
+    it('does not complete on three answers from one peer', async () => {
+      const orchestrator = await driveToRequests();
+
+      for (let i = 0; i < 3; i += 1) {
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning', '10.0.0.1:16127');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling', '10.0.0.1:16127');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors', '10.0.0.1:16127');
+      }
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state, 'one peer answering three times completed the sync').to.equal(STATES.SYNCING);
+    });
+
+    it('completes on the same nine answers spread across three peers', async () => {
+      const orchestrator = await driveToRequests();
+
+      completeAllTypes(3);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(STATES.READY);
+    });
+
+    // The response handlers have the key and always had it. A completion
+    // arriving without one means that path stopped saying, and absorbing it
+    // silently is how the tally came back.
+    it('refuses a completion that cannot be attributed to a peer', async () => {
+      const orchestrator = await driveToRequests();
+
+      for (let i = 0; i < 3; i += 1) {
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
+      }
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state, 'unattributed completions were counted').to.equal(STATES.SYNCING);
+      expect(logStub.error.called, 'an unattributable completion was absorbed silently').to.equal(true);
+    });
+  });
+
   describe('state sync readiness', () => {
     it('should reach READY when all 3 sync types complete from 3 peers', async () => {
       const peers = makeEligiblePeers(3);
@@ -549,11 +614,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
 
       // Complete all syncs from 3 peers
-      for (let i = 0; i < 3; i += 1) {
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
-      }
+      completeAllTypes(3);
       await clock.tickAsync(0);
 
       expect(orchestrator.state).to.equal(STATES.READY);
@@ -573,12 +634,9 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
 
       // Only 2 apprunning, but 3 of the others
-      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
-      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
-      for (let i = 0; i < 3; i += 1) {
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
-      }
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning', '10.0.0.1:16127');
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning', '10.0.0.2:16127');
+      completeAllTypes(3, ['appinstalling', 'apperrors']);
       await clock.tickAsync(0);
 
       expect(orchestrator.state).to.equal(STATES.SYNCING);
@@ -618,11 +676,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
 
       // Complete all syncs → READY
-      for (let i = 0; i < 3; i += 1) {
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
-      }
+      completeAllTypes(3);
       await clock.tickAsync(0);
       expect(orchestrator.state).to.equal(STATES.READY);
 

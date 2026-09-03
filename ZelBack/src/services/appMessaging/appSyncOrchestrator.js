@@ -57,7 +57,10 @@ class AppSyncOrchestrator {
   #broadcastStarted = null;
   #started = false;
   #syncInProgress = false;
-  #syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
+  // WHICH peers answered, not how many answers arrived. Three responses from
+  // one peer are one peer's view of the network, and counting them as three
+  // satisfied the requirement without ever asking anyone else.
+  #syncCompletions = { apprunning: new Set(), appinstalling: new Set(), apperrors: new Set() };
   #stateSyncComplete = false;
   #syncTimeout = null;
   #hashSyncAttempts = 0;
@@ -144,7 +147,7 @@ class AppSyncOrchestrator {
       this.#peerThresholdHandler(peersAlready);
     }
 
-    this.#ephemeralSyncHandler = (syncType) => this.#onEphemeralSyncComplete(syncType);
+    this.#ephemeralSyncHandler = (syncType, peerKey) => this.#onEphemeralSyncComplete(syncType, peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
 
     this.#hashUnresolvedHandler = () => this.#onHashUnresolved();
@@ -191,19 +194,35 @@ class AppSyncOrchestrator {
     this.#requestSyncs();
   }
 
-  #onEphemeralSyncComplete(syncType) {
+  /**
+   * Record that one peer finished one sync type.
+   * @param {string} syncType apprunning | appinstalling | apperrors
+   * @param {string} peerKey ip:port of the peer that answered.
+   * @returns {void}
+   */
+  #onEphemeralSyncComplete(syncType, peerKey) {
     if (this.#stateSyncComplete) return;
-    if (this.#syncCompletions[syncType] === undefined) return;
-    this.#syncCompletions[syncType] += 1;
-    log.info(`AppSyncOrchestrator - ${syncType} sync complete (${this.#syncCompletions[syncType]}/${MIN_SYNC_COMPLETIONS})`);
+    const answered = this.#syncCompletions[syncType];
+    if (answered === undefined) return;
+    // An answer nobody can attribute cannot be counted. Counting it is the
+    // defect this records peers to avoid, and a completion whose peer is
+    // missing means the response path stopped saying who it came from - which
+    // is a fault to report, not to absorb.
+    if (!peerKey) {
+      log.error(`AppSyncOrchestrator - ${syncType} sync complete with no peer, not counted`);
+      return;
+    }
+    answered.add(peerKey);
+    log.info(`AppSyncOrchestrator - ${syncType} sync complete from ${peerKey} (${answered.size}/${MIN_SYNC_COMPLETIONS} peers)`);
     fluxEventBus.publish('ephemeralSync:peerComplete', {
       syncType,
-      completions: this.#syncCompletions[syncType],
+      peer: peerKey,
+      completions: answered.size,
       required: MIN_SYNC_COMPLETIONS,
     });
-    if (this.#syncCompletions.apprunning >= MIN_SYNC_COMPLETIONS
-      && this.#syncCompletions.appinstalling >= MIN_SYNC_COMPLETIONS
-      && this.#syncCompletions.apperrors >= MIN_SYNC_COMPLETIONS) {
+    if (this.#syncCompletions.apprunning.size >= MIN_SYNC_COMPLETIONS
+      && this.#syncCompletions.appinstalling.size >= MIN_SYNC_COMPLETIONS
+      && this.#syncCompletions.apperrors.size >= MIN_SYNC_COMPLETIONS) {
       this.#stateSyncComplete = true;
       if (this.#syncTimeout) {
         clearTimeout(this.#syncTimeout);
@@ -212,9 +231,9 @@ class AppSyncOrchestrator {
       this.#clearSyncRequested();
       log.info('AppSyncOrchestrator - All state syncs complete');
       fluxEventBus.publish('ephemeralSync:allComplete', {
-        apprunning: this.#syncCompletions.apprunning,
-        appinstalling: this.#syncCompletions.appinstalling,
-        apperrors: this.#syncCompletions.apperrors,
+        apprunning: this.#syncCompletions.apprunning.size,
+        appinstalling: this.#syncCompletions.appinstalling.size,
+        apperrors: this.#syncCompletions.apperrors.size,
       });
       this.#checkReadiness();
     }
@@ -310,7 +329,7 @@ class AppSyncOrchestrator {
         this.#syncTimeout = null;
         this.#clearSyncRequested();
         if (!this.#stateSyncComplete) {
-          log.warn(`AppSyncOrchestrator - Sync timeout, completions: apprunning=${this.#syncCompletions.apprunning} appinstalling=${this.#syncCompletions.appinstalling} apperrors=${this.#syncCompletions.apperrors}`);
+          log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: apprunning=${this.#syncCompletions.apprunning.size} appinstalling=${this.#syncCompletions.appinstalling.size} apperrors=${this.#syncCompletions.apperrors.size}`);
         }
       }, SYNC_TIMEOUT_MS);
     }
@@ -341,7 +360,7 @@ class AppSyncOrchestrator {
 
   #resetSyncState() {
     this.#clearSyncRequested();
-    this.#syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
+    this.#syncCompletions = { apprunning: new Set(), appinstalling: new Set(), apperrors: new Set() };
     this.#stateSyncComplete = false;
     this.#hashSyncAttempts = 0;
     if (this.#syncTimeout) {

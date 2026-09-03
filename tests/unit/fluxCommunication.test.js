@@ -22,6 +22,7 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
 let localWsServer;
 let localWsUrl;
@@ -1801,6 +1802,53 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
       sinon.assert.notCalled(relaySpy);
+    });
+  });
+
+  // Completion is counted per peer, so a completion that does not say which
+  // peer it came from cannot be counted at all. These handlers have had the key
+  // in scope all along - they log it, and publish it on sync:chunkVerified two
+  // lines earlier - and this is what makes them hand it on.
+  describe('a sync response says which peer completed it', () => {
+    const PEER = '198.51.100.7:16127';
+    let completions;
+    let handler;
+
+    beforeEach(() => {
+      completions = [];
+      handler = (syncType, peerKey) => completions.push({ syncType, peerKey });
+      appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
+      peerManager.markSyncRequested(PEER);
+      // An empty final batch is the whole path here: processInSlices does
+      // nothing, and apprunning's pruning is the only step that needs a store.
+      sinon.stub(messageStore, 'pruneAppRunningLocations').resolves();
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({}) }) });
+    });
+
+    afterEach(() => {
+      appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
+      peerManager.clearSyncRequested();
+      sinon.restore();
+    });
+
+    const cases = [
+      ['apprunning', 'fluxapprunningsync', 'handleAppRunningSyncResponse'],
+      ['appinstalling', 'fluxappinstallingsync', 'handleAppInstallingSyncResponse'],
+      ['apperrors', 'fluxappinstallingerrorssync', 'handleAppInstallingErrorsSyncResponse'],
+    ];
+
+    cases.forEach(([syncType, wireType, fn]) => {
+      it(`names the peer on the ${syncType} completion`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER);
+
+        expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
+      });
+
+      it(`says nothing until the ${syncType} response is done`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER);
+
+        expect(completions).to.deep.equal([]);
+      });
     });
   });
 });
