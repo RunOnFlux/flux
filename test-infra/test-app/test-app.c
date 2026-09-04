@@ -22,12 +22,19 @@
  *                 cannot signal it away — docker kill reaches the main process
  *                 only, and the spinners are forked children — and docker pause
  *                 would freeze the container out of the sampler's view.
+ *   LOG_EVERY_MS  if > 0, write `log line <n>` to stdout on this interval,
+ *                 numbered from 1 and never repeating. Numbered because that is
+ *                 what lets a reader prove it saw every line exactly once: a gap
+ *                 or a repeat in the sequence is visible, and identical lines
+ *                 would hide both. Written to fd 1, which is the container's
+ *                 docker log.
  *
  * On SIGTERM/SIGINT (i.e. `docker stop`) it exits with EXIT_CODE, so a test can
  * deterministically produce a clean exit 0 or any non-zero code on demand.
  * Static + freestanding: it runs in an otherwise-empty rootfs (no libc loader,
  * no shell), exactly like the /bin/pause fixture.
  */
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
@@ -90,6 +97,24 @@ int main(void)
 
         if (is_child)
             _exit(0);
+    }
+
+    const char *log_every = getenv("LOG_EVERY_MS");
+    if (log_every) {
+        long interval_ms = atol(log_every);
+        if (interval_ms > 0) {
+            const struct timespec gap = {
+                .tv_sec = interval_ms / 1000,
+                .tv_nsec = (interval_ms % 1000) * 1000000L,
+            };
+            char line[64];
+            for (unsigned long n = 1;; n++) {
+                int len = snprintf(line, sizeof(line), "log line %lu\n", n);
+                if (len > 0)
+                    (void)!write(STDOUT_FILENO, line, (size_t)len);
+                nanosleep(&gap, NULL);
+            }
+        }
     }
 
     for (;;)
