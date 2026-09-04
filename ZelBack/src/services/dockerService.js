@@ -199,7 +199,34 @@ async function getDockerContainerOnly(idOrName) {
  * @returns {object} dockerContainer
  */
 async function getDockerContainerByIdOrName(idOrName) {
-  const myContainer = await getDockerContainerOnly(idOrName);
+  // Docker filters server-side, so this asks about ONE container whatever the
+  // node is running. It used to list every container, `all: true`, and scan the
+  // result - for every start, stop, remove, inspect, exec, stats and log poll.
+  // On a node running twenty apps that is twenty records to answer a question
+  // about one, and the log endpoint pays it on a timer for as long as a browser
+  // is left open.
+  //
+  // The name filter is a SUBSTRING match, so the exact comparison below still
+  // decides it: `fluxweb` must not answer for `fluxwebsite`. The filter narrows
+  // what comes back; it does not choose.
+  const dockerName = getAppDockerNameIdentifier(idOrName);
+  let containers = await docker.listContainers({
+    all: true,
+    filters: JSON.stringify({ name: [getAppIdentifier(idOrName)] }),
+  });
+  let myContainer = containers.find((container) => container.Names[0] === dockerName);
+
+  // Only the reconciler passes a raw docker id, and a name filter cannot match
+  // one, so it costs a second request rather than making every other caller pay
+  // for a listing.
+  if (!myContainer && /^[0-9a-f]{12,64}$/.test(idOrName)) {
+    containers = await docker.listContainers({
+      all: true,
+      filters: JSON.stringify({ id: [idOrName] }),
+    });
+    myContainer = containers.find((container) => container.Id === idOrName);
+  }
+
   // A container that is not there is an expected outcome, not an accident: an
   // app is removed or redeployed while something else still holds its name.
   // Dereferencing undefined instead raised `Cannot read properties of undefined
@@ -208,8 +235,7 @@ async function getDockerContainerByIdOrName(idOrName) {
   if (!myContainer) {
     throw new Error(`Container ${idOrName} not found`);
   }
-  const dockerContainer = docker.getContainer(myContainer.Id);
-  return dockerContainer;
+  return docker.getContainer(myContainer.Id);
 }
 /**
  * Returns low-level information about a container.
