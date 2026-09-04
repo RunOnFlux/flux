@@ -611,10 +611,15 @@ class AppSyncOrchestrator {
     if (!this.#networkReady || !this.#peersReady) return;
     // Are there enough peers to trust an answer RIGHT NOW. A level, and the
     // reason the latch is not enough on its own: DEGRADED is this node's own
-    // verdict that it has too few peers for gossip to be reliable, and a node
-    // that has said so must not then go and complete a survey on the strength
-    // of them - it would publish itself authoritative and start answering
-    // other nodes from a view it has already judged untrustworthy.
+    // verdict that it has too few peers for gossip to be reliable, so a survey
+    // gathered from them is not one to complete a sync on.
+    //
+    // Only the gathering. Authority already earned is not revoked here: a node
+    // past its block fallback stays authoritative through a degrade, because
+    // losing peers does not erase what it has already learned and it holds a
+    // full location lifetime's worth of view. What this stops is a node that
+    // has NOT earned it taking a short cut to it through the few peers it has
+    // left.
     //
     // Recovery needs nothing here: crossing the threshold again moves the
     // state to RESYNCING before #onPeersReady reconciles.

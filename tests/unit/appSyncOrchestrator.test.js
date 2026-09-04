@@ -939,14 +939,16 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.stop();
     });
 
-    // WHAT THE RE-ENTRANCY GUARD BUYS, on its own.
+    // WHAT THE RE-ENTRANCY GUARD BUYS, beyond holding the pool cap.
     //
-    // The pool cap survives without it, because a pass reads the table and
-    // reserves in it without yielding, so a second pass started concurrently
-    // sees the first one's records and finds nothing owed. What the guard adds
-    // is that the second pass never starts: a boot brings peers in a burst and
-    // every one of them is a trigger, and each pass that gets as far as the
-    // await fetches this node's signing key. One arrival, one key.
+    // It holds the cap: a pass counts the deficit, then fetches a signing key
+    // before it can reserve anything, so a second pass admitted in that window
+    // counts the same deficit and fills it twice - which is why deleting the
+    // guard turns the double-ask test below red, not this one.
+    //
+    // This is the part only it does. A boot brings peers in a burst and every
+    // one of them is a trigger, and each pass that reaches the await fetches
+    // this node's signing key. One arrival, one key.
     it('fetches the signing key once however many triggers arrive together', async () => {
       const peers = makeEligiblePeers(6);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
