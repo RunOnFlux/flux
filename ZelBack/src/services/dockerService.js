@@ -1,6 +1,5 @@
 const config = require('config');
 const fs = require('fs').promises;
-const stream = require('stream');
 const tar = require('tar');
 const Docker = require('dockerode');
 const path = require('path');
@@ -347,6 +346,7 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
   }
 }
 
+
 /**
  * Returns requested number of lines of logs from the container.
  *
@@ -369,134 +369,92 @@ async function dockerContainerLogs(idOrName, lines) {
   return logs;
 }
 
-async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, callback) {
-  // The docker-side log stream, kept out here so the finally can release it on
-  // every exit. `follow: true` opens a connection dockerd holds open for as long
-  // as the container lives, and nothing used to close it: the window below ended
-  // the local PassThrough and left the source streaming into the void. One leaked
-  // connection per poll, and the endpoint is polled by a browser on a timer.
-  let followStream = null;
+/**
+ * The lines a reader has not seen yet, and the position it has reached.
+ *
+ * A poll, not a subscription: docker is asked for what it has and closes the
+ * connection itself, so the read costs what the read costs. `follow: true` was
+ * asked for instead, which never closes - the only way out was a 1500ms timer,
+ * so every poll took 1500ms to answer whether one line was waiting or none.
+ *
+ * `since` is inclusive and millisecond-resolved, so a reader is always handed
+ * back lines it already holds. `position.count` says how many of them, and they
+ * are dropped here rather than by the reader - the overlap is the proof there is
+ * no gap between two polls, and dropping it exactly is what the count is for.
+ *
+ * `tail` is not a companion to a position: docker applies it AFTER `since`, so
+ * `tail: 100` over a burst of 500 answers a reader asking for everything since T
+ * with the last 100 and no indication the rest existed.
+ *
+ * @param {string} idOrName
+ * @param {{position: {ms: number, count: number}|null, lineCount: number|'all', maxLines: number}} options
+ * @returns {Promise<{lines: string[], position: {ms: number, count: number}|null, rolledOver: boolean, truncated: boolean}>}
+ */
+async function dockerContainerLogsPolling(idOrName, options = {}) {
+  const { position = null, lineCount = 'all', maxLines = 5000 } = options;
 
-  try {
-    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-    const logStream = new stream.PassThrough();
-    let logBuffer = '';
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-    logStream.on('data', (chunk) => {
-      logBuffer += chunk.toString('utf8');
-      const lines = logBuffer.split('\n');
-      logBuffer = lines.pop();
-      // eslint-disable-next-line no-restricted-syntax
-      for (const line of lines) {
-        if (line.trim()) {
-          if (callback) {
-            callback(null, line);
-          }
-        }
-      }
-    });
+  const logOptions = {
+    follow: false,
+    stdout: true,
+    stderr: true,
+    timestamps: true,
+  };
 
-    const logOptions = {
-      follow: true,
-      stdout: true,
-      stderr: true,
-      tail: lineCount,
-      timestamps: true,
-    };
+  if (position) {
+    logOptions.since = position.ms / 1000;
+  } else if (lineCount && lineCount !== 'all') {
+    logOptions.tail = lineCount;
+  }
 
-    if (sinceTimestamp) {
-      logOptions.since = new Date(sinceTimestamp).getTime() / 1000;
-    }
+  const payload = await dockerContainer.logs(logOptions);
 
-    // Every terminal condition settles this promise and nothing reports to the
-    // callback from inside it. The rejection is awaited, so it lands in this
-    // function's catch, which is the one place that reports - reporting here as
-    // well delivered a single docker error to the caller twice. And a path that
-    // reported without settling (the log stream's own `error`) left the await
-    // pending forever, so the function never returned and never released the
-    // docker connection it was holding.
-    await new Promise((resolve, reject) => {
-      // eslint-disable-next-line consistent-return
-      dockerContainer.logs(logOptions, (err, mystream) => {
-        if (err) {
-          return reject(err);
-        }
-        followStream = mystream;
-        try {
-          dockerContainer.modem.demuxStream(mystream, logStream, logStream);
+  // Every app container is created with Tty false (appDockerCreate), so docker
+  // frames each write with an 8-byte header carrying the stream id and length.
+  const raw = [];
+  let offset = 0;
+  while (offset + 8 <= payload.length) {
+    const length = payload.readUInt32BE(offset + 4);
+    raw.push(payload.slice(offset + 8, offset + 8 + length).toString('utf8'));
+    offset += 8 + length;
+  }
+  let lines = raw.join('').split('\n').filter((line) => line.trim());
 
-          // This is a poll, not a subscription: it answers with the logs
-          // available in this window. `follow` is only here so the read does not
-          // race the container writing.
-          let closing = false;
-          const window = setTimeout(() => {
-            // Tear the source down BEFORE ending the sink. demuxStream writes
-            // into logStream, and a write landing after end() surfaces as
-            // ERR_STREAM_WRITE_AFTER_END - a completed poll reported as a
-            // failure.
-            closing = true;
-            mystream.destroy();
-            logStream.end();
-          }, 1500);
-
-          const fail = (error) => {
-            // Once the window is deliberately closing, a stream error is the
-            // teardown, not a failure. 'close' below still settles the promise,
-            // so ignoring it here cannot hang.
-            if (closing) return;
-            clearTimeout(window);
-            reject(error);
-          };
-
-          // 'end' is the success: it fires after the last chunk has been read,
-          // so every line has reached the callback by then. 'close' is the
-          // backstop - a stream that errored may never emit 'end', and an
-          // unsettled promise here is a leaked connection.
-          logStream.on('end', () => {
-            clearTimeout(window);
-            resolve();
-          });
-          logStream.on('close', () => {
-            clearTimeout(window);
-            resolve();
-          });
-          logStream.on('error', fail);
-
-          mystream.on('end', () => {
-            clearTimeout(window);
-            logStream.end();
-          });
-          mystream.on('error', fail);
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-
-    if (callback) {
-      // Reported once, here, and only on success. Emitting it from the stream's
-      // own 'end' handler meant it could follow an error the caller had already
-      // been given, telling it the poll had completed cleanly.
-      callback(null, 'Stream ended');
-    }
-  } catch (error) {
-    log.error('Error in dockerContainerLogsPolling:', error);
-    // A failure reports on both channels and resolves on neither. The callback
-    // is what a callback-passing caller reads; the rejection is what anyone
-    // awaiting this reads. Reporting on only one of them lets the other read a
-    // failed poll as a completed one.
-    //
-    // The rejection obliges every call site to handle it: FluxOS installs no
-    // `unhandledRejection` handler, so one with nothing attached exits the
-    // process. Both channels reaching the same caller is harmless - whichever
-    // settles first wins.
-    if (callback) callback(error);
-    throw error;
-  } finally {
-    if (followStream) {
-      followStream.destroy();
+  // The line asked from is absent, so docker rotated it away between polls and
+  // what sat between it and the oldest line here is gone. Reporting it is the
+  // only honest answer: nothing can recover those lines, and a reader that is
+  // not told sees a silent gap it has no way to notice.
+  let rolledOver = false;
+  if (position) {
+    const firstMs = lines.length ? Date.parse(lines[0].split(' ')[0]) : position.ms;
+    if (firstMs > position.ms) {
+      rolledOver = true;
+    } else {
+      lines = lines.slice(position.count);
     }
   }
+
+  const truncated = lines.length > maxLines;
+  if (truncated) lines = lines.slice(0, maxLines);
+
+  // The position is the last line handed over, never the newest line seen: a
+  // reader that is behind must come back for the rest, and it comes back from
+  // where it actually got to.
+  let nextPosition = position;
+  if (lines.length) {
+    const lastMs = Date.parse(lines[lines.length - 1].split(' ')[0]);
+    const truncatedMs = Math.floor(lastMs);
+    nextPosition = {
+      ms: truncatedMs,
+      count: lines.filter((line) => Math.floor(Date.parse(line.split(' ')[0])) === truncatedMs).length
+        + (position && !rolledOver && position.ms === truncatedMs ? position.count : 0),
+    };
+  }
+
+  return {
+    lines, position: nextPosition, rolledOver, truncated,
+  };
 }
 
 async function obtainPayloadFromStorage(url, appName) {

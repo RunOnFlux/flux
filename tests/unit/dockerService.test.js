@@ -612,51 +612,128 @@ describe('dockerService tests', () => {
   });
 
   describe('dockerContainerLogsPolling tests', () => {
-    it('reports a missing container on both channels and never resolves', async () => {
-      // A failure reaches the callback AND rejects, carrying the same error. On
-      // only one channel the other reads a failed poll as a completed one.
-      //
-      // The rejection is what obliges every call site to attach a handler: FluxOS
-      // installs no `unhandledRejection` handler, so an unhandled rejection from
-      // this endpoint - which a browser polls on a timer - exits the process.
-      const errors = [];
-      let rejection = null;
+    // Docker frames each write with an 8-byte header (stream id + length) because
+    // app containers are created with Tty false. Building the frames here is what
+    // makes the line splitting and the position arithmetic testable without a
+    // container that logs on demand.
+    function dockerFrame(lines) {
+      const chunks = lines.map((line) => {
+        const body = Buffer.from(`${line}\n`, 'utf8');
+        const header = Buffer.alloc(8);
+        header.writeUInt8(1, 0);
+        header.writeUInt32BE(body.length, 4);
+        return Buffer.concat([header, body]);
+      });
+      return Buffer.concat(chunks);
+    }
 
-      await dockerService.dockerContainerLogsPolling('testing1234', 10, '', (err) => {
-        if (err) errors.push(err);
-      }).catch((err) => { rejection = err; });
+    const at = (ms, text) => `${new Date(ms).toISOString()} ${text}`;
 
-      expect(errors).to.have.lengthOf(1);
-      expect(errors[0].message).to.equal('Container testing1234 not found');
-      expect(rejection, 'the promise must not resolve after the poll failed').to.not.equal(null);
-      expect(rejection.message).to.equal('Container testing1234 not found');
+    function stubLogs(lines) {
+      return sinon.stub(Dockerode.Container.prototype, 'logs').resolves(dockerFrame(lines));
+    }
+
+    afterEach(() => {
+      sinon.restore();
     });
 
-    it('completes the poll and reports the end exactly once', async function test() {
-      // The poll window is 1500ms and the promise must settle when it closes.
-      this.timeout(10000);
-      // `follow: true` holds a docker connection open for the life of the
-      // container. The window used to end the local stream and leave the source
-      // running: the awaited promise had no path to settle from there, so the
-      // function never returned and the connection was never released - once per
-      // poll, on an endpoint a browser hits on a timer. A poll that returns at
-      // all is the observable half of that.
-      const errors = [];
-      const ends = [];
+    it('rejects for a container that is not there', async () => {
+      await expect(dockerService.dockerContainerLogsPolling('testing1234', {}))
+        .to.eventually.be.rejectedWith('Container testing1234 not found');
+    });
 
-      await dockerService.dockerContainerLogsPolling('website', 10, '', (err, line) => {
-        if (err) {
-          errors.push(err);
-        } else if (line === 'Stream ended') {
-          ends.push(line);
-        }
+    it('asks docker to close the connection itself, and answers without waiting', async function test() {
+      // `follow: true` never closes, so the only way out was a 1500ms timer and
+      // every poll cost 1500ms whether a line was waiting or none. A poll that
+      // answers in well under that is the observable half of it.
+      this.timeout(10000);
+      const logs = stubLogs([at(1000, 'hello')]);
+      const started = Date.now();
+
+      const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 10 });
+
+      expect(Date.now() - started, 'the poll waited on a timer').to.be.below(500);
+      expect(logs.firstCall.args[0].follow, 'follow keeps a docker connection open for the life of the container').to.be.false;
+      expect(result.lines).to.deep.equal([at(1000, 'hello')]);
+    });
+
+    it('sends tail only when the reader has no position', async () => {
+      // Docker applies tail AFTER since, so tail:100 answers a reader asking for
+      // everything since T with the last 100 and no sign the rest existed.
+      const logs = stubLogs([at(1000, 'a')]);
+
+      await dockerService.dockerContainerLogsPolling('website', { lineCount: 100 });
+      expect(logs.firstCall.args[0].tail).to.equal(100);
+      expect(logs.firstCall.args[0].since).to.equal(undefined);
+
+      await dockerService.dockerContainerLogsPolling('website', { position: { ms: 1000, count: 1 }, lineCount: 100 });
+      expect(logs.secondCall.args[0].tail, 'tail truncates what a position asked for').to.equal(undefined);
+      expect(logs.secondCall.args[0].since).to.equal(1);
+    });
+
+    it('drops the lines the reader already holds and keeps the rest', async () => {
+      // since is inclusive, so docker hands back the line asked from. The count
+      // says how many of that millisecond were already delivered.
+      stubLogs([at(1000, 'one'), at(1000, 'two'), at(2000, 'three')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 2 },
       });
 
-      expect(errors).to.have.lengthOf(0);
-      // Emitting this from the stream's own 'end' handler let it follow an error
-      // the caller had already been handed, reporting a clean finish for a poll
-      // that had failed.
-      expect(ends).to.have.lengthOf(1);
+      expect(result.lines).to.deep.equal([at(2000, 'three')]);
+      expect(result.rolledOver).to.be.false;
+    });
+
+    it('counts rather than compares, so repeated identical lines are not confused', async () => {
+      // Two writes of the same text in one millisecond are indistinguishable by
+      // content. A reader that de-duplicated by value would drop the new one.
+      stubLogs([at(1000, 'retrying'), at(1000, 'retrying'), at(1000, 'retrying')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 2 },
+      });
+
+      expect(result.lines, 'the third write is new and the first two are not').to.deep.equal([at(1000, 'retrying')]);
+      expect(result.position, 'all three of that millisecond are now held').to.deep.equal({ ms: 1000, count: 3 });
+    });
+
+    it('reports that the line the reader asked from no longer exists', async () => {
+      // Docker discarded the file holding it. Everything between it and the
+      // oldest line below is gone and no one can fetch it back.
+      stubLogs([at(9000, 'later'), at(9001, 'later still')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 1 },
+      });
+
+      expect(result.rolledOver, 'a silent gap is the failure this exists to prevent').to.be.true;
+      expect(result.lines, 'nothing is skipped - the count belongs to lines that are gone').to.have.lengthOf(2);
+    });
+
+    it('caps what one answer carries and says the reader must come back', async () => {
+      stubLogs([at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', { maxLines: 2 });
+
+      expect(result.truncated).to.be.true;
+      expect(result.lines).to.deep.equal([at(1000, 'a'), at(2000, 'b')]);
+      // The position is where the reader actually got to, not the newest line
+      // docker held - otherwise the capped remainder is skipped, silently.
+      expect(result.position).to.deep.equal({ ms: 2000, count: 1 });
+    });
+
+    it('leaves no gap across a capped read', async () => {
+      const all = [at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')];
+      stubLogs(all);
+      const first = await dockerService.dockerContainerLogsPolling('website', { maxLines: 2 });
+      sinon.restore();
+
+      stubLogs(all.slice(1));
+      const second = await dockerService.dockerContainerLogsPolling('website', {
+        position: first.position, maxLines: 2,
+      });
+
+      expect([...first.lines, ...second.lines], 'every line exactly once').to.deep.equal(all);
     });
   });
 
