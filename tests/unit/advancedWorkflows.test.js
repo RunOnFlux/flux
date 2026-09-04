@@ -4484,6 +4484,74 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  // The API paths are driven by an operator. This one runs by itself, on every
+  // on-chain component spec change, and it takes the same two arguments.
+  describe('reinstallOldApplications component argument contract tests', () => {
+    const installedApp = {
+      version: 4,
+      name: 'myapp',
+      hash: 'oldhash',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      compose: [{
+        name: 'web', repotag: 'nginx:1.0', ports: ['31000'], domains: [''],
+        environmentParameters: [], commands: [], containerPorts: ['80'],
+        containerData: '/data', cpu: 0.5, ram: 500, hdd: 5,
+      }],
+    };
+    // Same hdd, so the change takes the soft branch; a different repotag is what
+    // makes it a change at all.
+    const newSpec = {
+      ...installedApp,
+      hash: 'newhash',
+      compose: [{ ...installedApp.compose[0], repotag: 'nginx:2.0' }],
+    };
+
+    let appUninstaller;
+    let generalService;
+    let serviceHelper;
+    let globalState;
+
+    beforeEach(() => {
+      /* eslint-disable global-require */
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      generalService = require('../../ZelBack/src/services/generalService');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      /* eslint-enable global-require */
+      globalState.reinstallationOfOldAppsInProgress = false;
+
+      sinon.stub(generalService, 'checkSynced').resolves(true);
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(newSpec);
+      sinon.stub(dbHelper, 'updateOneInDatabase').resolves({ acknowledged: true });
+      // The redeploy is gated on a 1-in-N draw; this makes it certain.
+      sinon.stub(Math, 'random').returns(0);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.reinstallationOfOldAppsInProgress = false;
+    });
+
+    it('tears the component down under the bare app name', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(softUninstallComponent.calledOnce, 'the changed component is redeployed').to.be.true;
+      const [appName, appId] = softUninstallComponent.firstCall.args;
+      // The callee joins this with the component's own name for the monitoring
+      // key, so a joined name here makes it `web_web_myapp`: the stop targets a
+      // monitor that does not exist and the live one keeps sampling a container
+      // that is being removed.
+      expect(appName, 'softUninstallComponent takes the bare app name').to.equal('myapp');
+      expect(appId, 'and the component docker id').to.equal('fluxweb_myapp');
+    });
+  });
+
   // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
   // stopSyncthingApp are complex integration functions or HTTP request handlers
   // that require extensive mocking of database connections, HTTP requests, and
