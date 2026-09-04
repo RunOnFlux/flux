@@ -4404,8 +4404,10 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
+                  // Bare app name: the callee joins it with the component's own
+                  // name for the monitoring key and for cleanupPorts.
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.softUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
+                  await appUninstaller.softUninstallComponent(appSpecifications.name, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -4414,8 +4416,9 @@ async function reinstallOldApplications() {
                   log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
                   // hard redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
+                  // same contract as the soft branch above
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
+                  await appUninstaller.hardUninstallComponent(appSpecifications.name, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
