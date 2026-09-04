@@ -137,14 +137,15 @@ async function appLogPolling(req, res) {
       // A reader that sends a position gets everything after it. One that does
       // not gets the most recent lines, which is what every reader written
       // before positions existed asks for and still receives.
-      let position = logCursor.decode(cursor);
-      if (!position && since) {
-        const sinceMs = Date.parse(since);
-        if (Number.isFinite(sinceMs)) position = { ms: sinceMs, count: 0 };
-      }
+      const position = logCursor.decode(cursor);
+      // The `since` box in a log viewer is a filter a person typed, not a claim
+      // to hold lines. It keeps its line count and can never be answered with
+      // rolledOver, which is about a position that no longer exists.
+      const sinceMs = position ? null : Date.parse(since);
 
       const result = await dockerService.dockerContainerLogsPolling(appname, {
         position,
+        since: Number.isFinite(sinceMs) ? sinceMs : null,
         lineCount: parsedLineCount,
       });
 

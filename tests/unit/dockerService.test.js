@@ -611,6 +611,39 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('fluxRemovedContainers authorship record tests', () => {
+    afterEach(() => {
+      sinon.restore();
+      globalState.fluxRemovedContainers.clear();
+    });
+
+    it('records a removal the reconciler can ask about', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([{ Id: 'abc', Names: ['/fluxwebsite'] }]);
+      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
+
+      await dockerService.appDockerRemove('website');
+
+      expect([...globalState.fluxRemovedContainers]).to.deep.equal(['fluxwebsite']);
+    });
+
+    it('does not record one addressed by raw docker id', async () => {
+      // The startup orphan sweep removes by id. The reconciler only ever asks
+      // about app containers by identifier, so an entry keyed by a hex id can
+      // never be read - and clearFluxRemovedContainers matches on an app name a
+      // hex id does not carry, so it can never be dropped either. It would sit
+      // in memory for the life of the process, unreadable and undeletable.
+      const id = 'a'.repeat(64);
+      const list = sinon.stub(Dockerode.prototype, 'listContainers');
+      list.onFirstCall().resolves([]);
+      list.onSecondCall().resolves([{ Id: id, Names: ['/fluxwebsite'] }]);
+      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
+
+      await dockerService.appDockerForceRemove(id, false);
+
+      expect([...globalState.fluxRemovedContainers], 'an entry no reader wants and no cleanup can reach').to.be.empty;
+    });
+  });
+
   describe('getDockerContainerByIdOrName tests', () => {
     afterEach(() => {
       sinon.restore();
@@ -706,18 +739,91 @@ describe('dockerService tests', () => {
       expect(result.lines).to.deep.equal([at(1000, 'hello')]);
     });
 
-    it('sends tail only when the reader has no position', async () => {
-      // Docker applies tail AFTER since, so tail:100 answers a reader asking for
-      // everything since T with the last 100 and no sign the rest existed.
+    it('bounds a positioned read so docker seeks from the end instead of scanning', async () => {
+      // `since` alone has no index to seek with - docker decodes forward from the
+      // start of the oldest file until it finds the first match, so it re-reads
+      // the whole retained log every poll: 74ms at 3.5MB, 273ms at 14MB. With
+      // `tail` present it opens at the END, answers byte-for-byte the same, and
+      // stays flat at ~4ms however big the log is.
       const logs = stubLogs([at(1000, 'a')]);
 
       await dockerService.dockerContainerLogsPolling('website', { lineCount: 100 });
       expect(logs.firstCall.args[0].tail).to.equal(100);
       expect(logs.firstCall.args[0].since).to.equal(undefined);
 
-      await dockerService.dockerContainerLogsPolling('website', { position: { ms: 1000, count: 1 }, lineCount: 100 });
-      expect(logs.secondCall.args[0].tail, 'tail truncates what a position asked for').to.equal(undefined);
+      await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 1 }, maxLines: 50,
+      });
+      // One MORE than a page: docker applies tail after since and returns the
+      // NEWEST of the matching set, so the extra frame is what says whether the
+      // whole set fitted.
+      expect(logs.secondCall.args[0].tail, 'a positioned read is bounded, not unbounded').to.equal(51);
       expect(logs.secondCall.args[0].since).to.equal(1);
+    });
+
+    it('re-reads without the bound when the reader is more than a page behind', async () => {
+      // The bounded read answered with the END of the log. Handing that back
+      // would skip everything between where the reader is and where it starts -
+      // a silent gap, which is the failure this whole design exists to prevent.
+      const behind = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')];
+      const logs = sinon.stub(Dockerode.Container.prototype, 'logs');
+      logs.onFirstCall().resolves(dockerFrame(behind));      // 4 frames > maxLines 3
+      logs.onSecondCall().resolves(dockerFrame(behind));
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 3,
+      });
+
+      expect(logs.calledTwice, 'the bounded answer was the wrong page and had to be re-read').to.be.true;
+      expect(logs.firstCall.args[0].tail).to.equal(4);
+      expect(logs.secondCall.args[0].tail, 'the re-read is unbounded so it starts where the reader is').to.equal(undefined);
+      expect(logs.secondCall.args[0].since).to.equal(0.999);
+      expect(result.lines).to.deep.equal(behind.slice(0, 3));
+      expect(result.truncated, 'the reader must come straight back for the rest').to.be.true;
+    });
+
+    it('does not re-read when the whole answer fitted', async () => {
+      const logs = stubLogs([at(1000, 'a'), at(1001, 'b')]);
+
+      await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 50,
+      });
+
+      expect(logs.calledOnce, 'a reader keeping up never pays for the scan').to.be.true;
+    });
+
+    // Three different questions used to share this path, and only one of them
+    // wants the position behaviour. The other two are what every deployed client
+    // asks today.
+    it('answers a since filter the way it always did, with its line count intact', async () => {
+      const logs = stubLogs([at(1000, 'a')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        since: 1000, lineCount: 100, maxLines: 5000,
+      });
+
+      expect(logs.firstCall.args[0].since).to.equal(1);
+      // A typed date is a filter, not a receipt for lines already held: dropping
+      // the limit turned "the last 100 lines since Tuesday" into the whole log.
+      expect(logs.firstCall.args[0].tail, 'a since filter keeps its line count').to.equal(100);
+      // And it can never have lost a position it never had. Reporting rolledOver
+      // for it warned of data loss because a hand-typed timestamp does not land
+      // exactly on a log line.
+      expect(result.rolledOver, 'nothing can have rolled away from a reader holding nothing').to.be.false;
+    });
+
+    it('does not cap a caller that is not coming back for the rest', async () => {
+      // `all` is a download, not a page. Capping it truncated the log silently,
+      // and keeping the OLDEST of the cap showed the start of the log to someone
+      // who asked for its end.
+      stubLogs([at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        lineCount: 'all', maxLines: 2,
+      });
+
+      expect(result.lines, 'every line, as before').to.have.lengthOf(4);
+      expect(result.truncated).to.be.false;
     });
 
     it('drops the lines the reader already holds and keeps the rest', async () => {
@@ -746,6 +852,37 @@ describe('dockerService tests', () => {
       expect(result.position, 'all three of that millisecond are now held').to.deep.equal({ ms: 1000, count: 3 });
     });
 
+    // A container writing to stdout AND stderr has two writers that each stamp a
+    // line before it is serialised into the file, so the file is not in timestamp
+    // order - 3,304 backwards steps in 40,000 lines on a real daemon. Every
+    // fixture above is in order, which is the assumption this whole design rests
+    // on written into the test that was meant to check it.
+    it('delivers each line once even when docker returns them out of timestamp order', async () => {
+      // `b` is stamped BEFORE `a` but written after it. A reader that has taken
+      // a and b holds two lines, and docker will hand both back when asked from
+      // a's millisecond - because it stops filtering on `since` once it has found
+      // its first match.
+      stubLogs([at(1001, 'a'), at(1000, 'b'), at(1002, 'c')]);
+
+      const first = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 2,
+      });
+
+      expect(first.lines).to.deep.equal([at(1001, 'a'), at(1000, 'b')]);
+      // Counting "lines whose ms equals the last one's" gives 1 here and skips
+      // one line next time, delivering `b` again. The count is a place in what
+      // docker returns, so it is 2.
+      expect(first.position.count, 'both delivered lines come back when asked from ms').to.equal(2);
+      // 1000 is older than 1001; moving the window back would re-read `a`.
+      expect(first.position.ms, 'the position never moves backwards').to.equal(1001);
+
+      sinon.restore();
+      stubLogs([at(1001, 'a'), at(1000, 'b'), at(1002, 'c')]);
+      const second = await dockerService.dockerContainerLogsPolling('website', { position: first.position });
+
+      expect(second.lines, 'only the line the reader has not seen').to.deep.equal([at(1002, 'c')]);
+    });
+
     it('reports that the line the reader asked from no longer exists', async () => {
       // Docker discarded the file holding it. Everything between it and the
       // oldest line below is gone and no one can fetch it back.
@@ -760,9 +897,13 @@ describe('dockerService tests', () => {
     });
 
     it('caps what one answer carries and says the reader must come back', async () => {
+      // Capping belongs to a positioned reader, because only a positioned reader
+      // comes back for the remainder.
       stubLogs([at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')]);
 
-      const result = await dockerService.dockerContainerLogsPolling('website', { maxLines: 2 });
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 2,
+      });
 
       expect(result.truncated).to.be.true;
       expect(result.lines).to.deep.equal([at(1000, 'a'), at(2000, 'b')]);
@@ -774,7 +915,9 @@ describe('dockerService tests', () => {
     it('leaves no gap across a capped read', async () => {
       const all = [at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')];
       stubLogs(all);
-      const first = await dockerService.dockerContainerLogsPolling('website', { maxLines: 2 });
+      const first = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 2,
+      });
       sinon.restore();
 
       stubLogs(all.slice(1));

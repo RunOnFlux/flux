@@ -88,6 +88,10 @@ describe('a log poll answers at once and loses nothing between polls', function 
         domains: [''],
         // 100ms: fast enough that several lines land between two polls, so the
         // gap this suite is looking for would actually have somewhere to open.
+        // The writer alternates stdout and stderr, which is what puts the log
+        // out of timestamp order - the case a stdout-only writer cannot produce
+        // and which delivered lines twice before the position counted its place
+        // in docker's order rather than by millisecond.
         environmentParameters: ['LOG_EVERY_MS=100'],
         commands: [],
         containerPorts: [80],
@@ -204,16 +208,50 @@ describe('a log poll answers at once and loses nothing between polls', function 
     }
   });
 
-  // The one test here that must hold on a node WITHOUT this change as well as one
-  // with it, because that is the whole claim: every deployed client asks this way
-  // today and nodes upgrade one at a time. Asserting anything this change added -
-  // a cursor, rolledOver, truncated - would make it a test of the new code
-  // wearing a compatibility test's name. It asserts only what both answer.
+  // These must hold on a node WITHOUT this change as well as one with it, because
+  // that is the whole claim: every deployed client asks these three ways today
+  // and nodes upgrade one at a time. Asserting anything this change added - a
+  // cursor, rolledOver, truncated - would make them tests of the new code wearing
+  // a compatibility test's name. They assert only what both versions answer.
   it('still answers a reader that has never heard of a position', async function () {
     this.timeout(60000);
 
     const body = await poll();
 
     expect(body.logs.map(lineNumber).filter((n) => n !== null), 'the tail answer is empty').to.not.be.empty;
+  });
+
+  // The `Logs Since` box in a log viewer. It is a filter someone typed, not a
+  // claim to hold lines - so it keeps its line count. Treating it as a position
+  // dropped that count and answered "everything since then", and reported logs
+  // as rolled away because a typed timestamp does not land on a log line.
+  it('honours the line count when a since filter is given', async function () {
+    this.timeout(60000);
+
+    const since = new Date(Date.now() - 60000).toISOString();
+    const body = await holder.getAuthed(`/apps/applogpolling/${identifier}/5/${since}`, auth.zelidauth);
+
+    expect(body.status, `applogpolling refused: ${JSON.stringify(body).slice(0, 300)}`).to.equal('success');
+    expect(body.logs.length, 'a since filter that ignores its line count returns the whole minute').to.be.at.most(5);
+    expect(body.logs.map(lineNumber).filter((n) => n !== null), 'nothing came back').to.not.be.empty;
+  });
+
+  // `all` is what the download button asks for. It is not a page and the caller
+  // is not coming back, so an answer capped from the oldest end hands back the
+  // START of the log to someone who asked for its end.
+  it('does not truncate a reader asking for every line', async function () {
+    this.timeout(60000);
+
+    const tail = await holder.getAuthed(`/apps/applogpolling/${identifier}/5`, auth.zelidauth);
+    const all = await holder.getAuthed(`/apps/applogpolling/${identifier}/all`, auth.zelidauth);
+
+    expect(all.status, `applogpolling refused: ${JSON.stringify(all).slice(0, 300)}`).to.equal('success');
+    const newest = Math.max(...all.logs.map(lineNumber).filter((n) => n !== null));
+    const tailNewest = Math.max(...tail.logs.map(lineNumber).filter((n) => n !== null));
+
+    expect(all.logs.length, 'every line means more than a page of them').to.be.above(5);
+    // The failure this catches is subtle: capping kept the OLDEST lines, so the
+    // answer was large and looked healthy while ending near the start of the log.
+    expect(newest, 'an answer for `all` that stops short of the newest line is truncated').to.be.at.least(tailNewest);
   });
 });
