@@ -3,6 +3,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
+const logCursor = require('../utils/logCursor');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const cpuBurstHelper = require('../utils/cpuBurstHelper');
@@ -113,6 +114,10 @@ async function appLogPolling(req, res) {
     lines = lines || req.query.lineCount || 'all';
     let { since } = req.params;
     since = since || req.query.since || '';
+    // A query parameter, not a path segment: the route has three optional
+    // segments and a fourth would not match, so a reader sending its position to
+    // a node that predates this would be answered with a 404 rather than logs.
+    const { cursor } = req.query;
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -129,35 +134,36 @@ async function appLogPolling(req, res) {
         parsedLineCount = parseInt(lines, 10) || 100;
       }
 
-      const logs = [];
-      await new Promise((resolve, reject) => {
-        // `.catch` is required here, not defensive. dockerContainerLogsPolling
-        // is async and is called from inside this executor, so its promise is
-        // not covered by the surrounding try/catch, and FluxOS installs no
-        // `unhandledRejection` handler - a rejection with nothing attached to it
-        // exits the process, on an endpoint a browser polls on a timer.
-        //
-        // It is not redundant with the callback: the callback carries what that
-        // function's own catch reaches, `.catch` carries every rejection it can
-        // produce. Whichever arrives first settles this promise; the second is a
-        // no-op.
-        dockerService.dockerContainerLogsPolling(appname, parsedLineCount, since, (err, logLine) => {
-          if (err) {
-            reject(err);
-          } else if (logLine === 'Stream ended') {
-            resolve();
-          } else if (logLine) {
-            logs.push(logLine);
-          }
-        }).catch(reject);
+      // A reader that sends a position gets everything after it. One that does
+      // not gets the most recent lines, which is what every reader written
+      // before positions existed asks for and still receives.
+      let position = logCursor.decode(cursor);
+      if (!position && since) {
+        const sinceMs = Date.parse(since);
+        if (Number.isFinite(sinceMs)) position = { ms: sinceMs, count: 0 };
+      }
+
+      const result = await dockerService.dockerContainerLogsPolling(appname, {
+        position,
+        lineCount: parsedLineCount,
       });
 
       res.json({
-        logs,
+        logs: result.lines,
         lineCount: parsedLineCount,
-        logCount: logs.length,
+        logCount: result.lines.length,
         sinceTimestamp: since,
-        truncated: parsedLineCount === 'all' ? false : logs.length >= parsedLineCount,
+        // The position reached. A reader hands it back and is answered with what
+        // it has not seen; it never has to read it.
+        cursor: result.position ? logCursor.encode(result.position) : cursor || null,
+        // The line this reader asked from no longer exists - docker discarded the
+        // file holding it. What sat between it and the oldest line below is gone
+        // and cannot be fetched by anyone.
+        rolledOver: result.rolledOver,
+        // More was waiting than one answer carries. Ask again with the cursor
+        // above rather than waiting for the next tick, or the reader falls
+        // further behind every poll.
+        truncated: result.truncated,
         status: 'success',
       });
     } else {
