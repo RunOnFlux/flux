@@ -928,7 +928,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return;
+      return false;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
@@ -937,7 +937,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return;
+      return false;
     }
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
@@ -948,7 +948,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return;
+      return false;
     }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
@@ -1000,7 +1000,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return;
+      return false;
     }
 
     // Verify the apps this app must be networked with (networkWith token in the
@@ -1131,6 +1131,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       if (res.flush) res.flush();
     }
     globalState.installationInProgress = false;
+    return true;
   } catch (error) {
     globalState.installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
@@ -1153,6 +1154,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
     appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
+    // The app was force-uninstalled. A caller that reads only the absence of a
+    // throw would announce an installation that is not there.
+    return false;
   }
 }
 
@@ -1416,7 +1420,10 @@ async function softRedeploy(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register
-    await softRegisterAppLocally(appSpecs, undefined, res);
+    const reinstalled = await softRegisterAppLocally(appSpecs, undefined, res);
+    if (!reinstalled) {
+      throw new Error(`Application ${appSpecs.name} was not reinstalled`);
+    }
     log.info('Application softly redeployed');
     globalState.softRedeployInProgress = false;
   } catch (error) {
@@ -1624,7 +1631,10 @@ async function softRedeployComponent(appName, componentName, res) {
 
       // Register component
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
-      await softRegisterAppLocally(appSpecifications, componentSpec, res);
+      const reinstalled = await softRegisterAppLocally(appSpecifications, componentSpec, res);
+      if (!reinstalled) {
+        throw new Error(`Component ${fullComponentName} was not reinstalled`);
+      }
 
       log.info(`Component ${fullComponentName} softly redeployed`);
       // The only report that a SINGLE component was replaced. app:installed and
@@ -1750,7 +1760,10 @@ async function hardRedeployComponent(appName, componentName, res) {
 
       // Register component
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
-      await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
+      const reinstalled = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
+      if (!reinstalled) {
+        throw new Error(`Component ${fullComponentName} was not reinstalled`);
+      }
 
       log.info(`Component ${fullComponentName} hard redeployed`);
       // Same fact as the soft path, and `hard` is the consequence that differs:
