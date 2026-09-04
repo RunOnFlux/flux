@@ -66,6 +66,7 @@ const globalState = require('../utils/globalState');
 const enterpriseNetwork = require('../utils/enterpriseNetwork');
 const { FluxCacheManager } = require('../utils/cacheManager');
 const appInstaller = require('./appInstaller');
+const { InstallOutcome } = require('../utils/installOutcome');
 const appUninstaller = require('./appUninstaller');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -1039,14 +1040,17 @@ async function trySpawningGlobalApplication() {
 
     // install the app
     let registerOk = false;
-    // The installer signals failure two ways - a false return and a throw - and
-    // only the reason it throws with says WHICH check refused. A port already
-    // held by another app is raised that way, and reporting the failure without
-    // it leaves a suite unable to tell a refusal from an app that was simply
-    // never selected.
+    // The installer still signals some failures by throwing, and only the reason
+    // it throws with says WHICH check refused - a port already held by another
+    // app is raised that way, and reporting the failure without it leaves a suite
+    // unable to tell a refusal from an app that was simply never selected. What
+    // it no longer does is collapse "I touched nothing" and "I tore the app down"
+    // into one false: the outcome says which.
     let installError = null;
     try {
-      registerOk = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw
+      registerOk = outcome === InstallOutcome.INSTALLED;
+      if (!registerOk) installError = `installer ${outcome}`;
     } catch (error) {
       log.error(error);
       installError = error.message ?? String(error);
