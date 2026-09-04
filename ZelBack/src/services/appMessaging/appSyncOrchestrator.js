@@ -49,22 +49,6 @@ const BLOCKS_PER_MINUTE = 2;
 // stalled peer before the socket layer has decided it is dead.
 const FIRST_RESPONSE_MS = Math.max(1, Math.floor(SYNC_TIMEOUT_MS / 12));
 const STALL_MS = Math.max(1, Math.floor(SYNC_TIMEOUT_MS / 4));
-// HOW LONG AN UNSUCCESSFUL REQUEST STANDS BEFORE THE PEER IS A CANDIDATE AGAIN.
-//
-// A peer declines because its own app state is not authoritative YET, and a
-// peer misses its deadline because it was busy or unlucky. Both stop being
-// true, so a record of either has to expire or a peer is never asked again on
-// a connection that outlives the reason it was set aside.
-//
-// This is the responder's own throttle and not a number of its own: a peer
-// drops any sync request arriving within syncResponseThrottleMs of the last
-// one on that connection, so re-asking sooner is answered with silence and
-// spends a first-response deadline to learn nothing. Cooling for less than the
-// throttle is strictly worse than not re-asking at all.
-//
-// It exceeds SYNC_TIMEOUT_MS, so within one round a peer set aside stays set
-// aside; it becomes a candidate again for a later one.
-const RETRY_AFTER_MS = config.fluxapps.syncResponseThrottleMs ?? 300000;
 
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
@@ -118,6 +102,17 @@ class AppSyncOrchestrator {
    *   timer: ReturnType<typeof setTimeout>|null, outcome: string|null, closedAt: number}>}
    */
   #requests = new Map();
+  /**
+   * Whether this node has spent its state-sync budget.
+   *
+   * The budget bounds THE attempt, not one round inside an open-ended series of
+   * them: when it runs out the attempt is over, the block fallback is what
+   * carries the node to readiness, and nothing asks anyone anything until the
+   * sync genuinely starts again - which is a drop below the peer threshold and
+   * a recovery, or a restart. Without it "how long before this node gives up"
+   * has no answer, because a peer joining an hour later would open another one.
+   */
+  #syncBudgetSpent = false;
   #reconciling = false;
   #reconcileAgain = false;
   #hashSyncAttempts = 0;
@@ -382,25 +377,20 @@ class AppSyncOrchestrator {
   /**
    * Drop the records that have stopped describing anything.
    *
-   * Two ways that happens, and each was a peer that could never be asked again
-   * for a reason that had expired:
+   * One way that happens: the connection it was sent on is gone, so whatever is
+   * at that address now never saw the request and nothing it says is an answer
+   * to it. That peer is worth asking, and it is a different peer than the one
+   * the record describes.
    *
-   * - the connection it was sent on is gone, so whatever is at that address
-   *   now never saw the request and nothing it says is an answer to it;
-   * - it ended in something other than an answer, and long enough has passed
-   *   that the reason - not caught up yet, busy, unlucky - can have changed.
-   *
-   * An answered record never expires. A peer that has given its whole view has
-   * nothing to add by being asked twice.
+   * Nothing else expires. A record lives as long as the attempt it belongs to,
+   * and a peer already tried in this attempt is not tried again - re-asking it
+   * inside the responder's own throttle window is answered with silence, and
+   * the attempt is over before that window is.
    * @returns {void}
    */
   #sweepRequests() {
-    const now = Date.now();
     for (const [peerKey, request] of [...this.#requests]) {
       if (this.#peerConnectionId(peerKey) !== request.connectionId) {
-        this.#discardRequest(peerKey);
-      } else if (request.outcome && request.outcome !== 'answered'
-        && now - request.closedAt >= RETRY_AFTER_MS) {
         this.#discardRequest(peerKey);
       }
     }
@@ -615,6 +605,7 @@ class AppSyncOrchestrator {
 
   async #reconcilePass() {
     if (this.#stateSyncComplete) return;
+    if (this.#syncBudgetSpent) return;
     // Has the sync ever been allowed to start. A latch, and never cleared:
     // before the threshold is first crossed there is nobody worth asking.
     if (!this.#networkReady || !this.#peersReady) return;
@@ -682,7 +673,9 @@ class AppSyncOrchestrator {
       this.#syncTimeout = setTimeout(() => {
         this.#syncTimeout = null;
         if (this.#stateSyncComplete) return;
-        this.#closeRound('the round ran out of time');
+        this.#closeRound('the budget ran out');
+        this.#syncBudgetSpent = true;
+        for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
         log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: apprunning=${this.#syncCompletions.apprunning.size} appinstalling=${this.#syncCompletions.appinstalling.size} apperrors=${this.#syncCompletions.apperrors.size}`);
       }, SYNC_TIMEOUT_MS);
     }
@@ -716,6 +709,7 @@ class AppSyncOrchestrator {
     // set aside: the sync starts over, so a peer already tried is a peer to
     // try again rather than one to skip.
     for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
+    this.#syncBudgetSpent = false;
     this.#syncCompletions = { apprunning: new Set(), appinstalling: new Set(), apperrors: new Set() };
     this.#stateSyncComplete = false;
     this.#publishStateSyncAuthority();

@@ -855,7 +855,6 @@ describe('AppSyncOrchestrator', () => {
   describe('the request record is the only account of what has been asked', () => {
     const STALL_MS = 30000;
     const SYNC_TIMEOUT_MS = 120000;
-    const SHORT_RETRY_AFTER_MS = 5000;
 
     // FluxPeerManager.add() emits peerThresholdReached and then peerAdded from
     // the same call, so the trigger that starts the sync and one that tops it
@@ -1033,33 +1032,63 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.stop();
     });
 
-    // A decline says "not authoritative YET", which stops being true. A record
-    // of it that never expires writes the peer off for the life of a connection
-    // that outlives the reason.
-    it('asks a peer that declined again once its answer could have changed', async () => {
-      // Loaded with a short throttle rather than ticking the production five
-      // minutes: the cooldown IS the responder's throttle, so shortening one
-      // shortens the other and the relationship under test is unchanged.
-      const mod = loadWithConfig({ syncResponseThrottleMs: SHORT_RETRY_AFTER_MS });
+    // THE BUDGET BOUNDS THE ATTEMPT, not one round of an open-ended series.
+    // When it runs out the attempt is over: the block fallback is what carries
+    // this node to readiness, and nobody is asked anything more. Without that,
+    // "how long before it gives up" has no answer - a peer arriving an hour
+    // later would open another round with its own budget.
+    it('asks nobody once the budget has been spent, however many peers arrive', async () => {
       const peers = makeEligiblePeers(3);
-      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+      const untried = makePeer('10.9.9.1:16127');
+      getEligibleSyncPeersStub = sinon.stub().callsFake(() => [...peers, untried]);
 
-      const orchestrator = new mod.AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
-      orchestrator.onMessageCapabilityChange(true);
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
-      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
 
-      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', peers[0].key);
+      // Nobody answers, so the deadlines take everyone and the budget runs out.
+      await clock.tickAsync(SYNC_TIMEOUT_MS + 1000);
+      const spent = [...peers, untried].reduce((n, p) => n + p.send.callCount, 0);
+
+      const joiner = makePeer('10.9.9.2:16127');
+      getEligibleSyncPeersStub.callsFake(() => [...peers, untried, joiner]);
+      peerEmitter.emit('peerAdded', joiner.key, 13);
       await clock.tickAsync(0);
-      expect(peers[0].send.callCount, 'a peer was re-asked in the same breath as declining').to.equal(4);
 
-      await clock.tickAsync(SHORT_RETRY_AFTER_MS);
-      peerEmitter.emit('peerAdded', peers[0].key, 12);
+      expect(joiner.send.called, 'a peer that joined after the budget was asked').to.equal(false);
+      expect([...peers, untried].reduce((n, p) => n + p.send.callCount, 0),
+        'the budget ran out and it went on asking').to.equal(spent);
+      orchestrator.stop();
+    });
+
+    // And a spent budget is not a permanent one. A guard that stops the asking
+    // has to be shown to let it start again, or it cannot be told from a node
+    // that has wedged itself.
+    it('starts a fresh attempt when the sync genuinely restarts', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      blockEmitter.emit('blocksProcessed', 2555000);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      await clock.tickAsync(SYNC_TIMEOUT_MS + 1000);
+      const spent = peers.reduce((n, p) => n + p.send.callCount, 0);
+
+      // Losing the peers and getting them back is a restart of the sync, not a
+      // continuation of the attempt that ran out.
+      peerEmitter.emit('peersBelowThreshold', 1);
+      await clock.tickAsync(0);
+      const recovered = makeEligiblePeers(3);
+      getEligibleSyncPeersStub.returns(recovered);
+      peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
 
-      expect(peers[0].send.callCount, 'a peer that declined was written off for good').to.equal(8);
+      expect(recovered.reduce((n, p) => n + p.send.callCount, 0),
+        'a sync that restarted never asked anyone').to.be.greaterThan(0);
+      expect(spent, 'the first attempt never asked at all').to.be.greaterThan(0);
       orchestrator.stop();
     });
 
