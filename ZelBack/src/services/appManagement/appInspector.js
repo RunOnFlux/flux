@@ -100,55 +100,6 @@ async function appLog(req, res) {
 }
 
 /**
- * Stream application logs
- * @param {object} req - Request object
- * @param {object} res - Response object
- * @returns {Promise<void>}
- */
-async function appLogStream(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-
-    const mainAppName = appname.split('_')[1] || appname;
-
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
-    if (authorized === true) {
-      res.setHeader('Content-Type', 'application/json');
-      dockerService.dockerContainerLogsStream(appname, res, (error) => {
-        if (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.write(errorResponse);
-          res.end();
-        } else {
-          res.end();
-        }
-      });
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
  * Poll application logs with filtering
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -1271,7 +1222,6 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
 module.exports = {
   appTop,
   appLog,
-  appLogStream,
   appLogPolling,
   appInspect,
   appStats,

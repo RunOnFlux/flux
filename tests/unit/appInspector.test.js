@@ -2387,7 +2387,7 @@ describe('appInspector tests', () => {
   // hand is exactly the kind of list that acquires a gap.
   describe('the node operator is refused every app-scoped endpoint', () => {
     const handlers = [
-      'appTop', 'appLog', 'appLogStream', 'appLogPolling',
+      'appTop', 'appLog', 'appLogPolling',
       'appInspect', 'appStats', 'appMonitorAPI', 'appChanges',
     ];
 
