@@ -165,3 +165,82 @@ describe('a node that cannot answer a state sync declines it', function () {
     await env.clients[0].waitForEvent('ephemeralSync:allComplete', () => true, 120000, { afterId });
   });
 });
+
+// THE ARITHMETIC AT THE PRODUCTION SETTING.
+//
+// The fleet above runs at the harness default of one completion, where the
+// pool is a single slot and "three peers" and "three answers" cannot be told
+// apart. This one asks for three, which is what mainnet asks for, so the
+// deficit is a number the code has to get right rather than a boolean.
+describe('a state sync at the production requirement completes on three distinct peers', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  // Nodes 1-3 can answer from the moment they start; 0 is the node under test
+  // and 4 is a spare, so there are more candidates than the requirement and
+  // asking all of them would go unnoticed without the count below.
+  const UNDER_TEST = 0;
+  const ANSWERERS = [1, 2, 3];
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 5,
+      syncedNodes: ANSWERERS,
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: {
+          appSyncMinCompletions: 3,
+          // High enough that no node reaches authority by waiting, so every
+          // completion credited below came from a peer that answered.
+          appSyncFallbackMinutes: 10,
+          appSyncFallbackMinutesEnterprise: 10,
+        },
+      },
+    });
+    for (const client of env.clients) await waitForDaemonReady(client);
+    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await advanceBlock();
+    for (const client of env.clients) {
+      await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
+    }
+    await env.startDiscovery(env.clients.map((_, i) => i));
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('asks no more peers at once than the number of answers it needs', async function () {
+    this.timeout(180000);
+
+    const client = env.clients[UNDER_TEST];
+    await client.waitForEvent('ephemeralSync:requested', () => true, 120000);
+    // The threshold crossing and the join that caused it are two events from
+    // one call, and both reach the request path. Everything asked in that first
+    // burst is one round's worth or the pool cap is not a cap.
+    const asked = new Set();
+    for (const event of client.getEventBuffer().filter((e) => e.event === 'ephemeralSync:requested')) {
+      for (const peer of event.data.peers ?? []) asked.add(peer);
+      expect(event.data.peerCount, 'one round asked more peers than the requirement').to.be.at.most(3);
+    }
+    expect(asked.size, 'the opening round asked more distinct peers than it needed answers').to.be.at.most(3);
+  });
+
+  it('credits three different peers, not three answers', async function () {
+    this.timeout(240000);
+
+    const client = env.clients[UNDER_TEST];
+    await client.waitForEvent('ephemeralSync:allComplete', () => true, 180000);
+
+    const credited = new Set(
+      client.getEventBuffer()
+        .filter((e) => e.event === 'ephemeralSync:peerComplete')
+        .map((e) => e.data.peer),
+    );
+    expect(credited.size, 'the sync completed without three separate peers having answered').to.be.at.least(3);
+    for (const peer of credited) expect(peer).to.match(/^\d+\.\d+\.\d+\.\d+:\d+$/);
+  });
+});

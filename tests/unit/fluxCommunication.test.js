@@ -1811,6 +1811,11 @@ describe('fluxCommunication tests', () => {
   // lines earlier - and this is what makes them hand it on.
   describe('a sync response says which peer completed it, and whether it declined', () => {
     const PEER = '198.51.100.7:16127';
+    // The handlers are given the SOCKET, because a response is an answer to a
+    // request written into one connection - not to whatever holds that address
+    // next. `wanted` stands in for the orchestrator's request record.
+    const PEER_SOCKET = { key: PEER, connectionId: 41 };
+    let wanted;
     let completions;
     let refusals;
     let progress;
@@ -1828,7 +1833,8 @@ describe('fluxCommunication tests', () => {
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
-      peerManager.markSyncRequested(PEER);
+      wanted = (socket) => socket === PEER_SOCKET;
+      sinon.stub(peerManager, 'isSyncResponseWanted').callsFake((socket) => wanted(socket));
       // An empty final batch is the whole path here: processInSlices does
       // nothing, and apprunning's pruning is the only step that needs a store.
       sinon.stub(messageStore, 'pruneAppRunningLocations').resolves();
@@ -1839,7 +1845,6 @@ describe('fluxCommunication tests', () => {
       appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
       appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
       appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
-      peerManager.clearSyncRequested();
       sinon.restore();
     });
 
@@ -1851,13 +1856,13 @@ describe('fluxCommunication tests', () => {
 
     cases.forEach(([syncType, wireType, fn]) => {
       it(`names the peer on the ${syncType} completion`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
 
         expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
       });
 
       it(`says nothing until the ${syncType} response is done`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
 
         expect(completions).to.deep.equal([]);
       });
@@ -1865,7 +1870,7 @@ describe('fluxCommunication tests', () => {
       // Declining is an answer, and it is not a completion. Counting it was the
       // defect: three booting peers could tell a node the network was empty.
       it(`reports a declined ${syncType} response as a refusal, not a completion`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER_SOCKET);
 
         expect(refusals).to.deep.equal([{ syncType, peerKey: PEER }]);
         expect(completions, 'a refusal was counted as a completed survey').to.deep.equal([]);
@@ -1874,7 +1879,7 @@ describe('fluxCommunication tests', () => {
       // A network with nothing running answers with an empty list, and that IS
       // a survey. If it read as a refusal such a fleet would never sync.
       it(`counts an empty ${syncType} response as a completion`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
 
         expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
         expect(refusals).to.deep.equal([]);
@@ -1884,9 +1889,9 @@ describe('fluxCommunication tests', () => {
       // arrives at the end, so without this a peer part-way through a large
       // answer is indistinguishable from one that has said nothing at all.
       it(`reports every ${syncType} batch as progress, not only the last`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER);
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER);
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
 
         expect(progress).to.deep.equal([
           { syncType, peerKey: PEER }, { syncType, peerKey: PEER }, { syncType, peerKey: PEER },
@@ -1895,9 +1900,21 @@ describe('fluxCommunication tests', () => {
       });
 
       it(`reports no ${syncType} progress for a refusal`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER);
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER_SOCKET);
 
         expect(progress, 'a refusal kept its slot alive as though it were working').to.deep.equal([]);
+      });
+
+      // ip:port names a node; the request was written into a connection. A peer
+      // that dropped and dialled back in has not answered anything, and
+      // crediting it would let a reconnect complete a survey it never made.
+      it(`ignores a ${syncType} response arriving on a connection nobody asked`, async () => {
+        const reconnected = { key: PEER, connectionId: PEER_SOCKET.connectionId + 1 };
+
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, reconnected);
+
+        expect(completions, 'an unasked connection completed a sync under an asked peer\'s name').to.deep.equal([]);
+        expect(progress).to.deep.equal([]);
       });
     });
   });

@@ -131,9 +131,10 @@ async function batchVerifyBroadcasts(broadcasts, label) {
   return verified;
 }
 
-async function handleTempSyncResponse(message, peerKey) {
+async function handleTempSyncResponse(message, peerSocket) {
   try {
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
     if (!message.data || message.data.type !== 'fluxapptempsync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
@@ -153,10 +154,11 @@ async function handleTempSyncResponse(message, peerKey) {
   }
 }
 
-async function handleAppRunningSyncResponse(message, peerKey) {
+async function handleAppRunningSyncResponse(message, peerSocket) {
   try {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
     const { messages, done, refused } = message.data;
     // A peer that says its own app state is not worth surveying has ANSWERED,
     // and the answer is not a completion. Marking it declined stops it being
@@ -201,7 +203,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
           // Evicted events lack per-event signatures because they are generated
           // locally by nodeStatusMonitor, which makes non-deterministic HTTP
           // probe decisions about whether a remote node is alive. The
-          // isSyncRequested check above ensures only solicited responses are
+          // isSyncResponseWanted check above ensures only solicited responses are
           // processed, but a compromised confirmed peer we sync from could still
           // include fake evictions. Impact is limited: only affects this node's
           // view and self-heals on the next apprunning broadcast (≤60 min).
@@ -291,9 +293,10 @@ async function handleAppRunningSyncResponse(message, peerKey) {
   }
 }
 
-async function handleAppInstallingSyncResponse(message, peerKey) {
+async function handleAppInstallingSyncResponse(message, peerSocket) {
   try {
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
     if (!message.data || message.data.type !== 'fluxappinstallingsync') return;
     const { messages, done, refused } = message.data;
     // A refusal is an answer and not a completion - see handleAppRunningSyncResponse.
@@ -324,9 +327,10 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
   }
 }
 
-async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
+async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
   try {
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
     if (!message.data || message.data.type !== 'fluxappinstallingerrorssync') return;
     const { messages, done, refused } = message.data;
     // A refusal is an answer and not a completion - see handleAppRunningSyncResponse.
@@ -734,7 +738,8 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
 
 const syncChunkQueues = new Map();
 
-async function processSyncChunk(msgObj, peerKey) {
+async function processSyncChunk(msgObj, peerSocket) {
+  const peerKey = peerSocket.key;
   const result = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
   if (result !== fluxCommunicationUtils.VerifyResult.OK) {
     log.warn(`Sync response from ${peerKey} failed envelope verification: ${result}`);
@@ -744,16 +749,16 @@ async function processSyncChunk(msgObj, peerKey) {
   const { type } = msgObj.data;
   switch (type) {
     case 'fluxapptempsync':
-      await handleTempSyncResponse(msgObj, peerKey);
+      await handleTempSyncResponse(msgObj, peerSocket);
       break;
     case 'fluxapprunningsync':
-      await handleAppRunningSyncResponse(msgObj, peerKey);
+      await handleAppRunningSyncResponse(msgObj, peerSocket);
       break;
     case 'fluxappinstallingsync':
-      await handleAppInstallingSyncResponse(msgObj, peerKey);
+      await handleAppInstallingSyncResponse(msgObj, peerSocket);
       break;
     case 'fluxappinstallingerrorssync':
-      await handleAppInstallingErrorsSyncResponse(msgObj, peerKey);
+      await handleAppInstallingErrorsSyncResponse(msgObj, peerSocket);
       break;
     default:
       log.warn(`Unknown sync response type: ${type}`);
@@ -763,7 +768,7 @@ async function processSyncChunk(msgObj, peerKey) {
 async function dispatchSyncResponse(msgObj, peerSocket) {
   try {
     const peerKey = peerSocket.key;
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
 
     if (!syncChunkQueues.has(peerKey)) {
       syncChunkQueues.set(peerKey, { queue: [], processing: false });
@@ -776,7 +781,7 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
 
     while (state.queue.length > 0) {
       const chunk = state.queue.shift();
-      await processSyncChunk(chunk, peerKey);
+      await processSyncChunk(chunk, peerSocket);
     }
 
     state.processing = false;

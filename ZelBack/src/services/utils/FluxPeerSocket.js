@@ -84,6 +84,16 @@ const DIRECTION = Object.freeze({
 
 class FluxPeerSocket {
   /**
+   * Distinguishes one connection to an address from the next one to it.
+   *
+   * `ip:port` names a NODE, and a node that reconnects is the same key over a
+   * different socket. Anything recorded against a connection - a request whose
+   * answer is still expected, and what that peer said about it - needs an
+   * identity the address alone does not give it.
+   */
+  static #nextConnectionId = 1;
+
+  /**
    * @param {WebSocket} ws - raw WebSocket
    * @param {string} ip
    * @param {string} port
@@ -94,6 +104,8 @@ class FluxPeerSocket {
     this.ip = ip;
     this.port = String(port);
     this.key = `${ip}:${this.port}`;
+    this.connectionId = FluxPeerSocket.#nextConnectionId;
+    FluxPeerSocket.#nextConnectionId += 1;
     this.manager = manager;
 
     this.latency = null;
@@ -128,16 +140,6 @@ class FluxPeerSocket {
     this.nakWindowStart = Date.now();
     this.lastTransmissionDelay = null;
     this.badMessageTimestamps = [];
-    /**
-     * Whether this peer has told us its own app state is not worth surveying.
-     *
-     * On the socket rather than in a set beside the asked-marks, because it is
-     * true of this connection and not of the node: it stops the peer being
-     * offered as a sync candidate, and it dies with the connection - a peer
-     * that reconnects has had time to finish its own sync and deserves asking
-     * again.
-     */
-    this.declinedAppStateSync = false;
     this.remoteCapabilities = new Set();
     this.remoteClockOffsetMs = null;
     this.remoteVersion = null;
@@ -462,7 +464,7 @@ class FluxPeerSocket {
         || syncType === 'fluxapprunningsync'
         || syncType === 'fluxappinstallingsync'
         || syncType === 'fluxappinstallingerrorssync') {
-        if (manager.syncResponseDispatcher && manager.isSyncRequested(this.key)) {
+        if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
           setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
           return;
         }

@@ -514,7 +514,7 @@ describe('FluxPeerSocket tests', () => {
     it('should route sync responses to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncRequested').returns(true);
+      sinon.stub(manager, 'isSyncResponseWanted').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -530,10 +530,10 @@ describe('FluxPeerSocket tests', () => {
       sinon.assert.notCalled(manager.messageDispatcher);
     });
 
-    it('should fall through to messageDispatcher when isSyncRequested is false', async () => {
+    it('should fall through to messageDispatcher when the response is not wanted', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncRequested').returns(false);
+      sinon.stub(manager, 'isSyncResponseWanted').returns(false);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -552,7 +552,7 @@ describe('FluxPeerSocket tests', () => {
     it('should route all four sync response types to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncRequested').returns(true);
+      sinon.stub(manager, 'isSyncResponseWanted').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -751,40 +751,60 @@ describe('FluxPeerManager tests', () => {
       expect(manager.getEligibleSyncPeers()).to.have.lengthOf(0);
     });
 
-    // A peer that has answered a sync request by saying its own app state is
-    // not worth surveying stays connected and useful for everything else. It
-    // just stops being a candidate, which is what opens the deficit that gets
-    // somebody else asked.
-    it('stops offering a peer that declined a sync request', () => {
+    // Which peers have been asked, and how they answered, belongs to whoever
+    // issued the requests and holds their deadlines. The manager offers every
+    // connected peer that could serve one and asks that owner whether an
+    // arriving answer is still wanted.
+    it('offers every capable peer, leaving who has been asked to the asker', () => {
       eligible(manager, '10.0.0.1');
       eligible(manager, '10.0.0.2');
 
-      expect(manager.markSyncDeclined('10.0.0.1:16127')).to.equal(true);
+      const keys = manager.getEligibleSyncPeers().map((p) => p.key).sort();
+      expect(keys).to.deep.equal(['10.0.0.1:16127', '10.0.0.2:16127']);
+    });
+  });
 
-      const keys = manager.getEligibleSyncPeers().map((p) => p.key);
-      expect(keys).to.deep.equal(['10.0.0.2:16127']);
-      expect(manager.has('10.0.0.1:16127'), 'a declining peer was disconnected').to.equal(true);
+  describe('the seam the sync response path reads', () => {
+    // Closed by default. Nothing has issued a request before the orchestrator
+    // exists, so nothing arriving then is an answer to one.
+    it('wants no sync response while nobody owns the requests', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      expect(manager.isSyncResponseWanted(peer)).to.equal(false);
     });
 
-    it('says so when the peer that declined is not connected', () => {
-      eligible(manager, '10.0.0.1');
+    it('puts the question to whoever owns the requests, socket and all', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const owner = sinon.stub().returns(true);
+      manager.syncResponseWanted = owner;
 
-      expect(manager.markSyncDeclined('203.0.113.9:16127')).to.equal(false);
-      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(1);
+      expect(manager.isSyncResponseWanted(peer)).to.equal(true);
+      expect(owner.calledOnceWithExactly(peer), 'the socket is what was asked about').to.equal(true);
     });
 
-    // The flag lives on the socket, so a peer that comes back has had time to
-    // finish its own sync and is worth asking again. Remembering the refusal
-    // across connections would write off a node for the life of the process.
-    it('offers a peer that declined again once it reconnects', () => {
-      eligible(manager, '10.0.0.1');
-      manager.markSyncDeclined('10.0.0.1:16127');
-      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(0);
+    it('takes the owner\'s no for an answer', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.syncResponseWanted = () => false;
+
+      expect(manager.isSyncResponseWanted(peer)).to.equal(false);
+    });
+
+    // ip:port names a node; this names the connection. A request written into
+    // one socket is not answered by whatever dials in next under the same key.
+    it('gives a reconnecting peer a different connection id under the same key', () => {
+      const first = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const firstId = manager.peerConnectionId('10.0.0.1:16127');
+      expect(firstId).to.equal(first.connectionId);
 
       manager.remove('10.0.0.1:16127', 1006);
-      eligible(manager, '10.0.0.1');
+      expect(manager.peerConnectionId('10.0.0.1:16127'), 'a peer that left still had a connection').to.equal(null);
 
-      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+      const second = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      expect(second.connectionId).to.not.equal(firstId);
+      expect(manager.peerConnectionId('10.0.0.1:16127')).to.equal(second.connectionId);
     });
   });
 

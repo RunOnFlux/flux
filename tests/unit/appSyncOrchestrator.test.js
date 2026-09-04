@@ -12,11 +12,10 @@ describe('AppSyncOrchestrator', () => {
   let peerEmitter;
   let clock;
   let getEligibleSyncPeersStub;
-  let syncRequested;
   let proxyquireMap;
   let loadWithConfig;
-  let declined;
-  let declinable;
+  let connections;
+  let nextConnectionId;
   let removed;
   let logStub;
   let syncMissingHashesStub;
@@ -31,8 +30,13 @@ describe('AppSyncOrchestrator', () => {
   let getFluxNodePrivateKeyStub;
   let signMessageStub;
 
+  // A peer is a CONNECTION, not an address. FluxPeerSocket stamps each one
+  // with an id so a request written into one socket can be told from whatever
+  // dials in next under the same ip:port.
   function makePeer(key) {
-    return { key, send: sinon.stub() };
+    nextConnectionId += 1;
+    connections.set(key, nextConnectionId);
+    return { key, connectionId: nextConnectionId, send: sinon.stub() };
   }
 
   function makeEligiblePeers(count) {
@@ -51,40 +55,39 @@ describe('AppSyncOrchestrator', () => {
     firstBoot: false,
   };
 
-  // Asked-ness lives with the peers, exactly as it does in production: the peer
-  // manager holds the set and drops a peer's mark when the peer is removed. The
-  // orchestrator reads it rather than keeping a copy, and a copy that outlived
-  // the peer is what made a lost request permanent.
+  // Which peers have been asked is the orchestrator's own record now, so the
+  // manager side of the seam is only what FluxPeerManager actually offers:
+  // the peers worth asking, and which connection is currently held to each.
   function makePeerOptions(overrides = {}) {
     return {
       getEligibleSyncPeers: getEligibleSyncPeersStub,
       onPeerEvent: (event, cb) => peerEmitter.on(event, cb),
       offPeerEvent: (event, cb) => peerEmitter.removeListener(event, cb),
-      markSyncRequested: (key) => syncRequested.add(key),
-      isSyncRequested: (key) => syncRequested.has(key),
-      clearSyncRequested: () => syncRequested.clear(),
-      // What FluxPeerManager.markSyncDeclined does: the peer keeps its mark and
-      // stops being offered as a candidate, so the pool shows a deficit.
-      markSyncDeclined: (key) => {
-        if (!declinable.has(key)) return false;
-        declined.add(key);
-        return true;
-      },
+      peerConnectionId: (key) => connections.get(key) ?? null,
       ...overrides,
     };
   }
 
-  // What FluxPeerManager.remove() does: the peer goes, its mark goes with it,
-  // and the removal is ANNOUNCED. The announcement is the half that matters to
-  // anything waiting on that peer for an answer - without it the wait can only
-  // end at a deadline, which is the whole point of saying so.
+  // What FluxPeerManager.remove() does: the peer goes and the removal is
+  // ANNOUNCED. The announcement is the half that matters to anything waiting
+  // on that peer for an answer - without it the wait can only end at a
+  // deadline, which is the whole point of saying so.
   function removePeer(key) {
-    syncRequested.delete(key);
+    connections.delete(key);
     // It leaves the peer map, so getEligibleSyncPeers stops offering it - a
     // fake that goes on returning a peer whose socket closed lets the code
     // re-ask a peer production could not have offered.
     removed.add(key);
     peerEmitter.emit('peerRemoved', key, 0);
+  }
+
+  // What FluxPeerManager.add() does when a peer is already there: the old
+  // socket is dropped and a NEW one takes the same key. Same address, and
+  // nothing arriving on it answers a request written into the old one.
+  function reconnectPeer(key) {
+    const peer = makePeer(key);
+    peerEmitter.emit('peerAdded', key, 12);
+    return peer;
   }
 
   // A completion carries the peer it came from, exactly as the response
@@ -110,9 +113,8 @@ describe('AppSyncOrchestrator', () => {
     blockEmitter = new EventEmitter();
     peerEmitter = new EventEmitter();
     getEligibleSyncPeersStub = sinon.stub().returns([]);
-    syncRequested = new Set();
-    declined = new Set();
-    declinable = new Set();
+    connections = new Map();
+    nextConnectionId = 0;
     removed = new Set();
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
@@ -342,7 +344,12 @@ describe('AppSyncOrchestrator', () => {
       }
     });
 
-    it('should not send when fewer than 3 eligible peers on first attempt', async () => {
+    // A pool that cannot be filled yet is still worth part-filling. Waiting for
+    // enough candidates to arrive before asking ANY of them was a road out of
+    // the request path that sent nothing at all, and the answers it declined to
+    // collect are exactly the ones that would have been banked by the time the
+    // rest of the fleet showed up.
+    it('asks the peers it has, even when there are fewer than the requirement', async () => {
       const peers = makeEligiblePeers(2);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
@@ -352,7 +359,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
 
       for (const peer of peers) {
-        expect(peer.send.called).to.be.false;
+        expect(peer.send.callCount, 'a peer that could have answered was not asked').to.equal(4);
       }
     });
 
@@ -556,10 +563,10 @@ describe('AppSyncOrchestrator', () => {
       for (const peer of peers) expect(peer.send.called, 'asked before the sync had started').to.equal(false);
     });
 
-    // The fourth road out of #requestSyncs: too few eligible peers and none yet
-    // asked went straight to the block timer, and nothing revisited it when the
-    // fleet grew.
-    it('asks when a join takes the eligible pool up to the requirement', async () => {
+    // The pool was part-filled because that was all there was, so the join
+    // completes it rather than starting it. The peers already asked are not
+    // asked again, which is the record doing its job.
+    it('asks a joiner for the shortfall a part-filled pool still carries', async () => {
       const peers = makeEligiblePeers(2);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
@@ -567,12 +574,14 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
-      for (const peer of peers) expect(peer.send.called).to.equal(false);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
 
       const joiner = makePeer('10.0.0.9:16127');
       getEligibleSyncPeersStub.returns([...peers, joiner]);
       peerEmitter.emit('peerAdded', joiner.key, 13);
       await clock.tickAsync(0);
+
+      for (const peer of peers) expect(peer.send.callCount, 'an outstanding request was sent twice').to.equal(4);
 
       for (const peer of [...peers, joiner]) {
         expect(peer.send.callCount, 'the fleet reached three eligible peers and still asked nobody').to.equal(4);
@@ -645,7 +654,6 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       const spare = makePeer('10.0.0.9:16127');
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
-      declinable.add(peers[0].key);
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
@@ -686,7 +694,6 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       const spares = [makePeer('10.0.0.7:16127'), makePeer('10.0.0.8:16127'), makePeer('10.0.0.9:16127')];
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
-      declinable.add(peers[0].key);
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
@@ -709,7 +716,6 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       const spare = makePeer('10.0.0.9:16127');
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
-      declinable.add(peers[0].key);
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
@@ -840,6 +846,205 @@ describe('AppSyncOrchestrator', () => {
     });
   });
 
+  // ONE RECORD PER REQUEST, ONE THING THAT WRITES IT.
+  //
+  // "there is a request outstanding to this peer" used to be written down three
+  // times - an asked-mark on the peer manager, a slot here, a declined flag on
+  // the socket - by different code, cleared by different rules. Every way they
+  // could disagree was a defect, and the four below are those ways.
+  describe('the request record is the only account of what has been asked', () => {
+    const STALL_MS = 30000;
+    const SYNC_TIMEOUT_MS = 120000;
+    const RETRY_AFTER_MS = 300000;
+
+    // FluxPeerManager.add() emits peerThresholdReached and then peerAdded from
+    // the same call, so the trigger that starts the sync and one that tops it
+    // up land in the same tick. Choosing peers cannot be one uninterrupted step
+    // - the signing key is fetched in the middle - so without the reconciler
+    // holding the table both passes read an empty pool and both fill it.
+    it('asks each peer once when the threshold crossing and the join it rode in on both land', async () => {
+      const peers = makeEligiblePeers(6);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerAdded', peers[0].key, 12);
+      await clock.tickAsync(0);
+
+      const asked = peers.filter((p) => p.send.called);
+      expect(asked.length, 'a boot asked more peers than the pool holds').to.equal(3);
+      for (const peer of asked) {
+        expect(peer.send.callCount, 'a peer was sent the same four requests twice').to.equal(4);
+      }
+      orchestrator.stop();
+    });
+
+    // WHAT THE RE-ENTRANCY GUARD BUYS, on its own.
+    //
+    // The pool cap survives without it, because a pass reads the table and
+    // reserves in it without yielding, so a second pass started concurrently
+    // sees the first one's records and finds nothing owed. What the guard adds
+    // is that the second pass never starts: a boot brings peers in a burst and
+    // every one of them is a trigger, and each pass that gets as far as the
+    // await fetches this node's signing key. One arrival, one key.
+    it('fetches the signing key once however many triggers arrive together', async () => {
+      const peers = makeEligiblePeers(6);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      getFluxNodePublicKeyStub.resetHistory();
+
+      peerEmitter.emit('peerThresholdReached', 12);
+      for (const peer of peers) peerEmitter.emit('peerAdded', peer.key, 12);
+      await clock.tickAsync(0);
+
+      expect(getFluxNodePublicKeyStub.callCount, 'a burst of joins fetched the node key once each').to.equal(1);
+      orchestrator.stop();
+    });
+
+    // WHAT THE RE-RUN BUYS, on its own.
+    //
+    // The guard stops a second pass running, but it does not stop the table
+    // changing underneath the one that is: a deadline firing or a peer leaving
+    // while the signing key is being fetched closes a request and widens the
+    // deficit the pass already counted. Those triggers mark the table dirty
+    // instead of acting, and the re-run is what then asks for the shortfall
+    // they left. Without it the peer that went is not replaced until something
+    // else happens to trigger, which on a quiet fleet is the block timer.
+    it('replaces a peer that was lost while the signing key was being fetched', async () => {
+      const peers = makeEligiblePeers(3);
+      const spares = [makePeer('10.0.9.1:16127'), makePeer('10.0.9.2:16127')];
+      getEligibleSyncPeersStub = sinon.stub().callsFake(
+        () => [...peers, ...spares].filter((p) => !removed.has(p.key)),
+      );
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
+
+      // The second key fetch is the one for the top-up below. While it is in
+      // flight a second peer goes, so the deficit when the fetch returns is two
+      // and not the one it was when the pass started.
+      getFluxNodePublicKeyStub.onCall(1).callsFake(async () => {
+        removePeer(peers[1].key);
+        return '04testpubkey1234567890';
+      });
+
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', peers[0].key);
+      await clock.tickAsync(0);
+
+      const asked = spares.filter((p) => p.send.called).length;
+      expect(asked, 'a peer lost during the key fetch went unreplaced').to.equal(2);
+      orchestrator.stop();
+    });
+
+    // The round's budget and the per-peer deadlines used to be kept in separate
+    // places: the budget cleared the asked-marks and left the deadlines armed,
+    // so a peer that was streaming perfectly went quiet only because this node
+    // had stopped listening - and was then recorded as having stalled.
+    it('ends a round without accusing a peer that was still delivering', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      // One peer keeps sending right up to the budget, inside every stall window.
+      for (let elapsed = 0; elapsed < SYNC_TIMEOUT_MS; elapsed += STALL_MS - 1000) {
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(STALL_MS - 1000);
+      }
+      await clock.tickAsync(SYNC_TIMEOUT_MS);
+
+      const accusations = logStub.warn.getCalls()
+        .map((c) => String(c.args[0]))
+        .filter((m) => m.includes(peers[0].key) && m.includes('stopped mid-answer'));
+      expect(accusations, 'a peer delivering to the last second was blamed for stalling').to.deep.equal([]);
+      // And its request is closed, so nothing arriving afterwards is taken as
+      // an answer to a round that is over.
+      expect(orchestrator.isSyncResponseWanted(peers[0]), 'a finished round still wanted answers').to.equal(false);
+      orchestrator.stop();
+    });
+
+    // A decline says "not authoritative YET", which stops being true. A record
+    // of it that never expires writes the peer off for the life of a connection
+    // that outlives the reason.
+    it('asks a peer that declined again once its answer could have changed', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
+
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', peers[0].key);
+      await clock.tickAsync(0);
+      expect(peers[0].send.callCount, 'a peer was re-asked in the same breath as declining').to.equal(4);
+
+      await clock.tickAsync(RETRY_AFTER_MS);
+      peerEmitter.emit('peerAdded', peers[0].key, 12);
+      await clock.tickAsync(0);
+
+      expect(peers[0].send.callCount, 'a peer that declined was written off for good').to.equal(8);
+      orchestrator.stop();
+    });
+
+    // The request went into a socket that has since been replaced. Nothing on
+    // the new connection answers it, and the peer never received it - so it is
+    // a peer worth asking rather than one already tried.
+    it('asks a peer that reconnected, and wants nothing from the connection that went', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      const oldConnection = peers[0];
+      expect(orchestrator.isSyncResponseWanted(oldConnection)).to.equal(true);
+
+      const reconnected = reconnectPeer(peers[0].key);
+      getEligibleSyncPeersStub.returns([reconnected, peers[1], peers[2]]);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.isSyncResponseWanted(oldConnection), 'a dead connection could still complete the sync').to.equal(false);
+      expect(reconnected.send.callCount, 'a reconnected peer was skipped as already asked').to.equal(4);
+      orchestrator.stop();
+    });
+
+    // A peer refuses all three types when it refuses any. Only the first of
+    // those ends the request, so the log says once what happened once.
+    it('records one refusal when a peer declines all three types', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      for (const type of ['apprunning', 'appinstalling', 'apperrors']) {
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_REFUSED, type, peers[0].key);
+      }
+      await clock.tickAsync(0);
+
+      const declines = logStub.info.getCalls()
+        .map((c) => String(c.args[0]))
+        .filter((m) => m.includes(peers[0].key) && m.includes('declined'));
+      expect(declines.length, 'one peer declining once was reported three times').to.equal(1);
+      orchestrator.stop();
+    });
+  });
+
   // THE POOL IS SLOTS, AND EVERY SLOT HAS ITS OWN CLOCK.
   //
   // The design this replaced fired its requests and then waited on one deadline
@@ -860,18 +1065,18 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       const extra = Array.from({ length: spares }, (_, i) => makePeer(`10.0.9.${i + 1}:16127`));
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
-      peers.forEach((p) => declinable.add(p.key));
-
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
       for (const peer of peers) expect(peer.send.callCount).to.equal(4);
 
-      // Declining takes a peer out of the eligible list, which is what the flag
-      // on the socket does in production.
+      // The manager offers every capable peer it holds, asked or not - which is
+      // what it does in production now that no record of asking lives there.
+      // Whether a peer is a candidate is decided by the orchestrator's own
+      // request table, so a double that pre-filtered would hide that.
       getEligibleSyncPeersStub.callsFake(() => [
-        ...peers.filter((p) => !declined.has(p.key) && !removed.has(p.key)), ...extra,
+        ...peers.filter((p) => !removed.has(p.key)), ...extra,
       ]);
       return { orchestrator, peers, extra };
     };
@@ -898,24 +1103,25 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('replaces a peer that starts answering and then stops', async () => {
-      const { peers } = await askThree(12);
+      const { orchestrator, peers } = await askThree(12);
 
       appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
       await clock.tickAsync(FIRST_RESPONSE_MS + 1);
-      const writtenOffEarly = declined.has(peers[0].key);
+      const wantedAfterFirstWindow = orchestrator.isSyncResponseWanted(peers[0]);
 
       await clock.tickAsync(STALL_MS + 1);
 
-      // Asserted on this peer, not on how many spares were consumed: the two
-      // that never spoke are replaced by spares that also never speak, so a
-      // spare count reaches any number you like without this peer's stall
-      // deadline ever firing.
-      expect(writtenOffEarly, 'a peer mid-answer was written off at the first-response deadline').to.equal(false);
-      expect(declined.has(peers[0].key), 'a peer that stopped mid-answer was never replaced').to.equal(true);
+      // Asserted on this peer's own record, not on how many spares were
+      // consumed: the two that never spoke are replaced by spares that also
+      // never speak, so a spare count reaches any number you like without this
+      // peer's stall deadline ever firing. The record is also the fact the
+      // response gate reads, so this is the difference that matters.
+      expect(wantedAfterFirstWindow, 'a peer mid-answer was written off at the first-response deadline').to.equal(true);
+      expect(orchestrator.isSyncResponseWanted(peers[0]), 'a peer that stopped mid-answer was never replaced').to.equal(false);
     });
 
     it('keeps a peer alive for as long as it keeps sending', async () => {
-      const { peers } = await askThree(12);
+      const { orchestrator, peers } = await askThree(12);
 
       appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
       // Four stall windows of steady batches: total elapsed is well past any
@@ -929,7 +1135,7 @@ describe('AppSyncOrchestrator', () => {
       }
       await clock.tickAsync(1);
 
-      expect(declined.has(peers[0].key), 'a peer delivering steadily was written off').to.equal(false);
+      expect(orchestrator.isSyncResponseWanted(peers[0]), 'a peer delivering steadily was written off').to.equal(true);
       expect(peers[0].send.callCount, 'a peer delivering steadily was asked again').to.equal(4);
     });
 

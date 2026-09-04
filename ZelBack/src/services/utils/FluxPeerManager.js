@@ -72,7 +72,18 @@ class FluxPeerManager extends EventEmitter {
   /** @type {Set<string>} peers removed since last peerUpdate broadcast */
   #pendingRemoves = new Set();
 
-  #syncRequestedPeers = new Set();
+  /**
+   * Whether an arriving app-state sync response is still wanted, asked of
+   * whoever owns the outstanding requests.
+   *
+   * A function rather than a set of keys kept here. The orchestrator issues
+   * the requests and holds their deadlines, so it is the only thing that knows
+   * whether one is still open; a copy of that here would be a second record of
+   * the same fact, maintained by different code and cleared by a different
+   * rule. Registered by serviceManager once the orchestrator exists.
+   * @type {((peerSocket: FluxPeerSocket) => boolean)|null}
+   */
+  syncResponseWanted = null;
 
   #ownSocketAddress = null;
   /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
@@ -221,7 +232,6 @@ class FluxPeerManager extends EventEmitter {
     const peer = this.#peers.get(key);
     if (!peer) return null;
 
-    this.#syncRequestedPeers.delete(key);
     this.#removeTracking(peer);
 
     // Clean up peer exchange topology and notify others
@@ -553,7 +563,6 @@ class FluxPeerManager extends EventEmitter {
       // never published SPAWNER_READY.
       if (ownKey && peer.key === ownKey) continue;
       if (peer.missedPongs !== 0) continue;
-      if (peer.declinedAppStateSync) continue;
       if (!peer.remoteCapabilities.has('appStateSync')) continue;
       if (!peer.remoteCapabilities.has('appStateSyncRefusal')) {
         const uptime = this.getPeerFluxUptime(peer.key);
@@ -568,28 +577,32 @@ class FluxPeerManager extends EventEmitter {
     return count ? eligible.slice(0, count) : eligible;
   }
 
-  markSyncRequested(key) { this.#syncRequestedPeers.add(key); }
-
-  isSyncRequested(key) { return this.#syncRequestedPeers.has(key); }
-
   /**
-   * Record that a peer answered a sync request by declining it.
+   * Whether a sync response arriving on this connection is still wanted.
    *
-   * The mark stays - the peer was asked, and asking again in the same breath
-   * would be a loop - but it stops being an eligible candidate, so the pool of
-   * outstanding requests shows a deficit and the next pass fills it from
-   * somewhere else.
-   * @param {string} key ip:port
-   * @returns {boolean} true if a connected peer was marked.
+   * Asked with the socket rather than the address because the two are not the
+   * same thing: a peer that reconnects keeps its `ip:port` while becoming a
+   * different connection, and nothing arriving on the new one is an answer to
+   * a request written into the old one.
+   *
+   * Closed by default. An unsolicited sync response is dropped, which is what
+   * happens before anything registers an answer here.
+   * @param {FluxPeerSocket} peerSocket
+   * @returns {boolean}
    */
-  markSyncDeclined(key) {
-    const peer = this.#peers.get(key);
-    if (!peer) return false;
-    peer.declinedAppStateSync = true;
-    return true;
+  isSyncResponseWanted(peerSocket) {
+    if (!this.syncResponseWanted) return false;
+    return this.syncResponseWanted(peerSocket);
   }
 
-  clearSyncRequested() { this.#syncRequestedPeers.clear(); }
+  /**
+   * The connection currently held to an address, if any.
+   * @param {string} key ip:port
+   * @returns {number|null}
+   */
+  peerConnectionId(key) {
+    return this.#peers.get(key)?.connectionId ?? null;
+  }
 
   // --- Liveness ---
 

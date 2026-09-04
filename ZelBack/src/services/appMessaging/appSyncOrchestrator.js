@@ -49,6 +49,22 @@ const BLOCKS_PER_MINUTE = 2;
 // stalled peer before the socket layer has decided it is dead.
 const FIRST_RESPONSE_MS = Math.max(1, Math.floor(SYNC_TIMEOUT_MS / 12));
 const STALL_MS = Math.max(1, Math.floor(SYNC_TIMEOUT_MS / 4));
+// HOW LONG AN UNSUCCESSFUL REQUEST STANDS BEFORE THE PEER IS A CANDIDATE AGAIN.
+//
+// A peer declines because its own app state is not authoritative YET, and a
+// peer misses its deadline because it was busy or unlucky. Both stop being
+// true, so a record of either has to expire or a peer is never asked again on
+// a connection that outlives the reason it was set aside.
+//
+// This is the responder's own throttle and not a number of its own: a peer
+// drops any sync request arriving within syncResponseThrottleMs of the last
+// one on that connection, so re-asking sooner is answered with silence and
+// spends a first-response deadline to learn nothing. Cooling for less than the
+// throttle is strictly worse than not re-asking at all.
+//
+// It exceeds SYNC_TIMEOUT_MS, so within one round a peer set aside stays set
+// aside; it becomes a candidate again for a later one.
+const RETRY_AFTER_MS = config.fluxapps.syncResponseThrottleMs ?? 300000;
 
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
@@ -56,11 +72,7 @@ class AppSyncOrchestrator {
   #getEligibleSyncPeers = null;
   #onPeerEvent = null;
   #offPeerEvent = null;
-  #markSyncRequested = null;
-  #markSyncDeclined = null;
-
-  #isSyncRequested = null;
-  #clearSyncRequested = null;
+  #peerConnectionId = null;
   #isEnterprise = null;
   #waitForNetworkState = null;
   #networkReady = false;
@@ -89,10 +101,25 @@ class AppSyncOrchestrator {
   #syncCompletions = { apprunning: new Set(), appinstalling: new Set(), apperrors: new Set() };
   #stateSyncComplete = false;
   #syncTimeout = null;
-  // peerKey -> { timer, spoken }. One entry per outstanding request. A peer
-  // with a slot is a request that can still be answered; the slot is what the
-  // deadline hangs off, and freeing it is what makes room for someone else.
-  #slots = new Map();
+  /**
+   * peerKey -> the request outstanding to that peer, and how it ended.
+   *
+   * ONE record. The deadline hangs off it, the pool counts it, the candidate
+   * filter reads it, and the response path asks it whether an arriving answer
+   * is still wanted. Those were separate records with separate owners and
+   * separate clearing rules, and every way they could disagree was a defect:
+   * a round that ended cleared one and left the others running, and a decline
+   * written onto a socket had no lifetime at all.
+   *
+   * A record is OPEN until it has an outcome, then it stands - a peer that has
+   * answered or been set aside is not a candidate - until #sweepRequests
+   * decides it no longer describes anything.
+   * @type {Map<string, {peerKey: string, connectionId: number|null, spoken: boolean,
+   *   timer: ReturnType<typeof setTimeout>|null, outcome: string|null, closedAt: number}>}
+   */
+  #requests = new Map();
+  #reconciling = false;
+  #reconcileAgain = false;
   #hashSyncAttempts = 0;
   #hashSyncRetryTimer = null;
   #nextHashRetryHeight = 0;
@@ -108,13 +135,9 @@ class AppSyncOrchestrator {
     this.#getEligibleSyncPeers = options.getEligibleSyncPeers;
     this.#onPeerEvent = options.onPeerEvent;
     this.#offPeerEvent = options.offPeerEvent;
-    this.#markSyncRequested = options.markSyncRequested ?? (() => {});
-    this.#markSyncDeclined = options.markSyncDeclined ?? (() => false);
-    // The peer manager owns the peers, so it owns which of them have been asked.
-    // Keeping a second set here was the defect: remove() deletes its copy when a
-    // peer goes, and nothing deleted this one.
-    this.#isSyncRequested = options.isSyncRequested ?? (() => false);
-    this.#clearSyncRequested = options.clearSyncRequested ?? (() => {});
+    // Which connection is currently held to an address, so a request can be
+    // told from one written into a socket that has since been replaced.
+    this.#peerConnectionId = options.peerConnectionId ?? (() => null);
     this.#isEnterprise = options.isEnterprise ?? (() => false);
     this.#peerCountIfAboveThreshold = options.peerCountIfAboveThreshold ?? (() => 0);
     this.#waitForNetworkState = options.networkStateReady ?? null;
@@ -155,14 +178,17 @@ class AppSyncOrchestrator {
       log.info(`AppSyncOrchestrator - Peers below threshold (${count} peers)`);
       this.#onPeersDegraded();
     };
-    // A peer that joins while the state sync is still short is the retry the
-    // request path already anticipates and never performed. The asked-mark
-    // lives on the peer so it dies with the connection that carried the
-    // request - the peer becomes askable again - but the only trigger was
-    // `peerThresholdReached`, which is a latched edge that had already been
-    // spent, so nothing asked. The remaining road was the block timer, 125
-    // minutes of SYNCING with the spawner paused.
-    this.#peerAddedHandler = () => this.#onPeerAdded();
+    // Every join, because a peer arriving while the pool is short is what can
+    // fill it. `peerThresholdReached` is a latched edge that fires once, so it
+    // says nothing about a pool that has since lost a member; without this the
+    // only remaining road was the block timer, 125 minutes of SYNCING with the
+    // spawner paused.
+    //
+    // Note it announces a change rather than deciding anything: the threshold
+    // crossing emits both events from the same call, so this and the handler
+    // above run in the same tick, and it is the reconciler that makes that
+    // safe rather than either of them knowing about the other.
+    this.#peerAddedHandler = () => this.#reconcile();
     this.#onPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
     this.#onPeerEvent('peersBelowThreshold', this.#peersBelowHandler);
     this.#onPeerEvent('peerAdded', this.#peerAddedHandler);
@@ -224,20 +250,6 @@ class AppSyncOrchestrator {
   }
 
   /**
-   * Top the pool of outstanding sync requests back up when a peer joins.
-   *
-   * Only while the state sync is still incomplete, and only once it has
-   * started - before that the threshold edge owns the first ask. #requestSyncs
-   * asks the deficit, so this sends nothing while the pool is whole.
-   * @returns {void}
-   */
-  #onPeerAdded() {
-    if (!this.#networkReady || !this.#peersReady) return;
-    if (this.#stateSyncComplete) return;
-    this.#requestSyncs();
-  }
-
-  /**
    * Record that one peer finished one sync type.
    * @param {string} syncType apprunning | appinstalling | apperrors
    * @param {string} peerKey ip:port of the peer that answered.
@@ -256,10 +268,12 @@ class AppSyncOrchestrator {
       return;
     }
     answered.add(peerKey);
-    // Its answer is in, so it is no longer something being waited on.
+    // Its answer is in, so it is no longer something being waited on. The
+    // record stands as answered rather than being dropped: a peer that has
+    // given its whole view has nothing left to add and must not be re-asked.
     if (this.#syncCompletions.appinstalling.has(peerKey)
       && this.#syncCompletions.apperrors.has(peerKey)
-      && this.#syncCompletions.apprunning.has(peerKey)) this.#closeSlot(peerKey);
+      && this.#syncCompletions.apprunning.has(peerKey)) this.#closeRequest(peerKey, 'answered');
     log.info(`AppSyncOrchestrator - ${syncType} sync complete from ${peerKey} (${answered.size}/${MIN_SYNC_COMPLETIONS} peers)`);
     fluxEventBus.publish('ephemeralSync:peerComplete', {
       syncType,
@@ -276,7 +290,7 @@ class AppSyncOrchestrator {
         clearTimeout(this.#syncTimeout);
         this.#syncTimeout = null;
       }
-      this.#clearSyncRequested();
+      this.#closeRound('the sync completed');
       log.info('AppSyncOrchestrator - All state syncs complete');
       fluxEventBus.publish('ephemeralSync:allComplete', {
         apprunning: this.#syncCompletions.apprunning.size,
@@ -301,31 +315,120 @@ class AppSyncOrchestrator {
   }
 
   /**
-   * Start waiting on a peer, with a deadline for it saying anything at all.
-   * @param {string} peerKey ip:port
-   * @returns {void}
+   * How many requests are still waiting on an answer.
+   * @returns {number}
    */
-  #openSlot(peerKey) {
-    this.#closeSlot(peerKey);
-    const timer = setTimeout(
-      () => this.#onSlotDeadline(peerKey, 'said nothing'),
-      FIRST_RESPONSE_MS,
-    );
-    if (timer.unref) timer.unref();
-    this.#slots.set(peerKey, { timer, spoken: false });
+  #openRequestCount() {
+    let open = 0;
+    for (const request of this.#requests.values()) if (!request.outcome) open += 1;
+    return open;
   }
 
   /**
-   * Stop waiting on a peer, whatever the reason.
-   * @param {string} peerKey ip:port
-   * @returns {boolean} true if a slot was held.
+   * Start waiting on a peer, with a deadline for it saying anything at all.
+   * @param {{key: string, connectionId?: number}} peer
+   * @returns {void}
    */
-  #closeSlot(peerKey) {
-    const slot = this.#slots.get(peerKey);
-    if (!slot) return false;
-    clearTimeout(slot.timer);
-    this.#slots.delete(peerKey);
+  #openRequest(peer) {
+    this.#discardRequest(peer.key);
+    const request = {
+      peerKey: peer.key,
+      connectionId: peer.connectionId ?? null,
+      spoken: false,
+      timer: null,
+      outcome: null,
+      closedAt: 0,
+    };
+    this.#requests.set(peer.key, request);
+    request.timer = setTimeout(() => this.#onRequestDeadline(peer.key, 'said nothing'), FIRST_RESPONSE_MS);
+    if (request.timer.unref) request.timer.unref();
+  }
+
+  /**
+   * Stop waiting on a peer, recording why.
+   *
+   * The record STANDS after this. It is what keeps a peer that has answered,
+   * declined or run out of time from being asked again in the next breath, and
+   * #sweepRequests is the only thing that decides it has stopped meaning
+   * anything.
+   * @param {string} peerKey ip:port
+   * @param {string} outcome answered | declined | timedOut
+   * @returns {boolean} true if the request was still open.
+   */
+  #closeRequest(peerKey, outcome) {
+    const request = this.#requests.get(peerKey);
+    if (!request || request.outcome) return false;
+    if (request.timer) {
+      clearTimeout(request.timer);
+      request.timer = null;
+    }
+    request.outcome = outcome;
+    request.closedAt = Date.now();
     return true;
+  }
+
+  /**
+   * Forget a request entirely, so the peer is a candidate again.
+   * @param {string} peerKey ip:port
+   * @returns {void}
+   */
+  #discardRequest(peerKey) {
+    const request = this.#requests.get(peerKey);
+    if (!request) return;
+    if (request.timer) clearTimeout(request.timer);
+    this.#requests.delete(peerKey);
+  }
+
+  /**
+   * Drop the records that have stopped describing anything.
+   *
+   * Two ways that happens, and each was a peer that could never be asked again
+   * for a reason that had expired:
+   *
+   * - the connection it was sent on is gone, so whatever is at that address
+   *   now never saw the request and nothing it says is an answer to it;
+   * - it ended in something other than an answer, and long enough has passed
+   *   that the reason - not caught up yet, busy, unlucky - can have changed.
+   *
+   * An answered record never expires. A peer that has given its whole view has
+   * nothing to add by being asked twice.
+   * @returns {void}
+   */
+  #sweepRequests() {
+    const now = Date.now();
+    for (const [peerKey, request] of [...this.#requests]) {
+      if (this.#peerConnectionId(peerKey) !== request.connectionId) {
+        this.#discardRequest(peerKey);
+      } else if (request.outcome && request.outcome !== 'answered'
+        && now - request.closedAt >= RETRY_AFTER_MS) {
+        this.#discardRequest(peerKey);
+      }
+    }
+  }
+
+  /**
+   * End every request still outstanding, because the round they belong to has.
+   *
+   * Closing them is what stops their answers being accepted, so the response
+   * gate and the deadlines cannot disagree about whether a peer is still being
+   * waited on. They were separate before: the round cleared the asked-marks
+   * and left the deadlines armed, so a peer that was streaming perfectly went
+   * quiet only because this node had stopped listening, and was then recorded
+   * as having stalled.
+   * @param {string} why For the log.
+   * @returns {number} how many were still outstanding.
+   */
+  #closeRound(why) {
+    let outstanding = 0;
+    for (const [peerKey, request] of this.#requests) {
+      if (request.outcome) continue;
+      outstanding += 1;
+      this.#closeRequest(peerKey, 'timedOut');
+    }
+    if (outstanding) {
+      log.info(`AppSyncOrchestrator - ${outstanding} state-sync ${outstanding === 1 ? 'request was' : 'requests were'} still outstanding when ${why}`);
+    }
+    return outstanding;
   }
 
   /**
@@ -339,40 +442,39 @@ class AppSyncOrchestrator {
    * @returns {void}
    */
   #onEphemeralSyncProgress(syncType, peerKey) {
-    const slot = this.#slots.get(peerKey);
-    if (!slot) return;
-    clearTimeout(slot.timer);
-    slot.spoken = true;
-    slot.timer = setTimeout(
-      () => this.#onSlotDeadline(peerKey, 'stopped mid-answer'),
-      STALL_MS,
-    );
-    if (slot.timer.unref) slot.timer.unref();
+    const request = this.#requests.get(peerKey);
+    if (!request || request.outcome) return;
+    clearTimeout(request.timer);
+    request.spoken = true;
+    request.timer = setTimeout(() => this.#onRequestDeadline(peerKey, 'stopped mid-answer'), STALL_MS);
+    if (request.timer.unref) request.timer.unref();
   }
 
   /**
    * A peer that is still connected and is not talking.
    *
-   * The only case a deadline is for: a closed socket frees its slot the moment
-   * it closes, and a refusal frees it on the answer. Declining it here is the
-   * same statement the peer would have made itself - it is no use on this
-   * connection - so it stops being a candidate and the freed slot is refilled.
+   * The only case a deadline is for: a closed socket ends its request the
+   * moment it closes, a refusal ends it on the answer, and the round ending
+   * ends every one of them. So reaching here means the peer is still there and
+   * has nothing to show for the time.
    * @param {string} peerKey ip:port
    * @param {string} why What the peer did, for the log.
    * @returns {void}
    */
-  #onSlotDeadline(peerKey, why) {
-    if (!this.#closeSlot(peerKey)) return;
+  #onRequestDeadline(peerKey, why) {
+    if (!this.#closeRequest(peerKey, 'timedOut')) return;
     if (this.#stateSyncComplete) return;
-    this.#markSyncDeclined(peerKey);
     log.warn(`AppSyncOrchestrator - ${peerKey} ${why} within its deadline, asking another peer`);
     fluxEventBus.publish('ephemeralSync:peerTimedOut', { peer: peerKey, reason: why });
-    this.#requestSyncs();
+    this.#reconcile();
   }
 
   /**
-   * A peer whose socket closed can never answer, so its slot frees at once.
+   * A peer whose socket closed can never answer, so its request ends at once.
    *
+   * Discarded rather than closed: the request went into a connection that no
+   * longer exists, so it says nothing about the node at that address, and one
+   * that dials back in is a peer worth asking rather than one already tried.
    * This is a fact rather than something to infer from a deadline passing, and
    * waiting one out when the answer is already known would cost the sync the
    * whole first-response window for nothing.
@@ -380,20 +482,40 @@ class AppSyncOrchestrator {
    * @returns {void}
    */
   #onPeerRemoved(peerKey) {
-    if (!this.#closeSlot(peerKey)) return;
-    if (this.#stateSyncComplete) return;
+    const request = this.#requests.get(peerKey);
+    if (!request) return;
+    const wasOpen = !request.outcome;
+    this.#discardRequest(peerKey);
+    if (!wasOpen || this.#stateSyncComplete) return;
     log.info(`AppSyncOrchestrator - ${peerKey} went away with a sync outstanding, asking another peer`);
-    this.#requestSyncs();
+    this.#reconcile();
+  }
+
+  /**
+   * Whether a sync response arriving on this connection is still wanted.
+   *
+   * The request record answers it, so the gate that admits a response and the
+   * deadline that gives up on one read the same fact and cannot drift apart.
+   * Asked with the socket because a reconnected peer is a different connection:
+   * the request went into the old one, and nothing on the new one answers it.
+   * @param {{key: string, connectionId?: number}} peerSocket
+   * @returns {boolean}
+   */
+  isSyncResponseWanted(peerSocket) {
+    if (!peerSocket) return false;
+    const request = this.#requests.get(peerSocket.key);
+    if (!request || request.outcome) return false;
+    return request.connectionId === (peerSocket.connectionId ?? null);
   }
 
   /**
    * A peer answered by declining, which is not a completion.
    *
-   * Declining takes the peer out of the eligible pool for this connection, so
-   * the deficit that #requestSyncs asks against opens by one and the next pass
-   * fills it from a peer that may actually know something. A peer refuses all
-   * three types when it refuses any, and the passes after the first find the
-   * pool already topped up and send nothing.
+   * Its request ends as declined, so it stops being a candidate and the pool
+   * shows a deficit that the next pass fills from a peer that may actually
+   * know something. A peer refuses all three types when it refuses any, and
+   * only the first of those closes the request - so the log says once what
+   * happened once.
    * @param {string} syncType apprunning | appinstalling | apperrors
    * @param {string} peerKey ip:port of the peer that declined.
    * @returns {void}
@@ -404,15 +526,14 @@ class AppSyncOrchestrator {
       log.error(`AppSyncOrchestrator - ${syncType} sync declined with no peer, cannot replace it`);
       return;
     }
-    this.#closeSlot(peerKey);
-    if (this.#markSyncDeclined(peerKey)) {
+    if (this.#closeRequest(peerKey, 'declined')) {
       log.info(`AppSyncOrchestrator - ${peerKey} declined the ${syncType} sync, asking another peer`);
     }
     // Unconditional, because the deficit decides. A refusal from a peer this
     // node never had in its pool leaves the pool whole, and a whole pool asks
     // nobody - so an early return here would only be a second way of saying
     // the same thing, and one that no test could tell from its absence.
-    this.#requestSyncs();
+    this.#reconcile();
   }
 
   async #onPeersReady() {
@@ -422,7 +543,7 @@ class AppSyncOrchestrator {
     }
 
     this.#startAppRunningBroadcast();
-    this.#requestSyncs();
+    this.#reconcile();
 
     if (this.#state === STATES.RESYNCING) {
       if (this.#syncInProgress) return;
@@ -431,59 +552,99 @@ class AppSyncOrchestrator {
     }
   }
 
-  async #requestSyncs() {
-    const eligible = this.#getEligibleSyncPeers();
-    // Asked-ness is read from the peer manager rather than remembered here. A
-    // peer whose connection dies between being marked and the bytes leaving is
-    // removed, which drops its mark with it - so it becomes askable again
-    // instead of being permanently recorded as asked and never retried.
-    const fresh = eligible.filter((p) => !this.#isSyncRequested(p.key));
+  /**
+   * How many more peers have to be asked for the sync to be able to complete.
+   *
+   * Completion needs MIN_SYNC_COMPLETIONS peers to have answered in full, so
+   * that many requests are outstanding at once - no more, which is what stops
+   * a boot becoming a second round for every peer that arrives, and no fewer,
+   * which is what left one waiting on a peer that was never going to reply.
+   * @returns {number}
+   */
+  #syncDeficit() {
+    this.#sweepRequests();
+    return MIN_SYNC_COMPLETIONS - this.#completedPeerCount() - this.#openRequestCount();
+  }
 
-    // HOW MANY SLOTS ARE OPEN. Completion needs MIN_SYNC_COMPLETIONS peers to
-    // have answered in full, so that many requests have to be outstanding at
-    // once - no more, which is what stops this becoming a second round for
-    // every peer that arrives during a boot, and no fewer, which is what left
-    // a boot waiting on a peer that was never going to reply.
-    //
-    // A peer holding a slot is an answer still in flight. A peer that has
-    // finished is not, and never needs asking again.
-    const open = MIN_SYNC_COMPLETIONS - this.#completedPeerCount() - this.#slots.size;
+  /**
+   * Bring the pool of outstanding sync requests back to what it should be.
+   *
+   * The only reader-and-writer of the request table. Everything that changes
+   * what the pool ought to look like - the peer threshold, a peer joining or
+   * leaving, a refusal, a deadline - says so by calling this, and none of them
+   * decides anything itself. That is the difference between a level and a
+   * poke: a trigger that decided would have to know what the other four had
+   * just done.
+   *
+   * A call arriving while a pass is running marks the table dirty and returns;
+   * the pass re-runs once and finds the work already done. The cap itself is
+   * held by the pass, which reads the table and reserves in it without
+   * yielding - so even a pass started concurrently would see the first one's
+   * records. What this adds is that the second pass never starts at all: a
+   * boot brings peers in a burst, every one of them is a trigger, and each
+   * pass that reaches the await fetches this node's signing key. The threshold
+   * crossing alone emits two triggers from one call.
+   *
+   * It terminates: the only thing a pass can do to dirty the table itself is
+   * lose a peer while writing to it, and that peer is then not a candidate, so
+   * the loop is bounded by the number of candidates.
+   * @returns {Promise<void>}
+   */
+  async #reconcile() {
+    if (this.#reconciling) {
+      this.#reconcileAgain = true;
+      return;
+    }
+    this.#reconciling = true;
+    try {
+      do {
+        this.#reconcileAgain = false;
+        // eslint-disable-next-line no-await-in-loop
+        await this.#reconcilePass();
+      } while (this.#reconcileAgain);
+    } finally {
+      this.#reconciling = false;
+    }
+  }
 
+  async #reconcilePass() {
+    if (this.#stateSyncComplete) return;
+    if (!this.#networkReady || !this.#peersReady) return;
+
+    // Counted once, before the key fetch, and it can only be too LOW by the
+    // time that returns: nothing opens a request but this pass, and the guard
+    // means no other pass is running. Anything that CLOSES one in the meantime
+    // - a deadline, a peer leaving - marks the table dirty on its way past, so
+    // the re-run below asks for whatever this pass left behind.
+    const open = this.#syncDeficit();
     if (open <= 0) return;
 
-    if (fresh.length < open && !this.#slots.size) {
-      log.info(`AppSyncOrchestrator - Only ${fresh.length} eligible sync peers (need ${MIN_SYNC_COMPLETIONS}), falling back to block timer`);
-      return;
-    }
-
-    const peersToAsk = fresh.slice(0, open);
-
-    if (peersToAsk.length === 0) {
-      log.info('AppSyncOrchestrator - No new eligible sync peers to ask');
-      return;
-    }
-
-    let pubkey;
-    let requestTs;
-    let signMsg;
+    let signer;
     try {
-      const signer = await nodeSigner();
+      signer = await nodeSigner();
       if (!signer) throw new Error('this node cannot sign as itself');
-      pubkey = signer.pubKey;
-      requestTs = Date.now();
-      signMsg = (type, sinceTs) => {
-        const msg = peerCodec.buildSyncSignatureMessage(type, sinceTs, requestTs);
-        return signer.sign(msg);
-      };
     } catch (error) {
       log.error(`AppSyncOrchestrator - Failed to sign sync requests: ${error.message}`);
       return;
     }
 
-    for (const peer of peersToAsk) {
-      this.#markSyncRequested(peer.key);
-      this.#openSlot(peer.key);
+    // A peer with any record is one already asked on this connection, whether
+    // it answered, declined or ran out of time. #sweepRequests has just
+    // dropped the records that stopped meaning anything.
+    const peersToAsk = this.#getEligibleSyncPeers()
+      .filter((peer) => !this.#requests.has(peer.key))
+      .slice(0, open);
+
+    if (!peersToAsk.length) {
+      log.info(`AppSyncOrchestrator - No peer left to ask, ${open} state-sync ${open === 1 ? 'answer is' : 'answers are'} still needed`);
+      return;
     }
+
+    const requestTs = Date.now();
+    const pubkey = signer.pubKey;
+    const signMsg = (type, sinceTs) => signer.sign(peerCodec.buildSyncSignatureMessage(type, sinceTs, requestTs));
+
+    for (const peer of peersToAsk) this.#openRequest(peer);
 
     const tempSig = signMsg(peerCodec.MSG_TYPE.REQUEST_TEMP_MESSAGES, 0);
     const runningSig = signMsg(peerCodec.MSG_TYPE.REQUEST_APP_RUNNING, 0);
@@ -502,10 +663,9 @@ class AppSyncOrchestrator {
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
       this.#syncTimeout = setTimeout(() => {
         this.#syncTimeout = null;
-        this.#clearSyncRequested();
-        if (!this.#stateSyncComplete) {
-          log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: apprunning=${this.#syncCompletions.apprunning.size} appinstalling=${this.#syncCompletions.appinstalling.size} apperrors=${this.#syncCompletions.apperrors.size}`);
-        }
+        if (this.#stateSyncComplete) return;
+        this.#closeRound('the round ran out of time');
+        log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: apprunning=${this.#syncCompletions.apprunning.size} appinstalling=${this.#syncCompletions.appinstalling.size} apperrors=${this.#syncCompletions.apperrors.size}`);
       }, SYNC_TIMEOUT_MS);
     }
   }
@@ -534,8 +694,10 @@ class AppSyncOrchestrator {
   }
 
   #resetSyncState() {
-    this.#clearSyncRequested();
-    for (const peerKey of [...this.#slots.keys()]) this.#closeSlot(peerKey);
+    // Everything asked in the round that is ending is forgotten outright, not
+    // set aside: the sync starts over, so a peer already tried is a peer to
+    // try again rather than one to skip.
+    for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
     this.#syncCompletions = { apprunning: new Set(), appinstalling: new Set(), apperrors: new Set() };
     this.#stateSyncComplete = false;
     this.#publishStateSyncAuthority();
@@ -903,7 +1065,7 @@ class AppSyncOrchestrator {
     if (this.#peerRemovedHandler) {
       this.#offPeerEvent('peerRemoved', this.#peerRemovedHandler);
     }
-    for (const peerKey of [...this.#slots.keys()]) this.#closeSlot(peerKey);
+    for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
     peerNotification.stopBroadcastInterval();
     this.#broadcastStarted = null;
     if (this.#syncTimeout) {

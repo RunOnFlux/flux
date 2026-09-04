@@ -483,18 +483,19 @@ async function startFluxFunctions() {
     const orchestrator = new AppSyncOrchestrator({
       blockEmitter: explorerService.getBlockEmitter(),
       getEligibleSyncPeers: () => peerManager.getEligibleSyncPeers()
-        .map((p) => ({ key: p.key, send: (msg) => p.send(msg) })),
+        .map((p) => ({ key: p.key, connectionId: p.connectionId, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
-      markSyncRequested: (key) => peerManager.markSyncRequested(key),
-      markSyncDeclined: (key) => peerManager.markSyncDeclined(key),
-      isSyncRequested: (key) => peerManager.isSyncRequested(key),
-      clearSyncRequested: () => peerManager.clearSyncRequested(),
+      peerConnectionId: (key) => peerManager.peerConnectionId(key),
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
       networkStateReady: () => networkStateService.waitStarted(),
       fluxVersion,
     });
+    // The orchestrator issues the sync requests and holds their deadlines, so
+    // it is the only thing that knows whether an arriving answer is still
+    // wanted. The peer manager asks rather than keeping its own copy.
+    peerManager.syncResponseWanted = (peerSocket) => orchestrator.isSyncResponseWanted(peerSocket);
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
     appSpawner.initialize();
