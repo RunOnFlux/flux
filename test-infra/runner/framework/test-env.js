@@ -657,7 +657,7 @@ function nodeReadyWaitStrategy(nodeIp) {
 // correspondingly slower. A suite that asserts on transfers has to ask for it;
 // nothing else should.
 export async function createTestEnv({
-  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = [], silentSyncPeers = [],
+  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
@@ -666,16 +666,50 @@ export async function createTestEnv({
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
   }
-  // A node that can answer another node's app-state sync request from the
-  // moment it starts: it waits no blocks for its own, so it is authoritative
-  // immediately and behaves like an established peer rather than one still
-  // catching up. Every node in a fleet that boots together is still catching
-  // up, and a node still catching up declines - so without one of these a
-  // suite cannot observe a sync completing at all, only the fallback.
+  // WHICH NODES ARE ALREADY PART OF THE NETWORK, rather than joining it.
   //
+  // A node here waits no blocks for its own state sync, so it is authoritative
+  // from the moment it starts and answers a peer that asks it for app state.
+  // A node still catching up declines instead - correctly, it has nothing worth
+  // surveying - so a fleet whose nodes all boot together has nobody who can
+  // answer anybody, and every one of them reaches readiness only by waiting out
+  // the block fallback: 10 blocks at the stub's 5s tick, 50 seconds per boot.
+  //
+  // That is a network-wide cold start, and it is not what a booting node meets.
+  // Production joins a network that has been up for hours. So the default is an
+  // established fleet - the minimum number of nodes another node needs for its
+  // sync to complete - and the cold start is asked for by name with [].
+  //
+  // Taken from the TOP of the fleet because index 0 is by convention the node
+  // under test, and a subject that is authoritative before it starts is a
+  // subject whose sync cannot be observed. Stubs cannot answer a state sync and
+  // deferred nodes have not booted, so neither can serve.
+  // Enough for ANY node in this fleet to complete, not just a default one: a
+  // suite that raises the requirement on the node it is watching needs that
+  // many peers able to answer, and a default sized for the shared config would
+  // leave it one short and looking like the product had stalled.
+  const completionsAsked = [
+    configOverrides?.fluxapps?.appSyncMinCompletions ?? sharedFluxapps.appSyncMinCompletions ?? 3,
+    ...Object.values(nodeConfigOverrides)
+      .map((o) => o?.fluxapps?.appSyncMinCompletions)
+      .filter((n) => Number.isInteger(n)),
+  ];
+  const completionsNeeded = Math.max(...completionsAsked);
+  const firstDeferredIndex = nodes - deferredNodes;
+  const canAnswer = Array.from({ length: nodes }, (_unused, i) => i)
+    .filter((i) => i < firstDeferredIndex && !stubPeers.includes(i));
+  // Never the whole fleet. If there is nobody left over to do the joining then
+  // a sync is not a thing that can happen here at all - a lone node has no peer
+  // to ask - and making every node authoritative would only change how the
+  // subject itself reaches readiness, which is the opposite of the point.
+  const established = canAnswer.length > completionsNeeded
+    ? canAnswer.slice(-completionsNeeded)
+    : [];
+  const establishedNodes = syncedNodes ?? established;
+
   // Refused rather than clamped: an index outside the fleet is a suite asking
   // for a synced peer and silently not getting one, which reads as covered.
-  for (const index of syncedNodes) {
+  for (const index of establishedNodes) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) {
       throw new Error(`createTestEnv: syncedNodes index ${index} is not a node in a fleet of ${nodes}`);
     }
@@ -689,7 +723,7 @@ export async function createTestEnv({
     }
   }
   const syncedOverrides = {};
-  for (const index of syncedNodes) {
+  for (const index of establishedNodes) {
     syncedOverrides[index] = mergeConfigs(
       { fluxapps: { appSyncFallbackMinutes: 0, appSyncFallbackMinutesEnterprise: 0 } },
       nodeConfigOverrides[index] ?? null,
