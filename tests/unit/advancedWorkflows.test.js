@@ -93,7 +93,9 @@ describe('advancedWorkflows tests', () => {
         json: sinon.stub(),
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
         setHeader: sinon.stub(),
+        writableEnded: false,
       };
     });
 
@@ -206,7 +208,9 @@ describe('advancedWorkflows tests', () => {
         json: sinon.stub(),
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
         setHeader: sinon.stub(),
+        writableEnded: false,
       };
     });
 
@@ -4244,6 +4248,10 @@ describe('advancedWorkflows tests', () => {
       sinon.restore();
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+      // A guard this suite sets to prove a refusal is global state, and the next
+      // describe in this file reads it. Leaving it set made an unrelated suite
+      // fail on whichever test happened to run last.
+      globalState.removalInProgress = false;
     });
 
     it('soft redeploy tears down the component by its docker id, under the bare app name', async () => {
@@ -4315,14 +4323,27 @@ describe('advancedWorkflows tests', () => {
         headersSent: false,
         written: [],
         ended: false,
+        // A write to a closed response is the fatal half. Node reports it a tick
+        // later as an `error` event on res, nothing in FluxOS listens for one, and
+        // an unheard `error` reaches apiServer's uncaughtException handler, which
+        // exits the process. It is recorded rather than thrown because the throw
+        // production takes is asynchronous and would land in no test's stack.
+        writesAfterEnd: [],
         setHeader: sinon.stub(),
         flush: sinon.stub(),
       };
+      Object.defineProperty(res, 'writableEnded', { get: () => res.ended });
       res.write = sinon.spy((chunk) => {
+        if (res.ended) {
+          res.writesAfterEnd.push(chunk);
+          return false;
+        }
         res.headersSent = true;
         res.written.push(chunk);
         return true;
       });
+      // A second end() is absorbed, which is why the response can be closed from
+      // one place without the callers below it having to know whether it already is.
       res.end = sinon.spy(() => {
         res.ended = true;
       });
@@ -4333,6 +4354,7 @@ describe('advancedWorkflows tests', () => {
           throw err;
         }
         res.headersSent = true;
+        res.ended = true;
       });
       return res;
     }
@@ -4372,13 +4394,22 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
       sinon.stub(appInstaller, 'installApplicationSoft').resolves();
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
-      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // endResponse defaults to true and the redeploy's own catch passes it, so
+      // the teardown closes the response the endpoint opened. That is the
+      // sequence a stub that only resolves() removes.
+      sinon.stub(appUninstaller, 'removeAppLocally').callsFake(async (app, response, force, endResponse = true) => {
+        if (response && endResponse) response.end();
+      });
     });
 
     afterEach(() => {
       sinon.restore();
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+      // A guard this suite sets to prove a refusal is global state, and the next
+      // describe in this file reads it. Leaving it set made an unrelated suite
+      // fail on whichever test happened to run last.
+      globalState.removalInProgress = false;
     });
 
     it('answers a successful component redeploy through the stream and never a second time', async () => {
@@ -4403,6 +4434,34 @@ describe('advancedWorkflows tests', () => {
       expect(res.ended, 'a caller left waiting on a stream nothing will close').to.be.true;
       const tail = res.written[res.written.length - 1];
       expect(tail, 'the error envelope goes into the stream where a client parses it out').to.include('Insufficient RAM');
+      expect(res.writesAfterEnd, 'a write to a closed response exits the node').to.be.empty;
+    });
+
+    // The response has one owner: the handler that opened it. Everything below
+    // writes progress into it and none of them decide it is over - which is what
+    // makes a write from the handler's own catch safe.
+    it('never writes to a response the teardown already closed', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.writesAfterEnd, 'ERR_STREAM_WRITE_AFTER_END reaches apiServer and exits the process').to.be.empty;
+      expect(res.ended, 'the caller must be answered, not left on an open stream').to.be.true;
+    });
+
+    // Four guards refuse the redeploy while another operation holds the node, and
+    // each one writes its warning and returns. Nothing below them closes the
+    // response, so the endpoint has to.
+    it('closes the stream when the redeploy is refused because another operation is in flight', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      globalState.removalInProgress = true;
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.written.join(''), 'the refusal is the answer').to.include('Another application is undergoing removal');
+      expect(res.ended, 'an unclosed response holds the socket until requestTimeout, two hours').to.be.true;
     });
   });
 

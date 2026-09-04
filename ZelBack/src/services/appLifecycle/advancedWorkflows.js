@@ -926,7 +926,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
       return;
     }
@@ -935,7 +935,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
       return;
     }
@@ -946,7 +946,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
       return;
     }
@@ -998,7 +998,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
       return;
     }
@@ -1124,8 +1124,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
     if (res) {
+      // Written, not closed. Every caller here is mid-stream on a response its
+      // own endpoint opened, and closing it from inside the installer is what
+      // left that endpoint writing into a finished response.
       res.write(serviceHelper.ensureString(successStatus));
-      res.end();
+      if (res.flush) res.flush();
     }
     globalState.installationInProgress = false;
   } catch (error) {
@@ -1149,7 +1152,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
-    appUninstaller.removeAppLocally(appSpecs.name, res, true);
+    appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
   }
 }
 
@@ -1638,7 +1641,8 @@ async function softRedeployComponent(appName, componentName, res) {
       log.error(error);
       log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
       globalState.softRedeployInProgress = false;
-      await appUninstaller.removeAppLocally(appName, res, true, true, true);
+      // endResponse false: the endpoint opened this response and closes it.
+      await appUninstaller.removeAppLocally(appName, res, true, false, true);
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} soft redeploy failure`);
       throw error;
     }
@@ -1759,7 +1763,8 @@ async function hardRedeployComponent(appName, componentName, res) {
       log.error(error);
       log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
       globalState.hardRedeployInProgress = false;
-      await appUninstaller.removeAppLocally(appName, res, true, true, true);
+      // endResponse false: the endpoint opened this response and closes it.
+      await appUninstaller.removeAppLocally(appName, res, true, false, true);
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} hard redeploy failure`);
       throw error;
     }
@@ -1822,10 +1827,10 @@ async function redeployComponentAPI(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
 
-    // The progress stream is the response: both paths write each step into it as
-    // they go, and the last thing they write is the outcome. A further res.json
-    // here would set headers on a body that has already started, which throws
-    // into the catch below and takes the connection down with it.
+    // This response has one owner and it is here. The redeploy paths below write
+    // their progress into it and none of them close it, so every exit - a
+    // completed redeploy, a failure, and the four guards that refuse the request
+    // outright - reaches the same close.
     if (force) {
       await hardRedeployComponent(appname, component, res);
     } else {
@@ -1842,15 +1847,16 @@ async function redeployComponentAPI(req, res) {
     // refusal can be answered as one. Once the body has started it cannot, and
     // the envelope goes into the stream where a client parses it out.
     if (res.headersSent) {
-      try {
-        res.write(serviceHelper.ensureString(errorResponse));
-        res.end();
-      } catch (writeError) {
-        log.error(writeError);
-      }
-      return;
+      res.write(serviceHelper.ensureString(errorResponse));
+    } else {
+      res.json(errorResponse);
     }
-    res.json(errorResponse);
+  } finally {
+    // Writing to a closed response is not a caught error: node reports it a tick
+    // later as an `error` event on res, nothing listens for one, and an unheard
+    // `error` reaches apiServer's uncaughtException handler and exits the
+    // process. Closing from one place is what keeps every write above it live.
+    if (!res.writableEnded) res.end();
   }
 }
 
@@ -1878,6 +1884,9 @@ async function redeployAPI(req, res) {
     const redeploySkip = globalState.restoreInProgress.some((backupItem) => appname === backupItem);
     if (redeploySkip) {
       log.info(`Restore is running for ${appname}, redeploy skipped...`);
+      // Answered, not just closed: the caller asked for a redeploy and did not
+      // get one, and an empty body would read as success.
+      res.json(messageHelper.createWarningMessage(`Restore is running for ${appname}, redeploy skipped`));
       return;
     }
 
@@ -1929,7 +1938,16 @@ async function redeployAPI(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    if (res.headersSent) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    } else {
+      res.json(errorResponse);
+    }
+  } finally {
+    // Same owner rule as redeployComponentAPI: the redeploy writes progress, this
+    // closes. The guards inside softRedeploy return without closing, and a
+    // failure after the stream has started leaves nothing else that can.
+    if (!res.writableEnded) res.end();
   }
 }
 
