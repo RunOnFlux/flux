@@ -22,12 +22,20 @@
  *                 cannot signal it away — docker kill reaches the main process
  *                 only, and the spinners are forked children — and docker pause
  *                 would freeze the container out of the sampler's view.
- *   LOG_EVERY_MS  if > 0, write `log line <n>` to stdout on this interval,
- *                 numbered from 1 and never repeating. Numbered because that is
- *                 what lets a reader prove it saw every line exactly once: a gap
- *                 or a repeat in the sequence is visible, and identical lines
- *                 would hide both. Written to fd 1, which is the container's
- *                 docker log.
+ *   LOG_EVERY_MS  if > 0, write `log line <n>` on this interval, numbered from 1
+ *                 and never repeating. Numbered because that is what lets a
+ *                 reader prove it saw every line exactly once: a gap or a repeat
+ *                 in the sequence is visible, and identical lines would hide
+ *                 both.
+ *
+ *                 Lines ALTERNATE between stdout and stderr, and that is the
+ *                 point rather than decoration. Docker gives each stream its own
+ *                 writer, and each stamps its line before the write is
+ *                 serialised into the log - so the file is not in timestamp
+ *                 order (3,304 backwards steps in 40,000 lines, measured). A
+ *                 reader that assumes it is delivers some lines twice. A
+ *                 stdout-only writer cannot produce that and so cannot test for
+ *                 it.
  *
  * On SIGTERM/SIGINT (i.e. `docker stop`) it exits with EXIT_CODE, so a test can
  * deterministically produce a clean exit 0 or any non-zero code on demand.
@@ -111,7 +119,8 @@ int main(void)
             for (unsigned long n = 1;; n++) {
                 int len = snprintf(line, sizeof(line), "log line %lu\n", n);
                 if (len > 0)
-                    (void)!write(STDOUT_FILENO, line, (size_t)len);
+                    (void)!write(n & 1 ? STDOUT_FILENO : STDERR_FILENO,
+                                 line, (size_t)len);
                 nanosleep(&gap, NULL);
             }
         }

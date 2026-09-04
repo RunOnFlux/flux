@@ -206,9 +206,10 @@ async function getDockerContainerByIdOrName(idOrName) {
   // about one, and the log endpoint pays it on a timer for as long as a browser
   // is left open.
   //
-  // The name filter is a SUBSTRING match, so the exact comparison below still
-  // decides it: `fluxweb` must not answer for `fluxwebsite`. The filter narrows
-  // what comes back; it does not choose.
+  // The name filter is a REGEX match (docker runs it through regexp.MatchString),
+  // so it is at least a substring match and the exact comparison below is what
+  // decides: `fluxweb` must not answer for `fluxwebsite`. The filter narrows what
+  // comes back; it does not choose.
   const dockerName = getAppDockerNameIdentifier(idOrName);
   let containers = await docker.listContainers({
     all: true,
@@ -396,6 +397,47 @@ async function dockerContainerLogs(idOrName, lines) {
 }
 
 /**
+ * How many log frames a raw docker payload carries, without decoding them.
+ *
+ * Only ever compared against a page size, so the length prefix in each header is
+ * enough and the bodies never need touching.
+ *
+ * @param {Buffer} payload
+ * @returns {number}
+ */
+function countFrames(payload) {
+  let frames = 0;
+  let offset = 0;
+  while (offset + 8 <= payload.length) {
+    offset += 8 + payload.readUInt32BE(offset + 4);
+    frames += 1;
+  }
+  return frames;
+}
+
+/**
+ * How many of `lines` docker will hand back again when asked from `ms`, so that
+ * many can be skipped next time.
+ *
+ * Everything stamped at or after `ms` comes back, and so does anything earlier
+ * that sits after the first such line in the file - docker stops filtering on
+ * `since` once it has found its starting point, which is what makes an
+ * out-of-order line reappear. Counting from the first line at or after `ms` to
+ * the end of what was delivered is exactly that set.
+ *
+ * `ms` is the NEWEST timestamp delivered, so the first line at or after it may
+ * sit anywhere in the block, and everything from there on was delivered.
+ *
+ * @param {string[]} lines - timestamped lines, in docker's order
+ * @param {number} ms
+ * @returns {number}
+ */
+function countFrom(lines, ms) {
+  const start = lines.findIndex((line) => Math.floor(Date.parse(line.split(' ')[0])) >= ms);
+  return start === -1 ? 0 : lines.length - start;
+}
+
+/**
  * The lines a reader has not seen yet, and the position it has reached.
  *
  * A poll, not a subscription: docker is asked for what it has and closes the
@@ -417,7 +459,9 @@ async function dockerContainerLogs(idOrName, lines) {
  * @returns {Promise<{lines: string[], position: {ms: number, count: number}|null, rolledOver: boolean, truncated: boolean}>}
  */
 async function dockerContainerLogsPolling(idOrName, options = {}) {
-  const { position = null, lineCount = 'all', maxLines = 5000 } = options;
+  const {
+    position = null, since = null, lineCount = 'all', maxLines = 5000,
+  } = options;
 
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -428,13 +472,49 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     timestamps: true,
   };
 
-  if (position) {
+  // A `since` timestamp is a FILTER; a position is a receipt for lines the reader
+  // already holds. Only the second one earns the behaviour below - dropping the
+  // line limit, capping, and reporting rolled-over - because only the second one
+  // is a reader walking forward who will come back for the rest. Treating a
+  // typed-in date as a position removed its line limit and answered it with a
+  // data-loss warning for a line it never claimed to have.
+  if (since !== null) {
+    logOptions.since = since / 1000;
+    if (lineCount && lineCount !== 'all') logOptions.tail = lineCount;
+  } else if (position) {
     logOptions.since = position.ms / 1000;
+    // `since` on its own has no index to seek with: docker reads from the start
+    // of the oldest file and decodes forward until it finds the first matching
+    // line, so it re-reads the whole retained log on every poll and gets slower
+    // as that log grows - 74ms at 3.5MB, 273ms at 14MB, measured. With `tail`
+    // present it opens at the END and works backwards applying `since` as it
+    // goes, which answers byte-for-byte the same in ~4ms and stays flat however
+    // big the log is.
+    //
+    // One more than a page, because docker applies `tail` AFTER `since` and so
+    // returns the NEWEST maxLines of the matching set. At maxLines or fewer the
+    // whole set fitted and this is the complete answer; at maxLines + 1 the
+    // reader is further behind than one page and what came back is the newest
+    // lines rather than their next ones, so it is re-read below.
+    logOptions.tail = maxLines + 1;
   } else if (lineCount && lineCount !== 'all') {
     logOptions.tail = lineCount;
   }
 
-  const payload = await dockerContainer.logs(logOptions);
+  let payload = await dockerContainer.logs(logOptions);
+
+  // A reader more than a page behind: the cheap read answered with the end of
+  // the log, and handing that back would skip everything between where they are
+  // and where it starts. The full scan is the only way to get their next page,
+  // and it is paid once per catch-up rather than once per poll - a reader
+  // keeping up never reaches this.
+  if (position && countFrames(payload) > maxLines) {
+    // A fresh object rather than deleting the key: dockerode keeps a reference
+    // to what it was handed, so mutating it rewrites the first request too.
+    const unbounded = { ...logOptions };
+    delete unbounded.tail;
+    payload = await dockerContainer.logs(unbounded);
+  }
 
   // Every app container is created with Tty false (appDockerCreate), so docker
   // frames each write with an 8-byte header carrying the stream id and length.
@@ -461,21 +541,46 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     }
   }
 
-  const truncated = lines.length > maxLines;
+  // Only a positioned reader is capped, and it keeps the OLDEST of what is new
+  // because that is the direction it is walking; it comes back for the rest.
+  // A caller without a position is not coming back - "all logs" is a download,
+  // not a page - so capping it would silently truncate the answer, and the
+  // retention config already bounds what a container can hold.
+  const truncated = position !== null && lines.length > maxLines;
   if (truncated) lines = lines.slice(0, maxLines);
 
   // The position is the last line handed over, never the newest line seen: a
   // reader that is behind must come back for the rest, and it comes back from
   // where it actually got to.
+  //
+  // `count` is how many lines have been delivered FROM THE FRONT of what docker
+  // returns for `ms` - a place in that sequence, not a property of a timestamp.
+  // The distinction is the whole correctness of the skip. A container writing to
+  // stdout and stderr has two writers that each stamp a line before it is
+  // serialised into the file, so the file is NOT in timestamp order: measured on
+  // a real daemon, 3,304 backwards steps in 40,000 lines. Counting "lines whose
+  // millisecond equals the last one's" therefore missed the already-delivered
+  // lines stamped just before `ms`, the skip came up short, and the tail of each
+  // page was delivered twice. Counting position in the returned sequence is
+  // exact whatever order docker returns, because it counts the same sequence
+  // docker returns again.
   let nextPosition = position;
   if (lines.length) {
-    const lastMs = Date.parse(lines[lines.length - 1].split(' ')[0]);
-    const truncatedMs = Math.floor(lastMs);
-    nextPosition = {
-      ms: truncatedMs,
-      count: lines.filter((line) => Math.floor(Date.parse(line.split(' ')[0])) === truncatedMs).length
-        + (position && !rolledOver && position.ms === truncatedMs ? position.count : 0),
-    };
+    // The NEWEST timestamp delivered, not the last line's. Out of order they are
+    // different, and only the newest is monotonic: taking the last line's would
+    // drag the window backwards and re-read everything after it.
+    const carried = position && !rolledOver ? position : null;
+    const newestMs = lines.reduce(
+      (max, line) => Math.max(max, Math.floor(Date.parse(line.split(' ')[0]))),
+      carried ? carried.ms : 0,
+    );
+    // When nothing newer arrived, the line docker will start from is one an
+    // earlier page already delivered, so that page's count still applies and
+    // this page's lines are added to it. When something newer did arrive, the
+    // starting line is in this page and the count is measured from there.
+    nextPosition = carried && newestMs === carried.ms
+      ? { ms: newestMs, count: carried.count + lines.length }
+      : { ms: newestMs, count: countFrom(lines, newestMs) };
   }
 
   return {
@@ -1287,6 +1392,24 @@ async function appDockerKill(idOrName) {
 }
 
 /**
+ * Whether a removal is worth recording as FluxOS's own.
+ *
+ * The record answers one question, asked by the reconciler: is this container
+ * missing because FluxOS removed it, or because something else did? It only ever
+ * asks about app containers, by identifier. A container addressed by raw docker
+ * id is an orphan the reconciler never asks about - so the entry can never be
+ * read, and it can never be dropped either, because clearFluxRemovedContainers
+ * matches on the app name a hex id does not carry. Not writing it is the whole
+ * fix; there is nothing about it worth remembering.
+ *
+ * @param {string} idOrName
+ * @returns {boolean}
+ */
+function removalIsWorthRecording(idOrName) {
+  return !/^[0-9a-f]{12,64}$/.test(idOrName);
+}
+
+/**
  * Removes app's docker.
  *
  * @param {string} idOrName
@@ -1300,7 +1423,7 @@ async function appDockerRemove(idOrName) {
   await dockerContainer.remove();
   // Recorded only once the container is actually gone - this is a record of what
   // FluxOS removed, and a remove that threw removed nothing.
-  globalState.fluxRemovedContainers.add(getDockerName(idOrName));
+  if (removalIsWorthRecording(idOrName)) globalState.fluxRemovedContainers.add(getDockerName(idOrName));
   return `Flux App ${idOrName} successfully removed.`;
 }
 
@@ -1317,7 +1440,7 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
 
   globalState.stoppingContainers.delete(getDockerName(idOrName));
   await dockerContainer.remove({ force: true, v: removeVolumes });
-  globalState.fluxRemovedContainers.add(getDockerName(idOrName));
+  if (removalIsWorthRecording(idOrName)) globalState.fluxRemovedContainers.add(getDockerName(idOrName));
   return `Flux App ${idOrName} successfully force removed.`;
 }
 
@@ -1326,6 +1449,10 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
  * app's local row goes: nothing reconciles an app with no row, so there is no
  * absence left to attribute, and an entry with no reader would otherwise outlive
  * the app for the life of the process.
+ *
+ * Every entry belongs to an app, because a removal addressed by raw docker id is
+ * not recorded at all - it would carry no app name for this to match, and no
+ * reader to want it.
  *
  * Lives here because the entries are keyed by docker name and this module owns
  * that naming: a component is `flux<component>_<app>`, a v<=3 app is `flux<app>`,
