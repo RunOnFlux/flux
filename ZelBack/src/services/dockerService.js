@@ -348,61 +348,6 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
 }
 
 /**
- * Subscribes to logs stream.
- *
- * @param {string} idOrName
- * @param {object} res
- * @param {function} callback
- */
-async function dockerContainerLogsStream(idOrName, res, callback) {
-  try {
-    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-    const logStream = new stream.PassThrough();
-    logStream.on('data', (chunk) => {
-      res.write(serviceHelper.ensureString(chunk.toString('utf8')));
-      if (res.flush) res.flush();
-    });
-
-    dockerContainer.logs(
-      {
-        follow: true,
-        stdout: true,
-        stderr: true,
-      },
-      (err, mystream) => {
-        if (err) {
-          callback(err);
-        } else {
-          try {
-            dockerContainer.modem.demuxStream(mystream, logStream, logStream);
-            mystream.on('end', () => {
-              logStream.end();
-              callback(null);
-            });
-
-            setTimeout(() => {
-              mystream.destroy();
-            }, 2000);
-          } catch (error) {
-            // This runs inside dockerode's callback, not inside the enclosing
-            // `try` - the function has already returned by the time it fires.
-            // A throw here is an uncaught exception, and FluxOS installs no
-            // `uncaughtException` handler, so it kills the process exactly as
-            // the unhandled rejection in dockerContainerLogsPolling did.
-            // Report it through the callback, which is the channel the caller
-            // is actually listening on.
-            log.error('Error obtaining log data of an application:', error);
-            callback(error);
-          }
-        }
-      },
-    );
-  } catch (error) {
-    callback(error);
-  }
-}
-
-/**
  * Returns requested number of lines of logs from the container.
  *
  * @param {string} idOrName
@@ -2330,7 +2275,6 @@ module.exports = {
   dockerContainerInspect,
   dockerContainerLogs,
   dockerContainerLogsPolling,
-  dockerContainerLogsStream,
   dockerContainerStats,
   dockerCreateNetwork,
   dockerGetEvents,

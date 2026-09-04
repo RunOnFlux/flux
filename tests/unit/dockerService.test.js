@@ -660,7 +660,7 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe('dockerContainerLogsStream tests', () => {
+  describe('dockerContainerLogs tests', () => {
     it('should return a valid stats object', async () => {
       const appName = 'website';
 
