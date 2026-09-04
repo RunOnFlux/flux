@@ -22,7 +22,8 @@ const FLUX_PEER_ROUTE = /^\/ws\/flux(\/|$)/;
  * completed handshake is enough for the dialling node to construct a peer,
  * count it toward its thresholds and write to it - a boot's state-sync requests
  * go into that socket and are lost when this side closes it. The dial fails
- * cleanly instead, and the reconnect machinery retries it.
+ * cleanly instead - no peer is constructed, so nothing is queued for reconnect
+ * and nothing counts it as a lost peer; the next discovery pass dials again.
  *
  * Only the peer routes. Browsers reach /ws/id, /ws/sign and /ws/payment, and
  * those have nothing to do with whether this node has peers yet.

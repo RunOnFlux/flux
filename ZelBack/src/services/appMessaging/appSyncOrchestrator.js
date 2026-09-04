@@ -410,11 +410,11 @@ class AppSyncOrchestrator {
    * End every request still outstanding, because the round they belong to has.
    *
    * Closing them is what stops their answers being accepted, so the response
-   * gate and the deadlines cannot disagree about whether a peer is still being
-   * waited on. They were separate before: the round cleared the asked-marks
-   * and left the deadlines armed, so a peer that was streaming perfectly went
-   * quiet only because this node had stopped listening, and was then recorded
-   * as having stalled.
+   * gate and the deadlines read one fact and cannot disagree about whether a
+   * peer is still being waited on. A peer that was mid-answer when the budget
+   * ran out is recorded as having run out of time, which is what happened -
+   * not as having stalled, which is what it would look like to a deadline left
+   * armed over a gate that had already stopped listening.
    * @param {string} why For the log.
    * @returns {number} how many were still outstanding.
    */
@@ -576,14 +576,18 @@ class AppSyncOrchestrator {
    * poke: a trigger that decided would have to know what the other four had
    * just done.
    *
-   * A call arriving while a pass is running marks the table dirty and returns;
-   * the pass re-runs once and finds the work already done. The cap itself is
-   * held by the pass, which reads the table and reserves in it without
-   * yielding - so even a pass started concurrently would see the first one's
-   * records. What this adds is that the second pass never starts at all: a
-   * boot brings peers in a burst, every one of them is a trigger, and each
-   * pass that reaches the await fetches this node's signing key. The threshold
-   * crossing alone emits two triggers from one call.
+   * A call arriving while a pass is running marks the table dirty and returns,
+   * and the pass runs again to pick up whatever changed. Serialising them is
+   * what holds the pool cap: a pass counts the deficit, then fetches a signing
+   * key before it can reserve anything, so a second one admitted in that window
+   * would count the same deficit and fill it a second time. The threshold
+   * crossing emits two triggers from one call, so that window is every boot
+   * rather than a corner. It also means a burst of joins fetches the key once.
+   *
+   * The re-run is not a formality. What lands during a pass is a peer leaving
+   * or a deadline firing, both of which close a request and widen the deficit
+   * the pass already counted - so the shortfall it left behind is asked for
+   * immediately rather than waiting on the next unrelated event.
    *
    * It terminates: the only thing a pass can do to dirty the table itself is
    * lose a peer while writing to it, and that peer is then not a candidate, so

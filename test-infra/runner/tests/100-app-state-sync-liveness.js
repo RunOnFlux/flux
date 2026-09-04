@@ -168,44 +168,67 @@ describe('a node that cannot answer a state sync declines it', function () {
 
 // THE ARITHMETIC AT THE PRODUCTION SETTING.
 //
-// The fleet above runs at the harness default of one completion, where the
-// pool is a single slot and "three peers" and "three answers" cannot be told
-// apart. This one asks for three, which is what mainnet asks for, so the
-// deficit is a number the code has to get right rather than a boolean.
+// The fleet above runs at the harness default of one completion, where the pool
+// is a single slot and "three peers" and "three answers" cannot be told apart.
+// This one asks for three, which is what mainnet asks for, so the deficit is a
+// number the code has to get right rather than a boolean.
+//
+// It also runs at the production sync budget. The deadlines derive from it -
+// first response is a twelfth - and at the harness's 30s that is 2.5 seconds,
+// which is shorter than two containers still finishing their own boot take to
+// exchange a first batch. Measured: an answerer logged its first response 1.0s
+// after the request and the asker processed it 2.4s after that. The ratio is
+// right for a 120s budget, where the same deadline is 10 seconds; it is the
+// short budget that makes it unrepresentative, so this suite uses the real one.
+//
+// ORDER MATTERS, for the same reason it does above. The node under test is the
+// one held back, so the peers it asks have finished booting and are
+// authoritative before it asks them - otherwise the suite measures a race
+// between two boots and not the arithmetic it is named for.
 describe('a state sync at the production requirement completes on three distinct peers', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
-  // Nodes 1-3 can answer from the moment they start; 0 is the node under test
-  // and 4 is a spare, so there are more candidates than the requirement and
-  // asking all of them would go unnoticed without the count below.
-  const UNDER_TEST = 0;
-  const ANSWERERS = [1, 2, 3];
+  // 0-2 answer from the moment they start, 3 cannot and declines, and 4 is the
+  // node under test. Three answerers for a requirement of three, with a fourth
+  // candidate that has to be replaced to reach them.
+  const ANSWERERS = [0, 1, 2];
+  const DECLINER = 3;
+  const UNDER_TEST = 4;
 
   before(async function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
       nodes: 5,
+      // deferredNodes holds back the LAST indices, so UNDER_TEST is the highest.
+      deferredNodes: 1,
       syncedNodes: ANSWERERS,
       tickerAutostart: false,
       configOverrides: {
         fluxapps: {
           appSyncMinCompletions: 3,
-          // High enough that no node reaches authority by waiting, so every
-          // completion credited below came from a peer that answered.
+          syncTimeoutMs: 120000,
+          // High enough that no node reaches authority by waiting it out, so
+          // every completion credited below came from a peer that answered.
           appSyncFallbackMinutes: 10,
           appSyncFallbackMinutesEnterprise: 10,
         },
       },
     });
-    for (const client of env.clients) await waitForDaemonReady(client);
-    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+
+    const booted = [...ANSWERERS, DECLINER];
+    const clients = booted.map((i) => env.clients[i]);
+    for (const client of clients) await waitForDaemonReady(client);
+    await Promise.all(clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await advanceBlock();
-    for (const client of env.clients) {
+    for (const client of clients) {
       await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
     }
-    await env.startDiscovery(env.clients.map((_, i) => i));
+    await env.startDiscovery(booted);
+    // The answerers settle among themselves before anyone asks them, so the
+    // node under test meets a fleet that is up rather than one still starting.
+    await env.clients[ANSWERERS[0]].waitForEvent('peers:added', (d) => d.total >= 2, 120000);
   });
 
   after(async function () {
@@ -214,13 +237,17 @@ describe('a state sync at the production requirement completes on three distinct
   });
 
   it('asks no more peers at once than the number of answers it needs', async function () {
-    this.timeout(180000);
+    this.timeout(300000);
 
-    const client = env.clients[UNDER_TEST];
-    await client.waitForEvent('ephemeralSync:requested', () => true, 120000);
+    const client = await env.startNode(UNDER_TEST);
+    await waitForDaemonReady(client);
+    await waitForNodeStatus(client, (d) => d.confirmed === true, 60000);
+    await env.startDiscovery([UNDER_TEST]);
+
+    await client.waitForEvent('ephemeralSync:requested', () => true, 180000);
     // The threshold crossing and the join that caused it are two events from
     // one call, and both reach the request path. Everything asked in that first
-    // burst is one round's worth or the pool cap is not a cap.
+    // burst is one round's worth, or the pool cap is not a cap.
     const asked = new Set();
     for (const event of client.getEventBuffer().filter((e) => e.event === 'ephemeralSync:requested')) {
       for (const peer of event.data.peers ?? []) asked.add(peer);
@@ -230,10 +257,10 @@ describe('a state sync at the production requirement completes on three distinct
   });
 
   it('credits three different peers, not three answers', async function () {
-    this.timeout(240000);
+    this.timeout(300000);
 
     const client = env.clients[UNDER_TEST];
-    await client.waitForEvent('ephemeralSync:allComplete', () => true, 180000);
+    await client.waitForEvent('ephemeralSync:allComplete', () => true, 240000);
 
     const credited = new Set(
       client.getEventBuffer()
@@ -241,6 +268,13 @@ describe('a state sync at the production requirement completes on three distinct
         .map((e) => e.data.peer),
     );
     expect(credited.size, 'the sync completed without three separate peers having answered').to.be.at.least(3);
-    for (const peer of credited) expect(peer).to.match(/^\d+\.\d+\.\d+\.\d+:\d+$/);
+
+    // The one peer that could not answer is not among them: it declined, and a
+    // decline is an answer that is not a completion.
+    const declinerIp = ipOfIndex(DECLINER);
+    for (const peer of credited) {
+      expect(peer).to.match(/^\d+\.\d+\.\d+\.\d+:\d+$/);
+      expect(peer.startsWith(declinerIp), 'a peer that declined was credited with a completion').to.equal(false);
+    }
   });
 });
