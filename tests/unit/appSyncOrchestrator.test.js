@@ -880,6 +880,66 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.stop();
     });
 
+    // A node below its degraded threshold has judged its own gossip
+    // unreliable. Asking anyway would let it complete a survey from the peers
+    // it has left and publish itself authoritative on the strength of them.
+    it('stops asking once it has judged its own peer set unreliable', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      blockEmitter.emit('blocksProcessed', 2555000);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      for (const peer of peers) expect(peer.send.callCount).to.equal(4);
+
+      // Degrading throws the sync progress away, so every peer is a candidate
+      // again and a pass that ran would re-ask them. Asserted on THAT rather
+      // than on the joiner: the joiner sits fourth in a list of four and a pool
+      // of three never reaches it, so it goes unasked either way.
+      peerEmitter.emit('peersBelowThreshold', 1);
+      await clock.tickAsync(0);
+      expect(orchestrator.state).to.equal(STATES.DEGRADED);
+
+      const joiner = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub.returns([...peers, joiner]);
+      peerEmitter.emit('peerAdded', joiner.key, 2);
+      await clock.tickAsync(0);
+
+      for (const peer of peers) {
+        expect(peer.send.callCount, 'a degraded node asked its remaining peers for state').to.equal(4);
+      }
+      expect(joiner.send.called, 'a degraded node asked a joining peer for state').to.equal(false);
+      expect(globalStateStub.appStateAuthoritative, 'a degraded node still claimed authority').to.equal(false);
+      orchestrator.stop();
+    });
+
+    // And it starts again - a guard that stops the asking has to be shown to
+    // let it resume, or it is indistinguishable from wedging the node.
+    it('asks again once enough peers are back for the threshold to re-arm', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      blockEmitter.emit('blocksProcessed', 2555000);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      peerEmitter.emit('peersBelowThreshold', 1);
+      await clock.tickAsync(0);
+
+      const recovered = makeEligiblePeers(3);
+      getEligibleSyncPeersStub.returns(recovered);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      for (const peer of recovered) {
+        expect(peer.send.callCount, 'a node that recovered its peers never asked again').to.equal(4);
+      }
+      orchestrator.stop();
+    });
+
     // WHAT THE RE-ENTRANCY GUARD BUYS, on its own.
     //
     // The pool cap survives without it, because a pass reads the table and

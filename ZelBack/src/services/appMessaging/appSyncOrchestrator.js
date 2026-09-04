@@ -613,7 +613,19 @@ class AppSyncOrchestrator {
 
   async #reconcilePass() {
     if (this.#stateSyncComplete) return;
+    // Has the sync ever been allowed to start. A latch, and never cleared:
+    // before the threshold is first crossed there is nobody worth asking.
     if (!this.#networkReady || !this.#peersReady) return;
+    // Are there enough peers to trust an answer RIGHT NOW. A level, and the
+    // reason the latch is not enough on its own: DEGRADED is this node's own
+    // verdict that it has too few peers for gossip to be reliable, and a node
+    // that has said so must not then go and complete a survey on the strength
+    // of them - it would publish itself authoritative and start answering
+    // other nodes from a view it has already judged untrustworthy.
+    //
+    // Recovery needs nothing here: crossing the threshold again moves the
+    // state to RESYNCING before #onPeersReady reconciles.
+    if (this.#state === STATES.DEGRADED) return;
 
     // Counted once, before the key fetch, and it can only be too LOW by the
     // time that returns: nothing opens a request but this pass, and the guard
