@@ -9,6 +9,7 @@ const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advan
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const log = require('../../ZelBack/src/lib/log');
 
 describe('advancedWorkflows tests', () => {
@@ -4170,7 +4171,10 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflows.softRedeploy(v3Spec, null);
 
       expect(removeAppLocally.calledOnce, 'today the app is force-uninstalled once it is down').to.be.true;
-      expect(removeAppLocally.calledWith('TestApp', null, true, true, true)).to.be.true;
+      // endResponse false - redeployAPI owns the response and closes it; the
+      // teardown closing it made every later write, including the failure that
+      // caused it, land in a response that was already over.
+      expect(removeAppLocally.calledWith('TestApp', null, true, false, true)).to.be.true;
       expect(globalState.softRedeployInProgress).to.be.false;
     });
   });
@@ -4368,6 +4372,7 @@ describe('advancedWorkflows tests', () => {
     let serviceHelper;
     let verificationHelper;
     let fluxEventBus;
+    let messageHelper;
     let req;
 
     beforeEach(() => {
@@ -4380,6 +4385,7 @@ describe('advancedWorkflows tests', () => {
       serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       verificationHelper = require('../../ZelBack/src/services/verificationHelper');
       fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+      messageHelper = require('../../ZelBack/src/services/messageHelper');
       /* eslint-enable global-require */
       globalState.removalInProgress = false;
       globalState.installationInProgress = false;
@@ -4481,6 +4487,73 @@ describe('advancedWorkflows tests', () => {
 
       const redeployed = publish.getCalls().filter((call) => call.args[0] === 'app:componentRedeployed');
       expect(redeployed, 'the install failed and the app was uninstalled - nothing was redeployed').to.be.empty;
+    });
+
+    // The section-2 race: the reconciler starts the same component the removal is
+    // tearing down, so the teardown throws part way. Doing nothing to the app is
+    // right - it is not known to be down and the reconciler converges it - but
+    // doing nothing to the CALLER closes the stream on a progress line, so a
+    // redeploy that never happened answers 200 and reads as one that did.
+    it('tells the caller when a redeploy failed during removal and was left alone', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appUninstaller.softUninstallComponent.rejects(new Error('Cannot read properties of null'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      // Either channel is fine - before anything is written the status line is
+      // still ours, after that the envelope goes into the stream. What is not
+      // fine is neither, which closes on a progress line and reads as success.
+      const answered = res.written.join('') + JSON.stringify(res.json.args);
+      expect(answered, 'the caller must be told the redeploy did not happen').to.match(/error/i);
+      expect(res.ended, 'and the response must still be closed').to.be.true;
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
+    // The same failure once the stream has started, which is the shape that went
+    // silent: headers are gone, so an answer can only go into the stream, and the
+    // path that decided to leave the app alone returned without writing one.
+    it('tells the caller after progress has already been streamed', async () => {
+      // The install fails without throwing - softRegisterAppLocally answers
+      // FAILED - so this takes the path that RETURNS rather than the catch. That
+      // is the one that went silent, and a test driving a throw instead would
+      // pass whether or not it was fixed.
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.written.length, 'progress was streamed, so the status line is gone').to.be.above(0);
+      expect(res.json.called, 'headers cannot be sent once the body has started').to.be.false;
+      expect(res.written.join(''), 'the last word must name the failure').to.include('was not reinstalled');
+      expect(res.ended).to.be.true;
+    });
+
+    // force=true, which nothing else here drives. The hard path reinstalls through
+    // registerAppLocally, and its failure branch force-uninstalls the app and
+    // reports that removal with a SUCCESS envelope. A caller reading the envelope
+    // the stream closes on - the rule this suite pins elsewhere - would read a
+    // destroyed app as a completed redeploy.
+    it('does not end a failed hard redeploy on the teardown\'s success message', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'registerAppLocally').callsFake(async (spec, component, response) => {
+        if (response) {
+          response.write(serviceHelper.ensureString(
+            messageHelper.createSuccessMessage('Removal step done. Result: Flux App myapp was successfuly removed'),
+          ));
+        }
+        return InstallOutcome.FAILED;
+      });
+      req.params.force = 'true';
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      const tail = res.written[res.written.length - 1];
+      expect(tail, 'the last envelope is what a caller judges the redeploy on').to.include('was not reinstalled');
+      expect(tail, 'a destroyed app must not be reported as a removal that succeeded').to.not.include('successfuly removed');
+      expect(res.writesAfterEnd, 'the outcome must not land in a response already closed').to.be.empty;
     });
   });
 

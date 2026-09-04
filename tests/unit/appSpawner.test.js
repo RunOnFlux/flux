@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const realPlacementFeasibility = require('../../ZelBack/src/services/appPlacement/placementFeasibility');
@@ -100,7 +101,10 @@ describe('appSpawner tests', () => {
       data: { height: opts.daemonHeight || 2555563, synced: true },
     });
 
-    const installStubRef = opts.installStub ?? sinon.stub().resolves(true);
+    // registerAppLocally answers an InstallOutcome, not a boolean: `false` used
+    // to mean both "another operation held the node" and "it failed and the app
+    // is gone", and the spawner told them apart by matching on error text.
+    const installStubRef = opts.installStub ?? sinon.stub().resolves(InstallOutcome.INSTALLED);
 
     appSpawner = proxyquire('../../ZelBack/src/services/appLifecycle/appSpawner', {
       config: configStub,
@@ -761,7 +765,7 @@ describe('appSpawner tests', () => {
     // caller reads `ok`. Compared whole against false an object never matches,
     // and every refusal would install anyway - which is what this holds.
     it('stands down when the port check refuses, and installs nothing', async () => {
-      const installStub = sinon.stub().resolves(true);
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
       buildModule({
         aggregateResult: [spawnableApp],
         appSpec: fullSpec,
@@ -794,7 +798,7 @@ describe('appSpawner tests', () => {
         aggregateResult: [spawnableApp],
         appSpec: fullSpec,
         errorCount: 0,
-        installStub: sinon.stub().resolves(false),
+        installStub: sinon.stub().resolves(InstallOutcome.FAILED),
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
@@ -856,7 +860,7 @@ describe('appSpawner tests', () => {
     }
 
     async function runSpawnAttempt(spec) {
-      const installStub = sinon.stub().resolves(true);
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
       buildModule({
         aggregateResult: [spawnableApp],
         appSpec: spec,
@@ -928,7 +932,7 @@ describe('appSpawner tests', () => {
     };
 
     async function runAttempt(opts = {}) {
-      const installStub = sinon.stub().resolves(true);
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
       const withdrawalStub = sinon.stub().resolves(true);
       const removeStub = sinon.stub().resolves();
       buildModule({
@@ -983,7 +987,7 @@ describe('appSpawner tests', () => {
       // The refusal is addressed to an HTTP caller. Letting it reach the spawner's
       // outer catch reads as a pre-install error, which parks the app for six hours
       // over a table that is usually seconds from ready.
-      const installStub = sinon.stub().resolves(true);
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
       buildModule({ aggregateResult: [spawnableApp], appSpec: syncedSpec, installStub });
       const notReady = new Error('The IP location table is not available yet - geolocation feasibility cannot be answered');
       notReady.statusCode = 503;
