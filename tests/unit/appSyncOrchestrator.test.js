@@ -855,7 +855,7 @@ describe('AppSyncOrchestrator', () => {
   describe('the request record is the only account of what has been asked', () => {
     const STALL_MS = 30000;
     const SYNC_TIMEOUT_MS = 120000;
-    const RETRY_AFTER_MS = 300000;
+    const SHORT_RETRY_AFTER_MS = 5000;
 
     // FluxPeerManager.add() emits peerThresholdReached and then peerAdded from
     // the same call, so the trigger that starts the sync and one that tops it
@@ -977,10 +977,15 @@ describe('AppSyncOrchestrator', () => {
     // of it that never expires writes the peer off for the life of a connection
     // that outlives the reason.
     it('asks a peer that declined again once its answer could have changed', async () => {
+      // Loaded with a short throttle rather than ticking the production five
+      // minutes: the cooldown IS the responder's throttle, so shortening one
+      // shortens the other and the relationship under test is unchanged.
+      const mod = loadWithConfig({ syncResponseThrottleMs: SHORT_RETRY_AFTER_MS });
       const peers = makeEligiblePeers(3);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = makeOrchestrator();
+      const orchestrator = new mod.AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      orchestrator.onMessageCapabilityChange(true);
       orchestrator.start(defaultBootContext);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
@@ -990,7 +995,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
       expect(peers[0].send.callCount, 'a peer was re-asked in the same breath as declining').to.equal(4);
 
-      await clock.tickAsync(RETRY_AFTER_MS);
+      await clock.tickAsync(SHORT_RETRY_AFTER_MS);
       peerEmitter.emit('peerAdded', peers[0].key, 12);
       await clock.tickAsync(0);
 
