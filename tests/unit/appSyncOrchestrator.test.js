@@ -1017,7 +1017,7 @@ describe('AppSyncOrchestrator', () => {
 
       // One peer keeps sending right up to the budget, inside every stall window.
       for (let elapsed = 0; elapsed < SYNC_TIMEOUT_MS; elapsed += STALL_MS - 1000) {
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[0].key);
         // eslint-disable-next-line no-await-in-loop
         await clock.tickAsync(STALL_MS - 1000);
       }
@@ -1161,7 +1161,7 @@ describe('AppSyncOrchestrator', () => {
 
       // One batch is enough to prove it is working. A large answer arrives over
       // many of these and only the last one is a completion.
-      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[0].key);
       await clock.tickAsync(FIRST_RESPONSE_MS + 1);
 
       expect(extra.filter((p) => p.send.called).length, 'a peer mid-answer was replaced').to.equal(2);
@@ -1170,7 +1170,7 @@ describe('AppSyncOrchestrator', () => {
     it('replaces a peer that starts answering and then stops', async () => {
       const { orchestrator, peers } = await askThree(12);
 
-      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[0].key);
       await clock.tickAsync(FIRST_RESPONSE_MS + 1);
       const wantedAfterFirstWindow = orchestrator.isSyncResponseWanted(peers[0]);
 
@@ -1188,7 +1188,7 @@ describe('AppSyncOrchestrator', () => {
     it('keeps a peer alive for as long as it keeps sending', async () => {
       const { orchestrator, peers } = await askThree(12);
 
-      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[0].key);
       // Four stall windows of steady batches: total elapsed is well past any
       // whole-answer deadline, which is the point - a peer ninety percent
       // through a large transfer must not be abandoned for taking a while.
@@ -1196,7 +1196,7 @@ describe('AppSyncOrchestrator', () => {
       // because the silent two are replaced by spares that also go silent.
       for (let i = 0; i < 4; i += 1) {
         await clock.tickAsync(STALL_MS - 1);
-        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peers[0].key);
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[0].key);
       }
       await clock.tickAsync(1);
 

@@ -170,10 +170,6 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
       return;
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
-    // EVERY arrival, not just the last. A peer mid-way through a large answer
-    // is plainly working, and the asker's slot clock has no other way to know
-    // that - a completion only arrives at the end.
-    appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apprunning', peerKey);
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
 
     // A sync response is processed a slice at a time. Verifying and storing the
@@ -306,10 +302,6 @@ async function handleAppInstallingSyncResponse(message, peerSocket) {
       return;
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
-    // EVERY arrival, not just the last. A peer mid-way through a large answer
-    // is plainly working, and the asker's slot clock has no other way to know
-    // that - a completion only arrives at the end.
-    appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, 'appinstalling', peerKey);
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingSyncResponse');
@@ -340,10 +332,6 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
       return;
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
-    // EVERY arrival, not just the last. A peer mid-way through a large answer
-    // is plainly working, and the asker's slot clock has no other way to know
-    // that - a completion only arrives at the end.
-    appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, 'apperrors', peerKey);
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingErrorsSyncResponse');
@@ -769,6 +757,24 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
   try {
     const peerKey = peerSocket.key;
     if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+
+    // THE PEER SPOKE. Announced where the response ARRIVES, not where it is
+    // processed, because the deadline waiting on it is a statement about the
+    // peer and processing time is a statement about us.
+    //
+    // Everything one peer sends is processed through the queue below, one chunk
+    // at a time. The temp-message stream is asked for first and re-verifies
+    // every pending registration at roughly a second each, so a peer that
+    // answered all four requests at once, correctly and instantly, went
+    // unheard for as long as WE took on the first of them - and was then
+    // recorded as having said nothing and set aside, with the three answers
+    // already queued behind it discarded on the way out.
+    //
+    // A refusal is not progress. It ends the request rather than extending it,
+    // and the handler it reaches takes it from here.
+    if (!msgObj?.data?.refused) {
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, peerKey);
+    }
 
     if (!syncChunkQueues.has(peerKey)) {
       syncChunkQueues.set(peerKey, { queue: [], processing: false });

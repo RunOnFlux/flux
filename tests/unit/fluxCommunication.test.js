@@ -1829,12 +1829,17 @@ describe('fluxCommunication tests', () => {
       progress = [];
       handler = (syncType, peerKey) => completions.push({ syncType, peerKey });
       refusedHandler = (syncType, peerKey) => refusals.push({ syncType, peerKey });
-      progressHandler = (syncType, peerKey) => progress.push({ syncType, peerKey });
+      progressHandler = (peerKey) => progress.push(peerKey);
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
       wanted = (socket) => socket === PEER_SOCKET;
       sinon.stub(peerManager, 'isSyncResponseWanted').callsFake((socket) => wanted(socket));
+      // The dispatcher verifies the envelope before it reaches a handler, and
+      // these fixtures carry no signature. Stubbed so the chain under test is
+      // arrival -> queue -> handler rather than the envelope check.
+      sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast')
+        .resolves(fluxCommunicationUtils.VerifyResult.OK);
       // An empty final batch is the whole path here: processInSlices does
       // nothing, and apprunning's pruning is the only step that needs a store.
       sinon.stub(messageStore, 'pruneAppRunningLocations').resolves();
@@ -1885,24 +1890,51 @@ describe('fluxCommunication tests', () => {
         expect(refusals).to.deep.equal([]);
       });
 
-      // The asker's slot clock has nothing else to read. A completion only
-      // arrives at the end, so without this a peer part-way through a large
-      // answer is indistinguishable from one that has said nothing at all.
-      it(`reports every ${syncType} batch as progress, not only the last`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
+      // Progress is announced where a response ARRIVES, so a handler that has
+      // not run yet - or is slow - cannot make a peer look silent. Asserted
+      // through the dispatcher, because that is where arrival happens; calling
+      // the handler directly skips the very step under test.
+      it(`reports every ${syncType} arrival as progress, not only the last`, async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+        await dispatch({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
 
-        expect(progress).to.deep.equal([
-          { syncType, peerKey: PEER }, { syncType, peerKey: PEER }, { syncType, peerKey: PEER },
-        ]);
+        expect(progress).to.deep.equal([PEER, PEER, PEER]);
         expect(completions, 'a mid-answer batch was counted as a completion').to.deep.equal([{ syncType, peerKey: PEER }]);
       });
 
       it(`reports no ${syncType} progress for a refusal`, async () => {
-        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER_SOCKET);
+        const dispatch = peerManager.syncResponseDispatcher;
+        await dispatch({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER_SOCKET);
 
-        expect(progress, 'a refusal kept its slot alive as though it were working').to.deep.equal([]);
+        expect(progress, 'a refusal kept its request alive as though it were working').to.deep.equal([]);
+      });
+
+      // THE DEADLINE IS A STATEMENT ABOUT THE PEER, and processing time is a
+      // statement about us. Everything one peer sends goes through a single
+      // queue, one chunk at a time, and the temp-message stream asked for first
+      // re-verifies every pending registration at roughly a second each. A peer
+      // that answered all four requests at once went unheard for as long as WE
+      // took on the first of them, was recorded as having said nothing, and had
+      // the answers already queued behind it thrown away with the record.
+      it(`announces a ${syncType} arrival before anything processes it`, async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        let progressAtEntry = null;
+        sinon.restore();
+        wanted = (socket) => socket === PEER_SOCKET;
+        sinon.stub(peerManager, 'isSyncResponseWanted').callsFake((socket) => wanted(socket));
+        sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').callsFake(async () => {
+          // The first thing the queue does with a chunk. If the peer is not
+          // already credited by here, every slower step below is on its clock.
+          progressAtEntry = [...progress];
+          return fluxCommunicationUtils.VerifyResult.OK;
+        });
+
+        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+
+        expect(progressAtEntry, 'the peer was still silent when its own answer was already in hand')
+          .to.deep.equal([PEER]);
       });
 
       // ip:port names a node; the request was written into a connection. A peer

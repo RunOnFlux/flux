@@ -212,7 +212,7 @@ class AppSyncOrchestrator {
     this.#ephemeralRefusedHandler = (syncType, peerKey) => this.#onEphemeralSyncRefused(syncType, peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_REFUSED, this.#ephemeralRefusedHandler);
 
-    this.#ephemeralProgressHandler = (syncType, peerKey) => this.#onEphemeralSyncProgress(syncType, peerKey);
+    this.#ephemeralProgressHandler = (peerKey) => this.#onEphemeralSyncProgress(peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_PROGRESS, this.#ephemeralProgressHandler);
 
     this.#hashUnresolvedHandler = () => this.#onHashUnresolved();
@@ -437,11 +437,13 @@ class AppSyncOrchestrator {
    * The first arrival moves it off the short "never spoke" deadline and onto
    * the longer stall one, because a peer part-way through a large answer is
    * doing exactly what was asked and may legitimately pause between batches.
-   * @param {string} syncType apprunning | appinstalling | apperrors
+   *
+   * Which stream it arrived on does not matter - the question this answers is
+   * whether the peer is still there, and any of its four responses says so.
    * @param {string} peerKey ip:port
    * @returns {void}
    */
-  #onEphemeralSyncProgress(syncType, peerKey) {
+  #onEphemeralSyncProgress(peerKey) {
     const request = this.#requests.get(peerKey);
     if (!request || request.outcome) return;
     clearTimeout(request.timer);
