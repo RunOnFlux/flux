@@ -4241,7 +4241,8 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appInstaller, 'installApplicationSoft').resolves();
       // The hard path reinstalls through registerAppLocally, which needs a
       // detectable Flux IP; the soft path builds its own install inline.
-      sinon.stub(appInstaller, 'registerAppLocally').resolves();
+      // It answers true or false - false means it force-uninstalled the app.
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(true);
     });
 
     afterEach(() => {
@@ -4366,6 +4367,7 @@ describe('advancedWorkflows tests', () => {
     let generalService;
     let serviceHelper;
     let verificationHelper;
+    let fluxEventBus;
     let req;
 
     beforeEach(() => {
@@ -4377,6 +4379,7 @@ describe('advancedWorkflows tests', () => {
       generalService = require('../../ZelBack/src/services/generalService');
       serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+      fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
       /* eslint-enable global-require */
       globalState.removalInProgress = false;
       globalState.installationInProgress = false;
@@ -4462,6 +4465,22 @@ describe('advancedWorkflows tests', () => {
 
       expect(res.written.join(''), 'the refusal is the answer').to.include('Another application is undergoing removal');
       expect(res.ended, 'an unclosed response holds the socket until requestTimeout, two hours').to.be.true;
+    });
+
+    // softRegisterAppLocally answers a failed install by force-uninstalling the
+    // app and returning normally. Reporting a redeploy off the absence of a throw
+    // announces a component that is not there - and this is the one event that
+    // says a single component was replaced, so nothing else contradicts it.
+    it('does not report a component redeploy that never reinstalled the component', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      const redeployed = publish.getCalls().filter((call) => call.args[0] === 'app:componentRedeployed');
+      expect(redeployed, 'the install failed and the app was uninstalled - nothing was redeployed').to.be.empty;
     });
   });
 
