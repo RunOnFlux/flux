@@ -114,10 +114,22 @@ describe('Sync response: eviction, pruning and forged events', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({
-      hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false,
-    });
     const RUNNING = Array.from({ length: 10 }, (_, i) => i);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 12,
+      deferredNodes: 2,
+      tickerAutostart: false,
+      // AN ESTABLISHED FLEET, which is what the joiner below is joining. These
+      // ten hold the seeded events and are the only thing that can hand them
+      // over, so they have to be able to answer a state sync: a node whose own
+      // sync has not finished declines one, and a fleet that boots together has
+      // no node whose sync has finished. Without this the joiner is declined by
+      // all ten and reaches READY on the block timer instead - with an empty
+      // store, so the three assertions below would read a database that never
+      // received the response they are about.
+      syncedNodes: RUNNING,
+    });
     await bootAndPeer(env, RUNNING);
 
     // THE READER BOOTS BEFORE THE WINDOW OPENS, AND CANNOT SYNC WHILE IT DOES.
@@ -132,7 +144,8 @@ describe('Sync response: eviction, pruning and forged events', function () {
     // So the boot moves OUT of the window instead. The reader is refused by the
     // running nodes before it starts, boots deaf for as long as it needs, and the
     // window opens only once it is up - spanning a sync, which is seconds, rather
-    // than a boot, which is unbounded.
+    // than a boot, which is unbounded. A sync is only seconds against peers that
+    // can answer one, which is what syncedNodes above is for.
     await env.holdOutPendingNode(10, RUNNING);
     const joiner = await env.startNode(10);
     await waitForDaemonReady(joiner);
