@@ -611,6 +611,55 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('getDockerContainerByIdOrName tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('asks docker about one container instead of listing every one', async () => {
+      const list = sinon.stub(Dockerode.prototype, 'listContainers').resolves([
+        { Id: 'abc123', Names: ['/fluxwebsite'] },
+      ]);
+
+      await dockerService.getDockerContainerByIdOrName('website');
+
+      // Every start, stop, remove, inspect, exec and log poll goes through here.
+      // Unfiltered, each one enumerates every container on the node.
+      const options = list.firstCall.args[0];
+      expect(options.all, 'a stopped container is still the container asked for').to.be.true;
+      expect(JSON.parse(options.filters)).to.deep.equal({ name: ['fluxwebsite'] });
+    });
+
+    it('does not answer for a container whose name merely contains the one asked for', async () => {
+      // Docker's name filter is a SUBSTRING match, so asking for `web` returns
+      // `fluxwebsite` too. The filter narrows what comes back; the exact
+      // comparison is what decides, and dropping it would hand a caller the
+      // wrong container to stop or remove.
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([
+        { Id: 'abc123', Names: ['/fluxwebsite'] },
+        { Id: 'def456', Names: ['/fluxwebsitelong'] },
+      ]);
+
+      const container = await dockerService.getDockerContainerByIdOrName('websitelong');
+
+      expect(container.id, 'the exact name must win over the shorter substring match').to.equal('def456');
+      await expect(dockerService.getDockerContainerByIdOrName('websit'))
+        .to.eventually.be.rejectedWith('Container websit not found');
+    });
+
+    it('still resolves a raw docker id, which no name filter can match', async () => {
+      const id = 'a'.repeat(64);
+      const list = sinon.stub(Dockerode.prototype, 'listContainers');
+      list.onFirstCall().resolves([]);
+      list.onSecondCall().resolves([{ Id: id, Names: ['/fluxwebsite'] }]);
+
+      const container = await dockerService.getDockerContainerByIdOrName(id);
+
+      expect(container.id).to.equal(id);
+      expect(JSON.parse(list.secondCall.args[0].filters), 'the id filter is the fallback, not the first ask').to.deep.equal({ id: [id] });
+    });
+  });
+
   describe('dockerContainerLogsPolling tests', () => {
     // Docker frames each write with an 8-byte header (stream id + length) because
     // app containers are created with Tty false. Building the frames here is what
