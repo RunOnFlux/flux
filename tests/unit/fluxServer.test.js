@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { EventEmitter } = require('events');
 
 const nodeHttp = require('node:http');
 const nodeHttps = require('node:https');
@@ -90,12 +91,17 @@ describe('FluxServer tests', () => {
 
     try {
       const server = new fluxServer.FluxServer();
-      const socket = { write: sinon.stub(), destroy: sinon.stub() };
+      // An upgrade socket is an EventEmitter and the refusal is flushed through
+      // end(), so a double that is neither cannot show what the server does.
+      const socket = new EventEmitter();
+      socket.write = sinon.stub();
+      socket.destroy = sinon.stub();
+      socket.end = sinon.stub().callsFake(() => socket.emit('finish'));
 
       server.socketServer.handleUpgrade({ url: '/ws/flux/16127', headers: {} }, socket, Buffer.alloc(0));
 
-      expect(socket.write.calledOnce, 'the upgrade was not answered').to.equal(true);
-      expect(socket.write.firstCall.args[0]).to.match(/^HTTP\/1\.1 503 /);
+      expect(socket.end.calledOnce, 'the upgrade was not answered').to.equal(true);
+      expect(socket.end.firstCall.args[0]).to.match(/^HTTP\/1\.1 503 /);
       expect(socket.destroy.calledOnce).to.equal(true);
     } finally {
       peerManager.acceptingConnections = wasAccepting;

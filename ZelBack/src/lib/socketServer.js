@@ -140,14 +140,26 @@ class FluxWebsocketServer {
 
     if (refusal) {
       const { status, message, reason } = refusal;
-      socket.write(
+      // THIS SOCKET IS OURS NOW. http removes its own error listener before
+      // emitting 'upgrade', and ws attaches one as the first thing it does with
+      // a socket it is handed. Writing to one with no listener leaves an
+      // 'error' with nowhere to go, and node throws those - which reaches the
+      // process handler in apiServer and exits the node. The peer resetting
+      // between its request and this reply is enough to raise one, and this
+      // path only runs while connections are refused, which is a boot.
+      socket.on('error', () => socket.destroy());
+      // Ended rather than written-then-destroyed. destroy() does not wait for a
+      // queued write, so the status the dialler is meant to read can be thrown
+      // away with the socket that was carrying it - leaving it a bare reset,
+      // which is the nothing this answer exists to replace.
+      socket.once('finish', () => socket.destroy());
+      socket.end(
         `HTTP/1.1 ${status} ${message}\r\n`
         + 'Connection: close\r\n'
         + `X-Flux-Refusal: ${reason}\r\n`
         + 'Content-Length: 0\r\n'
         + '\r\n',
       );
-      socket.destroy();
       return;
     }
 
