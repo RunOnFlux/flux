@@ -189,18 +189,24 @@ describe('a state sync at the production requirement completes on three distinct
   let env;
   dumpLogsOnFailure(() => env);
 
-  // 0-2 answer from the moment they start, 3 cannot and declines, and 4 is the
-  // node under test. Three answerers for a requirement of three, with a fourth
+  // 0-5 answer from the moment they start, 6 cannot and declines, and 7 is the
+  // node under test. Six answerers for a requirement of three, with a seventh
   // candidate that has to be replaced to reach them.
-  const ANSWERERS = [0, 1, 2];
-  const DECLINER = 3;
-  const UNDER_TEST = 4;
+  //
+  // SEVEN BOOTED, not four. A node dials a deterministic subset of the fleet
+  // rather than all of it, so on a four-node fleet node 0 drew a single peer,
+  // never reached the two-peer threshold, and the fleet never settled. The
+  // requirement is three ANSWERS from distinct peers, so the fleet has to be
+  // big enough that the joiner draws at least that many peers that can give one.
+  const ANSWERERS = [0, 1, 2, 3, 4, 5];
+  const DECLINER = 6;
+  const UNDER_TEST = 7;
 
   before(async function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 5,
+      nodes: 8,
       // deferredNodes holds back the LAST indices, so UNDER_TEST is the highest.
       deferredNodes: 1,
       syncedNodes: ANSWERERS,
