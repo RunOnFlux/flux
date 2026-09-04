@@ -393,8 +393,12 @@ module.exports = {
     // is what it gets. Both roads to readiness, and to answering another node's
     // sync request, so a node with a 0 here is authoritative from the moment it
     // starts - which is how a fleet gets a peer that can answer at all.
+    //
+    // 125 minutes is locationTtlS below, in minutes: one full lifetime of a
+    // running-app location record, so every holder has had to announce itself
+    // at least once. That is what makes waiting it out equivalent to a view,
+    // and it is why there is no shorter variant of it for anyone.
     appSyncFallbackMinutes: 125,
-    appSyncFallbackMinutesEnterprise: 62,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

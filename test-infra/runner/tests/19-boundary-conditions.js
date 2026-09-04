@@ -131,7 +131,7 @@ describe('Boundary: block timer', function () {
       // are that budget's own arithmetic, 125 minutes at 2 blocks a minute, so
       // the number has to be set here or the boundary being measured is the
       // harness's and not the product's.
-      configOverrides: { fluxapps: { appSyncFallbackMinutes: 125, appSyncFallbackMinutesEnterprise: 125 } },
+      configOverrides: { fluxapps: { appSyncFallbackMinutes: 125 } },
     });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));

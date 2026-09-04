@@ -62,7 +62,6 @@ describe('a node that cannot answer a state sync declines it', function () {
           // default of 1 minute lets every node reach authority on its own and
           // start answering, which is the opposite of the shape being built.
           appSyncFallbackMinutes: 10,
-          appSyncFallbackMinutesEnterprise: 10,
         },
       },
     });
@@ -218,7 +217,6 @@ describe('a state sync at the production requirement completes on three distinct
           // High enough that no node reaches authority by waiting it out, so
           // every completion credited below came from a peer that answered.
           appSyncFallbackMinutes: 10,
-          appSyncFallbackMinutesEnterprise: 10,
         },
       },
     });

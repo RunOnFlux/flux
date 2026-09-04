@@ -108,7 +108,6 @@ module.exports = {
     // syncedNodes; a suite measuring this budget itself declares the production
     // value, as suite 19 does.
     appSyncFallbackMinutes: 5,
-    appSyncFallbackMinutesEnterprise: 5,
     hashSyncMaxRetries: 2,
     hashSyncRetryMs: 10000,
     hashSyncSettleMs: 2000,

@@ -771,7 +771,7 @@ export async function createTestEnv({
   const syncedOverrides = {};
   for (const index of establishedNodes) {
     syncedOverrides[index] = mergeConfigs(
-      { fluxapps: { appSyncFallbackMinutes: 0, appSyncFallbackMinutesEnterprise: 0 } },
+      { fluxapps: { appSyncFallbackMinutes: 0 } },
       nodeConfigOverrides[index] ?? null,
     );
   }

@@ -291,13 +291,13 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should transition to DEGRADED on peersBelowThreshold when READY', async () => {
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -309,7 +309,7 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should emit readinessLost on degradation', async () => {
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       const spy = sinon.spy();
@@ -317,7 +317,7 @@ describe('AppSyncOrchestrator', () => {
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -418,7 +418,7 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
 
@@ -427,7 +427,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -597,7 +597,7 @@ describe('AppSyncOrchestrator', () => {
     const driveToRequests = async () => {
       const peers = makeEligiblePeers(3);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -779,7 +779,7 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -802,9 +802,9 @@ describe('AppSyncOrchestrator', () => {
   // and they all wait out 250 blocks.
   describe('the block fallback is configured, not hardcoded', () => {
     it('is authoritative from the moment it starts when told to wait no blocks', async () => {
-      const mod = loadWithConfig({ appSyncFallbackMinutes: 0, appSyncFallbackMinutesEnterprise: 0 });
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 0 });
       const orchestrator = new mod.AppSyncOrchestrator({
-        blockEmitter, ...makePeerOptions(), isEnterprise: () => false,
+        blockEmitter, ...makePeerOptions(),
       });
       orchestrator.onMessageCapabilityChange(true);
 
@@ -814,9 +814,9 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('is not authoritative at start on the production budget', async () => {
-      const mod = loadWithConfig({ appSyncFallbackMinutes: 125, appSyncFallbackMinutesEnterprise: 62 });
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 125 });
       const orchestrator = new mod.AppSyncOrchestrator({
-        blockEmitter, ...makePeerOptions(), isEnterprise: () => false,
+        blockEmitter, ...makePeerOptions(),
       });
       orchestrator.onMessageCapabilityChange(true);
 
@@ -826,10 +826,10 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('reaches readiness on the configured number of blocks rather than 250', async () => {
-      const mod = loadWithConfig({ appSyncFallbackMinutes: 2, appSyncFallbackMinutesEnterprise: 2 });
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 2 });
       getEligibleSyncPeersStub = sinon.stub().returns([]);
       const orchestrator = new mod.AppSyncOrchestrator({
-        blockEmitter, ...makePeerOptions(), isEnterprise: () => false,
+        blockEmitter, ...makePeerOptions(),
       });
       orchestrator.onMessageCapabilityChange(true);
       await orchestrator.start(defaultBootContext);
@@ -1272,7 +1272,7 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
 
@@ -1295,7 +1295,7 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
@@ -1316,7 +1316,7 @@ describe('AppSyncOrchestrator', () => {
     it('should fall back to block count when no sync peers available', async () => {
       getEligibleSyncPeersStub = sinon.stub().returns([]);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
@@ -1325,8 +1325,8 @@ describe('AppSyncOrchestrator', () => {
       // After sync but before enough blocks, should still be SYNCING
       expect(orchestrator.state).to.equal(STATES.SYNCING);
 
-      // After enough blocks (enterprise = 124), should reach READY
-      for (let i = 0; i < 130; i += 1) {
+      // Past the fallback's 250 blocks, so it reaches READY on the timer
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1337,7 +1337,7 @@ describe('AppSyncOrchestrator', () => {
       const peers = makeEligiblePeers(3);
       getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
 
@@ -1380,7 +1380,7 @@ describe('AppSyncOrchestrator', () => {
     it('should fall back to block timer when hash sync retries exhausted', async () => {
       syncMissingHashesStub.rejects(new Error('persistent failure'));
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
 
@@ -1391,8 +1391,8 @@ describe('AppSyncOrchestrator', () => {
       // But we can verify the block timer fallback works
       expect(orchestrator.state).to.equal(STATES.SYNCING);
 
-      // Emit enough blocks to trigger block timer (enterprise = 124 blocks)
-      for (let i = 0; i < 130; i += 1) {
+      // Past the fallback's 250 blocks, so the block timer fires
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555001 + i);
       }
       await clock.tickAsync(0);
@@ -1403,15 +1403,15 @@ describe('AppSyncOrchestrator', () => {
     it('should reach READY via block timer when hash sync never completes', async () => {
       syncMissingHashesStub.rejects(new Error('failed'));
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
-      // Emit enough blocks for enterprise threshold
-      for (let i = 1; i <= 130; i += 1) {
+      // Past the fallback's 250 blocks
+      for (let i = 1; i <= 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1424,7 +1424,7 @@ describe('AppSyncOrchestrator', () => {
     it('should not get stuck when DB rebuild fails', async () => {
       reindexStub.rejects(new Error('reindex failed'));
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
@@ -1434,7 +1434,7 @@ describe('AppSyncOrchestrator', () => {
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
       // Block timer should still allow readiness (will retry DB rebuild)
-      for (let i = 1; i <= 130; i += 1) {
+      for (let i = 1; i <= 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1448,13 +1448,13 @@ describe('AppSyncOrchestrator', () => {
     it('should set dbReady after block timer fallback when hash sync fails', async () => {
       syncMissingHashesStub.rejects(new Error('failed'));
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
-      for (let i = 1; i <= 130; i += 1) {
+      for (let i = 1; i <= 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1466,13 +1466,13 @@ describe('AppSyncOrchestrator', () => {
     it('should set dbReady when too few sync peers and block timer fires', async () => {
       getEligibleSyncPeersStub = sinon.stub().returns([]);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
-      for (let i = 1; i <= 130; i += 1) {
+      for (let i = 1; i <= 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1485,13 +1485,13 @@ describe('AppSyncOrchestrator', () => {
       syncMissingHashesStub.rejects(new Error('failed'));
       reindexStub.rejects(new Error('reindex failed'));
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
-      for (let i = 1; i <= 130; i += 1) {
+      for (let i = 1; i <= 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1819,12 +1819,12 @@ describe('AppSyncOrchestrator', () => {
     }
 
     it('should not reach READY without message capability', async () => {
-      const orchestrator = makeUncapableOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeUncapableOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1833,13 +1833,13 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should reach READY when capability gained after other conditions met', async () => {
-      const orchestrator = makeUncapableOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeUncapableOrchestrator();
       orchestrator.start(defaultBootContext);
 
       // Explorer syncs but hash sync deferred (no capability)
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1855,12 +1855,12 @@ describe('AppSyncOrchestrator', () => {
       const spy = sinon.spy();
       appSyncEvents.on(EVENTS.READINESS_LOST, spy);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1877,13 +1877,13 @@ describe('AppSyncOrchestrator', () => {
       appSyncEvents.on(EVENTS.SPAWNER_READY, readySpy);
       appSyncEvents.on(EVENTS.READINESS_LOST, lostSpy);
 
-      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
@@ -1900,7 +1900,7 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should be a no-op when same value set twice', async () => {
-      const orchestrator = makeUncapableOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeUncapableOrchestrator();
       orchestrator.start(defaultBootContext);
       orchestrator.onMessageCapabilityChange(false);
       orchestrator.onMessageCapabilityChange(false);
@@ -1909,12 +1909,12 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should not produce log spam from block events when not confirmed', async () => {
-      const orchestrator = makeUncapableOrchestrator({ isEnterprise: () => true });
+      const orchestrator = makeUncapableOrchestrator();
       orchestrator.start(defaultBootContext);
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
-      for (let i = 0; i < 130; i += 1) {
+      for (let i = 0; i < 260; i += 1) {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);

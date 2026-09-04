@@ -27,7 +27,10 @@ const HASH_SYNC_MAX_RETRIES = config.fluxapps.hashSyncMaxRetries ?? 3;
 const HASH_SYNC_RETRY_MS = config.fluxapps.hashSyncRetryMs ?? 300000;
 const FALLBACK_RECHECK_BLOCKS = config.fluxapps.hashSyncFallbackRecheckBlocks ?? 100;
 const FALLBACK_MINUTES = config.fluxapps.appSyncFallbackMinutes ?? 125;
-const FALLBACK_MINUTES_ENTERPRISE = config.fluxapps.appSyncFallbackMinutesEnterprise ?? 62;
+// A chain fact, not a policy: blocks are 30 seconds since the PON fork
+// (config.fluxapps.daemonPONFork), so two a minute. Not a knob - a node that
+// disagrees with the chain about this converts appSyncFallbackMinutes into the
+// wrong number of blocks and waits the wrong length of time in silence.
 const BLOCKS_PER_MINUTE = 2;
 // THE TWO WAYS A PEER CAN BE QUIET, and they mean different things.
 //
@@ -57,7 +60,6 @@ class AppSyncOrchestrator {
   #onPeerEvent = null;
   #offPeerEvent = null;
   #peerConnectionId = null;
-  #isEnterprise = null;
   #waitForNetworkState = null;
   #networkReady = false;
   #peersReady = false;
@@ -65,7 +67,6 @@ class AppSyncOrchestrator {
   #hashSyncComplete = false;
   #dbRebuilt = false;
   #blocksSinceSyncStarted = 0;
-  #blockThreshold = 0;
   #blockReceivedHandler = null;
   #peerThresholdHandler = null;
   #peersBelowHandler = null;
@@ -133,7 +134,6 @@ class AppSyncOrchestrator {
     // Which connection is currently held to an address, so a request can be
     // told from one written into a socket that has since been replaced.
     this.#peerConnectionId = options.peerConnectionId ?? (() => null);
-    this.#isEnterprise = options.isEnterprise ?? (() => false);
     this.#peerCountIfAboveThreshold = options.peerCountIfAboveThreshold ?? (() => 0);
     this.#waitForNetworkState = options.networkStateReady ?? null;
     this.#fluxVersion = options.fluxVersion ?? null;
@@ -732,7 +732,6 @@ class AppSyncOrchestrator {
       log.info(`AppSyncOrchestrator - Explorer synced at block ${blockHeight}`);
       if (this.#state === STATES.INITIALIZING) {
         this.#setState(STATES.SYNCING);
-        this.#ensureBlockThreshold();
         this.#runInitialSync();
       }
     }
@@ -867,18 +866,20 @@ class AppSyncOrchestrator {
     }
   }
 
-  // Derived on demand rather than in the constructor because enterprise
-  // identity resolves from a cache that may not be warm yet. A configured 0
-  // re-derives to 0, so the guard saves repeated work and decides nothing.
-  #ensureBlockThreshold() {
-    if (this.#blockThreshold !== 0) return;
-    const minutes = this.#isEnterprise() ? FALLBACK_MINUTES_ENTERPRISE : FALLBACK_MINUTES;
-    this.#blockThreshold = minutes * BLOCKS_PER_MINUTE;
-  }
-
+  // ONE NUMBER, and it is not a preference. FALLBACK_MINUTES is the lifetime of
+  // a running-app location record, so it is the point at which every holder has
+  // had to announce itself at least once: wait it out and what this node holds
+  // is a full view, whether or not a sync ever completed.
+  //
+  // There used to be a second, shorter value for enterprise nodes, halved in
+  // the manner of the spawner's enterprise deferrals. Those are a priority -
+  // how long before a node may compete for an app - and halving one grants an
+  // advantage. This is not that: it is how long before a node assumes it knows
+  // what the network looks like, and there is no advantage in assuming it
+  // sooner. A node can be given priority; it cannot be given information it has
+  // not received.
   #isBlockTimerExpired() {
-    this.#ensureBlockThreshold();
-    return this.#blocksSinceSyncStarted >= this.#blockThreshold;
+    return this.#blocksSinceSyncStarted >= FALLBACK_MINUTES * BLOCKS_PER_MINUTE;
   }
 
   #isStateSyncReady() {
