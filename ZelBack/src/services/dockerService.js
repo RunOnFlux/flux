@@ -1029,8 +1029,14 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     : {
       Type: 'json-file',
       Config: {
-        'max-file': '1',
-        'max-size': '20m',
+        // Same 20MB of disk as one 20MB file, and a floor instead of none. Docker
+        // does not trim a full log file, it discards it: with one file the history
+        // an operator can read swings between 20MB and NOTHING, and the wipe takes
+        // everything with it. Split into four, only the oldest quarter is dropped
+        // per rotation, so at least 15MB is always readable. `docker logs` reads
+        // across the set, so nothing that reads logs needs to know.
+        'max-file': '4',
+        'max-size': '5m',
       },
     };
   const autoAssignedIP = await getNextAvailableIPForApp(appName);
