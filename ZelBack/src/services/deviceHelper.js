@@ -29,11 +29,7 @@ const serviceHelper = require('./serviceHelper');
  * (proc/sysfs/cgroup/tmpfs); loop devices ARE real, so an app's loop-mounted
  * FLUXFSVOL appears here.
  *
- * Byte counts come from `--bytes`, so they need no unit conversion. The node-df
- * package this replaces reported `df -kP` blocks scaled by a multiplier table
- * that has no entry for bytes, and applied `precision` unconditionally - so the
- * call convention used across the file API produced NaN for size, used and
- * available, and the one that did not still returned KiB while asking for 'B'.
+ * Byte counts come from `--bytes`, so they need no unit conversion.
  *
  * Throws on findmnt failure rather than returning [], so a caller cannot read
  * "no disks" as "no space" and act on it.
