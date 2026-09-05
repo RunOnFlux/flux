@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const { EventEmitter } = require('node:events');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -98,7 +99,7 @@ describe('residentialNodeDosService tests', () => {
 
     // An install in flight is real before its database record exists, so the
     // empty check reads this rather than trusting an ordering in another file.
-    globalStateStub = { installationInProgress: false, removalInProgress: false };
+    globalStateStub = resetGlobalState();
 
     // The settle marker lives in mongo, so the double has to remember it across
     // a reload - surviving a restart is the whole point of that field.
