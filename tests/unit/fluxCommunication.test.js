@@ -1920,21 +1920,36 @@ describe('fluxCommunication tests', () => {
       // the answers already queued behind it thrown away with the record.
       it(`announces a ${syncType} arrival before anything processes it`, async () => {
         const dispatch = peerManager.syncResponseDispatcher;
-        let progressAtEntry = null;
-        sinon.restore();
-        wanted = (socket) => socket === PEER_SOCKET;
-        sinon.stub(peerManager, 'isSyncResponseWanted').callsFake((socket) => wanted(socket));
-        sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').callsFake(async () => {
-          // The first thing the queue does with a chunk. If the peer is not
-          // already credited by here, every slower step below is on its clock.
-          progressAtEntry = [...progress];
-          return fluxCommunicationUtils.VerifyResult.OK;
+        let progressAtWork = null;
+        // The handler's first slow step, and the boundary that matters: whether
+        // the peer SIGNED this is about the peer and is settled at arrival;
+        // storing what it sent is about us. If the peer is not already credited
+        // by here, every slower step below is on its clock.
+        sinon.stub(serviceHelper, 'processInSlices').callsFake(async () => {
+          progressAtWork = [...progress];
         });
 
         await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
 
-        expect(progressAtEntry, 'the peer was still silent when its own answer was already in hand')
+        expect(progressAtWork, 'the peer was still silent when its own answer was already in hand')
           .to.deep.equal([PEER]);
+      });
+
+      // THE DEADLINE EXISTS TO TAKE THE SLOT BACK. Credited on arrival alone,
+      // unverifiable bytes renewed it: a peer sending rubbish inside every stall
+      // window held one of the answers this node needs for the whole attempt
+      // while never answering at all, and the deadline that would have offered
+      // its slot to someone else could not fire.
+      it(`credits no ${syncType} progress for a chunk that fails verification`, async () => {
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .resolves(fluxCommunicationUtils.VerifyResult.MALFORMED);
+        const dispatch = peerManager.syncResponseDispatcher;
+
+        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+
+        expect(progress, 'unverifiable bytes renewed the deadline that reclaims the slot')
+          .to.deep.equal([]);
+        expect(completions, 'an unverifiable chunk was counted as an answer').to.deep.equal([]);
       });
 
       // ip:port names a node; the request was written into a connection. A peer

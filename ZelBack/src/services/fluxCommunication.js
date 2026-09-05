@@ -136,7 +136,15 @@ async function handleTempSyncResponse(message, peerSocket) {
     if (!peerManager.isSyncResponseWanted(peerSocket)) return;
     const peerKey = peerSocket.key;
     if (!message.data || message.data.type !== 'fluxapptempsync') return;
-    const { messages, done } = message.data;
+    const { messages, done, refused } = message.data;
+    // A peer whose own app state is not authoritative holds an unknown fraction
+    // of the network's pending registrations, and says so rather than sending
+    // the fraction. Nothing is replaced on the strength of it - this stream
+    // counts toward no completion - so the refusal is recorded and no more.
+    if (refused) {
+      log.info(`handleTempSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleTempSyncResponse - Received ${messages.length} temp messages from ${peerKey} (done: ${!!done})`);
     let stored = 0;
@@ -726,14 +734,10 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
 
 const syncChunkQueues = new Map();
 
+// Verified by dispatchSyncResponse before the chunk was queued, because whether
+// a peer signed what it sent is a statement about the peer and the deadline
+// waiting on it needs the answer at arrival, not at the back of a queue.
 async function processSyncChunk(msgObj, peerSocket) {
-  const peerKey = peerSocket.key;
-  const result = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
-  if (result !== fluxCommunicationUtils.VerifyResult.OK) {
-    log.warn(`Sync response from ${peerKey} failed envelope verification: ${result}`);
-    return;
-  }
-
   const { type } = msgObj.data;
   switch (type) {
     case 'fluxapptempsync':
@@ -758,18 +762,32 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
     const peerKey = peerSocket.key;
     if (!peerManager.isSyncResponseWanted(peerSocket)) return;
 
-    // THE PEER SPOKE. Announced where the response ARRIVES, not where it is
-    // processed, because the deadline waiting on it is a statement about the
-    // peer and processing time is a statement about us.
+    // THE PEER SPOKE, AND IT REALLY WAS THE PEER. Two different questions used
+    // to be split at the wrong seam: arrival on one side, everything else on
+    // the other. The seam that matters is whose statement it is.
     //
-    // Everything one peer sends is processed through the queue below, one chunk
-    // at a time. The temp-message stream is asked for first and re-verifies
-    // every pending registration at roughly a second each, so a peer that
-    // answered all four requests at once, correctly and instantly, went
-    // unheard for as long as WE took on the first of them - and was then
-    // recorded as having said nothing and set aside, with the three answers
-    // already queued behind it discarded on the way out.
+    // Whether a peer signed what it sent is about the PEER, and it is a
+    // signature check. Storing two thousand messages, or re-verifying every
+    // pending registration, is about US. So the envelope is verified here, at
+    // arrival and ahead of the deadline it renews, and the payload work stays
+    // in the queue below.
     //
+    // Announced at arrival rather than after that work, because a peer that
+    // answered all four requests correctly and instantly went unheard for as
+    // long as WE took on the first of them - and was recorded as having said
+    // nothing and set aside, with the three answers queued behind it discarded
+    // on the way out.
+    //
+    // And unverifiable bytes are not the peer speaking. Credited as progress
+    // they renewed the deadline that exists to take the slot back, so a peer
+    // streaming rubbish inside every stall window held one of the answers this
+    // node needs for the whole attempt while never answering at all.
+    const verdict = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+    if (verdict !== fluxCommunicationUtils.VerifyResult.OK) {
+      log.warn(`Sync response from ${peerKey} failed envelope verification: ${verdict}`);
+      return;
+    }
+
     // A refusal is not progress. It ends the request rather than extending it,
     // and the handler it reaches takes it from here.
     if (!msgObj?.data?.refused) {

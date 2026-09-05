@@ -293,19 +293,29 @@ describe('fluxCommunicationMessagesSender tests', () => {
       globalState.appStateAuthoritative = wasAuthoritative;
     });
 
+    // The temp stream is in this list for the same reason the other three are:
+    // a node that cannot say what the network holds cannot say what it is
+    // PENDING either, and a short set of registrations is as misleading as a
+    // short list of running apps.
+    // The temp stream carries a payload `version` on the wire and the other
+    // three do not, so each responder brings the rest of its own envelope. The
+    // assertions below stay exact rather than loosening to accommodate it.
     const responders = [
-      ['respondWithAppRunningMessages', 'fluxapprunningsync'],
-      ['respondWithAppInstallingMessages', 'fluxappinstallingsync'],
-      ['respondWithAppInstallingErrorsMessages', 'fluxappinstallingerrorssync'],
+      ['respondWithAppRunningMessages', 'fluxapprunningsync', {}],
+      ['respondWithAppInstallingMessages', 'fluxappinstallingsync', {}],
+      ['respondWithAppInstallingErrorsMessages', 'fluxappinstallingerrorssync', {}],
+      ['respondWithTempMessages', 'fluxapptempsync', { version: 1 }],
     ];
 
-    responders.forEach(([fn, wireType]) => {
+    responders.forEach(([fn, wireType, envelope]) => {
       it(`${fn} refuses and reads nothing from the store`, async () => {
         globalState.appStateAuthoritative = false;
 
         await fluxCommunicationMessagesSender[fn](peer, 0);
 
-        expect(sent()).to.deep.equal([{ type: wireType, messages: [], done: true, refused: true }]);
+        expect(sent()).to.deep.equal([{
+          type: wireType, ...envelope, messages: [], done: true, refused: true,
+        }]);
         expect(findStub.called, 'a refusing node still queried its own store').to.equal(false);
       });
 
@@ -319,7 +329,9 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
         const messages = sent();
         expect(messages).to.have.lengthOf(1);
-        expect(messages[0]).to.deep.equal({ type: wireType, messages: [], done: true });
+        expect(messages[0]).to.deep.equal({
+          type: wireType, ...envelope, messages: [], done: true,
+        });
         expect(messages[0]).to.not.have.property('refused');
       });
     });
