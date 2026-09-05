@@ -73,6 +73,22 @@ async function seedGlobalSpec(env, app, indices) {
   }));
 }
 
+// The chain now carries a newer specification for an app these nodes already
+// hold. Written the way hash sync writes it: the app's row REPLACED, the new
+// permanent message and hash appended beside the old ones. The periodic reinstall
+// pass compares the two hashes and acts.
+//
+// A suite that seeds the row without the message and hash gets a node that sees
+// the change and cannot verify it.
+export async function seedSpecUpdate(env, updated, indices) {
+  await Promise.all(indices.map(async (i) => {
+    const dc = dbClient(i + 1);
+    await dc.replaceGlobalAppSpec(updated.spec);
+    await dc.seedPermanentMessage(updated.permanentMessage);
+    await dc.seedAppHash(updated.hash, updated.permanentMessage.height, true);
+  }));
+}
+
 // TARGETED deployment: install a pre-built app on exactly the given node indices
 // via each node's installapplocally endpoint (real install: pull + create + start
 // + syncthing config). Deterministic and fast — no spawner-placement timing. Auth
