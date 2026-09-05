@@ -140,6 +140,26 @@ export async function placeGAppInOrder(env, app, {
       setNoPeerData({ ip: getSubnetConfig().nodeIp(i + 1), folder }),
     ])));
   }
+
+  // EVERY HOLDER IS READY BEFORE THE FIRST PLACEMENT, because the stamp this
+  // loop orders on is written when a container starts and a node still syncing
+  // defers that start until its own sync completes. The masterSlave primary is
+  // the most SENIOR holder - the one placed first - so the deferred start lands
+  // after the later placements and re-stamps it as the NEWEST, handing "the
+  // newest copy" to whoever the caller deliberately placed there. Waited for
+  // rather than slept past: it is read from the event buffer, so a node that
+  // reached READY during bootAndPeer satisfies it at once.
+  await Promise.all(placementOrder.map((i) => waitFor(
+    () => env.clients[i].getEventBuffer().some(
+      (e) => e.event === 'orchestrator:stateChanged' && e.data?.to === 'READY',
+    ),
+    {
+      timeout: 300000,
+      interval: 1000,
+      label: `holder ${i} reached READY before any placement`,
+    },
+  )));
+
   for (const i of placementOrder) {
     const installAfter = env.clients[i].getLastEventId();
     // eslint-disable-next-line no-await-in-loop
