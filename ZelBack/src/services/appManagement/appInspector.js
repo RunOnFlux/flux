@@ -740,7 +740,11 @@ async function appExec(req, res) {
               error.name,
               error.code,
             );
-            res.write(errorResponse);
+            // createErrorMessage returns an OBJECT and res.write takes only a
+            // string or a buffer, so the path that exists to report the failure
+            // threw while reporting it - from inside the same callback, which is
+            // an exit rather than a 500.
+            res.write(serviceHelper.ensureString(errorResponse));
             res.end();
           } else {
             res.end();
