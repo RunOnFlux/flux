@@ -454,9 +454,18 @@ function countFrom(lines, ms) {
  * `tail: 100` over a burst of 500 answers a reader asking for everything since T
  * with the last 100 and no indication the rest existed.
  *
+ * A positioned read is ONE read, and it always carries a `tail`. That bound is
+ * what keeps the cost flat: a read with `since` and no `tail` has no index to
+ * seek with, so docker decodes forward from the oldest file and this function
+ * then walks every frame of it. Measured on a live node against a 5MB log,
+ * 97,510 lines: 1099ms to fetch and 349ms of BLOCKING decode, against 104ms and
+ * 1ms for the bounded read - and the event loop is the whole node, so those
+ * 349ms answer no peer and no other request. `position.ms` is a value the caller
+ * supplies, so a millisecond older than the log takes that path on every poll.
+ *
  * @param {string} idOrName
  * @param {{position: {ms: number, count: number}|null, lineCount: number|'all', maxLines: number}} options
- * @returns {Promise<{lines: string[], position: {ms: number, count: number}|null, rolledOver: boolean, hasMore: boolean, truncated: boolean}>}
+ * @returns {Promise<{lines: string[], position: {ms: number, count: number}|null, rolledOver: boolean, truncated: boolean, skipped: boolean}>}
  */
 async function dockerContainerLogsPolling(idOrName, options = {}) {
   const {
@@ -501,20 +510,19 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     logOptions.tail = lineCount;
   }
 
-  let payload = await dockerContainer.logs(logOptions);
+  const payload = await dockerContainer.logs(logOptions);
 
-  // A reader more than a page behind: the cheap read answered with the end of
-  // the log, and handing that back would skip everything between where they are
-  // and where it starts. The full scan is the only way to get their next page,
-  // and it is paid once per catch-up rather than once per poll - a reader
-  // keeping up never reaches this.
-  if (position && countFrames(payload) > maxLines) {
-    // A fresh object rather than deleting the key: dockerode keeps a reference
-    // to what it was handed, so mutating it rewrites the first request too.
-    const unbounded = { ...logOptions };
-    delete unbounded.tail;
-    payload = await dockerContainer.logs(unbounded);
-  }
+  // The window came back full, so more is waiting than this read can see. The
+  // reader is moved to the end of the log rather than walked to it: seeing past
+  // the window means a read with no `tail`, which is the unbounded decode the
+  // docblock measures, and a reader writing faster than a page per poll would
+  // pay it on every poll forever without ever arriving.
+  //
+  // Moving them is also the answer they want. A viewer more than a page behind
+  // is asking to see what is happening now, which is what `docker logs`,
+  // kubectl and journalctl all answer by default. What it must not do is stay
+  // silent about the gap, so `skipped` says it outright.
+  const skipped = position !== null && countFrames(payload) > maxLines;
 
   // Every app container is created with Tty false (appDockerCreate), so docker
   // frames each write with an 8-byte header carrying the stream id and length.
@@ -532,7 +540,7 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
   // only honest answer: nothing can recover those lines, and a reader that is
   // not told sees a silent gap it has no way to notice.
   let rolledOver = false;
-  if (position) {
+  if (position && !skipped) {
     const firstMs = lines.length ? Date.parse(lines[0].split(' ')[0]) : position.ms;
     if (firstMs > position.ms) {
       rolledOver = true;
@@ -541,21 +549,24 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     }
   }
 
-  // Only a positioned reader is capped, and it keeps the OLDEST of what is new
-  // because that is the direction it is walking; it comes back for the rest.
-  // A caller without a position is not coming back - "all logs" is a download,
-  // not a page - so capping it would silently truncate the answer, and the
-  // retention config already bounds what a container can hold.
-  const hasMore = position !== null && lines.length > maxLines;
-  if (hasMore) lines = lines.slice(0, maxLines);
+  // A resync keeps the NEWEST of the window: the reader is being moved to where
+  // the log is now, and the lines below are the ones `skipped` accounts for.
+  if (skipped) lines = lines.slice(-maxLines);
 
-  // Two different questions, and only one of them a reader can act on. `hasMore`
-  // is what lies AHEAD of a position - ask again now rather than on the timer.
-  // `truncated` is what lies BEHIND a line limit, which is the answer this
-  // endpoint has always given a caller that asked for the last N lines and got
-  // N. Nothing can walk backwards to fetch the rest, so a positioned reader is
-  // never told it: the only thing it could do about it is a poll that returns
-  // nothing.
+  // There is no "more is waiting" answer, because the window read and the page
+  // returned are the same size: a positioned reader is either answered
+  // completely or resynced. A reader up to a page behind gets all of it in this
+  // one response, which is better than being handed it a page at a time, and
+  // past that there is nothing to page towards - the lines it would walk are the
+  // ones `skipped` accounts for.
+  //
+  // `truncated` is a different question and a live one: what lies BEHIND a line
+  // limit, which is the answer this endpoint has always given a caller that
+  // asked for the last N lines and got N. Nothing can walk backwards to fetch
+  // the rest, so a positioned reader is never told it - the only thing it could
+  // do about it is a poll that returns nothing. A caller without a position is
+  // not capped at all: "all logs" is a download, not a page, and the retention
+  // config already bounds what a container can hold.
   const truncated = position === null && lineCount !== 'all' && lines.length >= lineCount;
 
   // The position is the last line handed over, never the newest line seen: a
@@ -578,7 +589,7 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     // The NEWEST timestamp delivered, not the last line's. Out of order they are
     // different, and only the newest is monotonic: taking the last line's would
     // drag the window backwards and re-read everything after it.
-    const carried = position && !rolledOver ? position : null;
+    const carried = position && !rolledOver && !skipped ? position : null;
     const newestMs = lines.reduce(
       (max, line) => Math.max(max, Math.floor(Date.parse(line.split(' ')[0]))),
       carried ? carried.ms : 0,
@@ -593,7 +604,7 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
   }
 
   return {
-    lines, position: nextPosition, rolledOver, hasMore, truncated,
+    lines, position: nextPosition, rolledOver, truncated, skipped,
   };
 }
 

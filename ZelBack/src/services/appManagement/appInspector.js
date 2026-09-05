@@ -161,14 +161,18 @@ async function appLogPolling(req, res) {
         // file holding it. What sat between it and the oldest line below is gone
         // and cannot be fetched by anyone.
         rolledOver: result.rolledOver,
-        // More was waiting than one answer carries. Ask again with the cursor
-        // above rather than waiting for the next tick, or the reader falls
-        // further behind every poll.
-        hasMore: result.hasMore,
+        // The line this reader asked from is further back than one read reaches,
+        // so it has been moved to the end of the log and what sat between was
+        // not delivered. Those lines still exist, unlike rolledOver's - reaching
+        // them costs a read of the whole retained log, which is 349ms of blocked
+        // event loop per poll against 1ms bounded, and the position that asks
+        // for it is a value the caller writes. A reader that polls often enough
+        // never sees this.
+        skipped: result.skipped,
         // The log holds more than the line limit asked for. Only a caller that
         // sent one is told, and it is the same answer this field has always
-        // given: nothing walks backwards, so a positioned reader acts on
-        // hasMore instead.
+        // given. A positioned reader is never told it: nothing walks backwards,
+        // so the only thing it could do about it is a poll returning nothing.
         truncated: result.truncated,
         status: 'success',
       });
