@@ -243,14 +243,28 @@ export function dbClient(nodeNum) {
       );
     },
 
+    // A COPY, because insertOne stamps _id onto the object it is handed and the
+    // caller's app fixture is reused - seeded on several nodes, and read again to
+    // build the app's next specification. An _id carried into that lands in the
+    // hashed payload and in a later replaceOne, where mongo refuses it outright.
     async seedGlobalAppSpec(spec) {
       const globalDb = await db('appsGlobal');
-      await globalDb.collection('zelappsinformation').insertOne(spec);
+      await globalDb.collection('zelappsinformation').insertOne({ ...spec });
+    },
+
+    // zelappsinformation holds one row per app - the CURRENT specification. An
+    // update replaces it, the way hash sync does when the chain carries a newer
+    // message; inserting a second row leaves the node reading whichever it finds
+    // first.
+    async replaceGlobalAppSpec(spec) {
+      const globalDb = await db('appsGlobal');
+      const { _id: _ignored, ...replacement } = spec;
+      await globalDb.collection('zelappsinformation').replaceOne({ name: spec.name }, replacement, { upsert: true });
     },
 
     async seedPermanentMessage(msg) {
       const globalDb = await db('appsGlobal');
-      await globalDb.collection('zelappsmessages').insertOne(msg);
+      await globalDb.collection('zelappsmessages').insertOne({ ...msg });
     },
 
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {
