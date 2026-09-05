@@ -456,7 +456,7 @@ function countFrom(lines, ms) {
  *
  * @param {string} idOrName
  * @param {{position: {ms: number, count: number}|null, lineCount: number|'all', maxLines: number}} options
- * @returns {Promise<{lines: string[], position: {ms: number, count: number}|null, rolledOver: boolean, truncated: boolean}>}
+ * @returns {Promise<{lines: string[], position: {ms: number, count: number}|null, rolledOver: boolean, hasMore: boolean, truncated: boolean}>}
  */
 async function dockerContainerLogsPolling(idOrName, options = {}) {
   const {
@@ -546,8 +546,17 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
   // A caller without a position is not coming back - "all logs" is a download,
   // not a page - so capping it would silently truncate the answer, and the
   // retention config already bounds what a container can hold.
-  const truncated = position !== null && lines.length > maxLines;
-  if (truncated) lines = lines.slice(0, maxLines);
+  const hasMore = position !== null && lines.length > maxLines;
+  if (hasMore) lines = lines.slice(0, maxLines);
+
+  // Two different questions, and only one of them a reader can act on. `hasMore`
+  // is what lies AHEAD of a position - ask again now rather than on the timer.
+  // `truncated` is what lies BEHIND a line limit, which is the answer this
+  // endpoint has always given a caller that asked for the last N lines and got
+  // N. Nothing can walk backwards to fetch the rest, so a positioned reader is
+  // never told it: the only thing it could do about it is a poll that returns
+  // nothing.
+  const truncated = position === null && lineCount !== 'all' && lines.length >= lineCount;
 
   // The position is the last line handed over, never the newest line seen: a
   // reader that is behind must come back for the rest, and it comes back from
@@ -584,7 +593,7 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
   }
 
   return {
-    lines, position: nextPosition, rolledOver, truncated,
+    lines, position: nextPosition, rolledOver, hasMore, truncated,
   };
 }
 

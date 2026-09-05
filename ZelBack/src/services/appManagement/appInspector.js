@@ -164,6 +164,11 @@ async function appLogPolling(req, res) {
         // More was waiting than one answer carries. Ask again with the cursor
         // above rather than waiting for the next tick, or the reader falls
         // further behind every poll.
+        hasMore: result.hasMore,
+        // The log holds more than the line limit asked for. Only a caller that
+        // sent one is told, and it is the same answer this field has always
+        // given: nothing walks backwards, so a positioned reader acts on
+        // hasMore instead.
         truncated: result.truncated,
         status: 'success',
       });

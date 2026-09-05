@@ -779,7 +779,7 @@ describe('dockerService tests', () => {
       expect(logs.secondCall.args[0].tail, 'the re-read is unbounded so it starts where the reader is').to.equal(undefined);
       expect(logs.secondCall.args[0].since).to.equal(0.999);
       expect(result.lines).to.deep.equal(behind.slice(0, 3));
-      expect(result.truncated, 'the reader must come straight back for the rest').to.be.true;
+      expect(result.hasMore, 'the reader must come straight back for the rest').to.be.true;
     });
 
     it('does not re-read when the whole answer fitted', async () => {
@@ -823,7 +823,33 @@ describe('dockerService tests', () => {
       });
 
       expect(result.lines, 'every line, as before').to.have.lengthOf(4);
-      expect(result.truncated).to.be.false;
+      expect(result.hasMore, 'nothing was held back, so there is nothing ahead').to.be.false;
+      expect(result.truncated, "'all' is not a line limit").to.be.false;
+    });
+
+    // Two questions, and a reader can only act on one of them. `hasMore` is what
+    // lies ahead of a position, fetched by asking again with it. `truncated` is
+    // what lies behind a line limit, which is the answer this endpoint has given
+    // since before positions existed and the only one a client written against
+    // it reads.
+    it('tells a line-limited reader the log holds more than it asked for', async () => {
+      stubLogs([at(1000, 'a'), at(2000, 'b')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 2 });
+
+      expect(result.truncated, 'two asked for and two returned - there is more behind them').to.be.true;
+      expect(result.hasMore, 'nothing is ahead of a reader that sent no position').to.be.false;
+    });
+
+    it('does not report truncated to a positioned reader, which could do nothing with it', async () => {
+      stubLogs([at(1000, 'a'), at(2000, 'b'), at(3000, 'c')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 0 }, lineCount: 2, maxLines: 2,
+      });
+
+      expect(result.truncated, 'a position is not a line limit').to.be.false;
+      expect(result.hasMore, 'and what is ahead of it is what it comes back for').to.be.true;
     });
 
     it('drops the lines the reader already holds and keeps the rest', async () => {
@@ -905,7 +931,7 @@ describe('dockerService tests', () => {
         position: { ms: 999, count: 0 }, maxLines: 2,
       });
 
-      expect(result.truncated).to.be.true;
+      expect(result.hasMore).to.be.true;
       expect(result.lines).to.deep.equal([at(1000, 'a'), at(2000, 'b')]);
       // The position is where the reader actually got to, not the newest line
       // docker held - otherwise the capped remainder is skipped, silently.
