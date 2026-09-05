@@ -597,17 +597,104 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe.skip('dockerContainerExec tests', () => {
-    // TODO: I can't get any command to emit any data
-    it('should execute a command inside of the conainter', async () => {
-      const container = dockerService.getDockerContainerByIdOrName('website');
-      const cmd = '';
-      const env = [];
-      const res = {};
+  describe('dockerContainerExec tests', () => {
+    // Docker answers 404 "no such exec" with a NULL stream when the container
+    // stops between the exec being created and started. dockerode calls this
+    // back itself, so the try around it catches nothing: dereferencing that null
+    // reached apiServer's uncaughtException handler and exited the node.
+    // ASYNCHRONOUSLY, the way dockerode calls it from its HTTP response handler.
+    // A synchronous stub sends the throw back into dockerContainerExec's own try,
+    // where it is caught - and a test built on that passes with the defect
+    // present, because in production nothing catches it at all.
+    function execStub(err, stream) {
+      const exec = { start: (opts, cb) => { setImmediate(() => cb(err, stream)); } };
+      return sinon.stub(Dockerode.Container.prototype, 'exec').resolves(exec);
+    }
 
-      dockerService.dockerContainerExec(container, cmd, env, res, (err, data) => {
-        console.log(data);
+    // An uncaught exception is what this defect actually produces, and mocha
+    // attributes a late one to whichever test is running - so it is captured
+    // here and asserted on directly.
+    function captureUncaught() {
+      const seen = [];
+      const existing = process.listeners('uncaughtException');
+      existing.forEach((l) => process.removeListener('uncaughtException', l));
+      const handler = (e) => seen.push(e);
+      process.on('uncaughtException', handler);
+      return {
+        seen,
+        restore() {
+          process.removeListener('uncaughtException', handler);
+          existing.forEach((l) => process.on('uncaughtException', l));
+        },
+      };
+    }
+
+    afterEach(() => sinon.restore());
+
+    it('answers the caller instead of dereferencing a null stream', async () => {
+      execStub(new Error('(HTTP code 404) no such exec'), null);
+      const container = new Dockerode().getContainer('abc');
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+      const uncaught = captureUncaught();
+
+      try {
+        const err = await new Promise((resolve) => {
+          dockerService.dockerContainerExec(container, ['ls'], [], res, resolve);
+        });
+        // Let a throw from inside the callback reach the process, which is where
+        // it goes in production: apiServer's handler, and exit(1).
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        expect(
+          uncaught.seen.map((e) => e.message),
+          'the null stream was dereferenced - this exits the node',
+        ).to.deep.equal([]);
+        expect(err, 'the failure has to reach the caller').to.be.an('error');
+        expect(err.message).to.contain('no such exec');
+        expect(res.write.called, 'nothing was streamed - there was no stream').to.be.false;
+      } finally {
+        uncaught.restore();
+      }
+    });
+
+    it('answers the caller when docker returns no stream and no error', async () => {
+      execStub(null, null);
+      const container = new Dockerode().getContainer('abc');
+
+      const uncaught = captureUncaught();
+      try {
+        const err = await new Promise((resolve) => {
+          dockerService.dockerContainerExec(container, ['ls'], [], { write: sinon.stub() }, resolve);
+        });
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(uncaught.seen.map((e) => e.message), 'the null stream was dereferenced').to.deep.equal([]);
+        expect(err, 'a missing stream is a failure even unaccompanied by one').to.be.an('error');
+      } finally {
+        uncaught.restore();
+      }
+    });
+
+    it('streams to the response when the exec does start', async () => {
+      const stream = new (require('events').EventEmitter)();
+      execStub(null, stream);
+      const container = new Dockerode().getContainer('abc');
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      const done = new Promise((resolve) => {
+        dockerService.dockerContainerExec(container, ['ls'], [], res, resolve);
       });
+      // container.exec is awaited and the callback is deferred, so wait until
+      // the listeners exist rather than guessing at a number of ticks.
+      for (let i = 0; i < 50 && stream.listenerCount('data') === 0; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+      expect(stream.listenerCount('data'), 'the exec never attached its reader').to.equal(1);
+      stream.emit('data', Buffer.from('hello'));
+      stream.emit('end');
+
+      expect(await done, 'a clean run reports no error').to.be.null;
+      expect(res.write.called).to.be.true;
     });
   });
 

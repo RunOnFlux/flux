@@ -2460,5 +2460,61 @@ describe('appInspector tests', () => {
 
       sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
+
+    it('reports an exec failure with something res.write accepts', async () => {
+      // createErrorMessage returns an OBJECT and res.write takes only a string
+      // or a buffer, so the path that exists to report the failure threw while
+      // reporting it - from inside dockerode's callback, which is an exit rather
+      // than a 500.
+      const dockerStub = {
+        ...dockerServiceStub,
+        dockerListContainers: sinon.stub().resolves([{ Id: 'abc', Names: ['/fluxmycomponent_myapp'] }]),
+        getAppDockerNameIdentifier: sinon.stub().returns('/fluxmycomponent_myapp'),
+        getDockerContainer: sinon.stub().returns({}),
+        dockerContainerExec: sinon.stub().callsFake((c, cmd, env, res, cb) => cb(new Error('no such exec'))),
+      };
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: configStub,
+        '../utils/globalState': globalStateStub,
+        '../dockerService': dockerStub,
+        // The shared stub returns undefined here, which would make this test
+        // assert on the stub rather than on the endpoint.
+        '../messageHelper': {
+          ...messageHelperStub,
+          createErrorMessage: sinon.stub().returns({ status: 'error', data: { code: 404, name: 'Error', message: 'no such exec' } }),
+        },
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().returnsArg(0) },
+        '../dbHelper': { databaseConnection: sinon.stub() },
+        '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+        '../utils/appConstants': { appConstants: {} },
+        '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+        '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+        'node-cmd': { run: sinon.stub() },
+      });
+
+      const handlers = {};
+      const req = { on: (event, cb) => { handlers[event] = cb; }, headers: {} };
+      const written = [];
+      const res = {
+        json: sinon.stub(),
+        setHeader: sinon.stub(),
+        end: sinon.stub(),
+        write: (chunk) => {
+          if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk)) {
+            throw new TypeError('The "chunk" argument must be of type string or an instance of Buffer');
+          }
+          written.push(chunk);
+        },
+      };
+
+      inspector.appExec(req, res);
+      handlers.data(JSON.stringify({ appname: 'mycomponent_myapp', cmd: ['ls'] }));
+      await handlers.end();
+
+      expect(written, 'the failure was never reported').to.not.be.empty;
+      written.forEach((chunk) => expect(chunk).to.be.a('string'));
+      expect(written.join('')).to.contain('no such exec');
+    });
   });
 });

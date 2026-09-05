@@ -358,8 +358,14 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
     let resultString = '';
     const exec = await container.exec(options);
     exec.start(optionsExecStart, (err, mystream) => {
-      if (err) {
-        callback(err);
+      // The container can stop between the exec being created and started, and
+      // docker then answers 404 "no such exec" with a NULL stream rather than no
+      // callback at all. This callback is dockerode's, not ours, so the try
+      // around it does not catch a throw here - dereferencing that null reached
+      // apiServer's uncaughtException handler and exited the node.
+      if (err || !mystream) {
+        callback(err || new Error('Exec started with no stream'));
+        return;
       }
       mystream.on('data', (data) => {
         resultString = serviceHelper.dockerBufferToString(data);
