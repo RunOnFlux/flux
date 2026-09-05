@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { resetGlobalState } = require('./fixtures/globalState');
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
@@ -74,11 +75,8 @@ describe('appInstaller tests', () => {
       },
     };
 
-    globalStateStub = {
-      removalInProgress: false,
-      installationInProgress: false,
-      masterSlaveAppsRunning: false,
-    };
+    // The real module, reset - see tests/unit/fixtures/globalState.js.
+    globalStateStub = resetGlobalState();
 
     // Stubs
     verificationHelperStub = {
@@ -1312,7 +1310,6 @@ describe('appInstaller tests', () => {
         '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../utils/appSpecHelpers': appSpecHelpersStub,
-        '../utils/globalState': { removalInProgress: false, installationInProgress: false, masterSlaveAppsRunning: false },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
         '../appMessaging/messageVerifier': messageVerifierStub,

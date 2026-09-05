@@ -1038,6 +1038,20 @@ async function trySpawningGlobalApplication() {
       }
     }
 
+    // The node is already doing something to an app, and the spawner is the one
+    // that gives way: the periodic reinstall pass holds this flag across its own
+    // teardown-and-rebuild, and an install started inside that window is refused
+    // when the pass comes back for its node - leaving the app it tore down with
+    // nothing to rebuild it. The claim is withdrawn rather than held, so another
+    // node can take the placement now instead of waiting this one out.
+    const heldBy = globalState.operationHolding();
+    if (heldBy) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} not installed, this node is undergoing ${heldBy}`);
+      await withdrawInstallingClaim(`node is undergoing ${heldBy}`);
+      globalState.trySpawningGlobalAppCache.delete(appHash);
+      return shortDelayTime;
+    }
+
     // install the app
     let registerOk = false;
     // The installer still signals some failures by throwing, and only the reason
