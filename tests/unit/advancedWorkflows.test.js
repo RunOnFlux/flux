@@ -4489,6 +4489,29 @@ describe('advancedWorkflows tests', () => {
       expect(redeployed, 'the install failed and the app was uninstalled - nothing was redeployed').to.be.empty;
     });
 
+    // The teardown answering a failed install reports its progress into the same
+    // response, and parks on a database read before the first of those writes.
+    // The double carries both, because a double that resolves without suspending
+    // leaves nothing for the assertion to catch whatever the code does.
+    it('does not let the teardown report into a response the endpoint has closed', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
+      appUninstaller.removeAppLocally.callsFake(async (app, response) => {
+        await new Promise((resolve) => { setImmediate(resolve); });
+        if (response) response.write(JSON.stringify({ status: 'Cleaning up database...' }));
+      });
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+      // A teardown still in flight reports on the next turn. Asserting before it
+      // passes whatever the code does.
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(appUninstaller.removeAppLocally.calledOnce, 'the failed install tears the app down').to.be.true;
+      expect(res.writesAfterEnd, 'ERR_STREAM_WRITE_AFTER_END reaches apiServer and exits the process').to.be.empty;
+      expect(res.written.join(''), 'the teardown reports into the response while it is still open').to.include('Cleaning up database');
+    });
+
     // The section-2 race: the reconciler starts the same component the removal is
     // tearing down, so the teardown throws part way. Doing nothing to the app is
     // right - it is not known to be down and the reconciler converges it - but

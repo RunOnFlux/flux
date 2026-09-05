@@ -1154,7 +1154,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
-    appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
+    // The teardown reports its progress into this response, and the endpoint
+    // closes it the moment this function returns - so it finishes first. A write
+    // arriving after the close is ERR_STREAM_WRITE_AFTER_END on a response still
+    // draining to a browser, which reaches apiServer's uncaughtException handler
+    // and exits the node.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
     // The app is gone from this node. A caller that reads this the same as a
     // refusal - where nothing was touched - either announces an installation
     // that is not there, or destroys a running app over a scheduling collision.
