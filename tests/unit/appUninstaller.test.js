@@ -74,16 +74,11 @@ describe('appUninstaller tests', () => {
       '../dockerService': {
         appDockerStop: sinon.stub().resolves(),
         appDockerRemove: sinon.stub().resolves(),
+        clearFluxRemovedContainers: sinon.stub(),
         appDockerImageRemove: sinon.stub().resolves(),
         getAppIdentifier: sinon.stub().returns('testapp'),
       },
       '../../lib/log': logStub,
-      '../utils/globalState': {
-        removalInProgress: false,
-        setRemovalInProgress: sinon.stub(),
-        resetRemovalInProgress: sinon.stub(),
-        getRemovalInProgress: sinon.stub().returns(false),
-      },
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -293,16 +288,11 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -382,12 +372,10 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -472,6 +460,7 @@ describe('appUninstaller tests', () => {
           appDockerKill: sinon.stub().resolves(),
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerForceRemove: sinon.stub().resolves(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().callsFake((id) => `flux${id}`),
@@ -480,10 +469,6 @@ describe('appUninstaller tests', () => {
           forceRemoveFluxAppDockerNetwork: sinon.stub().resolves(),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          runningAppsCache: new Map(),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -662,16 +647,11 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -762,16 +742,11 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns(100),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),

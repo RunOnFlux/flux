@@ -150,8 +150,8 @@ async function dockerTerminalHandler(socket) {
         abandonSetup('Not authorized.');
         return;
       }
-      // getDockerContainerByIdOrName reads .Id off an undefined lookup result when
-      // the container is absent, so this rejects rather than returning null. An
+      // getDockerContainerByIdOrName throws `Container <name> not found` when the
+      // container is absent, so this rejects rather than returning null. An
       // unreachable daemon rejects here too and reaches the client as the same
       // "not found" - log the cause so the two are distinguishable.
       const container = await dockerService.getDockerContainerByIdOrName(nameOrId).catch((error) => {

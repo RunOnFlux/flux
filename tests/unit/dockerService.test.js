@@ -317,7 +317,7 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'testing1234';
 
-      await expect(dockerService.dockerContainerInspect(containerName)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.dockerContainerInspect(containerName)).to.eventually.be.rejectedWith('Container testing1234 not found');
     });
   });
 
@@ -576,7 +576,7 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'test';
 
-      await expect(dockerService.dockerContainerStats(containerName)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.dockerContainerStats(containerName)).to.eventually.be.rejectedWith('Container test not found');
     });
   });
 
@@ -593,25 +593,492 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'test';
 
-      await expect(dockerService.dockerContainerChanges(containerName)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.dockerContainerChanges(containerName)).to.eventually.be.rejectedWith('Container test not found');
     });
   });
 
-  describe.skip('dockerContainerExec tests', () => {
-    // TODO: I can't get any command to emit any data
-    it('should execute a command inside of the conainter', async () => {
-      const container = dockerService.getDockerContainerByIdOrName('website');
-      const cmd = '';
-      const env = [];
-      const res = {};
+  describe('dockerContainerExec tests', () => {
+    // Docker answers 404 "no such exec" with a NULL stream when the container
+    // stops between the exec being created and started. dockerode calls this
+    // back itself, so the try around it catches nothing: dereferencing that null
+    // reached apiServer's uncaughtException handler and exited the node.
+    // ASYNCHRONOUSLY, the way dockerode calls it from its HTTP response handler.
+    // A synchronous stub sends the throw back into dockerContainerExec's own try,
+    // where it is caught - and a test built on that passes with the defect
+    // present, because in production nothing catches it at all.
+    function execStub(err, stream) {
+      const exec = { start: (opts, cb) => { setImmediate(() => cb(err, stream)); } };
+      return sinon.stub(Dockerode.Container.prototype, 'exec').resolves(exec);
+    }
 
-      dockerService.dockerContainerExec(container, cmd, env, res, (err, data) => {
-        console.log(data);
+    // An uncaught exception is what this defect actually produces, and mocha
+    // attributes a late one to whichever test is running - so it is captured
+    // here and asserted on directly.
+    function captureUncaught() {
+      const seen = [];
+      const existing = process.listeners('uncaughtException');
+      existing.forEach((l) => process.removeListener('uncaughtException', l));
+      const handler = (e) => seen.push(e);
+      process.on('uncaughtException', handler);
+      return {
+        seen,
+        restore() {
+          process.removeListener('uncaughtException', handler);
+          existing.forEach((l) => process.on('uncaughtException', l));
+        },
+      };
+    }
+
+    afterEach(() => sinon.restore());
+
+    it('answers the caller instead of dereferencing a null stream', async () => {
+      execStub(new Error('(HTTP code 404) no such exec'), null);
+      const container = new Dockerode().getContainer('abc');
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+      const uncaught = captureUncaught();
+
+      try {
+        const err = await new Promise((resolve) => {
+          dockerService.dockerContainerExec(container, ['ls'], [], res, resolve);
+        });
+        // Let a throw from inside the callback reach the process, which is where
+        // it goes in production: apiServer's handler, and exit(1).
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        expect(
+          uncaught.seen.map((e) => e.message),
+          'the null stream was dereferenced - this exits the node',
+        ).to.deep.equal([]);
+        expect(err, 'the failure has to reach the caller').to.be.an('error');
+        expect(err.message).to.contain('no such exec');
+        expect(res.write.called, 'nothing was streamed - there was no stream').to.be.false;
+      } finally {
+        uncaught.restore();
+      }
+    });
+
+    it('answers the caller when docker returns no stream and no error', async () => {
+      execStub(null, null);
+      const container = new Dockerode().getContainer('abc');
+
+      const uncaught = captureUncaught();
+      try {
+        const err = await new Promise((resolve) => {
+          dockerService.dockerContainerExec(container, ['ls'], [], { write: sinon.stub() }, resolve);
+        });
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(uncaught.seen.map((e) => e.message), 'the null stream was dereferenced').to.deep.equal([]);
+        expect(err, 'a missing stream is a failure even unaccompanied by one').to.be.an('error');
+      } finally {
+        uncaught.restore();
+      }
+    });
+
+    it('streams to the response when the exec does start', async () => {
+      const stream = new (require('events').EventEmitter)();
+      execStub(null, stream);
+      const container = new Dockerode().getContainer('abc');
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      const done = new Promise((resolve) => {
+        dockerService.dockerContainerExec(container, ['ls'], [], res, resolve);
+      });
+      // container.exec is awaited and the callback is deferred, so wait until
+      // the listeners exist rather than guessing at a number of ticks.
+      for (let i = 0; i < 50 && stream.listenerCount('data') === 0; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+      expect(stream.listenerCount('data'), 'the exec never attached its reader').to.equal(1);
+      stream.emit('data', Buffer.from('hello'));
+      stream.emit('end');
+
+      expect(await done, 'a clean run reports no error').to.be.null;
+      expect(res.write.called).to.be.true;
+    });
+  });
+
+  describe('fluxRemovedContainers authorship record tests', () => {
+    afterEach(() => {
+      sinon.restore();
+      globalState.fluxRemovedContainers.clear();
+    });
+
+    it('records a removal the reconciler can ask about', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([{ Id: 'abc', Names: ['/fluxwebsite'] }]);
+      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
+
+      await dockerService.appDockerRemove('website');
+
+      expect([...globalState.fluxRemovedContainers]).to.deep.equal(['fluxwebsite']);
+    });
+
+    it('does not record one addressed by raw docker id', async () => {
+      // The startup orphan sweep removes by id. The reconciler only ever asks
+      // about app containers by identifier, so an entry keyed by a hex id can
+      // never be read - and clearFluxRemovedContainers matches on an app name a
+      // hex id does not carry, so it can never be dropped either. It would sit
+      // in memory for the life of the process, unreadable and undeletable.
+      const id = 'a'.repeat(64);
+      const list = sinon.stub(Dockerode.prototype, 'listContainers');
+      list.onFirstCall().resolves([]);
+      list.onSecondCall().resolves([{ Id: id, Names: ['/fluxwebsite'] }]);
+      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
+
+      await dockerService.appDockerForceRemove(id, false);
+
+      expect([...globalState.fluxRemovedContainers], 'an entry no reader wants and no cleanup can reach').to.be.empty;
+    });
+  });
+
+  describe('getDockerContainerByIdOrName tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('asks docker about one container instead of listing every one', async () => {
+      const list = sinon.stub(Dockerode.prototype, 'listContainers').resolves([
+        { Id: 'abc123', Names: ['/fluxwebsite'] },
+      ]);
+
+      await dockerService.getDockerContainerByIdOrName('website');
+
+      // Every start, stop, remove, inspect, exec and log poll goes through here.
+      // Unfiltered, each one enumerates every container on the node.
+      const options = list.firstCall.args[0];
+      expect(options.all, 'a stopped container is still the container asked for').to.be.true;
+      expect(JSON.parse(options.filters)).to.deep.equal({ name: ['fluxwebsite'] });
+    });
+
+    it('does not answer for a container whose name merely contains the one asked for', async () => {
+      // Docker's name filter is a SUBSTRING match, so asking for `web` returns
+      // `fluxwebsite` too. The filter narrows what comes back; the exact
+      // comparison is what decides, and dropping it would hand a caller the
+      // wrong container to stop or remove.
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([
+        { Id: 'abc123', Names: ['/fluxwebsite'] },
+        { Id: 'def456', Names: ['/fluxwebsitelong'] },
+      ]);
+
+      const container = await dockerService.getDockerContainerByIdOrName('websitelong');
+
+      expect(container.id, 'the exact name must win over the shorter substring match').to.equal('def456');
+      await expect(dockerService.getDockerContainerByIdOrName('websit'))
+        .to.eventually.be.rejectedWith('Container websit not found');
+    });
+
+    it('still resolves a raw docker id, which no name filter can match', async () => {
+      const id = 'a'.repeat(64);
+      const list = sinon.stub(Dockerode.prototype, 'listContainers');
+      list.onFirstCall().resolves([]);
+      list.onSecondCall().resolves([{ Id: id, Names: ['/fluxwebsite'] }]);
+
+      const container = await dockerService.getDockerContainerByIdOrName(id);
+
+      expect(container.id).to.equal(id);
+      expect(JSON.parse(list.secondCall.args[0].filters), 'the id filter is the fallback, not the first ask').to.deep.equal({ id: [id] });
+    });
+  });
+
+  describe('dockerContainerLogsPolling tests', () => {
+    // Docker frames each write with an 8-byte header (stream id + length) because
+    // app containers are created with Tty false. Building the frames here is what
+    // makes the line splitting and the position arithmetic testable without a
+    // container that logs on demand.
+    function dockerFrame(lines) {
+      const chunks = lines.map((line) => {
+        const body = Buffer.from(`${line}\n`, 'utf8');
+        const header = Buffer.alloc(8);
+        header.writeUInt8(1, 0);
+        header.writeUInt32BE(body.length, 4);
+        return Buffer.concat([header, body]);
+      });
+      return Buffer.concat(chunks);
+    }
+
+    const at = (ms, text) => `${new Date(ms).toISOString()} ${text}`;
+
+    function stubLogs(lines) {
+      return sinon.stub(Dockerode.Container.prototype, 'logs').resolves(dockerFrame(lines));
+    }
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('rejects for a container that is not there', async () => {
+      await expect(dockerService.dockerContainerLogsPolling('testing1234', {}))
+        .to.eventually.be.rejectedWith('Container testing1234 not found');
+    });
+
+    it('asks docker to close the connection itself, and answers without waiting', async function test() {
+      // `follow: true` never closes, so the only way out was a 1500ms timer and
+      // every poll cost 1500ms whether a line was waiting or none. A poll that
+      // answers in well under that is the observable half of it.
+      this.timeout(10000);
+      const logs = stubLogs([at(1000, 'hello')]);
+      const started = Date.now();
+
+      const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 10 });
+
+      expect(Date.now() - started, 'the poll waited on a timer').to.be.below(500);
+      expect(logs.firstCall.args[0].follow, 'follow keeps a docker connection open for the life of the container').to.be.false;
+      expect(result.lines).to.deep.equal([at(1000, 'hello')]);
+    });
+
+    it('bounds a positioned read so docker seeks from the end instead of scanning', async () => {
+      // `since` alone has no index to seek with - docker decodes forward from the
+      // start of the oldest file until it finds the first match, so it re-reads
+      // the whole retained log every poll: 74ms at 3.5MB, 273ms at 14MB. With
+      // `tail` present it opens at the END, answers byte-for-byte the same, and
+      // stays flat at ~4ms however big the log is.
+      const logs = stubLogs([at(1000, 'a')]);
+
+      await dockerService.dockerContainerLogsPolling('website', { lineCount: 100 });
+      expect(logs.firstCall.args[0].tail).to.equal(100);
+      expect(logs.firstCall.args[0].since).to.equal(undefined);
+
+      await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 1 }, maxLines: 50,
+      });
+      // One MORE than a page: docker applies tail after since and returns the
+      // NEWEST of the matching set, so the extra frame is what says whether the
+      // whole set fitted.
+      expect(logs.secondCall.args[0].tail, 'a positioned read is bounded, not unbounded').to.equal(51);
+      expect(logs.secondCall.args[0].since).to.equal(1);
+    });
+
+    it('resyncs a reader that is further behind than one read reaches, and says so', async () => {
+      // Seeing past the window means a read with no `tail`, which is docker
+      // decoding forward from the oldest file: 1099ms fetch and 349ms of
+      // BLOCKING decode against 104ms and 1ms bounded, measured on a live node
+      // over 5MB. `position.ms` is caller-supplied, so a millisecond older than
+      // the log took that read on EVERY poll. The reader is moved to the end
+      // instead, and told.
+      const behind = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')];
+      const logs = stubLogs(behind);                          // 4 frames > maxLines 3
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 3,
+      });
+
+      expect(logs.calledOnce, 'a positioned read is ONE read, never a second unbounded one').to.be.true;
+      expect(logs.firstCall.args[0].tail, 'every read carries a bound').to.equal(4);
+      expect(result.skipped, 'the gap is reported rather than left silent').to.be.true;
+      expect(result.lines, 'the NEWEST of the window, because the reader is being moved to the end').to.deep.equal(behind.slice(-3));
+      expect(result.rolledOver, 'the lines still exist - this node declined to read that far back').to.be.false;
+    });
+
+    it('never issues a read without a tail, whatever position it is given', async () => {
+      // The whole class, not the reachable half: ms 0 is the cheapest hostile
+      // cursor but any millisecond older than the log does the same thing.
+      const logs = stubLogs([at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')]);
+
+      for (const ms of [0, 1, 999]) {
+        // eslint-disable-next-line no-await-in-loop
+        await dockerService.dockerContainerLogsPolling('website', {
+          position: { ms, count: 0 }, maxLines: 3,
+        });
+      }
+
+      logs.getCalls().forEach((call) => {
+        expect(call.args[0].tail, 'a read with no tail is the unbounded decode').to.be.a('number');
       });
     });
+
+    it('serves a reader completely when the whole answer fits, and leaves nothing ahead', async () => {
+      const all = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c')];
+      stubLogs(all);                                          // 3 frames === maxLines 3
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 3,
+      });
+
+      expect(result.skipped, 'the window was not full, so nothing was passed over').to.be.false;
+      expect(result.lines).to.deep.equal(all);
+    });
+
+    it('carries no earlier position through a resync', async () => {
+      // The count belongs to a place in a sequence the reader is no longer in,
+      // so applying it would drop lines from the front of the page it just got.
+      const behind = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')];
+      stubLogs(behind);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 2 }, maxLines: 3,
+      });
+
+      expect(result.skipped).to.be.true;
+      expect(result.lines, 'the stale count is not applied to the resynced page').to.deep.equal(behind.slice(-3));
+      expect(result.position.ms, 'the position is rebuilt from what was actually delivered').to.equal(1003);
+    });
+
+    it('does not re-read when the whole answer fitted', async () => {
+      const logs = stubLogs([at(1000, 'a'), at(1001, 'b')]);
+
+      await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 50,
+      });
+
+      expect(logs.calledOnce, 'a reader keeping up never pays for the scan').to.be.true;
+    });
+
+    // Three different questions used to share this path, and only one of them
+    // wants the position behaviour. The other two are what every deployed client
+    // asks today.
+    it('answers a since filter the way it always did, with its line count intact', async () => {
+      const logs = stubLogs([at(1000, 'a')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        since: 1000, lineCount: 100, maxLines: 5000,
+      });
+
+      expect(logs.firstCall.args[0].since).to.equal(1);
+      // A typed date is a filter, not a receipt for lines already held: dropping
+      // the limit turned "the last 100 lines since Tuesday" into the whole log.
+      expect(logs.firstCall.args[0].tail, 'a since filter keeps its line count').to.equal(100);
+      // And it can never have lost a position it never had. Reporting rolledOver
+      // for it warned of data loss because a hand-typed timestamp does not land
+      // exactly on a log line.
+      expect(result.rolledOver, 'nothing can have rolled away from a reader holding nothing').to.be.false;
+    });
+
+    it('does not cap a caller that is not coming back for the rest', async () => {
+      // `all` is a download, not a page. Capping it truncated the log silently,
+      // and keeping the OLDEST of the cap showed the start of the log to someone
+      // who asked for its end.
+      stubLogs([at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        lineCount: 'all', maxLines: 2,
+      });
+
+      expect(result.lines, 'every line, as before').to.have.lengthOf(4);
+      expect(result.truncated, "'all' is not a line limit").to.be.false;
+    });
+
+    // lies ahead of a position, fetched by asking again with it. `truncated` is
+    // what lies behind a line limit, which is the answer this endpoint has given
+    // since before positions existed and the only one a client written against
+    // it reads.
+    it('tells a line-limited reader the log holds more than it asked for', async () => {
+      stubLogs([at(1000, 'a'), at(2000, 'b')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 2 });
+
+      expect(result.truncated, 'two asked for and two returned - there is more behind them').to.be.true;
+    });
+
+    it('does not report truncated to a positioned reader, which could do nothing with it', async () => {
+      stubLogs([at(1000, 'a'), at(2000, 'b'), at(3000, 'c')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 0 }, lineCount: 2, maxLines: 2,
+      });
+
+      expect(result.truncated, 'a position is not a line limit').to.be.false;
+    });
+
+    it('drops the lines the reader already holds and keeps the rest', async () => {
+      // since is inclusive, so docker hands back the line asked from. The count
+      // says how many of that millisecond were already delivered.
+      stubLogs([at(1000, 'one'), at(1000, 'two'), at(2000, 'three')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 2 },
+      });
+
+      expect(result.lines).to.deep.equal([at(2000, 'three')]);
+      expect(result.rolledOver).to.be.false;
+    });
+
+    it('counts rather than compares, so repeated identical lines are not confused', async () => {
+      // Two writes of the same text in one millisecond are indistinguishable by
+      // content. A reader that de-duplicated by value would drop the new one.
+      stubLogs([at(1000, 'retrying'), at(1000, 'retrying'), at(1000, 'retrying')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 2 },
+      });
+
+      expect(result.lines, 'the third write is new and the first two are not').to.deep.equal([at(1000, 'retrying')]);
+      expect(result.position, 'all three of that millisecond are now held').to.deep.equal({ ms: 1000, count: 3 });
+    });
+
+    // A container writing to stdout AND stderr has two writers that each stamp a
+    // line before it is serialised into the file, so the file is not in timestamp
+    // order - 3,304 backwards steps in 40,000 lines on a real daemon. Every
+    // fixture above is in order, which is the assumption this whole design rests
+    // on written into the test that was meant to check it.
+    it('delivers each line once even when docker returns them out of timestamp order', async () => {
+      // `b` is stamped BEFORE `a` but written after it. A reader that has taken
+      // a and b holds two lines, and docker will hand both back when asked from
+      // a's millisecond - because it stops filtering on `since` once it has found
+      // its first match.
+      stubLogs([at(1001, 'a'), at(1000, 'b')]);
+
+      const first = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 5,
+      });
+
+      expect(first.lines).to.deep.equal([at(1001, 'a'), at(1000, 'b')]);
+      // Counting "lines whose ms equals the last one's" gives 1 here and skips
+      // one line next time, delivering `b` again. The count is a place in what
+      // docker returns, so it is 2.
+      expect(first.position.count, 'both delivered lines come back when asked from ms').to.equal(2);
+      // 1000 is older than 1001; moving the window back would re-read `a`.
+      expect(first.position.ms, 'the position never moves backwards').to.equal(1001);
+
+      sinon.restore();
+      stubLogs([at(1001, 'a'), at(1000, 'b'), at(1002, 'c')]);
+      const second = await dockerService.dockerContainerLogsPolling('website', {
+        position: first.position, maxLines: 5,
+      });
+
+      expect(second.lines, 'only the line the reader has not seen').to.deep.equal([at(1002, 'c')]);
+    });
+
+    it('reports that the line the reader asked from no longer exists', async () => {
+      // Docker discarded the file holding it. Everything between it and the
+      // oldest line below is gone and no one can fetch it back.
+      stubLogs([at(9000, 'later'), at(9001, 'later still')]);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 1 },
+      });
+
+      expect(result.rolledOver, 'a silent gap is the failure this exists to prevent').to.be.true;
+      expect(result.lines, 'nothing is skipped - the count belongs to lines that are gone').to.have.lengthOf(2);
+    });
+
+    it('leaves no gap between two reads a reader keeps up with', async () => {
+      // The guarantee, and its boundary: while what is waiting fits the window,
+      // every line is delivered exactly once. A reader that falls past the
+      // window is resynced and told, which the tests above cover.
+      const held = [at(1000, 'a'), at(2000, 'b')];
+      stubLogs(held);
+      const first = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 0 }, maxLines: 5,
+      });
+      sinon.restore();
+
+      // What docker returns for the position just handed back: `since` is
+      // inclusive, so the read starts at the line that position names and the
+      // already-delivered ones below it are not in the answer at all. Stubbing
+      // the whole log here would be stubbing a docker that ignores `since`.
+      const grown = [...held, at(3000, 'c'), at(4000, 'd')];
+      stubLogs(grown.slice(1));
+      const second = await dockerService.dockerContainerLogsPolling('website', {
+        position: first.position, maxLines: 5,
+      });
+
+      expect(first.skipped, 'nothing was passed over').to.be.false;
+      expect(second.skipped).to.be.false;
+      expect([...first.lines, ...second.lines], 'every line exactly once').to.deep.equal(grown);
+    });
   });
 
-  describe('dockerContainerLogsStream tests', () => {
+  describe('dockerContainerLogs tests', () => {
     it('should return a valid stats object', async () => {
       const appName = 'website';
 
@@ -623,7 +1090,7 @@ describe('dockerService tests', () => {
     it('should throw an error if container does not exist', async () => {
       const appName = 'testing1234';
 
-      await expect(dockerService.dockerContainerLogs(appName, 2)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.dockerContainerLogs(appName, 2)).to.eventually.be.rejectedWith('Container testing1234 not found');
     });
   });
 
@@ -651,7 +1118,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerStart('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.appDockerStart('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
   });
 
@@ -714,7 +1181,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerStop('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.appDockerStop('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
 
     // The stopping flag's lifetime is the STOP OPERATION's lifetime - held while
@@ -823,7 +1290,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerRestart('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.appDockerRestart('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
   });
 
@@ -851,7 +1318,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerKill('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.appDockerKill('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
 
     // same flag-lifetime contract as appDockerStop: held during the kill
@@ -895,7 +1362,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerRemove('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.appDockerRemove('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
   });
 
@@ -936,7 +1403,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerTop('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+      await expect(dockerService.appDockerTop('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
   });
 

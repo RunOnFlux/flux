@@ -1,8 +1,10 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { resetGlobalState } = require('./fixtures/globalState');
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
@@ -73,11 +75,8 @@ describe('appInstaller tests', () => {
       },
     };
 
-    globalStateStub = {
-      removalInProgress: false,
-      installationInProgress: false,
-      masterSlaveAppsRunning: false,
-    };
+    // The real module, reset - see tests/unit/fixtures/globalState.js.
+    globalStateStub = resetGlobalState();
 
     // Stubs
     verificationHelperStub = {
@@ -282,6 +281,8 @@ describe('appInstaller tests', () => {
       };
       const res = {
         json: sinon.stub(),
+        end: sinon.stub(),
+        writableEnded: false,
       };
 
       verificationHelperStub.verifyPrivilege.resolves(false);
@@ -300,6 +301,8 @@ describe('appInstaller tests', () => {
       };
       const res = {
         json: sinon.stub(),
+        end: sinon.stub(),
+        writableEnded: false,
       };
 
       messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'No Flux App specified' } });
@@ -318,6 +321,8 @@ describe('appInstaller tests', () => {
       const res = {
         json: sinon.stub(),
         setHeader: sinon.stub(),
+        end: sinon.stub(),
+        writableEnded: false,
       };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
@@ -345,7 +350,7 @@ describe('appInstaller tests', () => {
 
     it('refuses a node admin installing a registered app by name', async () => {
       const req = nameInstall();
-      const res = { json: sinon.stub(), setHeader: sinon.stub() };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), end: sinon.stub(), writableEnded: false };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
       // the node operator's own privilege - held, and no longer sufficient here
@@ -363,7 +368,7 @@ describe('appInstaller tests', () => {
 
     it('refuses a node admin on the test-install route too', async () => {
       const req = nameInstall();
-      const res = { json: sinon.stub(), setHeader: sinon.stub() };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), end: sinon.stub(), writableEnded: false };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(true);
@@ -381,7 +386,7 @@ describe('appInstaller tests', () => {
     // carries a temporary message, so it never reaches the by-name gate at all.
     it('still lets any logged-in user install an app under test by its temporary message', async () => {
       const req = { params: { appname: 'a1b2c3hash' }, query: {} };
-      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub() };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(false);
@@ -409,6 +414,8 @@ describe('appInstaller tests', () => {
       };
       const res = {
         json: sinon.stub(),
+        end: sinon.stub(),
+        writableEnded: false,
       };
 
       verificationHelperStub.verifyPrivilege.resolves(false);
@@ -427,6 +434,8 @@ describe('appInstaller tests', () => {
       };
       const res = {
         json: sinon.stub(),
+        end: sinon.stub(),
+        writableEnded: false,
       };
 
       messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'No Flux App specified' } });
@@ -445,6 +454,8 @@ describe('appInstaller tests', () => {
       const res = {
         json: sinon.stub(),
         setHeader: sinon.stub(),
+        end: sinon.stub(),
+        writableEnded: false,
       };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
@@ -493,6 +504,8 @@ describe('appInstaller tests', () => {
       const res = {
         json: sinon.stub(),
         setHeader: sinon.stub(),
+        end: sinon.stub(),
+        writableEnded: false,
       };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
@@ -842,6 +855,28 @@ describe('appInstaller tests', () => {
       globalStateStub.installationInProgress = false;
     });
 
+    // The rule the response ownership rests on, pinned where it can regress.
+    // registerAppLocally has six places that used to close the response and no
+    // way to enforce that they stay closed-free - the endpoint above it owns the
+    // close, and an installer that ends the stream makes every later write, INCLUDING
+    // the failure that caused it, land in a response that is already over. That is
+    // how a failed hard redeploy came to answer with the teardown's
+    // "was successfuly removed" as the last thing the caller saw.
+    it('never closes a response it was handed, on any path', async () => {
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      globalStateStub.removalInProgress = true;
+      await appInstaller.registerAppLocally(appSpec, false, res);
+      globalStateStub.removalInProgress = false;
+
+      globalStateStub.installationInProgress = true;
+      await appInstaller.registerAppLocally(appSpec, false, res);
+      globalStateStub.installationInProgress = false;
+
+      expect(res.write.called, 'it must still report what happened').to.be.true;
+      expect(res.end.called, 'the endpoint that opened the response is the only thing that closes it').to.be.false;
+    });
+
     it('should return error if removal is in progress', async () => {
       const componentSpecs = false;
       const res = {
@@ -853,7 +888,10 @@ describe('appInstaller tests', () => {
       const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
 
       expect(logStub.error.called).to.be.true;
-      expect(result).to.be.false;
+      // Nothing was touched, which is not the same answer as an install that
+      // failed and tore the app down - a caller acting on the second when it
+      // got the first destroys a running app.
+      expect(result).to.equal(InstallOutcome.REFUSED);
     });
 
     it('should return error if another installation is in progress', async () => {
@@ -867,7 +905,10 @@ describe('appInstaller tests', () => {
       const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
 
       expect(logStub.error.called).to.be.true;
-      expect(result).to.be.false;
+      // Nothing was touched, which is not the same answer as an install that
+      // failed and tore the app down - a caller acting on the second when it
+      // got the first destroys a running app.
+      expect(result).to.equal(InstallOutcome.REFUSED);
     });
 
     it('should return false if node tier does not return anything', async () => {
@@ -972,10 +1013,17 @@ describe('appInstaller tests', () => {
       const result = await appInstallerWithNodeTier.registerAppLocally(appSpec, componentSpecs, res);
 
       expect(res.write.called).to.be.true;
-      expect(result).to.be.false;
+      // Nothing was touched, which is not the same answer as an install that
+      // failed and tore the app down - a caller acting on the second when it
+      // got the first destroys a running app.
+      expect(result).to.equal(InstallOutcome.REFUSED);
     });
 
-    it('should return false if app already installed', async () => {
+    // Named for the already-installed guard, but its proxyquire is partial and the
+    // install errors before reaching it - which nothing revealed while that guard
+    // and the catch both answered `false`. It is a real test of the failure path,
+    // so it is named for that instead.
+    it('answers FAILED when an install errors and cleans up after itself', async () => {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub(),
         findInDatabase: sinon.stub(),
@@ -1085,7 +1133,10 @@ describe('appInstaller tests', () => {
 
       expect(logStub.error.called).to.be.true;
       expect(res.write.called).to.be.true;
-      expect(result).to.be.false;
+      // Nothing was touched, which is not the same answer as an install that
+      // failed and tore the app down - a caller acting on the second when it
+      // got the first destroys a running app.
+      expect(result).to.equal(InstallOutcome.FAILED);
     });
 
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
@@ -1196,7 +1247,7 @@ describe('appInstaller tests', () => {
       const res = { write: sinon.stub(), end: sinon.stub() };
       const result = await appInstallerSuccess.registerAppLocally(appSpec, false, res);
 
-      expect(result, 'install should succeed').to.be.true;
+      expect(result, 'install should succeed').to.equal(InstallOutcome.INSTALLED);
       expect(onInstallComplete.calledOnce, 'post-install broadcast should fire').to.be.true;
       expect(lockHeldWhenBroadcasting, 'install lock must be released BEFORE broadcasting').to.equal(false);
       expect(globalStateStub.installationInProgress).to.equal(false);
@@ -1259,7 +1310,6 @@ describe('appInstaller tests', () => {
         '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../utils/appSpecHelpers': appSpecHelpersStub,
-        '../utils/globalState': { removalInProgress: false, installationInProgress: false, masterSlaveAppsRunning: false },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
         '../appMessaging/messageVerifier': messageVerifierStub,

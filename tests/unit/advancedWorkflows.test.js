@@ -3,12 +3,14 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
 const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const log = require('../../ZelBack/src/lib/log');
 
 describe('advancedWorkflows tests', () => {
@@ -93,7 +95,9 @@ describe('advancedWorkflows tests', () => {
         json: sinon.stub(),
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
         setHeader: sinon.stub(),
+        writableEnded: false,
       };
     });
 
@@ -206,7 +210,9 @@ describe('advancedWorkflows tests', () => {
         json: sinon.stub(),
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
         setHeader: sinon.stub(),
+        writableEnded: false,
       };
     });
 
@@ -229,15 +235,19 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
-      globalState.installationInProgress = false;
-      globalState.softRedeployInProgress = false;
-      globalState.hardRedeployInProgress = false;
+      resetGlobalState();
 
       res = {
         write: sinon.stub(),
         flush: sinon.stub(),
       };
+    });
+
+    // Reset on the way out as well as in. This is module state shared with every
+    // describe that follows, and a suite that only resets on the way in leaves
+    // whatever its last test set standing for the rest of the file.
+    afterEach(() => {
+      resetGlobalState();
     });
 
     it('should return early if removal is in progress', async () => {
@@ -278,6 +288,20 @@ describe('advancedWorkflows tests', () => {
       expect(res.write.calledOnce).to.be.true;
       const response = res.write.firstCall.args[0];
       expect(response).to.include('Another application is undergoing hard redeploy');
+    });
+
+    // The pass that reinstalls apps whose specification changed sets this before
+    // it tears anything down and holds it across its own wait. Every other guard
+    // read four of the five flags and walked straight past this one, which is how
+    // a redeploy took a node the pass was mid-way through using.
+    it('should return early if the periodic reinstall pass holds the node', async () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
+
+      expect(res.write.calledOnce).to.be.true;
+      const response = res.write.firstCall.args[0];
+      expect(response).to.include('Another application is undergoing reinstallation');
     });
 
     it('should throw error if application not found', async () => {
@@ -343,15 +367,19 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
-      globalState.installationInProgress = false;
-      globalState.softRedeployInProgress = false;
-      globalState.hardRedeployInProgress = false;
+      resetGlobalState();
 
       res = {
         write: sinon.stub(),
         flush: sinon.stub(),
       };
+    });
+
+    // Reset on the way out as well as in. This is module state shared with every
+    // describe that follows, and a suite that only resets on the way in leaves
+    // whatever its last test set standing for the rest of the file.
+    afterEach(() => {
+      resetGlobalState();
     });
 
     it('should return early if removal is in progress', async () => {
@@ -392,6 +420,20 @@ describe('advancedWorkflows tests', () => {
       expect(res.write.calledOnce).to.be.true;
       const response = res.write.firstCall.args[0];
       expect(response).to.include('Another application is undergoing hard redeploy');
+    });
+
+    // The pass that reinstalls apps whose specification changed sets this before
+    // it tears anything down and holds it across its own wait. Every other guard
+    // read four of the five flags and walked straight past this one, which is how
+    // a redeploy took a node the pass was mid-way through using.
+    it('should return early if the periodic reinstall pass holds the node', async () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
+
+      expect(res.write.calledOnce).to.be.true;
+      const response = res.write.firstCall.args[0];
+      expect(response).to.include('Another application is undergoing reinstallation');
     });
 
     it('should throw error if application not found', async () => {
@@ -4064,6 +4106,585 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('softRedeploy failure handling tests', () => {
+    // A v3 app: softRemoveAppLocally takes the simple, non-composed path, so the
+    // only thing between the spec lookup and the container work is
+    // softUninstallApplication - which is where the production failure landed.
+    const v3Spec = {
+      version: 3,
+      name: 'TestApp',
+      description: 'test app',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      repotag: 'nginx:latest',
+      ports: ['31000'],
+      domains: [''],
+      enviromentParameters: [],
+      commands: [],
+      containerPorts: ['80'],
+      containerData: '/data',
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+      tiered: false,
+      instances: 3,
+    };
+
+    let globalState;
+    let appUninstaller;
+    let appInstaller;
+    let serviceHelper;
+
+    beforeEach(() => {
+      /* eslint-disable global-require */
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      /* eslint-enable global-require */
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(serviceHelper, 'delay').resolves();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.removalInProgress = false;
+      globalState.softRedeployInProgress = false;
+    });
+
+    it('leaves the app installed when the removal fails part way through', async () => {
+      // The production incident: the reconciler asked to start the component two
+      // seconds earlier, the removal found no container, and the catch answered a
+      // transient race by uninstalling a healthy application - forced, and
+      // broadcast to the network. The removal reached docker and failed there;
+      // nothing about that failure says the app is down.
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      const softUninstall = sinon.stub(appUninstaller, 'softUninstallApplication')
+        .rejects(new Error('Container fluxTestApp not found'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy(v3Spec, null);
+
+      expect(softUninstall.calledOnce, 'the removal must have actually reached docker').to.be.true;
+      expect(removeAppLocally.called, 'a failed removal must not uninstall the app').to.be.false;
+      expect(globalState.softRedeployInProgress).to.be.false;
+      expect(globalState.removalInProgress, 'the removal lease must be released').to.be.false;
+    });
+
+    it('leaves the app installed when the redeploy fails before the removal starts', async () => {
+      // Same gate, earlier failure: the spec lookup throws, so no container was
+      // touched at all.
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy({ name: 'TestApp', version: 7 }, null);
+
+      expect(removeAppLocally.called).to.be.false;
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
+
+    it('records that a failure after the app is down still force-uninstalls it', async () => {
+      // Pins CURRENT behaviour, not desired behaviour. The gate covers a removal
+      // that never finished; past that point a failure still force-uninstalls
+      // the app and broadcasts the removal. That is the shape that cost a live
+      // app 43 minutes of outage on 2026-08-04 - the removal completed, the
+      // requirements check then failed on RAM, and a healthy app was destroyed.
+      //
+      // Closing that half means not uninstalling here either: release, and leave
+      // down-vs-remove to the reconciler (fluxModels
+      // workstreams/fluxos-core-cutover/SPEC_CHANGE_CONTINUITY.md §1 and §9;
+      // feat/fluxos-v9 already has that shape). This assertion is expected to go
+      // red when that lands, and is here so the change is deliberate.
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
+      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Not enough space on device'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy(v3Spec, null);
+
+      expect(removeAppLocally.calledOnce, 'today the app is force-uninstalled once it is down').to.be.true;
+      // endResponse false - redeployAPI owns the response and closes it; the
+      // teardown closing it made every later write, including the failure that
+      // caused it, land in a response that was already over.
+      expect(removeAppLocally.calledWith('TestApp', null, true, false, true)).to.be.true;
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
+  });
+
+  describe('component redeploy argument contract tests', () => {
+    // softUninstallComponent and hardUninstallComponent take (appName, appId, ...)
+    // where appName is the BARE app name - they join it with the component's own
+    // name to build the monitoring key - and appId is the component's docker id.
+    // softUninstallComposedApp is the reference caller for both.
+    //
+    // Passing the joined name doubles the component into the monitoring key
+    // (`web_web_myapp`), so the stop targets a monitor that does not exist and the
+    // live one keeps sampling a container that is being removed. Passing a null id
+    // reaches getAppIdentifier and throws on `null.startsWith` before any container
+    // is looked up - upstream of dockerService's not-found guard - and on the soft
+    // path that throw is answered by force-uninstalling the whole app and
+    // broadcasting it to the network.
+    //
+    // Nothing else covers /apps/redeploycomponent: it has no harness suite, so
+    // these arguments are only ever checked here.
+    const composedSpec = {
+      version: 4,
+      name: 'myapp',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      compose: [{
+        name: 'web',
+        description: 'web component',
+        repotag: 'nginx:latest',
+        ports: ['31000'],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: ['80'],
+        containerData: '/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      }],
+    };
+
+    let globalState;
+    let appUninstaller;
+    let appInstaller;
+    let appNetworkLinker;
+    let generalService;
+    let serviceHelper;
+
+    beforeEach(() => {
+      /* eslint-disable global-require */
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+      generalService = require('../../ZelBack/src/services/generalService');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      /* eslint-enable global-require */
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(composedSpec);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      // The hard path reinstalls through registerAppLocally, which needs a
+      // detectable Flux IP; the soft path builds its own install inline.
+      // It answers true or false - false means it force-uninstalled the app.
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+      // A guard this suite sets to prove a refusal is global state, and the next
+      // describe in this file reads it. Leaving it set made an unrelated suite
+      // fail on whichever test happened to run last.
+      globalState.removalInProgress = false;
+    });
+
+    it('soft redeploy tears down the component by its docker id, under the bare app name', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeployComponent('myapp', 'web', null);
+
+      expect(softUninstallComponent.calledOnce).to.be.true;
+      const [appNameArg, appIdArg, componentSpecArg] = softUninstallComponent.firstCall.args;
+      expect(appNameArg, 'the bare app name - the callee joins the component itself').to.equal('myapp');
+      expect(appIdArg, "the component's docker id").to.equal('fluxweb_myapp');
+      expect(componentSpecArg.name).to.equal('web');
+      expect(removeAppLocally.called, 'a successful component redeploy must not uninstall the app').to.be.false;
+    });
+
+    it('hard redeploy tears down the component by its docker id, under the bare app name', async () => {
+      // The same contract on the hard path. hardUninstallComponent wraps its
+      // remove in a .catch, so a wrong id is swallowed there and the teardown is
+      // silently skipped rather than failing loudly - the arguments are the only
+      // thing that decides whether the container is really torn down.
+      const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.hardRedeployComponent('myapp', 'web', null);
+
+      expect(hardUninstallComponent.calledOnce).to.be.true;
+      const [appNameArg, appIdArg, componentSpecArg] = hardUninstallComponent.firstCall.args;
+      expect(appNameArg).to.equal('myapp');
+      expect(appIdArg).to.equal('fluxweb_myapp');
+      expect(componentSpecArg.name).to.equal('web');
+      expect(removeAppLocally.called, 'a successful component redeploy must not uninstall the app').to.be.false;
+    });
+  });
+
+  describe('component redeploy responds once tests', () => {
+    // The endpoint streams its progress, so the body starts on the first
+    // res.write and the status line is gone from that moment. A res.json after
+    // it goes through setHeader and throws ERR_HTTP_HEADERS_SENT into the catch,
+    // whose own res.json throws the same way - and that second throw escapes the
+    // handler, so the caller's connection is destroyed rather than answered.
+    // The 2026-09-03 fleet run saw exactly that: the component was replaced
+    // correctly and the client still got `TypeError: terminated`.
+    //
+    // A res double of bare stubs cannot see this - res.json records the call and
+    // returns - so the double below models what Express actually does.
+    const composedSpec = {
+      version: 4,
+      name: 'myapp',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      compose: [{
+        name: 'web',
+        description: 'web component',
+        repotag: 'nginx:latest',
+        ports: ['31000'],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: ['80'],
+        containerData: '/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      }],
+    };
+
+    function streamingRes() {
+      const res = {
+        headersSent: false,
+        written: [],
+        ended: false,
+        // A write to a closed response is the fatal half. Node reports it a tick
+        // later as an `error` event on res, nothing in FluxOS listens for one, and
+        // an unheard `error` reaches apiServer's uncaughtException handler, which
+        // exits the process. It is recorded rather than thrown because the throw
+        // production takes is asynchronous and would land in no test's stack.
+        writesAfterEnd: [],
+        setHeader: sinon.stub(),
+        flush: sinon.stub(),
+      };
+      Object.defineProperty(res, 'writableEnded', { get: () => res.ended });
+      res.write = sinon.spy((chunk) => {
+        if (res.ended) {
+          res.writesAfterEnd.push(chunk);
+          return false;
+        }
+        res.headersSent = true;
+        res.written.push(chunk);
+        return true;
+      });
+      // A second end() is absorbed, which is why the response can be closed from
+      // one place without the callers below it having to know whether it already is.
+      res.end = sinon.spy(() => {
+        res.ended = true;
+      });
+      res.json = sinon.spy(() => {
+        if (res.headersSent) {
+          const err = new Error('Cannot set headers after they are sent to the client');
+          err.code = 'ERR_HTTP_HEADERS_SENT';
+          throw err;
+        }
+        res.headersSent = true;
+        res.ended = true;
+      });
+      return res;
+    }
+
+    let globalState;
+    let appUninstaller;
+    let appInstaller;
+    let appNetworkLinker;
+    let generalService;
+    let serviceHelper;
+    let verificationHelper;
+    let fluxEventBus;
+    let messageHelper;
+    let req;
+
+    beforeEach(() => {
+      /* eslint-disable global-require */
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+      generalService = require('../../ZelBack/src/services/generalService');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+      fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+      messageHelper = require('../../ZelBack/src/services/messageHelper');
+      /* eslint-enable global-require */
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+      globalState.restoreInProgress = [];
+
+      req = { params: { appname: 'myapp', component: 'web' }, query: {}, headers: {} };
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(composedSpec);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      // endResponse defaults to true and the redeploy's own catch passes it, so
+      // the teardown closes the response the endpoint opened. That is the
+      // sequence a stub that only resolves() removes.
+      sinon.stub(appUninstaller, 'removeAppLocally').callsFake(async (app, response, force, endResponse = true) => {
+        if (response && endResponse) response.end();
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+      // A guard this suite sets to prove a refusal is global state, and the next
+      // describe in this file reads it. Leaving it set made an unrelated suite
+      // fail on whichever test happened to run last.
+      globalState.removalInProgress = false;
+    });
+
+    it('answers a successful component redeploy through the stream and never a second time', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.write.called, 'the progress stream is the response').to.be.true;
+      expect(res.json.called, 'the stream already sent the headers - a res.json here throws').to.be.false;
+    });
+
+    // The failure a caller most needs to read is the one that arrives after the
+    // teardown, and that is exactly when the status line is already gone.
+    it('writes a failure that arrives mid-stream into the stream instead of sending headers', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.json.called, 'headers are gone once the body has started').to.be.false;
+      expect(res.ended, 'a caller left waiting on a stream nothing will close').to.be.true;
+      const tail = res.written[res.written.length - 1];
+      expect(tail, 'the error envelope goes into the stream where a client parses it out').to.include('Insufficient RAM');
+      expect(res.writesAfterEnd, 'a write to a closed response exits the node').to.be.empty;
+    });
+
+    // The response has one owner: the handler that opened it. Everything below
+    // writes progress into it and none of them decide it is over - which is what
+    // makes a write from the handler's own catch safe.
+    it('never writes to a response the teardown already closed', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.writesAfterEnd, 'ERR_STREAM_WRITE_AFTER_END reaches apiServer and exits the process').to.be.empty;
+      expect(res.ended, 'the caller must be answered, not left on an open stream').to.be.true;
+    });
+
+    // Four guards refuse the redeploy while another operation holds the node, and
+    // each one writes its warning and returns. Nothing below them closes the
+    // response, so the endpoint has to.
+    it('closes the stream when the redeploy is refused because another operation is in flight', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      globalState.removalInProgress = true;
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.written.join(''), 'the refusal is the answer').to.include('Another application is undergoing removal');
+      expect(res.ended, 'an unclosed response holds the socket until requestTimeout, two hours').to.be.true;
+    });
+
+    // softRegisterAppLocally answers a failed install by force-uninstalling the
+    // app and returning normally. Reporting a redeploy off the absence of a throw
+    // announces a component that is not there - and this is the one event that
+    // says a single component was replaced, so nothing else contradicts it.
+    it('does not report a component redeploy that never reinstalled the component', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      const redeployed = publish.getCalls().filter((call) => call.args[0] === 'app:componentRedeployed');
+      expect(redeployed, 'the install failed and the app was uninstalled - nothing was redeployed').to.be.empty;
+    });
+
+    // The teardown answering a failed install reports its progress into the same
+    // response, and parks on a database read before the first of those writes.
+    // The double carries both, because a double that resolves without suspending
+    // leaves nothing for the assertion to catch whatever the code does.
+    it('does not let the teardown report into a response the endpoint has closed', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
+      appUninstaller.removeAppLocally.callsFake(async (app, response) => {
+        await new Promise((resolve) => { setImmediate(resolve); });
+        if (response) response.write(JSON.stringify({ status: 'Cleaning up database...' }));
+      });
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+      // A teardown still in flight reports on the next turn. Asserting before it
+      // passes whatever the code does.
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(appUninstaller.removeAppLocally.calledOnce, 'the failed install tears the app down').to.be.true;
+      expect(res.writesAfterEnd, 'ERR_STREAM_WRITE_AFTER_END reaches apiServer and exits the process').to.be.empty;
+      expect(res.written.join(''), 'the teardown reports into the response while it is still open').to.include('Cleaning up database');
+    });
+
+    // The section-2 race: the reconciler starts the same component the removal is
+    // tearing down, so the teardown throws part way. Doing nothing to the app is
+    // right - it is not known to be down and the reconciler converges it - but
+    // doing nothing to the CALLER closes the stream on a progress line, so a
+    // redeploy that never happened answers 200 and reads as one that did.
+    it('tells the caller when a redeploy failed during removal and was left alone', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appUninstaller.softUninstallComponent.rejects(new Error('Cannot read properties of null'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      // Either channel is fine - before anything is written the status line is
+      // still ours, after that the envelope goes into the stream. What is not
+      // fine is neither, which closes on a progress line and reads as success.
+      const answered = res.written.join('') + JSON.stringify(res.json.args);
+      expect(answered, 'the caller must be told the redeploy did not happen').to.match(/error/i);
+      expect(res.ended, 'and the response must still be closed').to.be.true;
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
+    // The same failure once the stream has started, which is the shape that went
+    // silent: headers are gone, so an answer can only go into the stream, and the
+    // path that decided to leave the app alone returned without writing one.
+    it('tells the caller after progress has already been streamed', async () => {
+      // The install fails without throwing - softRegisterAppLocally answers
+      // FAILED - so this takes the path that RETURNS rather than the catch. That
+      // is the one that went silent, and a test driving a throw instead would
+      // pass whether or not it was fixed.
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      expect(res.written.length, 'progress was streamed, so the status line is gone').to.be.above(0);
+      expect(res.json.called, 'headers cannot be sent once the body has started').to.be.false;
+      expect(res.written.join(''), 'the last word must name the failure').to.include('was not reinstalled');
+      expect(res.ended).to.be.true;
+    });
+
+    // force=true, which nothing else here drives. The hard path reinstalls through
+    // registerAppLocally, and its failure branch force-uninstalls the app and
+    // reports that removal with a SUCCESS envelope. A caller reading the envelope
+    // the stream closes on - the rule this suite pins elsewhere - would read a
+    // destroyed app as a completed redeploy.
+    it('does not end a failed hard redeploy on the teardown\'s success message', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'registerAppLocally').callsFake(async (spec, component, response) => {
+        if (response) {
+          response.write(serviceHelper.ensureString(
+            messageHelper.createSuccessMessage('Removal step done. Result: Flux App myapp was successfuly removed'),
+          ));
+        }
+        return InstallOutcome.FAILED;
+      });
+      req.params.force = 'true';
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      const tail = res.written[res.written.length - 1];
+      expect(tail, 'the last envelope is what a caller judges the redeploy on').to.include('was not reinstalled');
+      expect(tail, 'a destroyed app must not be reported as a removal that succeeded').to.not.include('successfuly removed');
+      expect(res.writesAfterEnd, 'the outcome must not land in a response already closed').to.be.empty;
+    });
+  });
+
+  // The API paths are driven by an operator. This one runs by itself, on every
+  // on-chain component spec change, and it takes the same two arguments.
+  describe('reinstallOldApplications component argument contract tests', () => {
+    const installedApp = {
+      version: 4,
+      name: 'myapp',
+      hash: 'oldhash',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      compose: [{
+        name: 'web', repotag: 'nginx:1.0', ports: ['31000'], domains: [''],
+        environmentParameters: [], commands: [], containerPorts: ['80'],
+        containerData: '/data', cpu: 0.5, ram: 500, hdd: 5,
+      }],
+    };
+    // Same hdd, so the change takes the soft branch; a different repotag is what
+    // makes it a change at all.
+    const newSpec = {
+      ...installedApp,
+      hash: 'newhash',
+      compose: [{ ...installedApp.compose[0], repotag: 'nginx:2.0' }],
+    };
+
+    let appUninstaller;
+    let generalService;
+    let serviceHelper;
+    let globalState;
+
+    beforeEach(() => {
+      /* eslint-disable global-require */
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      generalService = require('../../ZelBack/src/services/generalService');
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      /* eslint-enable global-require */
+      globalState.reinstallationOfOldAppsInProgress = false;
+
+      sinon.stub(generalService, 'checkSynced').resolves(true);
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(newSpec);
+      sinon.stub(dbHelper, 'updateOneInDatabase').resolves({ acknowledged: true });
+      // The redeploy is gated on a 1-in-N draw; this makes it certain.
+      sinon.stub(Math, 'random').returns(0);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.reinstallationOfOldAppsInProgress = false;
+    });
+
+    it('tears the component down under the bare app name', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(softUninstallComponent.calledOnce, 'the changed component is redeployed').to.be.true;
+      const [appName, appId] = softUninstallComponent.firstCall.args;
+      // The callee joins this with the component's own name for the monitoring
+      // key, so a joined name here makes it `web_web_myapp`: the stop targets a
+      // monitor that does not exist and the live one keeps sampling a container
+      // that is being removed.
+      expect(appName, 'softUninstallComponent takes the bare app name').to.equal('myapp');
+      expect(appId, 'and the component docker id').to.equal('fluxweb_myapp');
+    });
+  });
+
   // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
   // stopSyncthingApp are complex integration functions or HTTP request handlers
   // that require extensive mocking of database connections, HTTP requests, and
@@ -4073,7 +4694,14 @@ describe('advancedWorkflows tests', () => {
   // master-slave coordination logic.
 });
 
-describe('giving up an app: one pass, two reasons, one safety gate', () => {
+describe('giving up an app: one pass, two reasons, one safety gate', function () {
+  // Every escalation test here drives the give-up pass ten to forty times to walk
+  // a counter, which does not fit mocha's 2000ms default and never did - they sat
+  // just under it, and any test added to this file pushed one over. A timeout
+  // mid-loop also leaves the module's refusal counter part-way, so the test after
+  // it fails on a count it did not make.
+  this.timeout(20000);
+
   const generalService = require('../../ZelBack/src/services/generalService');
   const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
   const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');

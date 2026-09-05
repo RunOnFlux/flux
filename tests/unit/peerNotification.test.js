@@ -119,11 +119,6 @@ describe('peerNotification tests', () => {
         canSendMessages: sinon.stub().returns(true),
         onMessageCapabilityChange: sinon.stub(),
       },
-      '../utils/globalState': {
-        backupInProgress: [],
-        restoreInProgress: [],
-        runningAppsCache: new Set(),
-      },
       '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
       '../../lib/log': logStub,
     });

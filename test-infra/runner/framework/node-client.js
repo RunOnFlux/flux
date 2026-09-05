@@ -201,6 +201,7 @@ export function nodeClient(nodeNum) {
         'orchestrator:stateChanged',
         'app:installed',
         'app:removed',
+        'app:componentRedeployed',
         'app:specStored',
         'app:running',
         'fileoperation:imageAcquired',
@@ -422,6 +423,18 @@ export function nodeClient(nodeNum) {
     // the app:installed event (waitForAppInstalled).
     installAppLocally: async (appname, zelidauth) => {
       const res = await controlFetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
+      return res.text();
+    },
+    // Redeploy ONE component in place. Streams progress then appends a final
+    // status, so the body is concatenated JSON chunks and not a single doc -
+    // drained as text, like installapplocally. force=true is the HARD redeploy,
+    // which rebuilds the component's volume and destroys its data on this node.
+    // Resolves when the stream ends; confirm via app:componentRedeployed.
+    redeployComponent: async (appname, component, zelidauth, { force = false } = {}) => {
+      const res = await controlFetch(
+        `${url}/apps/redeploycomponent/${appname}/${component}/${force}`,
+        { headers: { zelidauth } },
+      );
       return res.text();
     },
     // Backup/restore drive the whole-app lease (B1). The endpoints stream chunked

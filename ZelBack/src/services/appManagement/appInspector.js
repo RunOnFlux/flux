@@ -3,6 +3,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
+const logCursor = require('../utils/logCursor');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const cpuBurstHelper = require('../utils/cpuBurstHelper');
@@ -100,55 +101,6 @@ async function appLog(req, res) {
 }
 
 /**
- * Stream application logs
- * @param {object} req - Request object
- * @param {object} res - Response object
- * @returns {Promise<void>}
- */
-async function appLogStream(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-
-    const mainAppName = appname.split('_')[1] || appname;
-
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
-    if (authorized === true) {
-      res.setHeader('Content-Type', 'application/json');
-      dockerService.dockerContainerLogsStream(appname, res, (error) => {
-        if (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.write(errorResponse);
-          res.end();
-        } else {
-          res.end();
-        }
-      });
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
  * Poll application logs with filtering
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -162,6 +114,10 @@ async function appLogPolling(req, res) {
     lines = lines || req.query.lineCount || 'all';
     let { since } = req.params;
     since = since || req.query.since || '';
+    // A query parameter, not a path segment: the route has three optional
+    // segments and a fourth would not match, so a reader sending its position to
+    // a node that predates this would be answered with a 404 rather than logs.
+    const { cursor } = req.query;
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -178,25 +134,46 @@ async function appLogPolling(req, res) {
         parsedLineCount = parseInt(lines, 10) || 100;
       }
 
-      const logs = [];
-      await new Promise((resolve, reject) => {
-        dockerService.dockerContainerLogsPolling(appname, parsedLineCount, since, (err, logLine) => {
-          if (err) {
-            reject(err);
-          } else if (logLine === 'Stream ended') {
-            resolve();
-          } else if (logLine) {
-            logs.push(logLine);
-          }
-        });
+      // A reader that sends a position gets everything after it. One that does
+      // not gets the most recent lines, which is what every reader written
+      // before positions existed asks for and still receives.
+      const position = logCursor.decode(cursor);
+      // The `since` box in a log viewer is a filter a person typed, not a claim
+      // to hold lines. It keeps its line count and can never be answered with
+      // rolledOver, which is about a position that no longer exists.
+      const sinceMs = position ? null : Date.parse(since);
+
+      const result = await dockerService.dockerContainerLogsPolling(appname, {
+        position,
+        since: Number.isFinite(sinceMs) ? sinceMs : null,
+        lineCount: parsedLineCount,
       });
 
       res.json({
-        logs,
+        logs: result.lines,
         lineCount: parsedLineCount,
-        logCount: logs.length,
+        logCount: result.lines.length,
         sinceTimestamp: since,
-        truncated: parsedLineCount === 'all' ? false : logs.length >= parsedLineCount,
+        // The position reached. A reader hands it back and is answered with what
+        // it has not seen; it never has to read it.
+        cursor: result.position ? logCursor.encode(result.position) : cursor || null,
+        // The line this reader asked from no longer exists - docker discarded the
+        // file holding it. What sat between it and the oldest line below is gone
+        // and cannot be fetched by anyone.
+        rolledOver: result.rolledOver,
+        // The line this reader asked from is further back than one read reaches,
+        // so it has been moved to the end of the log and what sat between was
+        // not delivered. Those lines still exist, unlike rolledOver's - reaching
+        // them costs a read of the whole retained log, which is 349ms of blocked
+        // event loop per poll against 1ms bounded, and the position that asks
+        // for it is a value the caller writes. A reader that polls often enough
+        // never sees this.
+        skipped: result.skipped,
+        // The log holds more than the line limit asked for. Only a caller that
+        // sent one is told, and it is the same answer this field has always
+        // given. A positioned reader is never told it: nothing walks backwards,
+        // so the only thing it could do about it is a poll returning nothing.
+        truncated: result.truncated,
         status: 'success',
       });
     } else {
@@ -763,7 +740,11 @@ async function appExec(req, res) {
               error.name,
               error.code,
             );
-            res.write(errorResponse);
+            // createErrorMessage returns an OBJECT and res.write takes only a
+            // string or a buffer, so the path that exists to report the failure
+            // threw while reporting it - from inside the same callback, which is
+            // an exit rather than a 500.
+            res.write(serviceHelper.ensureString(errorResponse));
             res.end();
           } else {
             res.end();
@@ -1261,7 +1242,6 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
 module.exports = {
   appTop,
   appLog,
-  appLogStream,
   appLogPolling,
   appInspect,
   appStats,

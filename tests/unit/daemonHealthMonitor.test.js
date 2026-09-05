@@ -3,6 +3,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire');
 
 describe('daemonHealthMonitor tests', () => {
@@ -26,12 +27,7 @@ describe('daemonHealthMonitor tests', () => {
       delay: sinon.stub().resolves(),
     };
 
-    globalStateStub = {
-      removalInProgress: false,
-      installationInProgress: false,
-      softRedeployInProgress: false,
-      hardRedeployInProgress: false,
-    };
+    globalStateStub = resetGlobalState();
 
     logStub = {
       info: sinon.stub(),

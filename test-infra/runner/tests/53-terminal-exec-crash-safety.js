@@ -22,8 +22,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // Two distinct ways in, both asserted here:
 //   1. container present but NOT running -> daemon rejects exec create (409),
 //      dockerode yields a null exec.
-//   2. container absent -> dockerService.getDockerContainerByIdOrName reads .Id
-//      off an undefined lookup result and rejects before the handler's own
+//   2. container absent -> dockerService.getDockerContainerByIdOrName rejects
+//      with `Container <name> not found` before the handler's own
 //      `if (!container)` guard can run.
 //
 // The assertion that matters in both cases is the same: a socket error reaches the

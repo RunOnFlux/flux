@@ -139,6 +139,19 @@ export async function waitForAppRemoved(node, appName, timeout = 60000, opts) {
   return node.waitForEvent('app:removed', (data) => data.name === appName, timeout, opts);
 }
 
+// One component replaced in place, the app left installed. `hard` distinguishes
+// the volume-rebuilding redeploy from the data-preserving one (omit to match
+// either).
+export async function waitForComponentRedeployed(node, appName, componentName, hard, timeout = 180000, opts) {
+  return node.waitForEvent(
+    'app:componentRedeployed',
+    (d) => d.name === appName && d.component === componentName
+      && (hard === undefined || d.hard === hard),
+    timeout,
+    opts,
+  );
+}
+
 export async function waitForNodeStatus(node, predicate, timeout = 30000, opts) {
   return node.waitForEvent('confirmation:changed', predicate, timeout, opts);
 }

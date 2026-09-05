@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
 describe('appEvacuationSafety tests', () => {
@@ -36,10 +37,7 @@ describe('appEvacuationSafety tests', () => {
     fluxNetworkHelperStub = {
       getLocalSocketAddress: sinon.stub().resolves(LOCAL),
     };
-    globalStateStub = {
-      backupInProgress: [],
-      restoreInProgress: [],
-    };
+    globalStateStub = resetGlobalState();
 
     appEvacuationSafety = proxyquire('../../ZelBack/src/services/appLifecycle/appEvacuationSafety', {
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
@@ -65,7 +63,7 @@ describe('appEvacuationSafety tests', () => {
 
   describe('refuses on anything it cannot establish', () => {
     it('refuses while a backup is running', async () => {
-      globalStateStub.backupInProgress.push('plainapp');
+      globalStateStub.tryStartBackup('plainapp');
 
       const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
 
@@ -74,7 +72,7 @@ describe('appEvacuationSafety tests', () => {
     });
 
     it('refuses while a restore is running', async () => {
-      globalStateStub.restoreInProgress.push('plainapp');
+      globalStateStub.tryStartRestore('plainapp');
 
       const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
 

@@ -42,6 +42,29 @@ const runningAppsCache = new Set();
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
 
+// Containers FluxOS removed and has not created again — who removed the container,
+// which is the only thing the tampering decision turns on. Docker names, keyed as
+// stoppingContainers is.
+//
+// An absent container is the strongest local evidence of host-side interference the
+// node has, and the reconciler records it as `container_vanished`, the
+// heaviest-weighted tampering event there is. That reading holds only for a
+// container FluxOS did not remove: a teardown that fails part way leaves an absence
+// FluxOS caused with the app's row intact, and the app keeps being reconciled, so
+// membership here is what stops a node scoring its own removal against the app it
+// is hosting.
+//
+// Written by dockerService's removal funnels, dropped by its creation funnel, and
+// dropped for a whole app when the app's local row goes (nothing reconciles it
+// after that, so there is no absence left to attribute). FluxOS removed it ->
+// present; FluxOS created it -> absent; anything missing without an entry here is
+// what the tampering event is for.
+//
+// In-memory deliberately: across a restart the node genuinely cannot tell its own
+// removal from anyone else's, and an entry that survived would suppress a real
+// signal.
+const fluxRemovedContainers = new Set();
+
 // Syncthing folders this node holds writable (sendreceive), refreshed by the
 // syncthing monitor each pass and served to peers that ask before promoting a
 // folder of their own. Kept here rather than read from syncthing per request:
@@ -87,6 +110,27 @@ module.exports = {
 
   get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
   set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
+
+  // The operation holding this node right now, named, or null. `except` is the
+  // caller's OWN flag: a guard excludes the operation it belongs to and no
+  // others, because a redeploy that asked without excluding itself would refuse
+  // its own reinstall. Order is the order the guards asked in.
+  //
+  // Every entry point that can START work asks this. The five flags used to be
+  // read as hand-picked subsets - forty-six guards, exactly one of which read
+  // reinstallationOfOldAppsInProgress - so the periodic reinstall pass announced
+  // itself and the spawner walked straight past it, took the node during the
+  // pass's own wait, and left an app torn down that could not be rebuilt.
+  operationHolding(except = null) {
+    const held = [
+      ['removal', removalInProgress],
+      ['installation', installationInProgress],
+      ['soft redeploy', softRedeployInProgress],
+      ['hard redeploy', hardRedeployInProgress],
+      ['reinstallation', reinstallationOfOldAppsInProgress],
+    ].find(([name, on]) => on && name !== except);
+    return held ? held[0] : null;
+  },
 
   isOperationInProgress() {
     return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
@@ -172,6 +216,7 @@ module.exports = {
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
   get stoppingContainers() { return stoppingContainers; },
+  get fluxRemovedContainers() { return fluxRemovedContainers; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },

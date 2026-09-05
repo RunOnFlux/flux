@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -84,10 +85,11 @@ describe('AppSyncOrchestrator', () => {
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
     getMissingHashesStub = sinon.stub().resolves([]);
     reindexStub = sinon.stub().resolves();
-    globalStateStub = {
-      dbReady: false,
-      waitForBootContainerStateSettled: () => Promise.resolve(),
-    };
+    // The real module. dbReady stays closed - the assertions below are about the
+    // orchestrator opening it - and only the boot-settled wait is spied, so a
+    // test does not sit on a gate nothing here opens.
+    globalStateStub = resetGlobalState();
+    sinon.stub(globalStateStub, 'waitForBootContainerStateSettled').resolves();
     checkAndNotifyStub = sinon.stub().resolves();
     resetHashSyncForUpgradeStub = sinon.stub().resolves(0);
     findOneAndUpdateStub = sinon.stub().resolves();

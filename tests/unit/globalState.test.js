@@ -77,6 +77,47 @@ describe('globalState tests', () => {
     });
   });
 
+  describe('operationHolding tests', () => {
+    afterEach(() => {
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+      globalState.reinstallationOfOldAppsInProgress = false;
+    });
+
+    it('names nothing when the node is free', () => {
+      expect(globalState.operationHolding()).to.equal(null);
+    });
+
+    // The flag no guard used to read. A caller asking the question at all is the
+    // fix; answering it with four of the five would leave the same hole.
+    it('names the periodic reinstall pass, which is a holder like any other', () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      expect(globalState.operationHolding()).to.equal('reinstallation');
+    });
+
+    // A guard excludes the operation it belongs to and no others: the reinstall
+    // pass sets its own flag before the loop, so asking without the exclusion
+    // would make it skip every app on its own account.
+    it('excludes only the caller its own operation, and still sees the others', () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      expect(globalState.operationHolding('reinstallation')).to.equal(null);
+
+      globalState.removalInProgress = true;
+      expect(globalState.operationHolding('reinstallation')).to.equal('removal');
+    });
+
+    it('answers in the order the guards asked in, so the message does not change', () => {
+      globalState.hardRedeployInProgress = true;
+      globalState.installationInProgress = true;
+
+      expect(globalState.operationHolding()).to.equal('installation');
+    });
+  });
+
   describe('state flags tests', () => {
     it('should have default values for state flags', () => {
       expect(globalState.removalInProgress).to.equal(false);

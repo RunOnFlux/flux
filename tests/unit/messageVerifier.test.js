@@ -441,7 +441,6 @@ describe('messageVerifier tests', () => {
         },
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../fluxService': fluxServiceStub,
-        '../utils/globalState': {},
       });
     });
 

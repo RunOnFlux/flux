@@ -221,6 +221,11 @@ module.exports = {
     masterSlaveIntervalMs: 3000, // compressed g: FDM election cycle (prod 30s)
     installation: { probability: 100, delay: 5 },
     removal: { probability: 25, delay: 5 },
-    redeploy: { probability: 2, delay: 1, composedDelay: 1 },
+    // 1 = every pass. `Math.floor(Math.random() * probability) === 0` gates the
+    // reinstall of an app whose on-chain spec has changed; production spreads
+    // that over the fleet at 50% so a spec change does not restart every
+    // instance at once. A suite has one app and a bounded wait, and nothing here
+    // has an obsolete spec unless a suite deliberately made one.
+    redeploy: { probability: 1, delay: 1, composedDelay: 1 },
   },
 };

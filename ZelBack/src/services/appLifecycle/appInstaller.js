@@ -6,6 +6,7 @@ const verificationHelper = require('../verificationHelper');
 const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
+const { InstallOutcome } = require('../utils/installOutcome');
 const generalService = require('../generalService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
@@ -378,18 +379,18 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
-      return false;
+      return InstallOutcome.REFUSED;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
-      return false;
+      return InstallOutcome.REFUSED;
     }
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
@@ -398,9 +399,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
-      return false;
+      return InstallOutcome.REFUSED;
     }
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
@@ -456,9 +457,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       log.error(rStatus);
       if (res) {
         res.write(rStatus);
-        res.end();
+        if (res.flush) res.flush();
       }
-      return false;
+      return InstallOutcome.REFUSED;
     }
 
     // Lazy-load appQueryService to avoid circular dependency issues
@@ -636,8 +637,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
     if (res) {
+      // Written, not closed. Every caller here is mid-stream on a response its
+      // own endpoint opened; closing it from in here is what let a failed
+      // reinstall answer with the teardown's success line.
       res.write(serviceHelper.ensureString(successStatus));
-      res.end();
+      if (res.flush) res.flush();
     }
     globalState.installationInProgress = false;
 
@@ -649,7 +653,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     // while globalState.isOperationInProgress() is true, so broadcasting before
     // installationInProgress is cleared would exclude the just-installed app from
     // its own announcement. checkAndNotifyPeersOfRunningApps never throws (it
-    // catches internally), so running it after res.end() is safe.
+    // catches internally), so running it after the outcome is written is safe.
     if (!test && onInstallComplete) {
       await onInstallComplete();
       fluxEventBus.publish('app:installed', { name: appSpecifications.name, hash: appSpecifications.hash });
@@ -674,11 +678,19 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(removeStatus));
         if (res.flush) res.flush();
       }
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, sendRemovalMessage);
+      // endResponse false: the endpoint opened this response and closes it. With
+      // true, this teardown's own "was successfuly removed" landed as the last
+      // thing the caller saw, and the reinstall failure that caused it was
+      // written into a response that had already closed.
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage);
       log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
 
-    return false;
+    // The app is gone from this node - the teardown above removed it. A caller
+    // that reads this as "nothing happened" leaves a half-removed app behind;
+    // one that reads REFUSED as this destroys a running app for a scheduling
+    // collision. They are not the same answer.
+    return InstallOutcome.FAILED;
   } finally {
     if (test) {
       try {
@@ -689,7 +701,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       }
     }
   }
-  return true;
+  return InstallOutcome.INSTALLED;
 }
 
 /**
@@ -959,6 +971,15 @@ async function installAppLocally(req, res) {
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
+      // registerAppLocally refuses a concurrent removal or installation but not a
+      // redeploy or the periodic reinstall pass, and those hold the node across a
+      // teardown they intend to rebuild from. Asked here, before anything is
+      // written, so the refusal is still a status line rather than an envelope in
+      // a half-streamed body.
+      const heldBy = globalState.operationHolding();
+      if (heldBy) {
+        throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
+      }
       let appSpecifications;
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
@@ -1077,7 +1098,17 @@ async function installAppLocally(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    if (res.headersSent) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    } else {
+      res.json(errorResponse);
+    }
+  } finally {
+    // This response has one owner and it is here. registerAppLocally writes its
+    // progress into it and does not close it, so a failure that arrives after
+    // the stream has started still reaches the caller instead of landing in a
+    // response the installer had already ended.
+    if (!res.writableEnded) res.end();
   }
 }
 
@@ -1132,6 +1163,12 @@ async function testAppInstall(req, res) {
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
+      // A test install creates and starts real containers, so it takes the node
+      // the same way a real one does.
+      const heldBy = globalState.operationHolding();
+      if (heldBy) {
+        throw new Error(`Another application is undergoing ${heldBy}. Test installation not possible.`);
+      }
       let appSpecifications;
 
       // anyone can deploy temporary app
@@ -1250,7 +1287,6 @@ async function testAppInstall(req, res) {
           status: `Test installation validation passed. Installation skipped due to architecture incompatibility: this node is ${localArch} but app requires [${commonArchitectures.join(', ')}]`,
         };
         res.write(serviceHelper.ensureString(successMessage));
-        res.end();
         return;
       }
 
@@ -1267,7 +1303,17 @@ async function testAppInstall(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    if (res.headersSent) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    } else {
+      res.json(errorResponse);
+    }
+  } finally {
+    // This response has one owner and it is here. registerAppLocally writes its
+    // progress into it and does not close it, so a failure that arrives after
+    // the stream has started still reaches the caller instead of landing in a
+    // response the installer had already ended.
+    if (!res.writableEnded) res.end();
   }
 }
 
