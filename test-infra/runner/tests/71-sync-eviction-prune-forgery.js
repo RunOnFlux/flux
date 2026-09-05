@@ -228,22 +228,27 @@ describe('Sync response: eviction, pruning and forged events', function () {
     await env.startDiscovery([10]);
     await waitForOrchestratorState(joiner, 'READY', 180000);
 
-    // THE GUARD, not decoration. Every assertion below rests on the seeded
-    // broadcasts still being inside their acceptance window when the joiner
-    // reads them, and this suite has twice failed by spending that window on
-    // setup instead - the second time with the boot inside it, measured at 24.6s
-    // of 63s idle and ~83s under a six-way gate.
+    // THE PREMISE, asserted on what arrived rather than on how long it took.
     //
-    // Without this, moving the boot back inside the window reads as green on any
-    // idle box and red only on a loaded one, which is how it got here. Asserted
-    // against the live knob rather than a literal, so compressing locationTtlS
-    // further tightens this too, and a third of it is the margin: the gate must
-    // be able to treble what an idle box costs and still fit.
+    // messageStore refuses a broadcast older than locationTtlS and skips it
+    // without a word, so seeded events that expire before the joiner reads them
+    // leave an empty location list rather than a rejected message - and the
+    // eviction assertion below passes on an empty store either way.
+    //
+    // Judged by whether the joiner holds them, so an idle box and a loaded one
+    // are held to the same standard: elapsed time is a property of the box, and
+    // the premise is a property of the data. The elapsed figure names WHICH
+    // fault this is when nothing arrived - past the window, setup outran it;
+    // inside the window, the response never carried them.
     const windowMs = loadSharedConfig().fluxapps.locationTtlS * 1000;
     const spent = Date.now() - stamp;
-    expect(spent, `setup spent ${spent}ms of the ${windowMs}ms acceptance window - `
-      + 'the seeded broadcasts expire before the joiner reads them under any load')
-      .to.be.lessThan(windowMs / 3);
+    const seeded = await dbClient(11).getAppLocationsByIp(socketAddr(PRUNE_NODE));
+    expect(seeded.map((row) => row.name), spent > windowMs
+      ? `setup spent ${spent}ms of the ${windowMs}ms acceptance window, so the seeded `
+        + 'broadcasts expired before the joiner read them'
+      : `the joiner reached READY ${spent}ms after seeding, inside the ${windowMs}ms `
+        + 'window, and holds none of the seeded broadcasts')
+      .to.include('keptapp');
   });
 
   after(async function () {

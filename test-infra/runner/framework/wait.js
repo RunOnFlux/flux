@@ -38,17 +38,23 @@ export async function waitFor(condition, { timeout = 60000, interval = 2000, lab
 }
 
 // Container-state wait helpers (docker-level, via the node's DinD)
+// Thrown rather than returned false, so the timeout carries what docker actually
+// reported - a status string, or that nothing matched the name. waitFor keeps the
+// last throw for its message and retries either way, so the loop is unchanged and
+// a condition that never holds still times out.
 export async function waitForUp(client, appName, label, { timeout = 120000, interval = 2000 } = {}) {
   await waitFor(async () => {
     const status = await getAppContainerStatus(client.container, appName);
-    return !!(status && status.status.startsWith('Up'));
+    if (status?.status?.startsWith('Up')) return true;
+    throw new Error(status ? `${status.name} is "${status.status}"` : `no container matching ${appName}`);
   }, { timeout, interval, label });
 }
 
 export async function waitForDown(client, appName, label, { timeout = 60000, interval = 2000 } = {}) {
   await waitFor(async () => {
     const status = await getAppContainerStatus(client.container, appName, { all: true });
-    return !!(status && !status.status.startsWith('Up'));
+    if (status && !status.status.startsWith('Up')) return true;
+    throw new Error(status ? `${status.name} is still "${status.status}"` : `no container matching ${appName}`);
   }, { timeout, interval, label });
 }
 

@@ -297,7 +297,30 @@ describe('a surplus copy that is also the writer', function () {
       refusal.catch(() => {});
 
       await stopTicker();
-      await driveUntil(env.clients[nextIndex], async () => declined !== null, {
+      await driveUntil(env.clients[nextIndex], async () => {
+        if (declined !== null) return true;
+        // THE CHAIN DOES NOT ADVANCE WHILE THE PASS WOULD SEE NO SURPLUS, for
+        // the reason the trim test below holds it: the pass runs on
+        // `blockHeight % (removeFluxAppsPeriod * speedMultiplier) === 0` - 44
+        // blocks - and this drive spends about 58, so there is one attempt and
+        // no second.
+        //
+        // It reads THIS node's own location list, not the one the surplus was
+        // established against above, which is node 0's. A pass landing while
+        // this node is still short of the fourth holder returns NONE - the same
+        // answer a fleet with nothing to trim gives - and the one attempt is
+        // spent. Driving a block only while this node can see the surplus is
+        // what removes the coin rather than tossing it again.
+        await waitFor(async () => {
+          const res = await env.clients[nextIndex].getAppLocations(appName);
+          return Array.isArray(res?.data) && res.data.length >= HOLDERS.length + 1;
+        }, {
+          timeout: 120000,
+          interval: 3000,
+          label: 'the second-newest sees the surplus before another block is driven',
+        });
+        return false;
+      }, {
         timeoutMs: 600000,
         label: 'the second-newest reports a surplus it would not act on',
       });
