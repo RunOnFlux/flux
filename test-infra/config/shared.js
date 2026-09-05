@@ -90,9 +90,24 @@ module.exports = {
     defaultSwap: 0,
     appSyncPeerThreshold: 2,
     appSyncDegradedThreshold: 1,
-    appSyncMinPeerUptime: 0,
     appSyncMinCompletions: 1,
+    appSyncMinPeerUptime: 0,
     syncTimeoutMs: 30000,
+    // 10 blocks at the stub's 5s tick, so 50s, against production's 250 blocks.
+    // A fleet where every node boots at once has nobody who can answer a state
+    // sync yet, so the fallback is the road every node takes and 250 blocks is
+    // 21 minutes of it.
+    //
+    // Not lower. Suites that stop the ticker drive a handful of blocks in their
+    // own setup and several of them require a node to STAY in SYNCING - at 2
+    // blocks suite 13's peer-drop case cleared its premise by a single block,
+    // which is a window rather than a margin. 10 leaves room for a setup to
+    // drive blocks without deciding the test.
+    //
+    // A suite that wants a peer able to answer from the start asks for
+    // syncedNodes; a suite measuring this budget itself declares the production
+    // value, as suite 19 does.
+    appSyncFallbackMinutes: 5,
     hashSyncMaxRetries: 2,
     hashSyncRetryMs: 10000,
     hashSyncSettleMs: 2000,

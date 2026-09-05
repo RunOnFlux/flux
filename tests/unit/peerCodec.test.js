@@ -261,6 +261,13 @@ describe('peerCodec', () => {
       expect(decoded.signature).to.equal(testSig);
     });
 
+    it('refuses to build a request that carries no signature or key', () => {
+      expect(() => encodeRequestTempMessages(0, testRequestTs, testPubkey, null)).to.throw('needs a signature');
+      expect(() => encodeRequestTempMessages(0, testRequestTs, testPubkey, '')).to.throw('needs a signature');
+      expect(() => encodeRequestTempMessages(0, testRequestTs, null, testSig)).to.throw('needs a public key');
+      expect(() => encodeRequestTempMessages(0, testRequestTs, '', testSig)).to.throw('needs a public key');
+    });
+
     it('should encode and decode REQUEST_APP_RUNNING', () => {
       const buf = encodeRequestAppRunning(1777626000000, testRequestTs, testPubkey, testSig);
       expect(buf[0]).to.equal(MSG_TYPE.REQUEST_APP_RUNNING);

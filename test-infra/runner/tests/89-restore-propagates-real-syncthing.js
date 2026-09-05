@@ -1,10 +1,10 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, getAppContainerStatus } from '../framework/container.js';
+import { execInContainer } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
+import { waitFor, waitForReconcileActuated, waitForUp } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
   isDaemonUp, getDeviceId, getVersion, getConnectedDevices, listFolderFiles,
@@ -126,10 +126,8 @@ describe('a restore reaches the other instances through syncthing', function () 
     // Waited on the container's STATE, not on a `started` actuation: this suite's
     // own before() installs the app, so an unanchored wait for that event is
     // satisfied by the install rather than by the leader start.
-    await waitFor(async () => {
-      const status = await getAppContainerStatus(a.container, appName);
-      return Boolean(status && status.status.startsWith('Up'));
-    }, { timeout: 180000, interval: 3000, label: 'the app is running and stoppable before its data is replaced' });
+    await waitForUp(a, appName, 'the app is running and stoppable before its data is replaced',
+      { timeout: 180000, interval: 3000 });
 
     // an archive holding one identifiable file, so its arrival on the peer is
     // unambiguous rather than inferred from a byte count

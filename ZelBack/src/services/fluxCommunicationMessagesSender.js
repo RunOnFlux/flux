@@ -9,6 +9,7 @@ const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
+const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const myMessageCache = cacheManager.tempMessageCache;
@@ -293,6 +294,25 @@ async function broadcastTemporaryAppMessage(message) {
 
 async function respondWithTempMessages(peer, sinceTimestamp = 0) {
   try {
+    // THE SAME INCOMPLETENESS, ON A DIFFERENT COLLECTION. A node still catching
+    // up holds SOME of the network's pending registrations and cannot say which
+    // ones it is missing, so handing them over is exactly the partial answer the
+    // three app-state types refuse to give: the asker has no way to tell a short
+    // set from the whole one, and every message in it verifying says nothing
+    // about the ones that are absent.
+    //
+    // Refusing costs this node nothing on its own road to authority. Pending
+    // registrations count toward no completion - the tally is the three
+    // app-state types - so the sync that makes a node authoritative does not
+    // depend on any peer answering this, and a fleet of booting nodes still
+    // reaches readiness by the block fallback exactly as before.
+    if (!globalState.appStateAuthoritative) {
+      log.info(`respondWithTempMessages - Refusing ${peer.key}: this node's app state is not authoritative yet`);
+      await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: [], done: true, refused: true }, peer, { awaitDrain: true });
+      fluxEventBus.publish('sync:refused', { syncType: 'fluxapptempsync', peer: peer.key });
+      return;
+    }
+
     const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -330,6 +350,23 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
 
 async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validityMs, query, projection, messageType, label }) {
   try {
+    // A NODE THAT DOES NOT KNOW YET SAYS SO, rather than sending what it
+    // happens to hold. An empty response and a complete one are the same three
+    // fields on the wire, so the asker counted a booting node's nothing as one
+    // of the three surveys it needs - and three booting nodes could tell it the
+    // network was empty without one of them saying anything false.
+    //
+    // Refusing is cheaper than answering badly and it is decided here, at the
+    // moment of asking, so there is nothing cached to go stale. Older nodes
+    // send no such field, which reads as a refusal of nothing and leaves them
+    // behaving exactly as they do now.
+    if (!globalState.appStateAuthoritative) {
+      log.info(`${label} - Refusing ${peer.key}: this node's app state is not authoritative yet`);
+      await sendSignedMessage({ type: messageType, messages: [], done: true, refused: true }, peer, { awaitDrain: true });
+      fluxEventBus.publish('sync:refused', { syncType: messageType, peer: peer.key });
+      return;
+    }
+
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 

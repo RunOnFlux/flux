@@ -12,6 +12,7 @@ let masterSlaveAppsRunning = false;
 const daemonReadyGate = new AsyncGate();
 const bootContainerStateSettledGate = new AsyncGate();
 const dbReadyGate = new AsyncGate();
+let appStateAuthoritative = false;
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 const backupInProgress = [];
@@ -106,6 +107,18 @@ module.exports = {
   get dbReady() { return dbReadyGate.ready; },
   set dbReady(value) { if (value) dbReadyGate.open(); else dbReadyGate.close(); },
   waitForDbReady() { return dbReadyGate.wait(); },
+
+  // Whether this node's ephemeral app-state store is worth another node's
+  // survey: its own state sync completed, or it has spent the block timer
+  // taking live broadcasts. NOT dbReady, which is about globalAppsInformation
+  // and a different set of collections entirely.
+  //
+  // It lives here rather than being read off the orchestrator because the only
+  // caller is the sync responder, and fluxCommunicationMessagesSender reaching
+  // back into appSyncOrchestrator is a cycle. The orchestrator owns the value
+  // and mirrors it; nothing else writes it.
+  get appStateAuthoritative() { return appStateAuthoritative; },
+  set appStateAuthoritative(value) { appStateAuthoritative = Boolean(value); },
 
   get updateSyncthingRunning() { return updateSyncthingRunning; },
   set updateSyncthingRunning(value) { updateSyncthingRunning = value; },

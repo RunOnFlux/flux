@@ -131,11 +131,20 @@ async function batchVerifyBroadcasts(broadcasts, label) {
   return verified;
 }
 
-async function handleTempSyncResponse(message, peerKey) {
+async function handleTempSyncResponse(message, peerSocket) {
   try {
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
     if (!message.data || message.data.type !== 'fluxapptempsync') return;
-    const { messages, done } = message.data;
+    const { messages, done, refused } = message.data;
+    // A peer whose own app state is not authoritative holds an unknown fraction
+    // of the network's pending registrations, and says so rather than sending
+    // the fraction. Nothing is replaced on the strength of it - this stream
+    // counts toward no completion - so the refusal is recorded and no more.
+    if (refused) {
+      log.info(`handleTempSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleTempSyncResponse - Received ${messages.length} temp messages from ${peerKey} (done: ${!!done})`);
     let stored = 0;
@@ -153,11 +162,21 @@ async function handleTempSyncResponse(message, peerKey) {
   }
 }
 
-async function handleAppRunningSyncResponse(message, peerKey) {
+async function handleAppRunningSyncResponse(message, peerSocket) {
   try {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
-    if (!peerManager.isSyncRequested(peerKey)) return;
-    const { messages, done } = message.data;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
+    const { messages, done, refused } = message.data;
+    // A peer that says its own app state is not worth surveying has ANSWERED,
+    // and the answer is not a completion. Marking it declined stops it being
+    // offered again on this connection, which opens a deficit in the pool of
+    // outstanding requests and gets another peer asked.
+    if (refused) {
+      log.info(`handleAppRunningSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, 'apprunning', peerKey);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
 
@@ -188,7 +207,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
           // Evicted events lack per-event signatures because they are generated
           // locally by nodeStatusMonitor, which makes non-deterministic HTTP
           // probe decisions about whether a remote node is alive. The
-          // isSyncRequested check above ensures only solicited responses are
+          // isSyncResponseWanted check above ensures only solicited responses are
           // processed, but a compromised confirmed peer we sync from could still
           // include fake evictions. Impact is limited: only affects this node's
           // view and self-heals on the next apprunning broadcast (≤60 min).
@@ -270,7 +289,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     }
 
     if (done) {
-      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning', peerKey);
       log.info('handleAppRunningSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -278,11 +297,18 @@ async function handleAppRunningSyncResponse(message, peerKey) {
   }
 }
 
-async function handleAppInstallingSyncResponse(message, peerKey) {
+async function handleAppInstallingSyncResponse(message, peerSocket) {
   try {
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
     if (!message.data || message.data.type !== 'fluxappinstallingsync') return;
-    const { messages, done } = message.data;
+    const { messages, done, refused } = message.data;
+    // A refusal is an answer and not a completion - see handleAppRunningSyncResponse.
+    if (refused) {
+      log.info(`handleAppInstallingSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, 'appinstalling', peerKey);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
@@ -293,7 +319,7 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored });
     });
     if (done) {
-      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling', peerKey);
       log.info('handleAppInstallingSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -301,11 +327,18 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
   }
 }
 
-async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
+async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
   try {
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    const peerKey = peerSocket.key;
     if (!message.data || message.data.type !== 'fluxappinstallingerrorssync') return;
-    const { messages, done } = message.data;
+    const { messages, done, refused } = message.data;
+    // A refusal is an answer and not a completion - see handleAppRunningSyncResponse.
+    if (refused) {
+      log.info(`handleAppInstallingErrorsSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, 'apperrors', peerKey);
+      return;
+    }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
@@ -316,7 +349,7 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored });
     });
     if (done) {
-      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors', peerKey);
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -701,26 +734,23 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
 
 const syncChunkQueues = new Map();
 
-async function processSyncChunk(msgObj, peerKey) {
-  const result = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
-  if (result !== fluxCommunicationUtils.VerifyResult.OK) {
-    log.warn(`Sync response from ${peerKey} failed envelope verification: ${result}`);
-    return;
-  }
-
+// Verified by dispatchSyncResponse before the chunk was queued, because whether
+// a peer signed what it sent is a statement about the peer and the deadline
+// waiting on it needs the answer at arrival, not at the back of a queue.
+async function processSyncChunk(msgObj, peerSocket) {
   const { type } = msgObj.data;
   switch (type) {
     case 'fluxapptempsync':
-      await handleTempSyncResponse(msgObj, peerKey);
+      await handleTempSyncResponse(msgObj, peerSocket);
       break;
     case 'fluxapprunningsync':
-      await handleAppRunningSyncResponse(msgObj, peerKey);
+      await handleAppRunningSyncResponse(msgObj, peerSocket);
       break;
     case 'fluxappinstallingsync':
-      await handleAppInstallingSyncResponse(msgObj, peerKey);
+      await handleAppInstallingSyncResponse(msgObj, peerSocket);
       break;
     case 'fluxappinstallingerrorssync':
-      await handleAppInstallingErrorsSyncResponse(msgObj, peerKey);
+      await handleAppInstallingErrorsSyncResponse(msgObj, peerSocket);
       break;
     default:
       log.warn(`Unknown sync response type: ${type}`);
@@ -730,7 +760,39 @@ async function processSyncChunk(msgObj, peerKey) {
 async function dispatchSyncResponse(msgObj, peerSocket) {
   try {
     const peerKey = peerSocket.key;
-    if (!peerManager.isSyncRequested(peerKey)) return;
+    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+
+    // THE PEER SPOKE, AND IT REALLY WAS THE PEER. Two different questions used
+    // to be split at the wrong seam: arrival on one side, everything else on
+    // the other. The seam that matters is whose statement it is.
+    //
+    // Whether a peer signed what it sent is about the PEER, and it is a
+    // signature check. Storing two thousand messages, or re-verifying every
+    // pending registration, is about US. So the envelope is verified here, at
+    // arrival and ahead of the deadline it renews, and the payload work stays
+    // in the queue below.
+    //
+    // Announced at arrival rather than after that work, because a peer that
+    // answered all four requests correctly and instantly went unheard for as
+    // long as WE took on the first of them - and was recorded as having said
+    // nothing and set aside, with the three answers queued behind it discarded
+    // on the way out.
+    //
+    // And unverifiable bytes are not the peer speaking. Credited as progress
+    // they renewed the deadline that exists to take the slot back, so a peer
+    // streaming rubbish inside every stall window held one of the answers this
+    // node needs for the whole attempt while never answering at all.
+    const verdict = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+    if (verdict !== fluxCommunicationUtils.VerifyResult.OK) {
+      log.warn(`Sync response from ${peerKey} failed envelope verification: ${verdict}`);
+      return;
+    }
+
+    // A refusal is not progress. It ends the request rather than extending it,
+    // and the handler it reaches takes it from here.
+    if (!msgObj?.data?.refused) {
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, peerKey);
+    }
 
     if (!syncChunkQueues.has(peerKey)) {
       syncChunkQueues.set(peerKey, { queue: [], processing: false });
@@ -743,7 +805,7 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
 
     while (state.queue.length > 0) {
       const chunk = state.queue.shift();
-      await processSyncChunk(chunk, peerKey);
+      await processSyncChunk(chunk, peerSocket);
     }
 
     state.processing = false;
@@ -1762,6 +1824,9 @@ module.exports = {
   logSocketsEvery,
   handleAppRunningMessage,
   handleAppInstallingMessage,
+  handleAppRunningSyncResponse,
+  handleAppInstallingSyncResponse,
+  handleAppInstallingErrorsSyncResponse,
   handleIPChangedMessage,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,

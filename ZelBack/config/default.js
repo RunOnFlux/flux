@@ -384,8 +384,21 @@ module.exports = {
     minUpTime: 1800, // 30 mins
     appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
-    appSyncMinPeerUptime: 7500, // seconds a peer must have been running before we sync from it
     appSyncMinCompletions: 3, // sync responses needed per type before spawner can start
+    // Applies ONLY to peers whose build cannot refuse a sync request - one that
+    // can is asked whatever its uptime, because it answers for itself. Retires
+    // with the last such build.
+    appSyncMinPeerUptime: 7500,
+    // How long a node waits for a state sync before deciding that what it has
+    // is what it gets. Both roads to readiness, and to answering another node's
+    // sync request, so a node with a 0 here is authoritative from the moment it
+    // starts - which is how a fleet gets a peer that can answer at all.
+    //
+    // 125 minutes is locationTtlS below, in minutes: one full lifetime of a
+    // running-app location record, so every holder has had to announce itself
+    // at least once. That is what makes waiting it out equivalent to a view,
+    // and it is why there is no shorter variant of it for anyone.
+    appSyncFallbackMinutes: 125,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

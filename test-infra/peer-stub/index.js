@@ -11,6 +11,8 @@ if (process.env.FLUX_TEST_HARNESS !== 'true') {
 
 const WS_PORT = Number(process.env.WS_PORT) || 16127;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 16128;
+const SILENT_APP_STATE_SYNC = process.env.SILENT_APP_STATE_SYNC === 'true';
+const DIAL_TARGETS = (process.env.DIAL_TARGETS || '').split(',').filter(Boolean);
 const { PRIVATE_KEY, PUBLIC_KEY, NODE_IP } = process.env;
 
 if (!PRIVATE_KEY || !PUBLIC_KEY) {
@@ -112,6 +114,10 @@ async function serialiseAndSignBroadcast(data) {
 }
 
 async function handleMessage(ws, rawData) {
+  // Binary frames are the peer protocol's own encoding - hash traffic and the
+  // app-state sync requests. This stub speaks neither, and a JSON parse error
+  // per incoming request is noise rather than a finding.
+  if (rawData[0] !== 0x7b) return;
   try {
     const msg = JSON.parse(rawData);
     const { data } = msg;
@@ -156,7 +162,15 @@ wss.on('headers', (headers) => {
   // stubs then had a real chance of drawing only stubs, and every test needing
   // an app to be spawned waited out its whole budget for a spawner that was
   // never running. Suite 98 lost a gate to it.
-  headers.push('X-Flux-Capabilities: peerExchange');
+  // DELIBERATELY SILENT, when asked for. Claiming appStateSync without
+  // implementing it is what cost suite 98 a gate: a node asked a stub, got
+  // nothing, timed out and never started its spawner. That is no longer a trap
+  // but a case with a name - a peer whose socket is perfectly healthy and which
+  // never answers - and the asker is now expected to give up on it and ask
+  // someone else. So a suite can ask for exactly that, and gets it only when it
+  // does.
+  const capabilities = SILENT_APP_STATE_SYNC ? 'peerExchange,appStateSync' : 'peerExchange';
+  headers.push(`X-Flux-Capabilities: ${capabilities}`);
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
 });
@@ -341,7 +355,36 @@ wsServer.on('upgrade', (req, socket, head) => {
 
 wsServer.listen(WS_PORT, () => {
   console.log(`Peer stub ${NODE_IP} WS server listening on port ${WS_PORT}`);
+  if (DIAL_TARGETS.length) askToBeDialled();
 });
+
+// ASK THE NODES TO DIAL US, because nothing else will.
+//
+// The mesh forms by reciprocity: a node asks a peer to add it as an outgoing
+// peer, and the PEER dials back. A stub is a server with no client, so it can
+// never dial back, which is why discovery reaches a stub and gives up - the
+// node's request fails and it records a failed connection. Doing what a real
+// node does over plain HTTP is the whole of what was missing.
+//
+// Only when a suite asked for it, so every stub that came before behaves
+// exactly as it did: acquiring connections a suite did not ask for would change
+// peer counts under fleets that were written against the old behaviour.
+function askToBeDialled() {
+  const ask = (ip) => {
+    const req = http.get(
+      `http://${ip}:${WS_PORT}/flux/addoutgoingpeer/${NODE_IP}:${WS_PORT}`,
+      { timeout: 5000 },
+      (res) => { res.resume(); },
+    );
+    req.on('timeout', () => req.destroy());
+    // A node that is not up yet refuses; the next pass finds it.
+    req.on('error', () => {});
+  };
+  const round = () => DIAL_TARGETS.forEach(ask);
+  round();
+  const timer = setInterval(round, 5000);
+  timer.unref();
+}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {

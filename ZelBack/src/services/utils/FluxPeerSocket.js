@@ -84,6 +84,16 @@ const DIRECTION = Object.freeze({
 
 class FluxPeerSocket {
   /**
+   * Distinguishes one connection to an address from the next one to it.
+   *
+   * `ip:port` names a NODE, and a node that reconnects is the same key over a
+   * different socket. Anything recorded against a connection - a request whose
+   * answer is still expected, and what that peer said about it - needs an
+   * identity the address alone does not give it.
+   */
+  static #nextConnectionId = 1;
+
+  /**
    * @param {WebSocket} ws - raw WebSocket
    * @param {string} ip
    * @param {string} port
@@ -94,6 +104,8 @@ class FluxPeerSocket {
     this.ip = ip;
     this.port = String(port);
     this.key = `${ip}:${this.port}`;
+    this.connectionId = FluxPeerSocket.#nextConnectionId;
+    FluxPeerSocket.#nextConnectionId += 1;
     this.manager = manager;
 
     this.latency = null;
@@ -452,7 +464,7 @@ class FluxPeerSocket {
         || syncType === 'fluxapprunningsync'
         || syncType === 'fluxappinstallingsync'
         || syncType === 'fluxappinstallingerrorssync') {
-        if (manager.syncResponseDispatcher && manager.isSyncRequested(this.key)) {
+        if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
           setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
           return;
         }
@@ -471,6 +483,11 @@ const FLUX_CAPABILITIES = Object.freeze([
   'peerExchange',
   'binaryMessages',
   'appStateSync',
+  // This build answers a state-sync request it cannot usefully serve with a
+  // refusal, instead of an empty batch that reads as a completed survey. A peer
+  // that does not claim it cannot tell us it knows nothing, so it is still held
+  // to the uptime proxy - see getEligibleSyncPeers.
+  'appStateSyncRefusal',
 ]);
 
 module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };

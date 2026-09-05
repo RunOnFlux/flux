@@ -140,6 +140,26 @@ export async function placeGAppInOrder(env, app, {
       setNoPeerData({ ip: getSubnetConfig().nodeIp(i + 1), folder }),
     ])));
   }
+
+  // EVERY HOLDER IS READY BEFORE THE FIRST PLACEMENT, because the stamp this
+  // loop orders on is written when a container starts and a node still syncing
+  // defers that start until its own sync completes. The masterSlave primary is
+  // the most SENIOR holder - the one placed first - so the deferred start lands
+  // after the later placements and re-stamps it as the NEWEST, handing "the
+  // newest copy" to whoever the caller deliberately placed there. Waited for
+  // rather than slept past: it is read from the event buffer, so a node that
+  // reached READY during bootAndPeer satisfies it at once.
+  await Promise.all(placementOrder.map((i) => waitFor(
+    () => env.clients[i].getEventBuffer().some(
+      (e) => e.event === 'orchestrator:stateChanged' && e.data?.to === 'READY',
+    ),
+    {
+      timeout: 300000,
+      interval: 1000,
+      label: `holder ${i} reached READY before any placement`,
+    },
+  )));
+
   for (const i of placementOrder) {
     const installAfter = env.clients[i].getLastEventId();
     // eslint-disable-next-line no-await-in-loop
@@ -158,20 +178,30 @@ export async function placeGAppInOrder(env, app, {
     // been placed, so "the newest copy" named a different node than the fixture
     // had arranged and the suite refused on its own precondition.
     //
-    // Registration is the fact the order is ranked on, so waiting for it makes
-    // the order what the caller asked for at any speed. The gap below stays: it
-    // separates two stamps that would otherwise land in the same millisecond and
-    // fall through to the ip tiebreak.
+    // THE STAMP is the fact the order is ranked on, not the record carrying it.
+    // A location present without a runningSince sorts as the MOST SENIOR holder
+    // - electionOrder puts holders carrying none first - so a holder waited for
+    // on presence alone can be placed last and still rank oldest, handing "the
+    // newest copy" to whoever was placed before it. Observed exactly that: the
+    // three containers started 11:32:55, 11:33:44, 11:34:39 in the order asked
+    // for, and the suite still refused on its own precondition because the last
+    // one's record had arrived without its stamp.
+    //
+    // Waiting for the stamp makes the order what the caller asked for at any
+    // speed. The gap below stays: it separates two stamps that would otherwise
+    // land in the same millisecond and fall through to the ip tiebreak.
     // eslint-disable-next-line no-await-in-loop
     await waitFor(async () => {
       const res = await env.clients[i].getAppLocations(app.spec.name);
       if (res?.status !== 'success' || !Array.isArray(res.data)) return false;
       const mine = getSubnetConfig().nodeIp(i + 1);
-      return res.data.some((location) => location.ip.split(':')[0] === mine);
+      return res.data.some(
+        (location) => location.ip.split(':')[0] === mine && location.runningSince,
+      );
     }, {
       timeout: 120000,
       interval: 1000,
-      label: `holder ${i} registered before the next is placed`,
+      label: `holder ${i} registered WITH a runningSince before the next is placed`,
     });
 
     // eslint-disable-next-line no-await-in-loop

@@ -514,7 +514,7 @@ describe('FluxPeerSocket tests', () => {
     it('should route sync responses to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncRequested').returns(true);
+      sinon.stub(manager, 'isSyncResponseWanted').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -530,10 +530,10 @@ describe('FluxPeerSocket tests', () => {
       sinon.assert.notCalled(manager.messageDispatcher);
     });
 
-    it('should fall through to messageDispatcher when isSyncRequested is false', async () => {
+    it('should fall through to messageDispatcher when the response is not wanted', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncRequested').returns(false);
+      sinon.stub(manager, 'isSyncResponseWanted').returns(false);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -552,7 +552,7 @@ describe('FluxPeerSocket tests', () => {
     it('should route all four sync response types to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncRequested').returns(true);
+      sinon.stub(manager, 'isSyncResponseWanted').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -672,11 +672,22 @@ describe('FluxPeerManager tests', () => {
   // node asked its own address, timed out at zero completions, and never
   // published SPAWNER_READY.
   describe('getEligibleSyncPeers', () => {
+    // A current build: it can refuse, so it is asked whatever its uptime.
     const eligible = (m, ip) => {
       const ws = createMockWs(ip, '16127');
       const peer = m.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
       peer.remoteCapabilities.add('appStateSync');
-      peer.remoteFluxUptime = 99999;
+      peer.remoteCapabilities.add('appStateSyncRefusal');
+      return peer;
+    };
+
+    // A build that answers a request it cannot serve with an empty batch, which
+    // reads as a completed survey of an empty network.
+    const legacy = (m, ip, uptimeSeconds) => {
+      const ws = createMockWs(ip, '16127');
+      const peer = m.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
+      peer.remoteCapabilities.add('appStateSync');
+      peer.remoteFluxUptime = uptimeSeconds;
       return peer;
     };
 
@@ -685,7 +696,7 @@ describe('FluxPeerManager tests', () => {
       eligible(manager, '10.0.0.2');
       manager.setOwnSocketAddress('10.0.0.1:16127');
 
-      const keys = manager.getEligibleSyncPeers(0).map((p) => p.key);
+      const keys = manager.getEligibleSyncPeers().map((p) => p.key);
 
       expect(keys, 'a node was offered itself to sync from').to.not.include('10.0.0.1:16127');
       expect(keys).to.include('10.0.0.2:16127');
@@ -695,7 +706,105 @@ describe('FluxPeerManager tests', () => {
       eligible(manager, '10.0.0.1');
       eligible(manager, '10.0.0.2');
 
-      expect(manager.getEligibleSyncPeers(0)).to.have.lengthOf(2);
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(2);
+    });
+
+    // There is no uptime bar any more. It was 7500 seconds - the same 125
+    // minutes as the block fallback - so it only ever admitted peers that had
+    // already become authoritative the slow way, and it was read from a header
+    // the peer sets itself. A node that has just started is now asked like any
+    // other, and answers for itself: it refuses if it has not caught up.
+    it('offers a peer that has only just started but can refuse', () => {
+      const peer = eligible(manager, '10.0.0.1');
+      peer.remoteFluxUptime = 1;
+
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('offers a peer that can refuse and never said how long it had been up', () => {
+      const peer = eligible(manager, '10.0.0.1');
+      peer.remoteFluxUptime = null;
+
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    // THE MIXED FLEET. An older build cannot say it has nothing worth
+    // surveying: it answers with an empty batch, and the asker counts that as
+    // one of the three peers it needs. Asking young ones would put the original
+    // defect back during exactly the window that makes it likely - a rolling
+    // upgrade, when a great many nodes are young at once.
+    it('does not offer a young peer that cannot refuse', () => {
+      legacy(manager, '10.0.0.1', 60);
+
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(0);
+    });
+
+    it('offers an old peer that cannot refuse, because it has caught up by the slow road', () => {
+      legacy(manager, '10.0.0.1', 8000);
+
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('does not offer a peer that cannot refuse and never said how long it had been up', () => {
+      legacy(manager, '10.0.0.1', null);
+
+      expect(manager.getEligibleSyncPeers()).to.have.lengthOf(0);
+    });
+
+    // Which peers have been asked, and how they answered, belongs to whoever
+    // issued the requests and holds their deadlines. The manager offers every
+    // connected peer that could serve one and asks that owner whether an
+    // arriving answer is still wanted.
+    it('offers every capable peer, leaving who has been asked to the asker', () => {
+      eligible(manager, '10.0.0.1');
+      eligible(manager, '10.0.0.2');
+
+      const keys = manager.getEligibleSyncPeers().map((p) => p.key).sort();
+      expect(keys).to.deep.equal(['10.0.0.1:16127', '10.0.0.2:16127']);
+    });
+  });
+
+  describe('the seam the sync response path reads', () => {
+    // Closed by default. Nothing has issued a request before the orchestrator
+    // exists, so nothing arriving then is an answer to one.
+    it('wants no sync response while nobody owns the requests', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      expect(manager.isSyncResponseWanted(peer)).to.equal(false);
+    });
+
+    it('puts the question to whoever owns the requests, socket and all', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const owner = sinon.stub().returns(true);
+      manager.syncResponseWanted = owner;
+
+      expect(manager.isSyncResponseWanted(peer)).to.equal(true);
+      expect(owner.calledOnceWithExactly(peer), 'the socket is what was asked about').to.equal(true);
+    });
+
+    it('takes the owner\'s no for an answer', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.syncResponseWanted = () => false;
+
+      expect(manager.isSyncResponseWanted(peer)).to.equal(false);
+    });
+
+    // ip:port names a node; this names the connection. A request written into
+    // one socket is not answered by whatever dials in next under the same key.
+    it('gives a reconnecting peer a different connection id under the same key', () => {
+      const first = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const firstId = manager.peerConnectionId('10.0.0.1:16127');
+      expect(firstId).to.equal(first.connectionId);
+
+      manager.remove('10.0.0.1:16127', 1006);
+      expect(manager.peerConnectionId('10.0.0.1:16127'), 'a peer that left still had a connection').to.equal(null);
+
+      const second = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      expect(second.connectionId).to.not.equal(firstId);
+      expect(manager.peerConnectionId('10.0.0.1:16127')).to.equal(second.connectionId);
     });
   });
 
@@ -735,6 +844,65 @@ describe('FluxPeerManager tests', () => {
       const peer = manager.add(ws, '10.0.0.1', 16127, { source: PEER_SOURCE.RANDOM });
       expect(peer.port).to.equal('16127');
       expect(peer.key).to.equal('10.0.0.1:16127');
+    });
+
+    // `peerThresholdReached` is a latched edge, cleared only below the DEGRADED
+    // level, so after it has fired it says nothing about a pool that has since
+    // lost a member. A listener that has to top such a pool back up hears about
+    // every join or it hears about none of the ones that matter.
+    it('announces every join, not only the one that crosses the threshold', () => {
+      const joined = [];
+      const crossings = [];
+      manager.on('peerAdded', (key) => joined.push(key));
+      manager.on('peerThresholdReached', (count) => crossings.push(count));
+
+      // appSyncPeerThreshold is 12, so the edge fires on the twelfth and the
+      // three after it are the ones a latched edge cannot report.
+      const total = 15;
+      for (let i = 1; i <= total; i += 1) {
+        manager.add(createMockWs(`10.0.0.${i}`, '16127'), `10.0.0.${i}`, '16127', { source: PEER_SOURCE.RANDOM });
+      }
+
+      expect(joined.length, 'a join went unannounced').to.equal(total);
+      expect(crossings, 'the threshold is an edge and fires once').to.deep.equal([12]);
+      expect(joined.slice(12), 'the joins after the edge were not announced').to.deep.equal([
+        '10.0.0.13:16127', '10.0.0.14:16127', '10.0.0.15:16127',
+      ]);
+    });
+
+    // The counterpart of peerAdded, and the reason a sync waiting on this peer
+    // does not have to wait out a deadline to learn the answer is not coming.
+    it('announces a removal, with the key and the count left', () => {
+      const seen = [];
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.on('peerRemoved', (key, count) => seen.push({ key, count }));
+
+      manager.remove('10.0.0.1:16127', 1006);
+
+      expect(seen).to.deep.equal([{ key: '10.0.0.1:16127', count: 1 }]);
+    });
+
+    it('announces nothing when the peer was not there', () => {
+      const seen = [];
+      manager.on('peerRemoved', (key) => seen.push(key));
+
+      manager.remove('203.0.113.9:16127', 1006);
+
+      expect(seen).to.deep.equal([]);
+    });
+
+    it('reports the peer count alongside the key', () => {
+      const seen = [];
+      manager.on('peerAdded', (key, count) => seen.push({ key, count }));
+
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+
+      expect(seen).to.deep.equal([
+        { key: '10.0.0.1:16127', count: 1 },
+        { key: '10.0.0.2:16127', count: 2 },
+      ]);
     });
   });
 
@@ -1609,6 +1777,14 @@ describe('FluxPeerManager tests', () => {
 
     it('should return true for MAX_CONNECTIONS', () => {
       expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.MAX_CONNECTIONS)).to.equal(true);
+    });
+
+    // A statement about when, not about us: the remote's application gate has
+    // not opened yet and is certain to. Dropping the peer for good on it left a
+    // node that had dialled during someone else's boot never dialling again -
+    // and on the fleet that same node dialled back 150ms later.
+    it('should return true for NODE_UNCONFIRMED', () => {
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.NODE_UNCONFIRMED)).to.equal(true);
     });
 
     it('should return false for DUPLICATE_PEER', () => {

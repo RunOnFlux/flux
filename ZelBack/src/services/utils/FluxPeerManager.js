@@ -28,6 +28,10 @@ const CLOSE_CODE_NAMES = Object.freeze(
   Object.fromEntries(Object.entries(CLOSE_CODES).map(([name, code]) => [code, name])),
 );
 
+// Only for peers whose build cannot refuse a sync request. Deleted with the
+// last of them, along with the branch in getEligibleSyncPeers.
+const LEGACY_MIN_PEER_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
+
 class FluxPeerManager extends EventEmitter {
   static CONNECTION_BACKOFF_MS = config.fluxapps.connectionBackoffMs ?? [2 * 60000, 5 * 60000, 10 * 60000, 15 * 60000];
 
@@ -68,7 +72,18 @@ class FluxPeerManager extends EventEmitter {
   /** @type {Set<string>} peers removed since last peerUpdate broadcast */
   #pendingRemoves = new Set();
 
-  #syncRequestedPeers = new Set();
+  /**
+   * Whether an arriving app-state sync response is still wanted, asked of
+   * whoever owns the outstanding requests.
+   *
+   * A function rather than a set of keys kept here. The orchestrator issues
+   * the requests and holds their deadlines, so it is the only thing that knows
+   * whether one is still open; a copy of that here would be a second record of
+   * the same fact, maintained by different code and cleared by a different
+   * rule. Registered by serviceManager once the orchestrator exists.
+   * @type {((peerSocket: FluxPeerSocket) => boolean)|null}
+   */
+  syncResponseWanted = null;
 
   #ownSocketAddress = null;
   /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
@@ -198,6 +213,12 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peerThresholdReached', this.#peers.size);
       fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
     }
+    // Every join, not just the one that crosses the threshold. The threshold is
+    // a latched edge and is cleared only below the DEGRADED level, so once it
+    // has fired it says nothing further about a pool that has since lost a
+    // member. A listener that has to top a pool of peers back up needs to hear
+    // about the peer that could fill it.
+    this.emit('peerAdded', peer.key, this.#peers.size);
     return peer;
   }
 
@@ -211,7 +232,6 @@ class FluxPeerManager extends EventEmitter {
     const peer = this.#peers.get(key);
     if (!peer) return null;
 
-    this.#syncRequestedPeers.delete(key);
     this.#removeTracking(peer);
 
     // Clean up peer exchange topology and notify others
@@ -257,6 +277,10 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peersBelowThreshold', this.#peers.size);
       fluxEventBus.publish('peers:belowThreshold', { count: this.#peers.size, threshold: this.#syncDegradedThreshold });
     }
+    // The counterpart of peerAdded. A listener waiting on this peer for an
+    // answer now knows the answer is never coming, which is a fact rather than
+    // something to be inferred from a deadline passing.
+    this.emit('peerRemoved', key, this.#peers.size);
     return peer;
   }
 
@@ -504,7 +528,29 @@ class FluxPeerManager extends EventEmitter {
     return peer.remoteFluxUptime + (Date.now() - peer.connectedAt) / 1000;
   }
 
-  getEligibleSyncPeers(minUptimeSeconds, count) {
+  /**
+   * Peers worth asking for app state.
+   *
+   * A peer that can refuse is asked whatever its uptime, because it answers the
+   * question the uptime was standing in for. The bar was 7500 seconds and the
+   * block fallback is 125 minutes, which is the same 7500 seconds, so it only
+   * ever admitted peers that had already become authoritative by the slow road
+   * - and it was self-reported, read from a header the peer sets on its own
+   * upgrade response, so it excluded honest young nodes and no dishonest one.
+   *
+   * A peer that CANNOT refuse still has the bar, and this is the whole reason
+   * the capability exists rather than the bar simply being deleted. An older
+   * build answers a request it cannot serve with an empty batch, which is
+   * indistinguishable from a complete survey of an empty network - so dropping
+   * the bar for those would put the original defect back during exactly the
+   * window that makes it likely, a rolling upgrade with many young nodes.
+   *
+   * The branch retires with the last build that cannot refuse, and the bar and
+   * getPeerFluxUptime go with it.
+   * @param {number} [count] Cap on how many to return.
+   * @returns {Array} peers, shuffled.
+   */
+  getEligibleSyncPeers(count) {
     const eligible = [];
     const ownKey = this.#ownSocketAddress;
     for (const peer of this.#peers.values()) {
@@ -518,8 +564,10 @@ class FluxPeerManager extends EventEmitter {
       if (ownKey && peer.key === ownKey) continue;
       if (peer.missedPongs !== 0) continue;
       if (!peer.remoteCapabilities.has('appStateSync')) continue;
-      const uptime = this.getPeerFluxUptime(peer.key);
-      if (uptime === null || uptime < minUptimeSeconds) continue;
+      if (!peer.remoteCapabilities.has('appStateSyncRefusal')) {
+        const uptime = this.getPeerFluxUptime(peer.key);
+        if (uptime === null || uptime < LEGACY_MIN_PEER_UPTIME_SECONDS) continue;
+      }
       eligible.push(peer);
     }
     for (let i = eligible.length - 1; i > 0; i -= 1) {
@@ -529,13 +577,32 @@ class FluxPeerManager extends EventEmitter {
     return count ? eligible.slice(0, count) : eligible;
   }
 
-  markSyncRequested(key) { this.#syncRequestedPeers.add(key); }
+  /**
+   * Whether a sync response arriving on this connection is still wanted.
+   *
+   * Asked with the socket rather than the address because the two are not the
+   * same thing: a peer that reconnects keeps its `ip:port` while becoming a
+   * different connection, and nothing arriving on the new one is an answer to
+   * a request written into the old one.
+   *
+   * Closed by default. An unsolicited sync response is dropped, which is what
+   * happens before anything registers an answer here.
+   * @param {FluxPeerSocket} peerSocket
+   * @returns {boolean}
+   */
+  isSyncResponseWanted(peerSocket) {
+    if (!this.syncResponseWanted) return false;
+    return this.syncResponseWanted(peerSocket);
+  }
 
-  isSyncRequested(key) { return this.#syncRequestedPeers.has(key); }
-
-  completeSyncRequest(key) { this.#syncRequestedPeers.delete(key); }
-
-  clearSyncRequested() { this.#syncRequestedPeers.clear(); }
+  /**
+   * The connection currently held to an address, if any.
+   * @param {string} key ip:port
+   * @returns {number|null}
+   */
+  peerConnectionId(key) {
+    return this.#peers.get(key)?.connectionId ?? null;
+  }
 
   // --- Liveness ---
 
@@ -646,6 +713,13 @@ class FluxPeerManager extends EventEmitter {
     if (closeCode === CLOSE_CODES.DEAD_CONNECTION) return true;
     // Max connections: remote is full, try again next cycle
     if (closeCode === CLOSE_CODES.MAX_CONNECTIONS) return true;
+    // Node unconfirmed: the remote is still booting and has not opened its
+    // application gate yet - a statement about when, not about us. It is the
+    // one refusal that is certain to stop applying, and on the fleet the same
+    // node dialled back 150ms later. A build that refuses the upgrade never
+    // gets this far, but the network is mixed and older nodes still close with
+    // it after the handshake.
+    if (closeCode === CLOSE_CODES.NODE_UNCONFIRMED) return true;
     // Everything else: policy violation, auth failure, admin close, duplicate — don't retry
     return false;
   }

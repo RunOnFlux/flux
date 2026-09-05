@@ -23,6 +23,19 @@ function createSignedBroadcast(data) {
   };
 }
 
+// Real worker threads and real secp256k1, so these are CPU-bound and their wall
+// clock is set by contention rather than by the code under test. Measured idle
+// on an 8-physical-core laptop the slowest is 1007ms against mocha's 2000ms
+// default; with R runnable threads on C cores each gets C/R of a core, so the
+// budget has to satisfy
+//
+//   worst_idle_ms * (R / C) < budget
+//
+// One test already carried a 10000 of its own - the same problem met once and
+// solved for one case. Both now read the same number, because they are the same
+// statement: this work is real, and the box is shared.
+const REAL_WORK_MS = 20000;
+
 describe('verifyPool tests', () => {
   before(() => {
     verifyPool.start(2);
@@ -45,7 +58,7 @@ describe('verifyPool tests', () => {
     // worker event, and no worker is holding anything to raise one - so before
     // this was fixed the job sat there and verify() never settled, with an idle
     // worker and a queued job. It is bounded by the attempt count instead.
-    this.timeout(10000);
+    this.timeout(REAL_WORK_MS);
     const unclonable = { messageToVerify: () => {}, pubKey: TEST_PUBKEY, signature: 'x' };
 
     const settled = verifyPool.verify([unclonable]).then(
@@ -119,7 +132,11 @@ describe('verifyPool tests', () => {
     expect(results).to.deep.equal([]);
   });
 
-  describe('elastic sizing', () => {
+  describe('elastic sizing', function () {
+    // Every test here raises and retires real workers, which is the subject
+    // rather than setup for it.
+    this.timeout(REAL_WORK_MS);
+
     // 256 items per chunk, so this batch is five chunks of work
     const CHUNKS_IN_LARGE_BATCH = 5;
     const LARGE_BATCH = 256 * CHUNKS_IN_LARGE_BATCH;
