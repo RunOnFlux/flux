@@ -211,8 +211,10 @@ describe('a log poll answers at once and loses nothing between polls', function 
   // These must hold on a node WITHOUT this change as well as one with it, because
   // that is the whole claim: every deployed client asks these three ways today
   // and nodes upgrade one at a time. Asserting anything this change added - a
-  // cursor, rolledOver, truncated - would make them tests of the new code wearing
-  // a compatibility test's name. They assert only what both versions answer.
+  // cursor, rolledOver, hasMore - would make them tests of the new code wearing
+  // a compatibility test's name. They assert only what both versions answer,
+  // and `truncated` is one of those: it belongs to the line limit it always
+  // belonged to.
   it('still answers a reader that has never heard of a position', async function () {
     this.timeout(60000);
 
@@ -250,6 +252,11 @@ describe('a log poll answers at once and loses nothing between polls', function 
     const tailNewest = Math.max(...tail.logs.map(lineNumber).filter((n) => n !== null));
 
     expect(all.logs.length, 'every line means more than a page of them').to.be.above(5);
+    // The line limit's own answer, unchanged: five asked for, five returned, and
+    // the log holds more. A reader that sends no position is told this and
+    // nothing else - it is the only signal it has ever had.
+    expect(tail.truncated, 'five returned out of more than five is not the whole log').to.be.true;
+    expect(all.truncated, "'all' is not a line limit").to.be.false;
     // The failure this catches is subtle: capping kept the OLDEST lines, so the
     // answer was large and looked healthy while ending near the start of the log.
     expect(newest, 'an answer for `all` that stops short of the newest line is truncated').to.be.at.least(tailNewest);
