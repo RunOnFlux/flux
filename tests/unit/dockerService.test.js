@@ -761,25 +761,69 @@ describe('dockerService tests', () => {
       expect(logs.secondCall.args[0].since).to.equal(1);
     });
 
-    it('re-reads without the bound when the reader is more than a page behind', async () => {
-      // The bounded read answered with the END of the log. Handing that back
-      // would skip everything between where the reader is and where it starts -
-      // a silent gap, which is the failure this whole design exists to prevent.
+    it('resyncs a reader that is further behind than one read reaches, and says so', async () => {
+      // Seeing past the window means a read with no `tail`, which is docker
+      // decoding forward from the oldest file: 1099ms fetch and 349ms of
+      // BLOCKING decode against 104ms and 1ms bounded, measured on a live node
+      // over 5MB. `position.ms` is caller-supplied, so a millisecond older than
+      // the log took that read on EVERY poll. The reader is moved to the end
+      // instead, and told.
       const behind = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')];
-      const logs = sinon.stub(Dockerode.Container.prototype, 'logs');
-      logs.onFirstCall().resolves(dockerFrame(behind));      // 4 frames > maxLines 3
-      logs.onSecondCall().resolves(dockerFrame(behind));
+      const logs = stubLogs(behind);                          // 4 frames > maxLines 3
 
       const result = await dockerService.dockerContainerLogsPolling('website', {
         position: { ms: 999, count: 0 }, maxLines: 3,
       });
 
-      expect(logs.calledTwice, 'the bounded answer was the wrong page and had to be re-read').to.be.true;
-      expect(logs.firstCall.args[0].tail).to.equal(4);
-      expect(logs.secondCall.args[0].tail, 'the re-read is unbounded so it starts where the reader is').to.equal(undefined);
-      expect(logs.secondCall.args[0].since).to.equal(0.999);
-      expect(result.lines).to.deep.equal(behind.slice(0, 3));
-      expect(result.hasMore, 'the reader must come straight back for the rest').to.be.true;
+      expect(logs.calledOnce, 'a positioned read is ONE read, never a second unbounded one').to.be.true;
+      expect(logs.firstCall.args[0].tail, 'every read carries a bound').to.equal(4);
+      expect(result.skipped, 'the gap is reported rather than left silent').to.be.true;
+      expect(result.lines, 'the NEWEST of the window, because the reader is being moved to the end').to.deep.equal(behind.slice(-3));
+      expect(result.rolledOver, 'the lines still exist - this node declined to read that far back').to.be.false;
+    });
+
+    it('never issues a read without a tail, whatever position it is given', async () => {
+      // The whole class, not the reachable half: ms 0 is the cheapest hostile
+      // cursor but any millisecond older than the log does the same thing.
+      const logs = stubLogs([at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')]);
+
+      for (const ms of [0, 1, 999]) {
+        // eslint-disable-next-line no-await-in-loop
+        await dockerService.dockerContainerLogsPolling('website', {
+          position: { ms, count: 0 }, maxLines: 3,
+        });
+      }
+
+      logs.getCalls().forEach((call) => {
+        expect(call.args[0].tail, 'a read with no tail is the unbounded decode').to.be.a('number');
+      });
+    });
+
+    it('serves a reader completely when the whole answer fits, and leaves nothing ahead', async () => {
+      const all = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c')];
+      stubLogs(all);                                          // 3 frames === maxLines 3
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 0 }, maxLines: 3,
+      });
+
+      expect(result.skipped, 'the window was not full, so nothing was passed over').to.be.false;
+      expect(result.lines).to.deep.equal(all);
+    });
+
+    it('carries no earlier position through a resync', async () => {
+      // The count belongs to a place in a sequence the reader is no longer in,
+      // so applying it would drop lines from the front of the page it just got.
+      const behind = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')];
+      stubLogs(behind);
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 999, count: 2 }, maxLines: 3,
+      });
+
+      expect(result.skipped).to.be.true;
+      expect(result.lines, 'the stale count is not applied to the resynced page').to.deep.equal(behind.slice(-3));
+      expect(result.position.ms, 'the position is rebuilt from what was actually delivered').to.equal(1003);
     });
 
     it('does not re-read when the whole answer fitted', async () => {
@@ -823,11 +867,9 @@ describe('dockerService tests', () => {
       });
 
       expect(result.lines, 'every line, as before').to.have.lengthOf(4);
-      expect(result.hasMore, 'nothing was held back, so there is nothing ahead').to.be.false;
       expect(result.truncated, "'all' is not a line limit").to.be.false;
     });
 
-    // Two questions, and a reader can only act on one of them. `hasMore` is what
     // lies ahead of a position, fetched by asking again with it. `truncated` is
     // what lies behind a line limit, which is the answer this endpoint has given
     // since before positions existed and the only one a client written against
@@ -838,7 +880,6 @@ describe('dockerService tests', () => {
       const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 2 });
 
       expect(result.truncated, 'two asked for and two returned - there is more behind them').to.be.true;
-      expect(result.hasMore, 'nothing is ahead of a reader that sent no position').to.be.false;
     });
 
     it('does not report truncated to a positioned reader, which could do nothing with it', async () => {
@@ -849,7 +890,6 @@ describe('dockerService tests', () => {
       });
 
       expect(result.truncated, 'a position is not a line limit').to.be.false;
-      expect(result.hasMore, 'and what is ahead of it is what it comes back for').to.be.true;
     });
 
     it('drops the lines the reader already holds and keeps the rest', async () => {
@@ -888,10 +928,10 @@ describe('dockerService tests', () => {
       // a and b holds two lines, and docker will hand both back when asked from
       // a's millisecond - because it stops filtering on `since` once it has found
       // its first match.
-      stubLogs([at(1001, 'a'), at(1000, 'b'), at(1002, 'c')]);
+      stubLogs([at(1001, 'a'), at(1000, 'b')]);
 
       const first = await dockerService.dockerContainerLogsPolling('website', {
-        position: { ms: 999, count: 0 }, maxLines: 2,
+        position: { ms: 999, count: 0 }, maxLines: 5,
       });
 
       expect(first.lines).to.deep.equal([at(1001, 'a'), at(1000, 'b')]);
@@ -904,7 +944,9 @@ describe('dockerService tests', () => {
 
       sinon.restore();
       stubLogs([at(1001, 'a'), at(1000, 'b'), at(1002, 'c')]);
-      const second = await dockerService.dockerContainerLogsPolling('website', { position: first.position });
+      const second = await dockerService.dockerContainerLogsPolling('website', {
+        position: first.position, maxLines: 5,
+      });
 
       expect(second.lines, 'only the line the reader has not seen').to.deep.equal([at(1002, 'c')]);
     });
@@ -922,36 +964,30 @@ describe('dockerService tests', () => {
       expect(result.lines, 'nothing is skipped - the count belongs to lines that are gone').to.have.lengthOf(2);
     });
 
-    it('caps what one answer carries and says the reader must come back', async () => {
-      // Capping belongs to a positioned reader, because only a positioned reader
-      // comes back for the remainder.
-      stubLogs([at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')]);
-
-      const result = await dockerService.dockerContainerLogsPolling('website', {
-        position: { ms: 999, count: 0 }, maxLines: 2,
-      });
-
-      expect(result.hasMore).to.be.true;
-      expect(result.lines).to.deep.equal([at(1000, 'a'), at(2000, 'b')]);
-      // The position is where the reader actually got to, not the newest line
-      // docker held - otherwise the capped remainder is skipped, silently.
-      expect(result.position).to.deep.equal({ ms: 2000, count: 1 });
-    });
-
-    it('leaves no gap across a capped read', async () => {
-      const all = [at(1000, 'a'), at(2000, 'b'), at(3000, 'c'), at(4000, 'd')];
-      stubLogs(all);
+    it('leaves no gap between two reads a reader keeps up with', async () => {
+      // The guarantee, and its boundary: while what is waiting fits the window,
+      // every line is delivered exactly once. A reader that falls past the
+      // window is resynced and told, which the tests above cover.
+      const held = [at(1000, 'a'), at(2000, 'b')];
+      stubLogs(held);
       const first = await dockerService.dockerContainerLogsPolling('website', {
-        position: { ms: 999, count: 0 }, maxLines: 2,
+        position: { ms: 1000, count: 0 }, maxLines: 5,
       });
       sinon.restore();
 
-      stubLogs(all.slice(1));
+      // What docker returns for the position just handed back: `since` is
+      // inclusive, so the read starts at the line that position names and the
+      // already-delivered ones below it are not in the answer at all. Stubbing
+      // the whole log here would be stubbing a docker that ignores `since`.
+      const grown = [...held, at(3000, 'c'), at(4000, 'd')];
+      stubLogs(grown.slice(1));
       const second = await dockerService.dockerContainerLogsPolling('website', {
-        position: first.position, maxLines: 2,
+        position: first.position, maxLines: 5,
       });
 
-      expect([...first.lines, ...second.lines], 'every line exactly once').to.deep.equal(all);
+      expect(first.skipped, 'nothing was passed over').to.be.false;
+      expect(second.skipped).to.be.false;
+      expect([...first.lines, ...second.lines], 'every line exactly once').to.deep.equal(grown);
     });
   });
 
