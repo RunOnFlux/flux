@@ -3,6 +3,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
 const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
@@ -234,15 +235,19 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
-      globalState.installationInProgress = false;
-      globalState.softRedeployInProgress = false;
-      globalState.hardRedeployInProgress = false;
+      resetGlobalState();
 
       res = {
         write: sinon.stub(),
         flush: sinon.stub(),
       };
+    });
+
+    // Reset on the way out as well as in. This is module state shared with every
+    // describe that follows, and a suite that only resets on the way in leaves
+    // whatever its last test set standing for the rest of the file.
+    afterEach(() => {
+      resetGlobalState();
     });
 
     it('should return early if removal is in progress', async () => {
@@ -283,6 +288,20 @@ describe('advancedWorkflows tests', () => {
       expect(res.write.calledOnce).to.be.true;
       const response = res.write.firstCall.args[0];
       expect(response).to.include('Another application is undergoing hard redeploy');
+    });
+
+    // The pass that reinstalls apps whose specification changed sets this before
+    // it tears anything down and holds it across its own wait. Every other guard
+    // read four of the five flags and walked straight past this one, which is how
+    // a redeploy took a node the pass was mid-way through using.
+    it('should return early if the periodic reinstall pass holds the node', async () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
+
+      expect(res.write.calledOnce).to.be.true;
+      const response = res.write.firstCall.args[0];
+      expect(response).to.include('Another application is undergoing reinstallation');
     });
 
     it('should throw error if application not found', async () => {
@@ -348,15 +367,19 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
-      globalState.installationInProgress = false;
-      globalState.softRedeployInProgress = false;
-      globalState.hardRedeployInProgress = false;
+      resetGlobalState();
 
       res = {
         write: sinon.stub(),
         flush: sinon.stub(),
       };
+    });
+
+    // Reset on the way out as well as in. This is module state shared with every
+    // describe that follows, and a suite that only resets on the way in leaves
+    // whatever its last test set standing for the rest of the file.
+    afterEach(() => {
+      resetGlobalState();
     });
 
     it('should return early if removal is in progress', async () => {
@@ -397,6 +420,20 @@ describe('advancedWorkflows tests', () => {
       expect(res.write.calledOnce).to.be.true;
       const response = res.write.firstCall.args[0];
       expect(response).to.include('Another application is undergoing hard redeploy');
+    });
+
+    // The pass that reinstalls apps whose specification changed sets this before
+    // it tears anything down and holds it across its own wait. Every other guard
+    // read four of the five flags and walked straight past this one, which is how
+    // a redeploy took a node the pass was mid-way through using.
+    it('should return early if the periodic reinstall pass holds the node', async () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
+
+      expect(res.write.calledOnce).to.be.true;
+      const response = res.write.firstCall.args[0];
+      expect(response).to.include('Another application is undergoing reinstallation');
     });
 
     it('should throw error if application not found', async () => {

@@ -3,6 +3,7 @@ const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutc
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const realPlacementFeasibility = require('../../ZelBack/src/services/appPlacement/placementFeasibility');
+const { resetGlobalState } = require('./fixtures/globalState');
 
 describe('appSpawner tests', () => {
   let appSpawner;
@@ -40,17 +41,22 @@ describe('appSpawner tests', () => {
     };
   }
 
+  // The real module, reset, rather than an object shaped like it. A hand-written
+  // double is correct only until the module gains a member: the member is absent,
+  // the caller's catch swallows the TypeError, and the failure surfaces in some
+  // unrelated assertion.
   function createGlobalStateStub() {
-    return {
-      dbReady: true,
-      fluxNodeWasNotConfirmedOnLastCheck: false,
-      fluxNodeWasAlreadyConfirmed: true,
-      firstExecutionAfterItsSynced: false,
-      spawnErrorsLongerAppCache: new Map(),
-      trySpawningGlobalAppCache: new Map(),
-      appsToBeCheckedLater: [],
-      appsSyncthingToBeCheckedLater: [],
-    };
+    const state = resetGlobalState();
+    state.dbReady = true;
+    state.fluxNodeWasAlreadyConfirmed = true;
+    state.firstExecutionAfterItsSynced = false;
+    // Wired from cacheManager when a node boots, so null in a unit process. The
+    // spawner calls .has on both without guarding, which is correct on a node
+    // and a TypeError here - swallowed by its own catch, and read as the app
+    // simply not being selected.
+    state.spawnErrorsLongerAppCache = new Map();
+    state.trySpawningGlobalAppCache = new Map();
+    return state;
   }
 
 
@@ -951,6 +957,21 @@ describe('appSpawner tests', () => {
         installStub, logged, withdrawalStub, removeStub,
       };
     }
+
+    // The periodic reinstall pass takes an app apart and puts it back, and holds
+    // its flag across the wait in between. An install started inside that window
+    // takes the node, and the pass is then refused when it comes back for it -
+    // leaving an app torn down with nothing to rebuild it. The spawner is the one
+    // that gives way, and it withdraws its claim rather than holding it, so
+    // another node can take the placement now.
+    it('stands down while the node is already doing something to an app', async () => {
+      const { installStub, withdrawalStub } = await runAttempt({
+        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
+      });
+
+      expect(installStub.called, 'installed on top of an operation already in flight').to.be.false;
+      expect(withdrawalStub.called, 'a claim held while standing down blocks the placement for everyone').to.be.true;
+    });
 
     // An application whose specification this node cannot read contributes
     // nothing to the resource totals the capacity check subtracts from this

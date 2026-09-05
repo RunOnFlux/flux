@@ -971,6 +971,15 @@ async function installAppLocally(req, res) {
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
+      // registerAppLocally refuses a concurrent removal or installation but not a
+      // redeploy or the periodic reinstall pass, and those hold the node across a
+      // teardown they intend to rebuild from. Asked here, before anything is
+      // written, so the refusal is still a status line rather than an envelope in
+      // a half-streamed body.
+      const heldBy = globalState.operationHolding();
+      if (heldBy) {
+        throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
+      }
       let appSpecifications;
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
@@ -1154,6 +1163,12 @@ async function testAppInstall(req, res) {
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
+      // A test install creates and starts real containers, so it takes the node
+      // the same way a real one does.
+      const heldBy = globalState.operationHolding();
+      if (heldBy) {
+        throw new Error(`Another application is undergoing ${heldBy}. Test installation not possible.`);
+      }
       let appSpecifications;
 
       // anyone can deploy temporary app

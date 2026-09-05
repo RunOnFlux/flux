@@ -111,6 +111,27 @@ module.exports = {
   get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
   set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
 
+  // The operation holding this node right now, named, or null. `except` is the
+  // caller's OWN flag: a guard excludes the operation it belongs to and no
+  // others, because a redeploy that asked without excluding itself would refuse
+  // its own reinstall. Order is the order the guards asked in.
+  //
+  // Every entry point that can START work asks this. The five flags used to be
+  // read as hand-picked subsets - forty-six guards, exactly one of which read
+  // reinstallationOfOldAppsInProgress - so the periodic reinstall pass announced
+  // itself and the spawner walked straight past it, took the node during the
+  // pass's own wait, and left an app torn down that could not be rebuilt.
+  operationHolding(except = null) {
+    const held = [
+      ['removal', removalInProgress],
+      ['installation', installationInProgress],
+      ['soft redeploy', softRedeployInProgress],
+      ['hard redeploy', hardRedeployInProgress],
+      ['reinstallation', reinstallationOfOldAppsInProgress],
+    ].find(([name, on]) => on && name !== except);
+    return held ? held[0] : null;
+  },
+
   isOperationInProgress() {
     return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
   },
