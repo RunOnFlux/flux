@@ -3,6 +3,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { globalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
 // Create mocks for dependencies
@@ -23,7 +24,7 @@ const syncthingServiceMock = {
 
 // The device cache the veto reads, owned by this suite and cleared between
 // tests so one test's entries decide only its own election.
-const globalStateMock = { syncthingDevicesIDCache: new Map() };
+const globalStateMock = globalState;
 
 const dockerServiceMock = {
   dockerContainerInspect: sinon.stub(),

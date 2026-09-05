@@ -4657,7 +4657,14 @@ describe('advancedWorkflows tests', () => {
   // master-slave coordination logic.
 });
 
-describe('giving up an app: one pass, two reasons, one safety gate', () => {
+describe('giving up an app: one pass, two reasons, one safety gate', function () {
+  // Every escalation test here drives the give-up pass ten to forty times to walk
+  // a counter, which does not fit mocha's 2000ms default and never did - they sat
+  // just under it, and any test added to this file pushed one over. A timeout
+  // mid-loop also leaves the module's refusal counter part-way, so the test after
+  // it fails on a count it did not make.
+  this.timeout(20000);
+
   const generalService = require('../../ZelBack/src/services/generalService');
   const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
   const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');

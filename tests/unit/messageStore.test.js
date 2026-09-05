@@ -252,9 +252,6 @@ describe('messageStore tests', () => {
         '../utils/enterpriseHelper': {
           checkAndDecryptAppSpecs: sinon.stub().resolves({}),
         },
-        '../utils/globalState': {
-          queuePendingUpdate: sinon.stub(),
-        },
         '../utils/appConstants': {
           globalAppsMessages: 'appsMessages',
           globalAppsTempMessages: 'appsTempMessages',

@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
 describe('appReconciler tests', () => {
@@ -41,16 +42,14 @@ describe('appReconciler tests', () => {
         isContainerDetachedFromNetwork: sinon.stub().returns(false),
         dockerNetworkState: sinon.stub().resolves('exists'),
       },
-      globalState: {
-        appsMonitored: {},
-        stoppingContainers: new Set(),
-        fluxRemovedContainers: new Set(),
-        backupInProgress: [],
-        restoreInProgress: [],
-        isOperationInProgress: () => false,
-        bootContainerStateSettled: true,
-        waitForBootContainerStateSettled: () => Promise.resolve(),
-      },
+      // The real module, reset before each test by tests/init.js. Its predicate
+      // over the lifecycle flags is the one production runs, rather than a
+      // constant this suite could not get wrong.
+      globalState: (() => {
+        const state = resetGlobalState();
+        state.bootContainerStateSettled = true;
+        return state;
+      })(),
       appInspector: { startAppMonitoring: sinon.stub(), ensureAppMonitoring: sinon.stub(), stopAppMonitoring: sinon.stub() },
       volumeService: {
         ensureMountPathsExist: sinon.stub().resolves(),
@@ -809,7 +808,7 @@ describe('appReconciler tests', () => {
     });
 
     it('defers while another operation owns the container', async () => {
-      stubs.globalState.isOperationInProgress = () => true;
+      stubs.globalState.installationInProgress = true;
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
@@ -823,14 +822,14 @@ describe('appReconciler tests', () => {
     // after release enforces desired state again.
     describe('backup/restore lease', () => {
       it('does not start a stopped component while its app is being backed up', async () => {
-        stubs.globalState.backupInProgress.push('App'); // bare main-app name (production format)
+        stubs.globalState.tryStartBackup('App'); // bare main-app name (production format)
         await appReconciler.reconcile('www_App');
         expect(stubs.dockerService.appDockerStart.called).to.be.false;
         expect(stubs.appsRuntimeState.recordRestart.called).to.be.false;
       });
 
       it('does not stop a running operator-stopped component while its app is being restored', async () => {
-        stubs.globalState.restoreInProgress.push('App');
+        stubs.globalState.tryStartRestore('App');
         stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
         stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
         await appReconciler.reconcile('www_App');
@@ -838,7 +837,7 @@ describe('appReconciler tests', () => {
       });
 
       it('does not recreate or remove a missing container while its app is being restored', async () => {
-        stubs.globalState.restoreInProgress.push('App');
+        stubs.globalState.tryStartRestore('App');
         stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
         stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
         await appReconciler.reconcile('www_App');
@@ -848,11 +847,11 @@ describe('appReconciler tests', () => {
       });
 
       it('enforces desired state again once the lease is released', async () => {
-        stubs.globalState.backupInProgress.push('App');
+        stubs.globalState.tryStartBackup('App');
         await appReconciler.reconcile('www_App');
         expect(stubs.dockerService.appDockerStart.called).to.be.false; // held
 
-        stubs.globalState.backupInProgress.length = 0; // lease released
+        stubs.globalState.finishBackup('App'); // lease released
         await appReconciler.reconcile('www_App');
         expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
       });
@@ -1658,7 +1657,7 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App'); // opens the persistence window
       clock.tick(61 * 1000);
       stubs.serviceHelper.delay.callsFake(async () => {
-        stubs.globalState.isOperationInProgress = () => true; // a redeploy starts mid-settle
+        stubs.globalState.installationInProgress = true; // a redeploy starts mid-settle
       });
 
       await appReconciler.reconcile('www_App');

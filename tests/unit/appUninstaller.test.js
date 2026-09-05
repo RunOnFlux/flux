@@ -79,12 +79,6 @@ describe('appUninstaller tests', () => {
         getAppIdentifier: sinon.stub().returns('testapp'),
       },
       '../../lib/log': logStub,
-      '../utils/globalState': {
-        removalInProgress: false,
-        setRemovalInProgress: sinon.stub(),
-        resetRemovalInProgress: sinon.stub(),
-        getRemovalInProgress: sinon.stub().returns(false),
-      },
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -299,12 +293,6 @@ describe('appUninstaller tests', () => {
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -388,9 +376,6 @@ describe('appUninstaller tests', () => {
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -484,10 +469,6 @@ describe('appUninstaller tests', () => {
           forceRemoveFluxAppDockerNetwork: sinon.stub().resolves(),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          runningAppsCache: new Map(),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -671,12 +652,6 @@ describe('appUninstaller tests', () => {
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -772,12 +747,6 @@ describe('appUninstaller tests', () => {
           getAppIdentifier: sinon.stub().returns(100),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),

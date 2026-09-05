@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -59,9 +60,7 @@ describe('appInspector tests', () => {
       warn: sinon.stub(),
     };
 
-    globalStateStub = {
-      appsMonitored: {},
-    };
+    globalStateStub = resetGlobalState();
 
     verificationHelperStub = {
       verifyPrivilege: sinon.stub().resolves(true),
