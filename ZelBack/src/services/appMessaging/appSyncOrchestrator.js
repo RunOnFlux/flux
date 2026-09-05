@@ -658,20 +658,35 @@ class AppSyncOrchestrator {
     const pubkey = signer.pubKey;
     const signMsg = (type, sinceTs) => signer.sign(peerCodec.buildSyncSignatureMessage(type, sinceTs, requestTs));
 
-    for (const peer of peersToAsk) this.#openRequest(peer);
-
+    // Every signature is in hand before the first record opens. Signing can
+    // still fail once the key is known - it answers null rather than throwing -
+    // and a record opened ahead of one is a peer marked asked with a deadline
+    // armed and nothing sent.
     const tempSig = signMsg(peerCodec.MSG_TYPE.REQUEST_TEMP_MESSAGES, 0);
     const runningSig = signMsg(peerCodec.MSG_TYPE.REQUEST_APP_RUNNING, 0);
     const installingSig = signMsg(peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING, 0);
     const errorsSig = signMsg(peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS, 0);
 
+    if (!tempSig || !runningSig || !installingSig || !errorsSig) {
+      log.error('AppSyncOrchestrator - Failed to sign sync requests: this node could not sign as itself');
+      return;
+    }
+
+    for (const peer of peersToAsk) this.#openRequest(peer);
+
     this.#sendRequests(peersToAsk, 'temp messages', peerCodec.encodeRequestTempMessages(0, requestTs, pubkey, tempSig));
     this.#sendRequests(peersToAsk, 'apprunning', peerCodec.encodeRequestAppRunning(0, requestTs, pubkey, runningSig));
     this.#sendRequests(peersToAsk, 'appinstalling', peerCodec.encodeRequestAppInstalling(0, requestTs, pubkey, installingSig));
     this.#sendRequests(peersToAsk, 'apperrors', peerCodec.encodeRequestAppInstallingErrors(0, requestTs, pubkey, errorsSig));
+    // OUTSTANDING IS THE POOL CAP ITSELF, and it is published because nothing
+    // outside can work it out. A round's own size is not the cap - two rounds
+    // opened in one pass are two events, and a decline is answered here without
+    // reaching the event stream at all, so the peers named across events cannot
+    // be added up into the number of requests actually open at any moment.
     fluxEventBus.publish('ephemeralSync:requested', {
       peerCount: peersToAsk.length,
       peers: peersToAsk.map((p) => p.key),
+      outstanding: this.#openRequestCount(),
     });
 
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
@@ -1094,6 +1109,11 @@ class AppSyncOrchestrator {
       clearTimeout(this.#hashSyncRetryTimer);
       this.#hashSyncRetryTimer = null;
     }
+    // Authority belongs to a running orchestrator. It is this node's claim to
+    // know what the network runs, and the two guards answering a peer's sync
+    // request read it - so leaving it set serves a survey drawn from state
+    // nothing is maintaining any more.
+    globalState.appStateAuthoritative = false;
   }
 }
 

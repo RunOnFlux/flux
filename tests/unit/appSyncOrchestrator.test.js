@@ -794,6 +794,28 @@ describe('AppSyncOrchestrator', () => {
 
       expect(globalStateStub.appStateAuthoritative, 'a degraded node still claimed authority').to.equal(false);
     });
+
+    // Authority is a claim about a network this orchestrator is tracking, and
+    // the guards that answer a peer's sync request read it from a global that
+    // outlives the instance.
+    it('drops authority when it stops', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      completeAllTypes(3);
+      await clock.tickAsync(0);
+      expect(globalStateStub.appStateAuthoritative).to.equal(true);
+
+      orchestrator.stop();
+
+      expect(globalStateStub.appStateAuthoritative, 'a stopped orchestrator still claimed authority').to.equal(false);
+    });
   });
 
   // The block fallback was two literals, so no fleet could have a node that
@@ -1000,6 +1022,31 @@ describe('AppSyncOrchestrator', () => {
 
       const asked = spares.filter((p) => p.send.called).length;
       expect(asked, 'a peer lost during the key fetch went unreplaced').to.equal(2);
+      orchestrator.stop();
+    });
+
+    // A PASS THAT CANNOT SIGN COSTS NOTHING. Signing is the last thing that can
+    // fail before a request goes out and it answers null rather than throwing,
+    // so the signatures are taken before any record opens. Opening first leaves
+    // a peer marked asked with a deadline armed against a request that was
+    // never sent, and the attempt spends its budget waiting that out.
+    it('asks the same peers again after a pass that could not sign', async () => {
+      const peers = makeEligiblePeers(3);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+      signMessageStub.returns(null);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      for (const peer of peers) expect(peer.send.callCount, 'a request went out unsigned').to.equal(0);
+
+      signMessageStub.returns('fakesig==');
+      peerEmitter.emit('peerAdded', peers[0].key, 12);
+      await clock.tickAsync(0);
+
+      for (const peer of peers) expect(peer.send.callCount, 'a peer was left marked asked by a pass that sent nothing').to.equal(4);
       orchestrator.stop();
     });
 

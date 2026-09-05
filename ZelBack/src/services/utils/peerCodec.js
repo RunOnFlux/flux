@@ -200,6 +200,12 @@ function decodePeerUpdate(buf) {
 // Signed format: [type:1][sinceTs:8][requestTs:8][pubkeyLen:1][pubkey:var][sigLen:1][signature:var]
 
 function encodeSignedSyncRequest(type, sinceTimestamp, requestTimestamp, pubkey, signature) {
+  // The decoder refuses an empty key or signature, so an unsigned request is
+  // refused by every node it reaches. A caller holding neither skipped a
+  // check, so this throws rather than answering null.
+  if (!pubkey || typeof pubkey !== 'string') throw new Error('peerCodec - a signed sync request needs a public key');
+  if (!signature || typeof signature !== 'string') throw new Error('peerCodec - a signed sync request needs a signature');
+
   const pubkeyBuf = Buffer.from(pubkey, 'hex');
   const sigBuf = Buffer.from(signature, 'base64');
   const buf = Buffer.allocUnsafe(1 + 8 + 8 + 1 + pubkeyBuf.length + 1 + sigBuf.length);
