@@ -83,11 +83,21 @@ export async function unblockPeerAccess(container, peerIps, apiPort) {
   }
 }
 
+// THE READ CAN FAIL, AND SAYS SO. `2>/dev/null || echo ""` gave a broken docker
+// exec the same answer as a node with no containers on it - an empty list - so
+// every caller read "the app is not running" and every wait built on one spent
+// its whole budget and ended reporting only that the condition never held. A
+// failed read is not an observation, and the callers that poll are built to
+// retry a throw; the ones that assert have no business ruling on a look they
+// never took.
 export async function listAppContainers(container, { all = false } = {}) {
   const flag = all ? ' -a' : '';
-  const { stdout } = await execInContainer(container,
-    `docker ps${flag} --format "{{.Names}}\t{{.Status}}\t{{.Image}}" 2>/dev/null || echo ""`,
+  const { stdout, stderr, exitCode } = await execInContainer(container,
+    `docker ps${flag} --format "{{.Names}}\t{{.Status}}\t{{.Image}}"`,
   );
+  if (exitCode !== 0) {
+    throw new Error(`docker ps in the node container failed (exit ${exitCode}): ${(stderr || stdout || '').trim()}`);
+  }
   return stdout.trim().split('\n')
     .filter((line) => line && !line.includes('NAMES'))
     .map((line) => {

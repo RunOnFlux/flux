@@ -843,8 +843,6 @@ async function handleReceiveOnlyTransition(params) {
     liveness,
   } = params;
 
-  log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
-
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
 
   // Whether any CONNECTED peer genuinely holds the data. Gates the election (a true
@@ -975,6 +973,32 @@ async function handleReceiveOnlyTransition(params) {
     return { syncthingFolder, cache };
   }
 
+  // WHY THIS NODE IS NOT THE SOURCE. Only the promoting path used to say
+  // anything, so every way of losing left the same picture - a receiveonly
+  // folder, a stopped container and no source - with nothing to tell them
+  // apart: a list this node is not in, an empty one (which reads as "wait for
+  // peers to broadcast"), a deferral to a peer that is serving, or a win that
+  // never confirms because connectivity keeps resetting the streak. On a cold
+  // start where every copy loses for one of these reasons the app never starts
+  // at all, and that is the case that most needs the reason recorded.
+  //
+  // Written on the EDGE - when the reason changes, and never again while it
+  // holds. That an app is still unpromoted is already in the cycle's own sync
+  // status line; what is missing is which gate it lost at, and that is a fact
+  // about a transition. Repeating it on a timer would be twice a minute per
+  // app for as long as the state lasts, which is unbounded in exactly the
+  // standoff this exists to explain, and every one of those lines would carry
+  // the same six values as the one before it.
+  const selfInElection = electionList.some((peer) => socketAddressesMatch(peer.ip, localSocketAddr));
+  const reason = `candidates=${electionList.length} self=${selfInElection} `
+    + `elected=${electedLeader} connected=${connected} `
+    + `streak=${cache.leaderStreak}/${LEADER_CONFIRM_COUNT} `
+    + `peerHasData=${aPeerHasData} folderEmpty=${folderIsEmpty}`;
+  if (reason !== cache.lastNotPromotedReason) {
+    log.info(`handleReceiveOnlyTransition - ${appId} not promoted: ${reason}`);
+    cache.lastNotPromotedReason = reason;
+  }
+
   // Not the leader - syncStatus already read above
   syncthingFolder.type = 'receiveonly';
   cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
@@ -982,11 +1006,20 @@ async function handleReceiveOnlyTransition(params) {
   if (syncStatus) {
     cache.statusUnreadableSince = null; // status readable again - reset the unreadable timer
 
-    log.info(
-      `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% `
-      + `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), `
-      + `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`,
-    );
+    // Edge, not cycle. A folder that is actually moving changes these numbers
+    // every pass and prints every pass; one parked at a value prints once and
+    // then stays quiet, however long it stays parked. The execution count is
+    // carried but not part of the comparison - it increments unconditionally,
+    // so keying on it would make every line unique and print forever.
+    const progress = `${syncStatus.syncPercentage.toFixed(2)}% `
+      + `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), state: ${syncStatus.state}`;
+    if (progress !== cache.lastProgressLogged) {
+      log.info(
+        `handleReceiveOnlyTransition - ${appId} sync status: ${progress}, `
+        + `executions: ${cache.numberOfExecutions}`,
+      );
+      cache.lastProgressLogged = progress;
+    }
 
     // Synced -> candidate for sendreceive. But completion metrics only count CLUSTER
     // data: local additions in a receiveonly folder leave needBytes 0 / completion 100,
@@ -1045,6 +1078,10 @@ async function handleReceiveOnlyTransition(params) {
       cache.nudgeCount = 0;
       cache.evidenceSince = null;
       cache.lastNudgeAt = null;
+      // Cleared with the rest of the stall state, so a folder that stalls again
+      // after a source came and went announces the second stall as well as the
+      // first. A latch that is only ever set reports one stall per app lifetime.
+      cache.waitingForSourceLogged = false;
       return { syncthingFolder, cache };
     }
 
@@ -1057,7 +1094,10 @@ async function handleReceiveOnlyTransition(params) {
     }
 
     if (!aPeerHasData) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} idle with no sync progress and no CONNECTED synced peer; waiting (syncthing auto-resumes when a source returns)`);
+      if (!cache.waitingForSourceLogged) {
+        log.warn(`handleReceiveOnlyTransition - ${appId} idle with no sync progress and no CONNECTED synced peer; waiting (syncthing auto-resumes when a source returns)`);
+        cache.waitingForSourceLogged = true;
+      }
       return { syncthingFolder, cache };
     }
 

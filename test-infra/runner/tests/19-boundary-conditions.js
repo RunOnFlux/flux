@@ -120,7 +120,19 @@ describe('Boundary: block timer', function () {
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ hookCtx: this, nodes: 2, tickerAutostart: false });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 2,
+      tickerAutostart: false,
+      // THE PRODUCTION BUDGET, declared because this suite is the one testing
+      // it. The shared config runs a short fallback so that an ordinary fleet -
+      // where every node boots at once and none can answer another's state sync
+      // yet - is not held on a road no suite is asking about. The 249/250 below
+      // are that budget's own arithmetic, 125 minutes at 2 blocks a minute, so
+      // the number has to be set here or the boundary being measured is the
+      // harness's and not the product's.
+      configOverrides: { fluxapps: { appSyncFallbackMinutes: 125 } },
+    });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);

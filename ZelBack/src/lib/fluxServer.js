@@ -8,7 +8,7 @@ const compression = require('compression');
 const routes = require('../routes');
 const { analyticsMiddleware, startFlushTimer } = require('../services/analyticsService');
 
-const socketHandlers = require('./socketHandlers');
+const { socketHandlers, admitUpgrade } = require('./socketHandlers');
 const socketIoHandlers = require('./socketIoHandlers');
 const { FluxWebsocketServer } = require('./socketServer');
 const { FluxSocketIoServer } = require('./socketIoServer');
@@ -90,6 +90,7 @@ class FluxServer {
 
     this.socketServer = new FluxWebsocketServer({
       routes: socketHandlers,
+      admit: admitUpgrade,
       errorHandler: this.errorHandler,
     });
 

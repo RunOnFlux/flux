@@ -1,6 +1,23 @@
 const { expect } = require('chai');
 const { measureTree } = require('../../ZelBack/src/services/utils/treeSize');
 
+// These tests are CPU-bound and share a box with whatever else is running on
+// it, so their wall clock is set by contention rather than by the code under
+// test. Measured idle on an 8-physical-core laptop, the two below take 1327ms
+// and 1217ms against mocha's 2000ms default; with R runnable threads on C
+// cores each gets C/R of a core, so the budget has to satisfy
+//
+//   worst_idle_ms * (R / C) < budget
+//
+// and 1327 * (69 / 8) = 11.4s at the highest load a gate has actually been run
+// at here. 20s carries that with margin. Nothing is lost as a hang detector: a
+// hang is not bounded by 20s either.
+//
+// The work is not incidental setup - the width and the depth ARE the
+// assertions - so shrinking it to fit the default would delete what the tests
+// are for.
+const REAL_WORK_MS = 20000;
+
 describe('treeSize tests', () => {
   const ROOT = '/vol';
 
@@ -109,7 +126,8 @@ describe('treeSize tests', () => {
     expect(peak, 'unbounded fan-out').to.be.at.most(32);
   });
 
-  it('does not recurse, so a deep tree cannot overflow the stack', async () => {
+  it('does not recurse, so a deep tree cannot overflow the stack', async function () {
+    this.timeout(REAL_WORK_MS);
     // 5000 levels: the previous implementation recursed once per level.
     const depth = 5000;
     const fs = {
@@ -157,7 +175,8 @@ describe('treeSize tests', () => {
     });
   });
 
-  it('survives one directory holding two hundred thousand entries', async () => {
+  it('survives one directory holding two hundred thousand entries', async function () {
+    this.timeout(REAL_WORK_MS);
     // One directory's fan-out, not the tree total: an app filling a mail spool
     // or a cache creates this from inside its own container, and the crash it
     // must not cause takes the folder listing dark and refuses copy and

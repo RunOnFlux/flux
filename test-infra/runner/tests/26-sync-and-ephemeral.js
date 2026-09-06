@@ -94,6 +94,12 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
     env = await createTestEnv({ hookCtx: this,
       nodes: 16,
       stubPeers: stubIndices,
+      // NOBODY IS A STANDING PEER OF THESE STUBS, which is the whole subject:
+      // the hash is resolved over an EPHEMERAL connection opened to reach a
+      // peer this node does not hold. A stub the fleet is already peered with
+      // is reached without opening one, so the mechanism under test never runs
+      // and the suite passes on the ordinary path instead.
+      stubPeeredWith: Object.fromEntries(stubIndices.map((index) => [index, []])),
       tickerAutostart: false,
       configOverrides: {
         fluxapps: {

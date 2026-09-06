@@ -371,6 +371,7 @@ function makeEnvShell(networkName) {
     volumeNames,
     infraContainers,
     stubPeerClients: new Map(),
+    stubContainers: new Map(),
     // The death watch (armed by createTestEnv) reads both: `stopping` tells it
     // the exits from here on are ours, `infraWatch` is its docker event stream.
     stopping: false,
@@ -657,7 +658,8 @@ function nodeReadyWaitStrategy(nodeIp) {
 // correspondingly slower. A suite that asserts on transfers has to ask for it;
 // nothing else should.
 export async function createTestEnv({
-  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
+  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
+  unverifiableSyncPeers = [], stubPeeredWith = null,
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
@@ -666,6 +668,127 @@ export async function createTestEnv({
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
   }
+  // WHICH NODES ARE ALREADY PART OF THE NETWORK, rather than joining it.
+  //
+  // A node here waits no blocks for its own state sync, so it is authoritative
+  // from the moment it starts and answers a peer that asks it for app state.
+  // A node still catching up declines instead - correctly, it has nothing worth
+  // surveying - so a fleet whose nodes all boot together has nobody who can
+  // answer anybody, and every one of them reaches readiness only by waiting out
+  // the block fallback: 10 blocks at the stub's 5s tick, 50 seconds per boot.
+  //
+  // That is a network-wide cold start, and it is not what a booting node meets.
+  // Production joins a network that has been up for hours. So the default is an
+  // established fleet - the minimum number of nodes another node needs for its
+  // sync to complete - and the cold start is asked for by name with [].
+  //
+  // Taken from the TOP of the fleet because index 0 is by convention the node
+  // under test, and a subject that is authoritative before it starts is a
+  // subject whose sync cannot be observed. Stubs cannot answer a state sync and
+  // deferred nodes have not booted, so neither can serve.
+  // Enough for ANY node in this fleet to complete, not just a default one: a
+  // suite that raises the requirement on the node it is watching needs that
+  // many peers able to answer, and a default sized for the shared config would
+  // leave it one short and looking like the product had stalled.
+  const completionsAsked = [
+    configOverrides?.fluxapps?.appSyncMinCompletions ?? sharedFluxapps.appSyncMinCompletions ?? 3,
+    ...Object.values(nodeConfigOverrides)
+      .map((o) => o?.fluxapps?.appSyncMinCompletions)
+      .filter((n) => Number.isInteger(n)),
+  ];
+  const completionsNeeded = Math.max(...completionsAsked);
+  const firstDeferredIndex = nodes - deferredNodes;
+  const canAnswer = Array.from({ length: nodes }, (_unused, i) => i)
+    .filter((i) => i < firstDeferredIndex && !stubPeers.includes(i));
+  // Never the whole fleet. If there is nobody left over to do the joining then
+  // a sync is not a thing that can happen here at all - a lone node has no peer
+  // to ask - and making every node authoritative would only change how the
+  // subject itself reaches readiness, which is the opposite of the point.
+  const established = canAnswer.length > completionsNeeded
+    ? canAnswer.slice(-completionsNeeded)
+    : [];
+  const establishedNodes = syncedNodes ?? established;
+
+  // Refused rather than clamped: an index outside the fleet is a suite asking
+  // for a synced peer and silently not getting one, which reads as covered.
+  for (const index of establishedNodes) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes) {
+      throw new Error(`createTestEnv: syncedNodes index ${index} is not a node in a fleet of ${nodes}`);
+    }
+  }
+  // WHICH NODES EACH STUB IS A PEER OF, declared rather than left to luck.
+  //
+  // A stub is a websocket SERVER with no client, so it cannot dial anyone and
+  // it cannot honour /flux/addoutgoingpeer either - it 404s that route. Which
+  // nodes ended up peered with a stub was therefore whichever ones happened to
+  // reach it, and it differed run to run. Seven of the eight suites using a
+  // stub never checked at all, and the eighth waited only for SOME node to be
+  // connected while asserting on a specific one - which is how a node that
+  // physically could not hear the stub was read as the fleet not seeing it.
+  //
+  // So the stub asks the nodes it should be peered with to dial IT, over the
+  // same HTTP route a node uses. The NODE does the dialling, which is the
+  // point: that exercises the product's own outbound peer code. A stub with a
+  // client half would connect using a second, hand-written implementation of
+  // the peer protocol and prove nothing about the node.
+  //
+  // Default every real node. A suite that needs a node blind to the stub - 79
+  // measures the gap between probe arrivals and a second asker collapses it -
+  // narrows this by name, so the requirement is visible instead of accidental.
+  const stubPeerSetEarly = new Set(stubPeers);
+  const realNodeIndices = Array.from({ length: nodes }, (_unused, i) => i)
+    .filter((i) => !stubPeerSetEarly.has(i));
+  const stubPeerings = new Map();
+  for (const stubIdx of stubPeers) {
+    const declared = stubPeeredWith?.[stubIdx];
+    if (declared === undefined) {
+      stubPeerings.set(stubIdx, realNodeIndices);
+      continue;
+    }
+    if (!Array.isArray(declared)) {
+      throw new Error(`createTestEnv: stubPeeredWith[${stubIdx}] must be an array of node indices`);
+    }
+    for (const index of declared) {
+      if (!realNodeIndices.includes(index)) {
+        throw new Error(`createTestEnv: stubPeeredWith[${stubIdx}] names ${index}, which is not a real node in a fleet of ${nodes}`);
+      }
+    }
+    stubPeerings.set(stubIdx, declared);
+  }
+  for (const stubIdx of Object.keys(stubPeeredWith ?? {})) {
+    if (!stubPeers.includes(Number(stubIdx))) {
+      throw new Error(`createTestEnv: stubPeeredWith names ${stubIdx}, which is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+  }
+
+  // A stub that offers to answer state syncs and then never does. Only a stub
+  // can be one: a real node either answers or declines, and both of those are
+  // already covered. Refused rather than ignored, for the same reason as above.
+  for (const index of silentSyncPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: silentSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+  }
+  // A stub that answers with an envelope nobody can attribute to it. Only a
+  // stub can be one for the same reason: every real responder signs correctly
+  // with its own key, so a fleet of them can never reach the path a node takes
+  // when a peer's answer does not verify.
+  for (const index of unverifiableSyncPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: unverifiableSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+    if (silentSyncPeers.includes(index)) {
+      throw new Error(`createTestEnv: stub ${index} cannot be both silent and unverifiable`);
+    }
+  }
+  const syncedOverrides = {};
+  for (const index of establishedNodes) {
+    syncedOverrides[index] = mergeConfigs(
+      { fluxapps: { appSyncFallbackMinutes: 0 } },
+      nodeConfigOverrides[index] ?? null,
+    );
+  }
+  const mergedNodeOverrides = { ...nodeConfigOverrides, ...syncedOverrides };
   // Only a legacy node ever installs its own packages, so unseeding a fleet without
   // one strips nothing and tests nothing. Refused rather than ignored: a flag that
   // silently does nothing reads as covered.
@@ -713,7 +836,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -742,12 +865,12 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
     networkName, containers, started, clients, volumeNames, nodeConfigs,
-    stubPeerClients: stubPeerClientsMap,
+    stubPeerClients: stubPeerClientsMap, stubContainers: stubContainersMap,
   } = env;
   const stubPeerSet = new Set(stubPeers);
 
@@ -1138,11 +1261,19 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
         PRIVATE_KEY: key.privkey,
         PUBLIC_KEY: key.pubkey,
         NODE_IP: nodeIp,
+        SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
+        UNVERIFIABLE_APP_STATE_SYNC: String(unverifiableSyncPeers.includes(stubIdx)),
+        // Every stub asks, for the nodes it is declared a peer of. It repeats
+        // on an interval, so a node held back at boot is asked once it starts.
+        DIAL_TARGETS: (stubPeerings.get(stubIdx) ?? [])
+          .map((i) => subnet.nodeIp(i + 1))
+          .join(','),
       })
       .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16128/health`))
       .start();
     started.push(stub);
     stubPeerClientsMap.set(stubIdx, stubPeerClient(nodeIp));
+    stubContainersMap.set(stubIdx, stub);
   }
 
   const fluxNodesByIndex = new Map(nodeConfigs.map((n) => [n.index, n]));
@@ -1193,6 +1324,49 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   await Promise.all(clients
     .filter((c) => c && !rpcFailSet.has(c.ip))
     .map((c) => c.waitForEvent('daemon:polled', () => true, 90000)));
+
+  // THE DECLARED STUB PEERINGS ARE MADE TRUE BEFORE THE FLEET IS HANDED OVER.
+  //
+  // Read from the NODE, not the stub. The stub can only report that a socket
+  // arrived, and a socket arriving is not the same event as the node deciding
+  // to keep it - that gap is the whole subject of this branch. A node that has
+  // the stub in its own peer list is a node that will process what the stub
+  // announces, which is what every suite using a stub actually depends on.
+  //
+  // Deferred nodes are exempt: they have not booted. The stub goes on asking on
+  // its interval, so they acquire the peering when they start.
+  const declaredPeerings = [];
+  for (const [stubIdx, nodeIndices] of stubPeerings) {
+    for (const nodeIdx of nodeIndices) {
+      if (nodeIdx >= firstDeferred) continue;
+      declaredPeerings.push({ stubIdx, nodeIdx, stubIp: subnet.nodeIp(stubIdx + 1) });
+    }
+  }
+  if (declaredPeerings.length) {
+    const outstanding = new Set(declaredPeerings.map((p) => `${p.nodeIdx}->${p.stubIdx}`));
+    const deadline = Date.now() + 120000;
+    while (outstanding.size && Date.now() < deadline) {
+      for (const link of declaredPeerings) {
+        const key = `${link.nodeIdx}->${link.stubIdx}`;
+        if (!outstanding.has(key)) continue;
+        const client = clients[link.nodeIdx];
+        if (!client) { outstanding.delete(key); continue; }
+        // eslint-disable-next-line no-await-in-loop
+        const peers = await client.getPeers().catch(() => null);
+        if (JSON.stringify(peers?.data ?? []).includes(link.stubIp)) outstanding.delete(key);
+      }
+      // eslint-disable-next-line no-await-in-loop
+      if (outstanding.size) await new Promise((resolve) => { setTimeout(resolve, 2000); });
+    }
+    if (outstanding.size) {
+      // Named, because "the fleet ignored a holder" and "that node never had the
+      // holder to ignore" are different faults with one symptom, and a suite
+      // that reads the wrong node cannot tell them apart minutes later.
+      throw new Error(`createTestEnv: stub peerings never formed: ${[...outstanding].join(', ')} `
+        + '(node->stub). The stub asks each node to dial it; a node that never did will not '
+        + 'hear anything that stub announces.');
+    }
+  }
 
   // Post-boot methods join the shell here (they close over _buildEnv locals like
   // deferredBuilders/fluxNodes); identity, registries and teardown live on the
@@ -1254,6 +1428,18 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       const containerId = fluxNodes[index].container.getId();
       await network.disconnect({ Container: containerId });
       if (clients[index]) clients[index].disconnectEventStream();
+    },
+
+    // A STUB'S CONNECTIONS DIE WHERE A NODE'S DO. Taken off the network rather
+    // than stopped, so the socket dies at once and the container is still there
+    // for the teardown - the same thing disconnectNode does, for a container
+    // that has no flux node in it and so no entry in fluxNodes.
+    async disconnectStub(index) {
+      const container = env.stubContainers.get(index);
+      if (!container) throw new Error(`disconnectStub: index ${index} is not a stub peer`);
+      const rtClient = await getContainerRuntimeClient();
+      const network = rtClient.container.dockerode.getNetwork(networkName);
+      await network.disconnect({ Container: container.getId() });
     },
 
     async reconnectNode(index) {

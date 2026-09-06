@@ -22,6 +22,7 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
 let localWsServer;
 let localWsUrl;
@@ -1801,6 +1802,303 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
       sinon.assert.notCalled(relaySpy);
+    });
+  });
+
+  // Completion is counted per peer, so a completion that does not say which
+  // peer it came from cannot be counted at all. These handlers have had the key
+  // in scope all along - they log it, and publish it on sync:chunkVerified two
+  // lines earlier - and this is what makes them hand it on.
+  describe('a sync response says which peer completed it, and whether it declined', () => {
+    const PEER = '198.51.100.7:16127';
+    // The handlers are given the SOCKET, because a response is an answer to a
+    // request written into one connection - not to whatever holds that address
+    // next. `wanted` stands in for the orchestrator's request record.
+    const PEER_SOCKET = { key: PEER, connectionId: 41 };
+    let wanted;
+    let completions;
+    let refusals;
+    let progress;
+    let handler;
+    let refusedHandler;
+    let progressHandler;
+
+    beforeEach(() => {
+      completions = [];
+      refusals = [];
+      progress = [];
+      handler = (syncType, peerKey) => completions.push({ syncType, peerKey });
+      refusedHandler = (syncType, peerKey) => refusals.push({ syncType, peerKey });
+      progressHandler = (peerKey) => progress.push(peerKey);
+      appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
+      appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
+      appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
+      wanted = (socket) => socket === PEER_SOCKET;
+      sinon.stub(peerManager, 'isSyncResponseWanted').callsFake((socket) => wanted(socket));
+      // The dispatcher verifies the envelope before it reaches a handler, and
+      // these fixtures carry no signature. Stubbed so the chain under test is
+      // arrival -> queue -> handler rather than the envelope check.
+      sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast')
+        .resolves(fluxCommunicationUtils.VerifyResult.OK);
+      // An empty final batch is the whole path here: processInSlices does
+      // nothing, and apprunning's pruning is the only step that needs a store.
+      sinon.stub(messageStore, 'pruneAppRunningLocations').resolves();
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({}) }) });
+    });
+
+    afterEach(() => {
+      appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, handler);
+      appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, refusedHandler);
+      appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
+      sinon.restore();
+    });
+
+    // All four streams a request asks for. The peer is credited once every one
+    // of them has ended, so each has to name the peer it came from and each has
+    // to tell a refusal from an empty survey - the temp stream included, which
+    // used to report neither and left the peer credited on three.
+    const cases = [
+      ['apprunning', 'fluxapprunningsync', 'handleAppRunningSyncResponse'],
+      ['appinstalling', 'fluxappinstallingsync', 'handleAppInstallingSyncResponse'],
+      ['apperrors', 'fluxappinstallingerrorssync', 'handleAppInstallingErrorsSyncResponse'],
+      ['apptemp', 'fluxapptempsync', 'handleTempSyncResponse'],
+    ];
+
+    cases.forEach(([syncType, wireType, fn]) => {
+      it(`names the peer on the ${syncType} completion`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
+
+        expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
+      });
+
+      it(`says nothing until the ${syncType} response is done`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+
+        expect(completions).to.deep.equal([]);
+      });
+
+      // Declining is an answer, and it is not a completion. Counting it was the
+      // defect: three booting peers could tell a node the network was empty.
+      it(`reports a declined ${syncType} response as a refusal, not a completion`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER_SOCKET);
+
+        expect(refusals).to.deep.equal([{ syncType, peerKey: PEER }]);
+        expect(completions, 'a refusal was counted as a completed survey').to.deep.equal([]);
+      });
+
+      // A network with nothing running answers with an empty list, and that IS
+      // a survey. If it read as a refusal such a fleet would never sync.
+      it(`counts an empty ${syncType} response as a completion`, async () => {
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
+
+        expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
+        expect(refusals).to.deep.equal([]);
+      });
+
+      // Progress is announced where a response ARRIVES, so a handler that has
+      // not run yet - or is slow - cannot make a peer look silent. Asserted
+      // through the dispatcher, because that is where arrival happens; calling
+      // the handler directly skips the very step under test.
+      it(`reports every ${syncType} arrival as progress, not only the last`, async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+        await dispatch({ data: { type: wireType, messages: [], done: true } }, PEER_SOCKET);
+
+        expect(progress).to.deep.equal([PEER, PEER, PEER]);
+        expect(completions, 'a mid-answer batch was counted as a completion').to.deep.equal([{ syncType, peerKey: PEER }]);
+      });
+
+      it(`reports no ${syncType} progress for a refusal`, async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        await dispatch({ data: { type: wireType, messages: [], done: true, refused: true } }, PEER_SOCKET);
+
+        expect(progress, 'a refusal kept its request alive as though it were working').to.deep.equal([]);
+      });
+
+      // THE DEADLINE EXISTS TO TAKE THE SLOT BACK. Credited on arrival alone,
+      // unverifiable bytes renewed it: a peer sending rubbish inside every stall
+      // window held one of the answers this node needs for the whole attempt
+      // while never answering at all, and the deadline that would have offered
+      // its slot to someone else could not fire.
+      it(`credits no ${syncType} progress for a chunk that fails verification`, async () => {
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .resolves(fluxCommunicationUtils.VerifyResult.MALFORMED);
+        const dispatch = peerManager.syncResponseDispatcher;
+
+        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
+
+        expect(progress, 'unverifiable bytes renewed the deadline that reclaims the slot')
+          .to.deep.equal([]);
+        expect(completions, 'an unverifiable chunk was counted as an answer').to.deep.equal([]);
+      });
+
+      // ip:port names a node; the request was written into a connection. A peer
+      // that dropped and dialled back in has not answered anything, and
+      // crediting it would let a reconnect complete a survey it never made.
+      it(`ignores a ${syncType} response arriving on a connection nobody asked`, async () => {
+        const reconnected = { key: PEER, connectionId: PEER_SOCKET.connectionId + 1 };
+
+        await fluxCommunication[fn]({ data: { type: wireType, messages: [], done: true } }, reconnected);
+
+        expect(completions, 'an unasked connection completed a sync under an asked peer\'s name').to.deep.equal([]);
+        expect(progress).to.deep.equal([]);
+      });
+    });
+
+    // THE QUEUE IS THE ORDER. Chunks carry meaning by position - the sender
+    // sorts by timestamp and an eviction carries none, so evictions arrive in
+    // the FIRST chunk and clear a node's locations outright, and `done` means
+    // "nothing after this". A chunk taking its place in the queue only once its
+    // envelope check came back put the order in the hands of whichever check
+    // finished first.
+    describe('a chunk takes its place in the queue when it arrives', () => {
+      const chunkFor = (marker) => ({
+        data: { type: 'fluxapprunningsync', messages: [{ marker }], done: false },
+      });
+
+      let processed;
+
+      beforeEach(() => {
+        processed = [];
+        sinon.stub(serviceHelper, 'processInSlices').callsFake(async (messages) => {
+          processed.push(messages[0].marker);
+        });
+      });
+
+      it('processes chunks in arrival order when a later check finishes first', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        let admitFirst;
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onFirstCall().returns(new Promise((resolve) => { admitFirst = resolve; }));
+
+        const first = dispatch(chunkFor('a'), PEER_SOCKET);
+        await dispatch(chunkFor('b'), PEER_SOCKET);
+
+        expect(processed, 'a chunk was processed while an earlier one was still being checked')
+          .to.deep.equal([]);
+
+        admitFirst(fluxCommunicationUtils.VerifyResult.OK);
+        await first;
+
+        expect(processed, 'the second chunk overtook the first because its check finished first')
+          .to.deep.equal(['a', 'b']);
+      });
+
+      // A HOLE IS NOT A SURVEY. Stepping over the chunk left the node counting a
+      // peer as having surveyed the network out of an answer it knows part of is
+      // missing - and it cannot say which part, because the chunk it could not
+      // attribute is the one it cannot read.
+      it('ends the request on a chunk it cannot verify, and processes no more of the stream', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        const unverified = [];
+        const onUnverified = (peerKey) => unverified.push(peerKey);
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        let admitFirst;
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onFirstCall().returns(new Promise((resolve) => { admitFirst = resolve; }));
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onSecondCall().resolves(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
+
+        try {
+          const first = dispatch(chunkFor('a'), PEER_SOCKET);
+          await dispatch(chunkFor('b'), PEER_SOCKET);
+          admitFirst(fluxCommunicationUtils.VerifyResult.OK);
+          await first;
+        } finally {
+          appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        }
+
+        expect(processed, 'the stream carried on past a chunk that could not be verified')
+          .to.deep.equal(['a']);
+        expect(unverified, 'a stream with a hole in it did not end the request').to.deep.equal([PEER]);
+      });
+
+      // A drain serves ONE connection. A backlog left behind by a connection
+      // that has since been replaced still runs, and a failure in it says
+      // nothing about the peer that dialled back in - which by then holds a
+      // request of its own, or none at all.
+      it('reports no failure for a connection it is no longer serving', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        const reconnected = { key: PEER, connectionId: PEER_SOCKET.connectionId + 1 };
+        const unverified = [];
+        const onUnverified = (peerKey) => unverified.push(peerKey);
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        let admitFirst;
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onFirstCall().returns(new Promise((resolve) => { admitFirst = resolve; }));
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onSecondCall().resolves(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
+
+        try {
+          const stale = dispatch(chunkFor('a'), PEER_SOCKET);
+          await dispatch(chunkFor('bad'), PEER_SOCKET);
+          wanted = (socket) => socket === reconnected;
+          admitFirst(fluxCommunicationUtils.VerifyResult.OK);
+          await stale;
+        } finally {
+          appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        }
+
+        expect(unverified, 'a dead connection\'s bad chunk was reported against the peer at that address')
+          .to.deep.equal([]);
+      });
+
+      it('credits no progress and ends the request when the first chunk cannot be verified', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        const unverified = [];
+        const onUnverified = (peerKey) => unverified.push(peerKey);
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .resolves(fluxCommunicationUtils.VerifyResult.MALFORMED);
+
+        try {
+          await dispatch(chunkFor('a'), PEER_SOCKET);
+        } finally {
+          appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        }
+
+        expect(processed).to.deep.equal([]);
+        expect(progress, 'unverifiable bytes renewed the deadline that reclaims the slot').to.deep.equal([]);
+        expect(unverified).to.deep.equal([PEER]);
+      });
+    });
+
+    // THE DEADLINE IS A STATEMENT ABOUT THE PEER, and processing time is a
+    // statement about us. Everything one peer sends goes through a single
+    // queue, one chunk at a time, and the temp-message stream re-verifies every
+    // pending registration it is given. A peer that answered all four requests
+    // at once went unheard for as long as WE took on the first of them, was
+    // recorded as having said nothing, and had the answers already queued
+    // behind it thrown away with the record.
+    //
+    // Driven per stream because the first slow step is a different call in
+    // each: the three surveys hand a batch to processInSlices, the temp stream
+    // stores one message at a time. The boundary is the same either way -
+    // whether the peer SIGNED this is about the peer and is settled at arrival,
+    // storing what it sent is about us - and anything below it is on our clock.
+    const arrivalCases = [
+      ['apprunning', 'fluxapprunningsync', [], () => [serviceHelper, 'processInSlices']],
+      ['appinstalling', 'fluxappinstallingsync', [], () => [serviceHelper, 'processInSlices']],
+      ['apperrors', 'fluxappinstallingerrorssync', [], () => [serviceHelper, 'processInSlices']],
+      ['apptemp', 'fluxapptempsync', [{ hash: 'abc' }], () => [messageStore, 'storeAppTemporaryMessage']],
+    ];
+
+    arrivalCases.forEach(([syncType, wireType, messages, slowStep]) => {
+      it(`announces a ${syncType} arrival before anything processes it`, async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        let progressAtWork = null;
+        const [owner, method] = slowStep();
+        sinon.stub(owner, method).callsFake(async () => {
+          progressAtWork = [...progress];
+          return true;
+        });
+
+        await dispatch({ data: { type: wireType, messages, done: false } }, PEER_SOCKET);
+
+        expect(progressAtWork, 'the peer was still silent when its own answer was already in hand')
+          .to.deep.equal([PEER]);
+      });
     });
   });
 });
