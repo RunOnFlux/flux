@@ -4606,6 +4606,11 @@ describe('advancedWorkflows tests', () => {
 
       await advancedWorkflows.redeployComponentAPI(req, res);
 
+      // The removal that failed is ONE component's. Uninstalling the whole app
+      // here - forced, and broadcast to the network - takes every other
+      // component with it over a failure that is usually the reconciler having
+      // got there first.
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
       // Either channel is fine - before anything is written the status line is
       // still ours, after that the envelope goes into the stream. What is not
       // fine is neither, which closes on a progress line and reads as success.
@@ -4613,6 +4618,42 @@ describe('advancedWorkflows tests', () => {
       expect(answered, 'the caller must be told the redeploy did not happen').to.match(/error/i);
       expect(res.ended, 'and the response must still be closed').to.be.true;
       expect(res.writesAfterEnd).to.be.empty;
+    });
+
+    // The hard path force-uninstalls the app for the same reason and has the
+    // same answer. It is reached only with force=true, so the soft test above
+    // says nothing about it.
+    it('leaves the app alone when a hard component redeploy fails during removal', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      // appDockerRemove's shape when the reconciler recreates the container the
+      // teardown is removing, which is the failure this gate exists for.
+      sinon.stub(appUninstaller, 'hardUninstallComponent').rejects(new Error('Container fluxweb_myapp not found'));
+      req.params.force = 'true';
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      const answered = res.written.join('') + JSON.stringify(res.json.args);
+      expect(answered, 'the caller must be told the redeploy did not happen').to.match(/error/i);
+      expect(res.ended, 'and the response must still be closed').to.be.true;
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
+    // The gate must not be shut. A teardown that COMPLETED and a failure after it
+    // is the case the forced uninstall exists for, and a suite that proved only
+    // the refusals would pass with the fallback deleted altogether.
+    it('still uninstalls when the component came down and the step after it threw', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      const [appNameArg, , force, , sendMessage] = appUninstaller.removeAppLocally.firstCall.args;
+      expect(appNameArg, 'the whole app comes down once its component is already gone').to.equal('myapp');
+      expect(force, 'the fallback is the forced uninstall').to.be.true;
+      expect(sendMessage, 'and it tells the network').to.be.true;
     });
 
     // The same failure once the stream has started, which is the shape that went

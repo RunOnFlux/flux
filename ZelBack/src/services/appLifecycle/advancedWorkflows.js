@@ -1584,6 +1584,11 @@ async function softRedeployComponent(appName, componentName, res) {
     const fullComponentName = `${componentName}_${appName}`;
     const componentAppId = dockerService.getAppIdentifier(fullComponentName);
 
+    // Whether softUninstallComponent ran to completion. False means the removal
+    // did not FINISH, which is not the same as "it never started" - and it is the
+    // only thing the forced, network-broadcast uninstall below is decided on.
+    let componentRemoved = false;
+
     try {
       log.warn(`Beginning Soft Redeployment of component ${fullComponentName}...`);
       // Both arguments used to be wrong, and softUninstallComposedApp is the
@@ -1603,6 +1608,7 @@ async function softRedeployComponent(appName, componentName, res) {
       // stop targeted a monitor that does not exist and the real one kept
       // sampling a container that was gone.
       await appUninstaller.softUninstallComponent(appName, componentAppId, componentSpec, res, stopAppMonitoring);
+      componentRemoved = true;
 
       const appRedeployResponse = messageHelper.createSuccessMessage(`Component ${fullComponentName} softly removed. Awaiting installation...`);
       log.info(appRedeployResponse);
@@ -1654,8 +1660,21 @@ async function softRedeployComponent(appName, componentName, res) {
       globalState.softRedeployInProgress = false;
     } catch (error) {
       log.error(error);
-      log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
       globalState.softRedeployInProgress = false;
+      if (!componentRemoved) {
+        // One component's removal did not complete, and the answer to that was
+        // to uninstall the WHOLE app - forced, and broadcast to the network. A
+        // transient failure (the reconciler racing the removal, appDockerRemove
+        // finding no container) took every other component of the app with it.
+        // Whatever state the removal did reach, the reconciler converges it: a
+        // container it left behind is recreated, one it left running is kept.
+        // The throw is what tells the caller, and redeployComponentAPI answers
+        // on it.
+        log.warn(`Soft redeploy of ${fullComponentName} failed during removal: ${error.message}. `
+          + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
+        throw error;
+      }
+      log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
       // endResponse false: the endpoint opened this response and closes it.
       await appUninstaller.removeAppLocally(appName, res, true, false, true);
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} soft redeploy failure`);
@@ -1722,12 +1741,17 @@ async function hardRedeployComponent(appName, componentName, res) {
 
     const fullComponentName = `${componentName}_${appName}`;
 
+    // Same decision as the soft path: whether hardUninstallComponent finished is
+    // the only thing the forced, network-broadcast uninstall below is decided on.
+    let componentRemoved = false;
+
     try {
       log.warn(`Beginning Hard Redeployment of component ${fullComponentName}...`);
       log.warn(`REMOVAL REASON: Hard redeploy initiated - ${fullComponentName} being removed as part of hard redeploy process (hardRedeployComponent)`);
 
       // same contract as the soft path above: bare app name, real docker id
       await appUninstaller.hardUninstallComponent(appName, dockerService.getAppIdentifier(fullComponentName), componentSpec, res, stopAppMonitoring, false);
+      componentRemoved = true;
 
       const appRedeployResponse = messageHelper.createSuccessMessage(`Component ${fullComponentName} removed. Awaiting installation...`);
       log.info(appRedeployResponse);
@@ -1775,8 +1799,16 @@ async function hardRedeployComponent(appName, componentName, res) {
       globalState.hardRedeployInProgress = false;
     } catch (error) {
       log.error(error);
-      log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
       globalState.hardRedeployInProgress = false;
+      if (!componentRemoved) {
+        // See the soft path. A hard redeploy asks for one component's volume to
+        // be rebuilt, and a removal that did not finish is not grounds for
+        // destroying the components beside it and telling the network.
+        log.warn(`Hard redeploy of ${fullComponentName} failed during removal: ${error.message}. `
+          + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
+        throw error;
+      }
+      log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
       // endResponse false: the endpoint opened this response and closes it.
       await appUninstaller.removeAppLocally(appName, res, true, false, true);
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} hard redeploy failure`);
