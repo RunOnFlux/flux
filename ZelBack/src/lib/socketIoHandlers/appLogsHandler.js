@@ -51,11 +51,19 @@ const roomFor = (containerId) => `applogs:${containerId}`;
 /**
  * Stop a feed and forget it. Safe to call for a container with no feed.
  *
+ * @param {object} io The namespace the room belongs to
  * @param {string} containerId
  */
-function closeFeed(containerId) {
+function closeFeed(io, containerId) {
   const feed = feeds.get(containerId);
   if (!feed) return;
+  // The room goes with the feed. A viewer left in it after the stream ended is
+  // still a member when the container is started again and someone else opens a
+  // fresh feed for the same id - it would be handed that feed's lines without
+  // having asked for them, into a pane that has already fallen back to the poll
+  // and is showing every line twice. Emptied here because a feed knows its room
+  // and cannot reach the connections that hold it.
+  io.socketsLeave(roomFor(containerId));
   // Marked as well as dropped, because a feed can be closed while its stream is
   // still being opened: the open has no way back to this map once the record is
   // gone, and the flag is what tells it the stream it is holding has no viewer.
@@ -191,7 +199,7 @@ async function openFeed(io, container, containerId) {
   stream.on('error', guard('stream error', (error) => {
     log.error(`appLogsHandler: stream error for ${containerId}: ${error.message}`);
     io.to(roomFor(containerId)).emit('error', 'Log stream error.');
-    closeFeed(containerId);
+    closeFeed(io, containerId);
   }));
 
   // The container stopped, so docker closed the stream. The subscribers stay
@@ -202,7 +210,7 @@ async function openFeed(io, container, containerId) {
     enqueue(decoder.flush());
     flush(io, containerId);
     io.to(roomFor(containerId)).emit('ended');
-    closeFeed(containerId);
+    closeFeed(io, containerId);
   }));
 
   feed.timer = setInterval(() => flush(io, containerId), BATCH_MS);
@@ -255,7 +263,7 @@ async function appLogsHandler(socket) {
     if (!feed) return;
     feed.subscribers.delete(socket.id);
     // The last viewer left, so nothing is reading what the daemon is sending.
-    if (!feed.subscribers.size) closeFeed(containerId);
+    if (!feed.subscribers.size) closeFeed(io, containerId);
   };
 
   const leave = () => {
@@ -297,6 +305,11 @@ async function appLogsHandler(socket) {
       socket.emit('error', 'Not authorized.');
       return;
     }
+    // A feed that ended took the subscription with it: the container stopped,
+    // the stream is closed and there is nothing left to leave. Held, the slot
+    // makes 'ended' terminal for the CONNECTION rather than for the container -
+    // and the only way out was an unsubscribe no client is told to send.
+    if (slot && slot.containerId && !feeds.has(slot.containerId)) leave();
     if (slot) {
       socket.emit('error', 'This connection already follows a container.');
       return;

@@ -22,24 +22,38 @@ describe('appLogsHandler tests', () => {
   }
 
   // The namespace records what each room was told, so a test asserts on the
-  // fan-out rather than on one socket.
-  const makeNamespace = () => ({
-    to(room) {
-      return {
-        emit: (event, payload) => {
-          emitted.push({ room, event, payload });
-        },
-      };
-    },
-  });
+  // fan-out rather than on one socket - and delivers by membership as well, so a
+  // socket left in a room after its feed closed is caught receiving what it did
+  // not ask for. socketsLeave is the only way the handler can empty a room: a
+  // feed knows its room and cannot reach the connections holding it.
+  const makeNamespace = () => {
+    const members = new Set();
+    return {
+      members,
+      to(room) {
+        return {
+          emit: (event, payload) => {
+            emitted.push({ room, event, payload });
+            members.forEach((member) => {
+              if (member.rooms.has(room)) member.received.push({ event, payload });
+            });
+          },
+        };
+      },
+      socketsLeave(room) {
+        members.forEach((member) => member.leave(room));
+      },
+    };
+  };
 
   const makeSocket = (id, nsp) => {
     const listeners = {};
-    return {
+    const socket = {
       id,
       nsp,
       connected: true,
       rooms: new Set(),
+      received: [],
       emit: sinon.stub(),
       join(room) { this.rooms.add(room); },
       leave(room) { this.rooms.delete(room); },
@@ -51,6 +65,8 @@ describe('appLogsHandler tests', () => {
         return Promise.all((listeners[event] || []).map((fn) => fn(...args)));
       },
     };
+    nsp.members.add(socket);
+    return socket;
   };
 
   beforeEach(() => {
@@ -630,6 +646,67 @@ describe('appLogsHandler tests', () => {
 
       expect(() => logStream.emit('data', Buffer.from([0, 0, 0]))).to.not.throw();
       expect(() => logStream.emit('data', null)).to.not.throw();
+    });
+  });
+
+  describe('a feed that ends releases the connections holding it', () => {
+    const freshStream = () => {
+      const stream = new EventEmitter();
+      stream.destroyed = false;
+      stream.destroy = () => { stream.destroyed = true; stream.removeAllListeners(); };
+      return stream;
+    };
+
+    it('follows another container once the one it had stopped', async () => {
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      await subscribe(socket);
+
+      logStream.emit('end');
+      expect(appLogsHandler.feeds.has('abc123'), 'the container stopped and the feed closed with it').to.be.false;
+
+      getDockerContainerByIdOrName.resolves({ id: 'def456', logs: sinon.stub().resolves(freshStream()) });
+      await subscribe(socket, 'fluxother_app2');
+
+      expect(
+        socket.emit.calledWith('error', 'This connection already follows a container.'),
+        'the slot outlived the container it named, so ended was terminal for the connection',
+      ).to.be.false;
+      expect(socket.emit.calledWith('subscribed', { container: 'def456' })).to.be.true;
+    });
+
+    it('stops handing a container to a connection whose feed already ended', async () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const nsp = makeNamespace();
+        const stopped = makeSocket('s1', nsp);
+        appLogsHandler(stopped);
+        await subscribe(stopped);
+
+        logStream.emit('end');
+
+        // The container is started again - the same container, so the same id
+        // and the same room - and a second viewer opens a feed for it.
+        const restarted = freshStream();
+        container.logs = sinon.stub().resolves(restarted);
+        const next = makeSocket('s2', nsp);
+        appLogsHandler(next);
+        await subscribe(next);
+
+        restarted.emit('data', frame('after the restart\n'));
+        clock.tick(appLogsHandler.BATCH_MS);
+
+        expect(
+          next.received.filter((r) => r.event === 'logs'),
+          'the viewer that asked for the feed was not given it',
+        ).to.not.be.empty;
+        expect(
+          stopped.received.filter((r) => r.event === 'logs'),
+          'a pane that fell back to the poll was handed the new feed too, and showed every line twice',
+        ).to.be.empty;
+      } finally {
+        clock.restore();
+      }
     });
   });
 
