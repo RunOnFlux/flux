@@ -846,6 +846,37 @@ describe('dockerService tests', () => {
         .to.deep.equal(written.slice(2));
     });
 
+    it('releases the event loop while it decodes rather than holding it for the whole read', async () => {
+      // The decode runs on the node's only thread, so a pass that runs to
+      // completion without yielding answers no peer and no other request for as
+      // long as it takes - measured on a node against an 8.47MB log at 40ms on
+      // a clean heap and 564ms on a warm one, against a 0.3ms idle baseline.
+      //
+      // Counted from the moment docker hands the payload over, NOT from the
+      // call: the container lookup ahead of it yields plenty on its own, and a
+      // count that includes those turns passes just as happily with the whole
+      // decode synchronous - which is what the first version of this test did.
+      const many = Array.from({ length: 60000 }, (_, i) => at(1000 + i, `line-${i} ${'x'.repeat(80)}`));
+      const payload = dockerFrame(many);
+
+      let turns = 0;
+      let counting = false;
+      let running = true;
+      const tick = () => { if (running) { if (counting) turns += 1; setImmediate(tick); } };
+      setImmediate(tick);
+
+      sinon.stub(Dockerode.Container.prototype, 'logs').callsFake(async () => {
+        counting = true;
+        return payload;
+      });
+
+      const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 'all' });
+      running = false;
+
+      expect(result.lines, 'the answer is the same one, whoever else got to run').to.have.lengthOf(many.length);
+      expect(turns, 'the decode held the loop from the docker read to the answer').to.be.greaterThan(20);
+    });
+
     it('rejects for a container that is not there', async () => {
       await expect(dockerService.dockerContainerLogsPolling('testing1234', {}))
         .to.eventually.be.rejectedWith('Container testing1234 not found');
