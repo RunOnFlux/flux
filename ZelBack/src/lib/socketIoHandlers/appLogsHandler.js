@@ -56,6 +56,10 @@ const roomFor = (containerId) => `applogs:${containerId}`;
 function closeFeed(containerId) {
   const feed = feeds.get(containerId);
   if (!feed) return;
+  // Marked as well as dropped, because a feed can be closed while its stream is
+  // still being opened: the open has no way back to this map once the record is
+  // gone, and the flag is what tells it the stream it is holding has no viewer.
+  feed.closed = true;
   clearInterval(feed.timer);
   // destroy() rather than a docker call: this is the response stream, and
   // destroying it is what tells the daemon to stop following.
@@ -93,23 +97,50 @@ function flush(io, containerId) {
  * @returns {Promise<void>} resolves once the stream is attached
  */
 async function openFeed(io, container, containerId) {
-  const stream = await container.logs({
-    follow: true,
-    stdout: true,
-    stderr: true,
-    timestamps: true,
-    // Bounded, like every other read this codebase makes of a log. `follow`
-    // with a `tail` opens at the end of the file and costs nothing to
-    // establish - measured on a live node at 2 CPU ticks against a 1 tick
-    // idle baseline, where the same read without a `tail` costs 15.
-    tail: BACKFILL_LINES,
-  });
-
   const decoder = new LogFrameDecoder();
   const feed = {
-    stream, queued: [], dropped: 0, timer: null, subscribers: new Set(), recent: [],
+    stream: null, queued: [], dropped: 0, timer: null, subscribers: new Set(), recent: [], closed: false,
   };
+  // Claimed BEFORE the daemon is asked, with nothing awaited between the
+  // caller's `feeds.get` and this line. Two viewers opening the same container
+  // in one tick both looked into the gap this closes, both found nothing, and
+  // both opened a stream - and the second one replaced the first in this map,
+  // which is the only reference to it. A stream nothing holds cannot be
+  // destroyed: it follows the container for the life of the process and its
+  // data handler keeps resolving `feeds.get(containerId)` to whatever feed is
+  // current, so every later viewer of that container sees every line twice.
   feeds.set(containerId, feed);
+
+  let stream;
+  try {
+    stream = await container.logs({
+      follow: true,
+      stdout: true,
+      stderr: true,
+      timestamps: true,
+      // Bounded, like every other read this codebase makes of a log. `follow`
+      // with a `tail` opens at the end of the file and costs nothing to
+      // establish - measured on a live node at 2 CPU ticks against a 1 tick
+      // idle baseline, where the same read without a `tail` costs 15.
+      tail: BACKFILL_LINES,
+    });
+  } catch (error) {
+    // The claim goes before the throw, so the next viewer opens a stream rather
+    // than joining a record that will never carry one. Whoever joined on the
+    // strength of it is told through the room: their own subscribe succeeded and
+    // has nothing left to report to them.
+    if (feeds.get(containerId) === feed) feeds.delete(containerId);
+    io.to(roomFor(containerId)).emit('error', 'Log stream error.');
+    throw error;
+  }
+
+  // The last viewer left while the daemon was answering, so closeFeed has
+  // already run and found no stream to destroy. This is the only pass that can.
+  if (feed.closed) {
+    stream.destroy();
+    return;
+  }
+  feed.stream = stream;
 
   // Called by the stream, not by socket.io, so the guard that answers a failing
   // socket listener does not reach these. A throw here is a rejection nobody

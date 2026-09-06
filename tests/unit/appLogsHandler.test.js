@@ -241,6 +241,142 @@ describe('appLogsHandler tests', () => {
     });
   });
 
+  describe('two viewers opening at once', () => {
+    // The daemon answers a round trip after it is asked, and the tests above
+    // subscribe one viewer at a time against a single stream object - so a
+    // second open, and the stream it strands, are unreachable from them. These
+    // hold the answer open and hand back a new stream per call, which is what
+    // the daemon does. destroy() drops the listeners with it: a destroyed
+    // stream delivers nothing further, and a test that lets one keep emitting
+    // would report a leak that production does not have, and miss the one it
+    // does.
+    let resolvers;
+    let streams;
+
+    const newStream = () => {
+      const stream = new EventEmitter();
+      stream.destroyed = false;
+      stream.destroy = () => { stream.destroyed = true; stream.removeAllListeners(); };
+      streams.push(stream);
+      return stream;
+    };
+
+    const answerDaemon = () => resolvers.splice(0).forEach((resolve) => resolve(newStream()));
+
+    const bothSubscribe = (first, second) => Promise.all([
+      first.fire('subscribe', 'zelidauth', 'fluxcomp_myapp'),
+      second.fire('subscribe', 'zelidauth', 'fluxcomp_myapp'),
+    ]);
+
+    beforeEach(() => {
+      resolvers = [];
+      streams = [];
+      container.logs = sinon.stub().callsFake(() => new Promise((resolve) => { resolvers.push(resolve); }));
+    });
+
+    it('opens one docker stream for two viewers arriving in the same tick', async () => {
+      const nsp = makeNamespace();
+      const a = makeSocket('s1', nsp);
+      const b = makeSocket('s2', nsp);
+      appLogsHandler(a); appLogsHandler(b);
+
+      const settled = bothSubscribe(a, b);
+      await until(() => resolvers.length > 0);
+      answerDaemon();
+      await settled;
+
+      expect(container.logs.callCount, 'the second viewer looked into the gap before the first had claimed it').to.equal(1);
+      expect(appLogsHandler.feeds.get('abc123').subscribers.size, 'both viewers hold the one feed').to.equal(2);
+    });
+
+    it('leaves nothing following the container once both of them go', async () => {
+      const nsp = makeNamespace();
+      const a = makeSocket('s1', nsp);
+      const b = makeSocket('s2', nsp);
+      appLogsHandler(a); appLogsHandler(b);
+      const settled = bothSubscribe(a, b);
+      await until(() => resolvers.length > 0);
+      answerDaemon();
+      await settled;
+
+      await a.fire('disconnect');
+      await b.fire('disconnect');
+
+      expect(streams.filter((stream) => !stream.destroyed), 'a stream nothing holds cannot ever be closed').to.be.empty;
+    });
+
+    it('hands a viewer that arrives afterwards each line once', async () => {
+      // The line a stranded stream decodes goes into whatever feed is current,
+      // so one racing pair is enough to double every line for every viewer of
+      // that container from then on - none of whom raced anything.
+      const nsp = makeNamespace();
+      const a = makeSocket('s1', nsp);
+      const b = makeSocket('s2', nsp);
+      appLogsHandler(a); appLogsHandler(b);
+      const settled = bothSubscribe(a, b);
+      await until(() => resolvers.length > 0);
+      answerDaemon();
+      await settled;
+      await a.fire('disconnect');
+      await b.fire('disconnect');
+
+      const late = makeSocket('s3', nsp);
+      appLogsHandler(late);
+      const alone = late.fire('subscribe', 'zelidauth', 'fluxcomp_myapp');
+      await until(() => resolvers.length > 0);
+      answerDaemon();
+      await alone;
+
+      // The daemon sends the line down every stream it still has open.
+      streams.forEach((stream) => stream.emit('data', frame('one-line\n')));
+
+      const delivered = appLogsHandler.feeds.get('abc123').queued.filter((line) => line.includes('one-line'));
+      expect(delivered, 'a log pane must never show a line twice').to.have.lengthOf(1);
+    });
+
+    it('keeps the second viewer\'s feed when the first goes while the stream is opening', async () => {
+      const nsp = makeNamespace();
+      const a = makeSocket('s1', nsp);
+      const b = makeSocket('s2', nsp);
+      appLogsHandler(a); appLogsHandler(b);
+      const settled = bothSubscribe(a, b);
+      await until(() => resolvers.length > 0);
+
+      a.connected = false;
+      await a.fire('disconnect');
+      answerDaemon();
+      await settled;
+
+      const feed = appLogsHandler.feeds.get('abc123');
+      expect(feed, 'the viewer that opened it leaving is not the last viewer leaving').to.not.be.undefined;
+      expect(feed.stream.destroyed, 'b is left holding a feed with no stream').to.be.false;
+      expect(feed.subscribers.has('s2')).to.be.true;
+    });
+
+    it('releases the claim when the daemon refuses, so the next viewer opens', async () => {
+      const nsp = makeNamespace();
+      const a = makeSocket('s1', nsp);
+      const b = makeSocket('s2', nsp);
+      appLogsHandler(a); appLogsHandler(b);
+      container.logs = sinon.stub().rejects(new Error('daemon went away'));
+
+      await bothSubscribe(a, b);
+
+      expect(appLogsHandler.feeds.has('abc123'), 'a record that will never carry a stream').to.be.false;
+      expect(emitted.filter((e) => e.event === 'error'), 'whoever joined on the claim has nothing else to tell them').to.not.be.empty;
+
+      container.logs = sinon.stub().callsFake(() => new Promise((resolve) => { resolvers.push(resolve); }));
+      const late = makeSocket('s3', nsp);
+      appLogsHandler(late);
+      const alone = late.fire('subscribe', 'zelidauth', 'fluxcomp_myapp');
+      await until(() => resolvers.length > 0);
+      answerDaemon();
+      await alone;
+
+      expect(appLogsHandler.feeds.has('abc123'), 'the next viewer opens rather than joining a dead record').to.be.true;
+    });
+  });
+
   describe('batching and backpressure', () => {
     it('sends lines collected over the window as one message', async () => {
       const clock = sinon.useFakeTimers();
