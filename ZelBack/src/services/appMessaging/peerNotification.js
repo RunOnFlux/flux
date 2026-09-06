@@ -14,30 +14,90 @@ const appReconciler = require('../appMonitoring/appReconciler');
 
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
+const { RUNNING_EXPIRY_MS } = require('../utils/appConstants');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-let broadcastInterval = null;
+let broadcastTimer = null;
 let broadcastInProgress = false;
 let rebroadcastNeeded = false;
+let overrunning = false;
 
-function resetBroadcastInterval() {
-  if (broadcastInterval) clearInterval(broadcastInterval);
-  broadcastInterval = setInterval(() => {
+/**
+ * How often this node announces the apps it is running.
+ *
+ * Not a preference. The announcement below writes this node's OWN location row
+ * before it sends, and that row expires RUNNING_EXPIRY_MS after the
+ * announcement that carried it - so a node announcing less often than the row
+ * lives stops being a holder of its own apps, on its own reading and on every
+ * peer's. Production ships 3600s against a 7500s expiry.
+ *
+ * The ceiling is what stops any other pairing deleting that property in
+ * silence, whether it arrives as a harness compression or a hand edit. Half the
+ * expiry, so one missed announcement is survivable and two are not.
+ *
+ * @returns {number} milliseconds
+ */
+function announceIntervalMs() {
+  const configured = config.fluxapps.peerNotifyIntervalMs ?? 3600000;
+  return Math.min(configured, Math.floor(RUNNING_EXPIRY_MS / 2));
+}
+
+/**
+ * Schedule the next announcement so that the PERIOD is fixed, rather than the
+ * gap between one cycle ending and the next beginning.
+ *
+ * The timer used to be recreated after the cycle, which made the real period
+ * `interval + however long the cycle took`: the work sat inside the thing it
+ * was being timed against. Nothing reported it and nothing measured it, so a
+ * node whose cycle took 40s against a 30s interval announced every 70s while
+ * every configuration file said 30. Subtracting the elapsed time is what makes
+ * the period the period.
+ *
+ * Measured monotonically. A wall clock can step backwards over an NTP
+ * correction, and a negative elapsed would push the next announcement away by
+ * the size of the step.
+ *
+ * @param {bigint} startedAt process.hrtime.bigint() taken when the cycle began
+ */
+function scheduleNextBroadcast(startedAt) {
+  if (broadcastTimer) clearTimeout(broadcastTimer);
+
+  const interval = announceIntervalMs();
+  const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+  // Said once on the transition and once when it clears, never per cycle. A
+  // node whose cycle no longer fits its interval is announcing itself less
+  // often than it is configured to, and its presence on the network decays with
+  // nothing anywhere saying so - which is why this went unseen for as long as
+  // it did.
+  if (elapsedMs > interval) {
+    if (!overrunning) {
+      overrunning = true;
+      log.warn(`peerNotification - a broadcast cycle took ${Math.round(elapsedMs)}ms against a ${interval}ms interval; this node is announcing itself less often than it is configured to`);
+    }
+  } else if (overrunning) {
+    overrunning = false;
+    log.info('peerNotification - broadcast cycles fit inside their interval again');
+  }
+
+  // Clamped at zero rather than scheduled into the past. A cycle that outran
+  // its interval runs again immediately, which is the most the node can do.
+  broadcastTimer = setTimeout(() => {
     checkAndNotifyPeersOfRunningApps();
-  }, config.fluxapps.peerNotifyIntervalMs ?? 3600000);
+  }, Math.max(0, interval - elapsedMs));
 }
 
 function stopBroadcastInterval() {
-  if (broadcastInterval) {
-    clearInterval(broadcastInterval);
-    broadcastInterval = null;
+  if (broadcastTimer) {
+    clearTimeout(broadcastTimer);
+    broadcastTimer = null;
   }
 }
 
 function initialize() {
   nodeConfirmationService.onMessageCapabilityChange((capable) => {
-    if (capable && broadcastInterval) {
+    if (capable && broadcastTimer) {
       log.info('peerNotification - Message capability regained, triggering immediate broadcast');
       checkAndNotifyPeersOfRunningApps();
     }
@@ -51,6 +111,9 @@ async function checkAndNotifyPeersOfRunningApps() {
     return;
   }
   broadcastInProgress = true;
+  // Taken before any work, so the schedule below subtracts the WHOLE cycle -
+  // including the paths that give up early, which cost time too.
+  const startedAt = process.hrtime.bigint();
   try {
     if (!nodeConfirmationService.canSendMessages()) {
       log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');
@@ -188,7 +251,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       rebroadcastNeeded = false;
       setImmediate(() => checkAndNotifyPeersOfRunningApps());
     } else {
-      resetBroadcastInterval();
+      scheduleNextBroadcast(startedAt);
     }
   }
 }

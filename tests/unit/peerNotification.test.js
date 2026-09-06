@@ -14,6 +14,98 @@ describe('peerNotification tests', () => {
   let installedAppsStub;
   let listRunningAppsStub;
 
+  // One stub map, so a test that needs a different interval, expiry or cycle
+  // length states only that difference instead of restating sixty lines.
+  const loadPeerNotification = (opts = {}) => proxyquire('../../ZelBack/src/services/appMessaging/peerNotification', {
+    config: {
+      database: {
+        appslocal: {
+          collections: { appsInformation: 'localAppsInformation' },
+          database: 'localapps',
+        },
+        appsglobal: {
+          database: 'globalapps',
+          collections: { appsLocations: 'appsLocations' },
+        },
+      },
+      fluxapps: {
+        peerNotifyIntervalMs: opts.peerNotifyIntervalMs ?? 3600000,
+      },
+    },
+    '../dbHelper': {
+      databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+      findOneInDatabase: sinon.stub().resolves(null),
+      findInDatabase: sinon.stub().resolves([]),
+      updateOneInDatabase: sinon.stub().resolves(),
+    },
+    '../dockerService': {
+      appDockerStart: sinon.stub().resolves(),
+      getDockerContainerOnly: sinon.stub().resolves(null),
+    },
+    '../serviceHelper': {
+      delay: sinon.stub().resolves(),
+      ensureString: sinon.stub().returnsArg(0),
+    },
+    '../generalService': {
+      isNodeStatusConfirmed: sinon.stub().resolves(true),
+      nodeTier: sinon.stub().resolves('cumulus'),
+    },
+    '../fluxNetworkHelper': {
+      getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
+    },
+    '../geolocationService': {
+      isStaticIP: sinon.stub().returns(true),
+    },
+    '../fluxCommunicationMessagesSender': {
+      broadcastMessageToOutgoing: sinon.stub().resolves(),
+      broadcastMessageToIncoming: sinon.stub().resolves(),
+      broadcastMessageToAll: broadcastMessageToAllStub,
+    },
+    './messageStore': {
+      storeAppRunningMessage: storeAppRunningMessageStub,
+      storeAppStateEvent: storeAppStateEventStub,
+      APP_STATE_EVENT_TYPES: { APPRUNNING: 'apprunning' },
+    },
+    '../appDatabase/registryManager': {
+      getApplicationGlobalSpecifications: sinon.stub().resolves(null),
+    },
+    '../appManagement/appInspector': {
+      startAppMonitoring: sinon.stub(),
+      stopAppMonitoring: sinon.stub(),
+    },
+    '../appLifecycle/appUninstaller': {
+      removeAppLocally: sinon.stub().resolves(),
+    },
+    '../appLifecycle/appInstaller': {
+      installApplicationHard: sinon.stub().resolves(),
+    },
+    '../appMonitoring/appReconciler': {
+      enqueueAll: enqueueAllStub,
+      waitForBootDrainSettled: waitForBootDrainSettledStub,
+    },
+    '../appQuery/appQueryService': {
+      installedApps: installedAppsStub,
+      listRunningApps: opts.listRunningApps ?? listRunningAppsStub,
+      decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
+    },
+    '../appTamperingDetectionService': {
+      recordEvent: sinon.stub().resolves(),
+      isNetworkMissingError: sinon.stub().returns(false),
+    },
+    '../utils/appConstants': {
+      localAppsInformation: 'localAppsInformation',
+      // The announcement interval is capped against this, so a suite that
+      // leaves it undefined schedules on NaN and re-fires forever.
+      RUNNING_EXPIRY_MS: opts.runningExpiryMs ?? 7500 * 1000,
+    },
+    '../nodeConfirmationService': {
+      canSendMessages: sinon.stub().returns(true),
+      onMessageCapabilityChange: sinon.stub(),
+    },
+    '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
+    '../../lib/log': logStub,
+  });
+
   beforeEach(() => {
     logStub = {
       error: sinon.stub(),
@@ -36,92 +128,7 @@ describe('peerNotification tests', () => {
       data: [{ Names: ['/fluxc1_app1'] }],
     });
 
-    peerNotification = proxyquire('../../ZelBack/src/services/appMessaging/peerNotification', {
-      config: {
-        database: {
-          appslocal: {
-            collections: { appsInformation: 'localAppsInformation' },
-            database: 'localapps',
-          },
-          appsglobal: {
-            database: 'globalapps',
-            collections: { appsLocations: 'appsLocations' },
-          },
-        },
-        fluxapps: {
-          peerNotifyIntervalMs: 3600000,
-        },
-      },
-      '../dbHelper': {
-        databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
-        findOneInDatabase: sinon.stub().resolves(null),
-        findInDatabase: sinon.stub().resolves([]),
-        updateOneInDatabase: sinon.stub().resolves(),
-      },
-      '../dockerService': {
-        appDockerStart: sinon.stub().resolves(),
-        getDockerContainerOnly: sinon.stub().resolves(null),
-      },
-      '../serviceHelper': {
-        delay: sinon.stub().resolves(),
-        ensureString: sinon.stub().returnsArg(0),
-      },
-      '../generalService': {
-        isNodeStatusConfirmed: sinon.stub().resolves(true),
-        nodeTier: sinon.stub().resolves('cumulus'),
-      },
-      '../fluxNetworkHelper': {
-        getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
-      },
-      '../geolocationService': {
-        isStaticIP: sinon.stub().returns(true),
-      },
-      '../fluxCommunicationMessagesSender': {
-        broadcastMessageToOutgoing: sinon.stub().resolves(),
-        broadcastMessageToIncoming: sinon.stub().resolves(),
-        broadcastMessageToAll: broadcastMessageToAllStub,
-      },
-      './messageStore': {
-        storeAppRunningMessage: storeAppRunningMessageStub,
-        storeAppStateEvent: storeAppStateEventStub,
-        APP_STATE_EVENT_TYPES: { APPRUNNING: 'apprunning' },
-      },
-      '../appDatabase/registryManager': {
-        getApplicationGlobalSpecifications: sinon.stub().resolves(null),
-      },
-      '../appManagement/appInspector': {
-        startAppMonitoring: sinon.stub(),
-        stopAppMonitoring: sinon.stub(),
-      },
-      '../appLifecycle/appUninstaller': {
-        removeAppLocally: sinon.stub().resolves(),
-      },
-      '../appLifecycle/appInstaller': {
-        installApplicationHard: sinon.stub().resolves(),
-      },
-      '../appMonitoring/appReconciler': {
-        enqueueAll: enqueueAllStub,
-        waitForBootDrainSettled: waitForBootDrainSettledStub,
-      },
-      '../appQuery/appQueryService': {
-        installedApps: installedAppsStub,
-        listRunningApps: listRunningAppsStub,
-        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
-      },
-      '../appTamperingDetectionService': {
-        recordEvent: sinon.stub().resolves(),
-        isNetworkMissingError: sinon.stub().returns(false),
-      },
-      '../utils/appConstants': {
-        localAppsInformation: 'localAppsInformation',
-      },
-      '../nodeConfirmationService': {
-        canSendMessages: sinon.stub().returns(true),
-        onMessageCapabilityChange: sinon.stub(),
-      },
-      '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
-      '../../lib/log': logStub,
-    });
+    peerNotification = loadPeerNotification();
   });
 
   afterEach(() => {
@@ -236,4 +243,89 @@ describe('peerNotification tests', () => {
       expect(message.apps.map((a) => a.name).sort()).to.deep.equal(['app1', 'gapp', 'rapp']);
     });
   });
+
+  describe('the announcement period', () => {
+    // A node writes its OWN location row when it announces, and that row expires
+    // on a TTL. So the period is a contract: announce later than the row lives
+    // and the node stops being a holder of its own apps. These drive a cycle of
+    // a known length against a known interval and read the gap to the next
+    // announcement.
+    //
+    // hrtime is faked alongside the timers because the schedule is measured
+    // monotonically. Faking setTimeout alone leaves the elapsed reading real,
+    // every cycle then measures as ~0ms, and all four of these pass against the
+    // defect they exist to catch.
+    let clock;
+
+    // Only the cycles under measurement are slow. A rescheduled cycle that is
+    // slow too reschedules at zero again, and tickAsync then drains an endless
+    // chain of them rather than returning.
+    const runOneCycle = async (opts) => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'hrtime'] });
+      let cycles = 0;
+      const listRunningApps = sinon.stub().callsFake(async () => {
+        cycles += 1;
+        if (opts.cycleMs && cycles <= (opts.slowCycles ?? 1)) clock.tick(opts.cycleMs);
+        return { status: 'success', data: [{ Names: ['/fluxc1_app1'] }] };
+      });
+      const mod = loadPeerNotification({ ...opts, listRunningApps });
+      await mod.checkAndNotifyPeersOfRunningApps();
+      return mod;
+    };
+
+    afterEach(() => {
+      clock?.restore();
+      clock = null;
+    });
+
+    it('subtracts the time the cycle took from the wait for the next one', async () => {
+      await runOneCycle({ peerNotifyIntervalMs: 30000, cycleMs: 20000 });
+      const announced = broadcastMessageToAllStub.callCount;
+
+      await clock.tickAsync(9999);
+      expect(broadcastMessageToAllStub.callCount, 'announced before the interval was up').to.equal(announced);
+
+      await clock.tickAsync(1);
+      expect(
+        broadcastMessageToAllStub.callCount,
+        'the cycle time was added to the interval rather than subtracted from it',
+      ).to.equal(announced + 1);
+    });
+
+    it('announces again immediately when a cycle outran its whole interval', async () => {
+      await runOneCycle({ peerNotifyIntervalMs: 30000, cycleMs: 40000 });
+      const announced = broadcastMessageToAllStub.callCount;
+
+      // Clamped at zero rather than scheduled into the past.
+      await clock.tickAsync(0);
+      expect(broadcastMessageToAllStub.callCount).to.equal(announced + 1);
+    });
+
+    it('says a cycle no longer fits its interval once, not on every cycle', async () => {
+      const mod = await runOneCycle({ peerNotifyIntervalMs: 30000, cycleMs: 40000, slowCycles: 2 });
+      // Driven rather than left to the timer, so the second overrun is the only
+      // thing between the two readings.
+      await mod.checkAndNotifyPeersOfRunningApps();
+
+      const said = logStub.warn.getCalls()
+        .filter((call) => /announcing itself less often/.test(String(call.args[0])));
+      expect(said, 'the overrun is reported on the transition, not per cycle').to.have.lengthOf(1);
+    });
+
+    it('refuses an interval longer than the row it keeps alive', async () => {
+      // 60s expiry caps the interval at 30s however large the configured value.
+      await runOneCycle({ peerNotifyIntervalMs: 3600000, runningExpiryMs: 60000 });
+      const announced = broadcastMessageToAllStub.callCount;
+
+      await clock.tickAsync(29999);
+      expect(broadcastMessageToAllStub.callCount).to.equal(announced);
+
+      await clock.tickAsync(1);
+      expect(
+        broadcastMessageToAllStub.callCount,
+        'an interval longer than half the row expiry was accepted, so the row lapses between announcements',
+      ).to.equal(announced + 1);
+    });
+  });
+
 });
