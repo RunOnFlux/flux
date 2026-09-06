@@ -1051,7 +1051,7 @@ describe('AppSyncOrchestrator', () => {
     const STALL_MS = 30000;
     const SYNC_TIMEOUT_MS = 120000;
 
-    // FluxPeerManager.add() emits peerThresholdReached and then peerAdded from
+    // FluxPeerManager.add() emits peerThresholdReached and then peerConnected from
     // the same call, so the trigger that starts the sync and one that tops it
     // up land in the same tick. Choosing peers cannot be one uninterrupted step
     // - the signing key is fetched in the middle - so without the reconciler
