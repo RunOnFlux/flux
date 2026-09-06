@@ -209,21 +209,34 @@ async function openFeed(io, container, containerId) {
  */
 async function appLogsHandler(socket) {
   const io = socket.nsp;
-  // What this connection is watching, so a disconnect can release it. One
-  // container per connection, the same bargain the terminal makes.
-  let watching = null;
+  // The connection's one subscription, taken the moment a subscribe is accepted
+  // and before anything is awaited. One container per connection, the same
+  // bargain the terminal makes.
+  //
+  // A record rather than the container id, because the id cannot also be the
+  // claim: whether the slot is taken has an answer from this listener's first
+  // line, and which container to release has none until the daemon has answered
+  // two awaits later. Named by the container, the claim was not made until the
+  // second of those returned - so two subscribes arriving in one tick both
+  // passed the guard, the second replaced the first, and the disconnect released
+  // only the second. The first kept a departed socket.id among its subscribers,
+  // which is a count that never reaches zero: a docker follow stream, its
+  // interval and its decoding ran on with no viewer, and no later viewer of that
+  // container could close it either.
+  /** @type {{containerId: string|null, abandoned: boolean}|null} */
+  let slot = null;
   let clientGone = false;
 
-  // By container rather than by `watching`, because the two get out of step
+  // By container rather than by the slot, because the two get out of step
   // exactly when it matters: a disconnect during the open runs leave() before
-  // there is a feed, finds nothing to release, and clears `watching` - so the
+  // there is a feed, finds nothing to release, and gives the slot up - so the
   // pass that finally has a feed would have nothing to name it by, and the
   // stream and its interval would run on with no viewer and nobody to stop them.
   const release = containerId => {
     // Above the return, because the room is the half of a subscription that
     // outlives having no feed: a subscribe whose open failed has nothing to
     // release and used to carry the room out with it. And a connection that has
-    // given up `watching` is free to follow a second container while a room it
+    // given its slot up is free to follow a second container while a room it
     // never left still delivers the first one's lines into that pane.
     socket.leave(roomFor(containerId));
     const feed = feeds.get(containerId);
@@ -234,9 +247,14 @@ async function appLogsHandler(socket) {
   };
 
   const leave = () => {
-    if (!watching) return;
-    release(watching);
-    watching = null;
+    if (!slot) return;
+    // Marked as well as dropped, because a subscribe still in setup holds this
+    // record and has no other way to learn the slot was given up: the flag is
+    // what tells that pass to stand down, rather than to finish and leave the
+    // connection following a container it has already asked to leave.
+    slot.abandoned = true;
+    if (slot.containerId) release(slot.containerId);
+    slot = null;
   };
 
   // Registered at connection, ahead of any message: a disconnect can land while
@@ -267,10 +285,24 @@ async function appLogsHandler(socket) {
       socket.emit('error', 'Not authorized.');
       return;
     }
-    if (watching) {
+    if (slot) {
       socket.emit('error', 'This connection already follows a container.');
       return;
     }
+
+    // Taken with nothing awaited between the guard above and this line, so the
+    // next subscribe on this connection finds it held however long the daemon
+    // takes to answer this one.
+    const mine = { containerId: null, abandoned: false };
+    slot = mine;
+
+    // Hands the slot back only while this pass still holds it. A pass abandoned
+    // mid-setup can be overtaken by the subscribe that follows it, and must not
+    // free a slot that one is now using.
+    const abandon = message => {
+      if (slot === mine) slot = null;
+      if (message) socket.emit('error', message);
+    };
 
     const mainAppName = nameOrId.split('_')[1] || nameOrId;
 
@@ -285,7 +317,7 @@ async function appLogsHandler(socket) {
         { appName: mainAppName },
       );
       if (authorized !== true) {
-        socket.emit('error', 'Not authorized.');
+        abandon('Not authorized.');
         return;
       }
 
@@ -294,17 +326,21 @@ async function appLogsHandler(socket) {
         return null;
       });
       if (!container) {
-        socket.emit('error', 'Container not found.');
+        abandon('Container not found.');
         return;
       }
 
-      // The client may have gone while the awaits above ran. Its disconnect has
-      // already been delivered and found nothing to release, so opening a feed
-      // now would leave one with no viewer and nobody left to close it.
-      if (clientGone || !socket.connected) return;
+      // The client may have gone, or given this subscription up, while the
+      // awaits above ran. Either way what would have released it has already run
+      // and found no container to name, so opening a feed now would leave one
+      // with no viewer and nobody left to close it.
+      if (mine.abandoned || clientGone || !socket.connected) {
+        abandon();
+        return;
+      }
 
       const containerId = container.id;
-      watching = containerId;
+      mine.containerId = containerId;
       socket.join(roomFor(containerId));
 
       const existing = feeds.get(containerId);
@@ -325,12 +361,13 @@ async function appLogsHandler(socket) {
         if (backfill.length) socket.emit('logs', { lines: backfill });
       }
 
-      // Re-checked after that await. A disconnect that landed during it has
-      // already run leave() and found no feed to release, so this is the only
-      // pass that can close what was just opened.
-      if (clientGone || !socket.connected) {
+      // Re-checked after that await. The feed was opened during it, so this is
+      // the pass that has to give it up - and it releases whether or not the
+      // disconnect that preceded it already did: release() is written to find
+      // nothing and return.
+      if (mine.abandoned || clientGone || !socket.connected) {
         release(containerId);
-        watching = null;
+        abandon();
         return;
       }
 
@@ -339,7 +376,8 @@ async function appLogsHandler(socket) {
     } catch (error) {
       log.error(`appLogsHandler: ${nameOrId}: ${error.message}`);
       socket.emit('error', 'Error following logs.');
-      leave();
+      if (mine.containerId) release(mine.containerId);
+      abandon();
     }
   });
 }

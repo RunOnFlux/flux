@@ -346,6 +346,81 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     await holder.getAuthed(`/apps/appstart/${identifier}`, auth.zelidauth);
   });
 
+  it('gives a connection one container however fast a second subscribe follows', async function () {
+    this.timeout(120000);
+
+    // Both emitted before either can be answered, which the `watch` helper
+    // cannot do: it subscribes once and waits. Two panes on one connection
+    // produce exactly this, and it is the case a unit test reaches only by
+    // holding the daemon's answer open - here the daemon is real and the round
+    // trip it takes to answer is the window.
+    //
+    // The refusal is what proves the connection's claim is taken when the
+    // subscribe is accepted rather than when the container is finally known. A
+    // claim made after the lookup is one both subscribes pass, and the second
+    // one then replaces what the first is following: the disconnect releases
+    // the container named last, and the other keeps a departed subscriber, so
+    // its count never reaches zero and its docker stream is followed for nobody
+    // until the container itself stops.
+    const socket = io(`${holder.url}/applogs`, {
+      transports: ['websocket'],
+      reconnection: false,
+      timeout: CONNECT_TIMEOUT_MS,
+    });
+    const subscribed = [];
+    const errors = [];
+    const lines = [];
+    socket.on('subscribed', (payload) => subscribed.push(payload));
+    socket.on('error', (message) => errors.push(message));
+    socket.on('logs', (payload) => lines.push(...payload.lines));
+
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('applogs: never connected')), CONNECT_TIMEOUT_MS);
+        socket.on('connect', () => { clearTimeout(timer); resolve(); });
+        socket.on('connect_error', (err) => {
+          clearTimeout(timer);
+          reject(new Error(`applogs: connect_error ${err.message}`));
+        });
+      });
+
+      socket.emit('subscribe', auth.zelidauth, identifier);
+      socket.emit('subscribe', auth.zelidauth, identifier);
+
+      await waitFor(
+        async () => subscribed.length + errors.length >= 2,
+        { timeout: 30000, interval: 200, label: 'the node answered both subscribes' },
+      );
+
+      expect(subscribed, 'one connection was given two subscriptions').to.have.length(1);
+      expect(errors, 'the second subscribe was not refused').to.deep.equal([
+        'This connection already follows a container.',
+      ]);
+
+      // The refusal must not cost the subscription that was accepted: a claim
+      // released by the wrong pass takes the live one down with it.
+      const beforeRefusal = lines.length;
+      await waitFor(
+        async () => lines.length > beforeRefusal,
+        { timeout: 30000, interval: 500, label: 'the accepted subscription is still being fed' },
+      );
+
+      // Given up rather than disconnected, so the claim is released without the
+      // connection going: a claim only a disconnect can clear is a viewer that
+      // must reconnect to change pane.
+      socket.emit('unsubscribe');
+      subscribed.length = 0;
+      socket.emit('subscribe', auth.zelidauth, identifier);
+
+      await waitFor(
+        async () => subscribed.length === 1,
+        { timeout: 30000, interval: 200, label: 'the connection subscribed again after unsubscribing' },
+      );
+    } finally {
+      socket.close();
+    }
+  });
+
   it('leaves the polling endpoint answering exactly as it did', async function () {
     this.timeout(90000);
 

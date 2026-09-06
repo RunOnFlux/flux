@@ -268,6 +268,93 @@ describe('appLogsHandler tests', () => {
     });
   });
 
+  describe('the connection\'s one slot', () => {
+    // Two containers rather than one, so a claim that is not held across the
+    // daemon's answer shows as two feeds instead of as one feed opened twice.
+    // The streams are handed out one per call, which is what the daemon does:
+    // a single shared stream object cannot show a second one left running.
+    const twoContainers = () => {
+      const streams = [];
+      const newStream = () => {
+        const stream = new EventEmitter();
+        stream.destroyed = false;
+        stream.destroy = () => { stream.destroyed = true; stream.removeAllListeners(); };
+        streams.push(stream);
+        return stream;
+      };
+      const byName = {
+        fluxa_myapp: { id: 'containerA', logs: sinon.stub().callsFake(async () => newStream()) },
+        fluxb_myapp: { id: 'containerB', logs: sinon.stub().callsFake(async () => newStream()) },
+      };
+      getDockerContainerByIdOrName.callsFake(async (name) => byName[name]);
+      return streams;
+    };
+
+    it('refuses a second container claimed in the same tick', async () => {
+      const streams = twoContainers();
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+
+      // Fired together rather than one after the other. The daemon answers a
+      // round trip after it is asked, and a claim taken only once it has
+      // answered is one that two subscribes arriving together both look past.
+      await Promise.all([
+        socket.fire('subscribe', 'zelidauth', 'fluxa_myapp'),
+        socket.fire('subscribe', 'zelidauth', 'fluxb_myapp'),
+      ]);
+
+      expect(
+        socket.emit.calledWith('error', 'This connection already follows a container.'),
+        'the second subscribe was accepted while the first was still being set up',
+      ).to.be.true;
+      expect([...appLogsHandler.feeds.keys()]).to.deep.equal(['containerA']);
+
+      await socket.fire('disconnect');
+
+      expect(
+        appLogsHandler.feeds.size,
+        'a feed the disconnect cannot name keeps a departed subscriber and nothing can close it',
+      ).to.equal(0);
+      expect(
+        streams.filter((stream) => !stream.destroyed),
+        'a docker follow stream, its interval and its decoding running for nobody',
+      ).to.be.empty;
+    });
+
+    it('stands a subscribe down when the connection unsubscribes while authorisation is in flight', async () => {
+      let releaseAuth;
+      verifyPrivilege.returns(new Promise((resolve) => { releaseAuth = resolve; }));
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+
+      const pending = subscribe(socket);
+      await socket.fire('unsubscribe');
+      releaseAuth(true);
+      await pending;
+
+      expect(container.logs.called, 'the unsubscribe was passed over and the feed opened anyway').to.be.false;
+      expect(appLogsHandler.feeds.size).to.equal(0);
+      expect(socket.emit.calledWith('subscribed'), 'the connection was left following what it asked to leave').to.be.false;
+    });
+
+    it('frees the slot when the container is not there, so the connection can ask again', async () => {
+      getDockerContainerByIdOrName.resolves(null);
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+
+      await subscribe(socket);
+      expect(socket.emit.calledWith('error', 'Container not found.')).to.be.true;
+
+      getDockerContainerByIdOrName.resolves(container);
+      await subscribe(socket);
+
+      expect(
+        socket.emit.calledWith('subscribed', { container: 'abc123' }),
+        'a subscribe that reached nothing kept the slot for the life of the connection',
+      ).to.be.true;
+    });
+  });
+
   describe('two viewers opening at once', () => {
     // The daemon answers a round trip after it is asked, and the tests above
     // subscribe one viewer at a time against a single stream object - so a
