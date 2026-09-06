@@ -921,6 +921,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // check if hash is in blockchain
   // register and launch according to specifications in message
   // throw without catching
+  // Whether THIS call raised the install hold. The guards below refuse because
+  // someone else is holding the node, and a refusal must not release their hold
+  // on its way out.
+  let acquired = false;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
@@ -941,6 +945,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       return InstallOutcome.REFUSED;
     }
     globalState.installationInProgress = true;
+    acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -994,7 +999,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
-      globalState.installationInProgress = false;
       const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
       log.error(rStatus);
       if (res) {
@@ -1131,10 +1135,8 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(successStatus));
       if (res.flush) res.flush();
     }
-    globalState.installationInProgress = false;
     return InstallOutcome.INSTALLED;
   } catch (error) {
-    globalState.installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
@@ -1164,6 +1166,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     // refusal - where nothing was touched - either announces an installation
     // that is not there, or destroys a running app over a scheduling collision.
     return InstallOutcome.FAILED;
+  } finally {
+    // The one place the hold is released, so every way out of this function
+    // releases it. A tier lookup that failed used to return without releasing,
+    // and the node then refused every install, redeploy, spawn and reinstall
+    // pass it was offered until FluxOS restarted.
+    if (acquired) globalState.installationInProgress = false;
   }
 }
 

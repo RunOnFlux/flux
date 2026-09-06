@@ -373,6 +373,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
   // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
+  // Whether THIS call raised the install hold. The guards below refuse because
+  // someone else is holding the node, and a refusal must not release their hold
+  // on its way out.
+  let acquired = false;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
@@ -393,6 +397,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       return InstallOutcome.REFUSED;
     }
     globalState.installationInProgress = true;
+    acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -452,7 +457,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     }
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
-      globalState.installationInProgress = false;
       const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
       log.error(rStatus);
       if (res) {
@@ -643,23 +647,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       res.write(serviceHelper.ensureString(successStatus));
       if (res.flush) res.flush();
     }
-    globalState.installationInProgress = false;
-
-    // Broadcast this node's running apps AFTER releasing the install lock.
-    // onInstallComplete() -> checkAndNotifyPeersOfRunningApps() relies on
-    // containerHealthMonitor.monitorAndRecoverApps() to force-include syncthing
-    // apps whose components are not all simultaneously "running" at this instant
-    // (e.g. a component mid receive-only resync). That recovery path bails out
-    // while globalState.isOperationInProgress() is true, so broadcasting before
-    // installationInProgress is cleared would exclude the just-installed app from
-    // its own announcement. checkAndNotifyPeersOfRunningApps never throws (it
-    // catches internally), so running it after the outcome is written is safe.
-    if (!test && onInstallComplete) {
-      await onInstallComplete();
-      fluxEventBus.publish('app:installed', { name: appSpecifications.name, hash: appSpecifications.hash });
-    }
   } catch (error) {
-    globalState.installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
@@ -692,6 +680,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
+    // The one place the hold is released, so every way out of this function
+    // releases it. A tier lookup that failed used to return without releasing,
+    // and the node then refused every install, redeploy, spawn and reinstall
+    // pass it was offered until FluxOS restarted.
+    if (acquired) globalState.installationInProgress = false;
     if (test) {
       try {
         await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
@@ -700,6 +693,20 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
       }
     }
+  }
+
+  // Announced with the node already released, which is what the finally above
+  // has just done. checkAndNotifyPeersOfRunningApps leans on
+  // containerHealthMonitor.monitorAndRecoverApps() to force-include syncthing
+  // apps whose components are not all simultaneously "running" at this instant
+  // (e.g. a component mid receive-only resync), and that recovery path bails out
+  // while globalState.isOperationInProgress() is true - so announcing from
+  // inside the hold left the app just installed out of its own announcement.
+  // Below the block rather than ordered by hand inside it, so the release
+  // cannot drift back after it. checkAndNotifyPeersOfRunningApps never throws.
+  if (!test && onInstallComplete) {
+    await onInstallComplete();
+    fluxEventBus.publish('app:installed', { name: appSpecs.name, hash: appSpecs.hash });
   }
   return InstallOutcome.INSTALLED;
 }

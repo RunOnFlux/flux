@@ -909,6 +909,10 @@ describe('appInstaller tests', () => {
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
       expect(result).to.equal(InstallOutcome.REFUSED);
+      // The hold belongs to the install this call was refused for. Releasing on
+      // the way out would hand the node to the next caller while that install is
+      // still running.
+      expect(globalStateStub.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
     });
 
     it('should return false if node tier does not return anything', async () => {
@@ -1017,6 +1021,10 @@ describe('appInstaller tests', () => {
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
       expect(result).to.equal(InstallOutcome.REFUSED);
+      // The hold was raised one line before the tier lookup and this return used
+      // to walk straight past it. The node then refused every install, redeploy,
+      // spawn and reinstall pass it was offered until FluxOS restarted.
+      expect(globalStateStub.installationInProgress, 'the node is left holding an install that never began').to.be.false;
     });
 
     // Named for the already-installed guard, but its proxyquire is partial and the

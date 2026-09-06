@@ -43,6 +43,51 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('softRegisterAppLocally holds the node for exactly its own attempt', () => {
+    // The hold is raised one line before the tier lookup, and the refusal that
+    // follows a failed lookup used to return straight past it. Nothing else
+    // lowers it, so the node went on refusing every install, redeploy, spawn and
+    // reinstall pass it was offered until FluxOS was restarted.
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+    // eslint-disable-next-line global-require
+    const generalService = require('../../ZelBack/src/services/generalService');
+
+    const appSpec = { name: 'testapp' };
+    const makeRes = () => ({ write: sinon.stub(), flush: sinon.stub() });
+
+    it('releases the hold when the tier lookup answers nothing', async () => {
+      sinon.stub(generalService, 'nodeTier').resolves(undefined);
+
+      const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+
+      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
+    });
+
+    it('releases the hold when the tier lookup throws', async () => {
+      sinon.stub(generalService, 'nodeTier').rejects(new Error('benchmark unreachable'));
+
+      const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+
+      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
+    });
+
+    it('does not release a hold it never took', async () => {
+      // Refused because another install owns the node. Lowering the flag here
+      // hands the node to the next caller while that install is still running.
+      globalState.installationInProgress = true;
+      const nodeTier = sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+
+      const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+
+      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
+      expect(globalState.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
+    });
+  });
+
   describe('setRemovalInProgress and getRemovalInProgress tests', () => {
     it('should set removal in progress', () => {
       advancedWorkflows.setRemovalInProgressToTrue();
