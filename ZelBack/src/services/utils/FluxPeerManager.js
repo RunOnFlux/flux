@@ -157,6 +157,12 @@ class FluxPeerManager extends EventEmitter {
       existing.detachHandlers();
       try { existing.ws.close(CLOSE_CODES.DUPLICATE_PEER, 'replaced'); } catch (_e) { /* noop */ }
       this.#removeTracking(existing);
+      // A CONNECTION ENDED HERE, and it used to end in silence. The address
+      // stays in the map and the count does not move, so nothing that watches
+      // membership can see it - but a request written into that socket is as
+      // dead as one whose peer went away, and the only thing that told anyone
+      // was a sweep looking for connection ids that had changed underneath it.
+      this.emit('peerDisconnected', existing.key, existing.connectionId);
     }
     const peer = new FluxPeerSocket(ws, ip, String(port), this);
     peer.source = options.source || PEER_SOURCE.INBOUND;
@@ -213,12 +219,18 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peerThresholdReached', this.#peers.size);
       fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
     }
-    // Every join, not just the one that crosses the threshold. The threshold is
-    // a latched edge and is cleared only below the DEGRADED level, so once it
-    // has fired it says nothing further about a pool that has since lost a
-    // member. A listener that has to top a pool of peers back up needs to hear
-    // about the peer that could fill it.
-    this.emit('peerAdded', peer.key, this.#peers.size);
+    // Every connection, not just the one that crosses the threshold. The
+    // threshold is a latched edge and is cleared only below the DEGRADED level,
+    // so once it has fired it says nothing further about a pool that has since
+    // lost a member. A listener that has to top a pool of peers back up needs
+    // to hear about the peer that could fill it.
+    //
+    // Named for what it is. This fires for every connection established,
+    // including one replacing a dead socket at an address already held - where
+    // no peer was added and the count did not move. Its counterpart is
+    // peerDisconnected, and both name the connection rather than the address,
+    // because a request lives in a connection.
+    this.emit('peerConnected', peer.key, peer.connectionId);
     return peer;
   }
 
@@ -277,10 +289,10 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peersBelowThreshold', this.#peers.size);
       fluxEventBus.publish('peers:belowThreshold', { count: this.#peers.size, threshold: this.#syncDegradedThreshold });
     }
-    // The counterpart of peerAdded. A listener waiting on this peer for an
+    // The counterpart of peerConnected. A listener waiting on this peer for an
     // answer now knows the answer is never coming, which is a fact rather than
     // something to be inferred from a deadline passing.
-    this.emit('peerRemoved', key, this.#peers.size);
+    this.emit('peerDisconnected', key, peer.connectionId);
     return peer;
   }
 
@@ -593,15 +605,6 @@ class FluxPeerManager extends EventEmitter {
   isSyncResponseWanted(peerSocket) {
     if (!this.syncResponseWanted) return false;
     return this.syncResponseWanted(peerSocket);
-  }
-
-  /**
-   * The connection currently held to an address, if any.
-   * @param {string} key ip:port
-   * @returns {number|null}
-   */
-  peerConnectionId(key) {
-    return this.#peers.get(key)?.connectionId ?? null;
   }
 
   // --- Liveness ---

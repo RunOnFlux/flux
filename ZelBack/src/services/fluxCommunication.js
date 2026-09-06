@@ -139,10 +139,12 @@ async function handleTempSyncResponse(message, peerSocket) {
     const { messages, done, refused } = message.data;
     // A peer whose own app state is not authoritative holds an unknown fraction
     // of the network's pending registrations, and says so rather than sending
-    // the fraction. Nothing is replaced on the strength of it - this stream
-    // counts toward no completion - so the refusal is recorded and no more.
+    // the fraction. A refusal is an answer and not a completion - see
+    // handleAppRunningSyncResponse - and a peer refuses all four streams or
+    // none, so whichever refusal arrives first ends the request.
     if (refused) {
       log.info(`handleTempSyncResponse - ${peerKey} declined: its app state is not authoritative yet`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_REFUSED, 'apptemp', peerKey);
       return;
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
@@ -157,6 +159,14 @@ async function handleTempSyncResponse(message, peerSocket) {
       }
     }
     log.info(`handleTempSyncResponse - Processed ${stored} of ${messages.length} messages`);
+    // COUNTED LIKE THE REST. A peer is credited once it has delivered every
+    // stream it was asked for, so the record that admits its responses stays
+    // open until this one has ended too - the three surveys finishing first no
+    // longer cuts off what is still arriving here.
+    if (done) {
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apptemp', peerKey);
+      log.info('handleTempSyncResponse - Sync complete');
+    }
   } catch (error) {
     log.error(error);
   }
@@ -757,10 +767,52 @@ async function processSyncChunk(msgObj, peerSocket) {
   }
 }
 
+/**
+ * The envelope check, as a verdict that never rejects.
+ *
+ * A chunk's verdict is read twice - once by the arrival that queued it and once
+ * by whichever arrival is draining - so a rejection would surface in two places
+ * and one of them is holding a queue for a peer it does not own. A failure to
+ * decide is not a pass: it answers null, which is not OK, and the stream ends
+ * on it like any other envelope this node cannot stand behind.
+ * @param {object} msgObj
+ * @returns {Promise<string|null>}
+ */
+async function verifySyncEnvelope(msgObj) {
+  try {
+    return await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
 async function dispatchSyncResponse(msgObj, peerSocket) {
   try {
     const peerKey = peerSocket.key;
     if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+
+    // THE QUEUE IS THE ORDER, so nothing that can reorder may sit in front of
+    // it. Chunks carry meaning by position: the sender sorts by timestamp and
+    // an eviction has none, so evictions land in the FIRST chunk and clear a
+    // node's locations outright - a later chunk processed ahead of them has its
+    // rows deleted by an eviction that came before them. `done` is positional
+    // too, and a stream marked finished early loses whatever was still coming.
+    //
+    // So the chunk takes its place here, in the same synchronous step as its
+    // arrival, and the envelope check is STARTED rather than waited for. Four
+    // chunks arriving together are queued in arrival order and their checks
+    // race each other with no say in it.
+    if (!syncChunkQueues.has(peerKey)) {
+      syncChunkQueues.set(peerKey, { queue: [], processing: false });
+    }
+    const state = syncChunkQueues.get(peerKey);
+    const chunk = { msgObj, verdict: verifySyncEnvelope(msgObj) };
+    state.queue.push(chunk);
+    // Decided here for the same reason: read after an await, two arrivals both
+    // find a queue nobody is draining and both start draining it.
+    const drainer = !state.processing;
+    if (drainer) state.processing = true;
 
     // THE PEER SPOKE, AND IT REALLY WAS THE PEER. Two different questions used
     // to be split at the wrong seam: arrival on one side, everything else on
@@ -768,9 +820,9 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
     //
     // Whether a peer signed what it sent is about the PEER, and it is a
     // signature check. Storing two thousand messages, or re-verifying every
-    // pending registration, is about US. So the envelope is verified here, at
-    // arrival and ahead of the deadline it renews, and the payload work stays
-    // in the queue below.
+    // pending registration, is about US. So the envelope is answered here, as
+    // soon as the check comes back and whatever the queue is doing, and the
+    // payload work stays in the drain below.
     //
     // Announced at arrival rather than after that work, because a peer that
     // answered all four requests correctly and instantly went unheard for as
@@ -782,30 +834,35 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
     // they renewed the deadline that exists to take the slot back, so a peer
     // streaming rubbish inside every stall window held one of the answers this
     // node needs for the whole attempt while never answering at all.
-    const verdict = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
-    if (verdict !== fluxCommunicationUtils.VerifyResult.OK) {
-      log.warn(`Sync response from ${peerKey} failed envelope verification: ${verdict}`);
-      return;
-    }
-
-    // A refusal is not progress. It ends the request rather than extending it,
-    // and the handler it reaches takes it from here.
-    if (!msgObj?.data?.refused) {
+    const verdict = await chunk.verdict;
+    if (verdict === fluxCommunicationUtils.VerifyResult.OK && !msgObj?.data?.refused) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, peerKey);
     }
 
-    if (!syncChunkQueues.has(peerKey)) {
-      syncChunkQueues.set(peerKey, { queue: [], processing: false });
-    }
-    const state = syncChunkQueues.get(peerKey);
-    state.queue.push(msgObj);
-
-    if (state.processing) return;
-    state.processing = true;
+    if (!drainer) return;
 
     while (state.queue.length > 0) {
-      const chunk = state.queue.shift();
-      await processSyncChunk(chunk, peerSocket);
+      const next = state.queue.shift();
+      const nextVerdict = await next.verdict;
+      // A HOLE IS NOT A SURVEY. Stepping over the chunk and carrying on left
+      // this node counting a peer as having surveyed the network out of an
+      // answer it knows part of is missing - and it cannot know which part,
+      // because the chunk it could not attribute is the one it cannot read.
+      // The stream ends the way every other failure in this design ends: the
+      // request is over, and another peer is asked.
+      if (nextVerdict !== fluxCommunicationUtils.VerifyResult.OK) {
+        log.warn(`Sync response from ${peerKey} failed envelope verification: ${nextVerdict}, ending its request`);
+        syncChunkQueues.delete(peerKey);
+        // Only about the connection this drain serves. A backlog left by a
+        // connection that has since been replaced still drains, and ending a
+        // request on its behalf would close the one belonging to the peer that
+        // dialled back in - which has answered nothing wrong.
+        if (peerManager.isSyncResponseWanted(peerSocket)) {
+          appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, peerKey);
+        }
+        return;
+      }
+      await processSyncChunk(next.msgObj, peerSocket);
     }
 
     state.processing = false;
@@ -1824,6 +1881,7 @@ module.exports = {
   logSocketsEvery,
   handleAppRunningMessage,
   handleAppInstallingMessage,
+  handleTempSyncResponse,
   handleAppRunningSyncResponse,
   handleAppInstallingSyncResponse,
   handleAppInstallingErrorsSyncResponse,

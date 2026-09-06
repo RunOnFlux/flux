@@ -792,19 +792,47 @@ describe('FluxPeerManager tests', () => {
       expect(manager.isSyncResponseWanted(peer)).to.equal(false);
     });
 
-    // ip:port names a node; this names the connection. A request written into
-    // one socket is not answered by whatever dials in next under the same key.
-    it('gives a reconnecting peer a different connection id under the same key', () => {
-      const first = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-      const firstId = manager.peerConnectionId('10.0.0.1:16127');
-      expect(firstId).to.equal(first.connectionId);
+    // ip:port names a node; the connection id names the connection, and the
+    // announcements carry it. A request written into one socket is not answered
+    // by whatever dials in next under the same key, and a listener holding that
+    // request can only tell the two apart if it is told which one ended.
+    it('names the connection in both halves of its announcement', () => {
+      const opened = [];
+      const closed = [];
+      manager.on('peerConnected', (key, connectionId) => opened.push({ key, connectionId }));
+      manager.on('peerDisconnected', (key, connectionId) => closed.push({ key, connectionId }));
 
+      const first = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       manager.remove('10.0.0.1:16127', 1006);
-      expect(manager.peerConnectionId('10.0.0.1:16127'), 'a peer that left still had a connection').to.equal(null);
+      const second = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      expect(second.connectionId, 'a reconnecting peer reused its connection id').to.not.equal(first.connectionId);
+      expect(opened).to.deep.equal([
+        { key: '10.0.0.1:16127', connectionId: first.connectionId },
+        { key: '10.0.0.1:16127', connectionId: second.connectionId },
+      ]);
+      expect(closed).to.deep.equal([{ key: '10.0.0.1:16127', connectionId: first.connectionId }]);
+    });
+
+    // THE SILENT ONE. A peer whose socket we are still holding dials back in,
+    // we prove the old socket dead and swap the new one under the same key: the
+    // address never leaves the map and the count does not move, so nothing that
+    // watches membership sees anything happen at all. The connection that ended
+    // is what a request lives in, so that is what is announced.
+    it('announces the connection that ends when a dead socket is replaced', () => {
+      const closed = [];
+      const opened = [];
+      const first = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.on('peerDisconnected', (key, connectionId) => closed.push({ key, connectionId }));
+      manager.on('peerConnected', (key, connectionId) => opened.push({ key, connectionId }));
 
       const second = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-      expect(second.connectionId).to.not.equal(firstId);
-      expect(manager.peerConnectionId('10.0.0.1:16127')).to.equal(second.connectionId);
+
+      expect(closed, 'a replaced connection ended in silence').to.deep.equal([
+        { key: '10.0.0.1:16127', connectionId: first.connectionId },
+      ]);
+      expect(opened).to.deep.equal([{ key: '10.0.0.1:16127', connectionId: second.connectionId }]);
+      expect([...manager.allValues()].length, 'a replacement changed the peer count').to.equal(1);
     });
   });
 
@@ -850,10 +878,10 @@ describe('FluxPeerManager tests', () => {
     // level, so after it has fired it says nothing about a pool that has since
     // lost a member. A listener that has to top such a pool back up hears about
     // every join or it hears about none of the ones that matter.
-    it('announces every join, not only the one that crosses the threshold', () => {
+    it('announces every connection, not only the one that crosses the threshold', () => {
       const joined = [];
       const crossings = [];
-      manager.on('peerAdded', (key) => joined.push(key));
+      manager.on('peerConnected', (key) => joined.push(key));
       manager.on('peerThresholdReached', (count) => crossings.push(count));
 
       // appSyncPeerThreshold is 12, so the edge fires on the twelfth and the
@@ -863,46 +891,34 @@ describe('FluxPeerManager tests', () => {
         manager.add(createMockWs(`10.0.0.${i}`, '16127'), `10.0.0.${i}`, '16127', { source: PEER_SOURCE.RANDOM });
       }
 
-      expect(joined.length, 'a join went unannounced').to.equal(total);
+      expect(joined.length, 'a connection went unannounced').to.equal(total);
       expect(crossings, 'the threshold is an edge and fires once').to.deep.equal([12]);
-      expect(joined.slice(12), 'the joins after the edge were not announced').to.deep.equal([
+      expect(joined.slice(12), 'the connections after the edge were not announced').to.deep.equal([
         '10.0.0.13:16127', '10.0.0.14:16127', '10.0.0.15:16127',
       ]);
     });
 
-    // The counterpart of peerAdded, and the reason a sync waiting on this peer
-    // does not have to wait out a deadline to learn the answer is not coming.
-    it('announces a removal, with the key and the count left', () => {
+    // The counterpart of peerConnected, and the reason a sync waiting on this
+    // peer does not have to wait out a deadline to learn the answer is not
+    // coming.
+    it('announces the connection that ended when a peer goes', () => {
       const seen = [];
-      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const first = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
-      manager.on('peerRemoved', (key, count) => seen.push({ key, count }));
+      manager.on('peerDisconnected', (key, connectionId) => seen.push({ key, connectionId }));
 
       manager.remove('10.0.0.1:16127', 1006);
 
-      expect(seen).to.deep.equal([{ key: '10.0.0.1:16127', count: 1 }]);
+      expect(seen).to.deep.equal([{ key: '10.0.0.1:16127', connectionId: first.connectionId }]);
     });
 
     it('announces nothing when the peer was not there', () => {
       const seen = [];
-      manager.on('peerRemoved', (key) => seen.push(key));
+      manager.on('peerDisconnected', (key) => seen.push(key));
 
       manager.remove('203.0.113.9:16127', 1006);
 
       expect(seen).to.deep.equal([]);
-    });
-
-    it('reports the peer count alongside the key', () => {
-      const seen = [];
-      manager.on('peerAdded', (key, count) => seen.push({ key, count }));
-
-      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
-
-      expect(seen).to.deep.equal([
-        { key: '10.0.0.1:16127', count: 1 },
-        { key: '10.0.0.2:16127', count: 2 },
-      ]);
     });
   });
 

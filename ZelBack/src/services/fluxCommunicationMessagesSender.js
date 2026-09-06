@@ -301,11 +301,10 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
     // set from the whole one, and every message in it verifying says nothing
     // about the ones that are absent.
     //
-    // Refusing costs this node nothing on its own road to authority. Pending
-    // registrations count toward no completion - the tally is the three
-    // app-state types - so the sync that makes a node authoritative does not
-    // depend on any peer answering this, and a fleet of booting nodes still
-    // reaches readiness by the block fallback exactly as before.
+    // Refusing costs a booting fleet nothing it was going to get: a node
+    // refuses all four streams or none, so a peer that would have been credited
+    // for this one was never going to be credited for the other three either,
+    // and readiness still arrives by the block fallback exactly as before.
     if (!globalState.appStateAuthoritative) {
       log.info(`respondWithTempMessages - Refusing ${peer.key}: this node's app state is not authoritative yet`);
       await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: [], done: true, refused: true }, peer, { awaitDrain: true });

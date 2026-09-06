@@ -15,6 +15,10 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 const subnet = getSubnetConfig();
 // nodeIp is 1-based and env.clients is 0-based, so the two are one apart. Suite
 // 96 carries the same line for the same reason.
+// Every stream a sync request asks for. A peer is credited once all four have
+// ended, so a completion can be reported against any of them.
+const SYNC_TYPES = ['apprunning', 'appinstalling', 'apperrors', 'apptemp'];
+
 const ipOfIndex = (index) => subnet.nodeIp(index + 1);
 
 // WHAT THIS SUITE IS FOR.
@@ -46,7 +50,12 @@ const REAL_NODES = 6;
 // node under test is certain to ask it, and the only thing that can free that
 // slot is the slot's own deadline. No peer joins, nothing is refused.
 const SILENT = REAL_NODES;
-const ANSWERER = REAL_NODES + 1; // held back, and the only node that boots synced
+// A stub that answers, correctly shaped, with an envelope that does not verify.
+// The third way an answer fails, and the only one a fleet of real nodes cannot
+// produce: every responder signs correctly with its own key, so silence and a
+// refusal were the only failures reachable here.
+const UNVERIFIABLE = REAL_NODES + 1;
+const ANSWERER = REAL_NODES + 2; // held back, and the only node that boots synced
 const BOOTED = Array.from({ length: REAL_NODES }, (_unused, i) => i);
 
 describe('a node that cannot answer a state sync declines it', function () {
@@ -57,11 +66,12 @@ describe('a node that cannot answer a state sync declines it', function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: REAL_NODES + 2,
+      nodes: REAL_NODES + 3,
       deferredNodes: 1,
       syncedNodes: [ANSWERER],
-      stubPeers: [SILENT],
+      stubPeers: [SILENT, UNVERIFIABLE],
       silentSyncPeers: [SILENT],
+      unverifiableSyncPeers: [UNVERIFIABLE],
       tickerAutostart: false,
       configOverrides: {
         fluxapps: {
@@ -152,6 +162,33 @@ describe('a node that cannot answer a state sync declines it', function () {
     expect(completed, 'a fleet where nobody could answer still completed a survey').to.equal(false);
   });
 
+  // A HOLE IS NOT A SURVEY. The answer arrives, is correctly shaped, and cannot
+  // be attributed to the peer that sent it - so this node cannot say what was in
+  // it, and counting the rest of the stream would credit a survey it knows is
+  // missing a piece. The request ends where a refusal or a stall would end it.
+  it('sets aside a peer whose answer it cannot attribute to it', async function () {
+    this.timeout(180000);
+
+    const unverifiableIp = ipOfIndex(UNVERIFIABLE);
+    const setAside = await env.clients[0].waitForEvent(
+      'ephemeralSync:peerUnverified',
+      (d) => String(d.peer ?? '').startsWith(unverifiableIp),
+      120000,
+    );
+
+    expect(setAside.data.peer).to.match(new RegExp(`^${unverifiableIp.replace(/\./g, '\\.')}:`));
+
+    // It was set aside, not credited. Nothing this peer sent counts toward a
+    // completion, on any stream.
+    const credited = env.clients[0].getEventBuffer()
+      .filter((e) => e.event === 'ephemeralSync:peerComplete')
+      .map((e) => String(e.data.peer ?? ''));
+    expect(
+      credited.some((peer) => peer.startsWith(unverifiableIp)),
+      'a peer whose envelope could not be verified was credited with an answer',
+    ).to.equal(false);
+  });
+
   it('gives up on a peer that took the request and never answered', async function () {
     this.timeout(180000);
 
@@ -201,7 +238,7 @@ describe('a node that cannot answer a state sync declines it', function () {
     );
 
     expect(credited.data.peer).to.match(new RegExp(`^${answererIp.replace(/\./g, '\\.')}:`));
-    expect(credited.data.syncType).to.be.oneOf(['apprunning', 'appinstalling', 'apperrors']);
+    expect(credited.data.syncType).to.be.oneOf(SYNC_TYPES);
 
     await env.clients[0].waitForEvent('ephemeralSync:allComplete', () => true, 120000, { afterId });
   });
@@ -321,6 +358,18 @@ describe('a state sync at the production requirement completes on three distinct
     );
     expect(credited.size, 'the sync completed without three separate peers having answered').to.be.at.least(3);
 
+    // A COMPLETION IS EVERY STREAM, and the pending-registration one is the
+    // stream this node stops listening to the moment a peer is credited. If it
+    // were left out of the tally the sync would still finish here - on three
+    // surveys - so the fleet has to be seen crediting all four.
+    const creditedTypes = new Set(
+      client.getEventBuffer()
+        .filter((e) => e.event === 'ephemeralSync:peerComplete')
+        .map((e) => e.data.syncType),
+    );
+    expect([...creditedTypes].sort(), 'a stream the request asked for was never counted')
+      .to.deep.equal([...SYNC_TYPES].sort());
+
     // The one peer that could not answer is not among them: it declined, and a
     // decline is an answer that is not a completion.
     const declinerIp = ipOfIndex(DECLINER);
@@ -414,5 +463,131 @@ describe('a state sync carries a peer\'s pending registrations', function () {
       interval: 3000,
       label: 'the receiver stored the pending registration the sync carried',
     });
+  });
+});
+
+// THE ANNOUNCEMENT HAS TO REACH THE ORCHESTRATOR, and only a fleet can say
+// whether it does. Both sides are unit-tested - the manager announces a
+// connection ending, the orchestrator ends a request when it hears one - and
+// both suites stay green with the manager's announcement deleted, because each
+// drives the other's half through a double. The subscription between them is
+// the thing that was wrong before this change and the thing neither can see.
+//
+// A peer gets ONE turn per sync. Its connection dying mid-attempt is its answer
+// to that attempt, so the slot it held is offered to somebody who has not had a
+// turn rather than back to it.
+const CUT_REAL_NODES = 3;
+// THREE SILENT STUBS, not two. The pool is one slot here, the real nodes
+// decline and are set aside the moment they are asked, and a decline marks a
+// peer tried - so they are gone as refill candidates before the cut happens.
+// What the slot moves to has to be a peer that has not had its turn, which
+// means a stub, and there has to be one spare after the one being cut.
+const CUT_STUBS = [CUT_REAL_NODES, CUT_REAL_NODES + 1, CUT_REAL_NODES + 2];
+
+describe('a peer whose connection dies mid-sync has had its turn', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: CUT_REAL_NODES + CUT_STUBS.length,
+      // Nobody boots synced. The real nodes decline, which sets them aside and
+      // leaves the stubs as the only candidates - so the peer the node is
+      // waiting on when its connection dies is one of these, and another of
+      // them is what the freed slot has to reach for.
+      syncedNodes: [],
+      stubPeers: CUT_STUBS,
+      silentSyncPeers: CUT_STUBS,
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: {
+          // Long enough that the slot's own first-response deadline cannot fire
+          // before the connection is cut - the cut is what this measures, and a
+          // deadline reaching it first would prove the wrong thing.
+          syncTimeoutMs: 1200000,
+          // 20 blocks, and this suite drives far fewer, so no node reaches
+          // authority on its own and starts answering.
+          appSyncFallbackMinutes: 10,
+        },
+      },
+    });
+
+    const clients = env.clients.slice(0, CUT_REAL_NODES);
+    for (const client of clients) await waitForDaemonReady(client);
+    await Promise.all(clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await advanceBlock();
+    for (const client of clients) {
+      await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
+    }
+    await env.startDiscovery(Array.from({ length: CUT_REAL_NODES }, (_unused, i) => i));
+
+    // THE PREMISE, ESTABLISHED RATHER THAN RACED. The node has to be holding
+    // every stub before the attempt starts: a run where it held two of them
+    // asked one, had nothing left to move the slot to, and reported that as the
+    // product refusing to refill. Read back from the node's own peer list.
+    const stubIps = CUT_STUBS.map((index) => ipOfIndex(index));
+    await waitFor(async () => {
+      const [outbound, inbound] = await Promise.all([
+        env.clients[0].getPeers(), env.clients[0].getIncomingPeers(),
+      ]);
+      const held = new Set([...(outbound.data || []), ...(inbound.data || [])]);
+      return stubIps.every((ip) => [...held].some((peer) => String(peer).startsWith(ip)));
+    }, { timeout: 180000, interval: 2000, label: 'node 0 holds every stub' });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('ends the request, and asks a peer that has not had a turn', async function () {
+    this.timeout(300000);
+
+    const client = env.clients[0];
+    const stubIps = CUT_STUBS.map((index) => ipOfIndex(index));
+
+    // Which stub it settled on. The real nodes decline and are set aside, so
+    // the slot ends up on a stub - but which one is the fleet's own peer
+    // ordering, not something to assume.
+    const asked = await client.waitForEvent(
+      'ephemeralSync:requested',
+      (d) => (d.peers ?? []).some((peer) => stubIps.some((ip) => String(peer).startsWith(ip))),
+      180000,
+    );
+    const held = (asked.data.peers ?? []).find((peer) => stubIps.some((ip) => String(peer).startsWith(ip)));
+    const heldIp = held.split(':')[0];
+    const heldIndex = CUT_STUBS[stubIps.indexOf(heldIp)];
+
+    // The socket dies. Nothing is stopped and nothing is asked to close - the
+    // container comes off the network, which is what a peer going away looks
+    // like from here.
+    await env.disconnectStub(heldIndex);
+
+    const ended = await client.waitForEvent(
+      'ephemeralSync:peerDisconnected',
+      (d) => String(d.peer ?? '').startsWith(heldIp),
+      180000,
+      { afterId: asked.id },
+    );
+    expect(ended.data.peer).to.match(new RegExp(`^${heldIp.replace(/\./g, '\\.')}:`));
+
+    // The slot it held goes to a peer that has not had a turn, and never back
+    // to it. A peer that dropped mid-attempt is one already tried.
+    const refilled = await client.waitForEvent(
+      'ephemeralSync:requested',
+      (d) => (d.peers ?? []).some((peer) => !String(peer).startsWith(heldIp)),
+      180000,
+      { afterId: ended.id },
+    );
+    expect(refilled.data.peers.some((peer) => String(peer).startsWith(heldIp)),
+      'a peer that dropped mid-attempt was asked again').to.equal(false);
+
+    const askedAfter = client.getEventBuffer()
+      .filter((e) => e.event === 'ephemeralSync:requested' && e.id > ended.id)
+      .flatMap((e) => e.data.peers ?? []);
+    expect(askedAfter.some((peer) => String(peer).startsWith(heldIp)),
+      'a peer that dropped mid-attempt was asked again later in the same attempt').to.equal(false);
   });
 });

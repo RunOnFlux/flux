@@ -371,6 +371,7 @@ function makeEnvShell(networkName) {
     volumeNames,
     infraContainers,
     stubPeerClients: new Map(),
+    stubContainers: new Map(),
     // The death watch (armed by createTestEnv) reads both: `stopping` tells it
     // the exits from here on are ours, `infraWatch` is its docker event stream.
     stopping: false,
@@ -658,7 +659,7 @@ function nodeReadyWaitStrategy(nodeIp) {
 // nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
-  stubPeeredWith = null,
+  unverifiableSyncPeers = [], stubPeeredWith = null,
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
@@ -768,6 +769,18 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: silentSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
     }
   }
+  // A stub that answers with an envelope nobody can attribute to it. Only a
+  // stub can be one for the same reason: every real responder signs correctly
+  // with its own key, so a fleet of them can never reach the path a node takes
+  // when a peer's answer does not verify.
+  for (const index of unverifiableSyncPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: unverifiableSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+    if (silentSyncPeers.includes(index)) {
+      throw new Error(`createTestEnv: stub ${index} cannot be both silent and unverifiable`);
+    }
+  }
   const syncedOverrides = {};
   for (const index of establishedNodes) {
     syncedOverrides[index] = mergeConfigs(
@@ -823,7 +836,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -852,12 +865,12 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
     networkName, containers, started, clients, volumeNames, nodeConfigs,
-    stubPeerClients: stubPeerClientsMap,
+    stubPeerClients: stubPeerClientsMap, stubContainers: stubContainersMap,
   } = env;
   const stubPeerSet = new Set(stubPeers);
 
@@ -1249,6 +1262,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
         PUBLIC_KEY: key.pubkey,
         NODE_IP: nodeIp,
         SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
+        UNVERIFIABLE_APP_STATE_SYNC: String(unverifiableSyncPeers.includes(stubIdx)),
         // Every stub asks, for the nodes it is declared a peer of. It repeats
         // on an interval, so a node held back at boot is asked once it starts.
         DIAL_TARGETS: (stubPeerings.get(stubIdx) ?? [])
@@ -1259,6 +1273,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
       .start();
     started.push(stub);
     stubPeerClientsMap.set(stubIdx, stubPeerClient(nodeIp));
+    stubContainersMap.set(stubIdx, stub);
   }
 
   const fluxNodesByIndex = new Map(nodeConfigs.map((n) => [n.index, n]));
@@ -1413,6 +1428,18 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
       const containerId = fluxNodes[index].container.getId();
       await network.disconnect({ Container: containerId });
       if (clients[index]) clients[index].disconnectEventStream();
+    },
+
+    // A STUB'S CONNECTIONS DIE WHERE A NODE'S DO. Taken off the network rather
+    // than stopped, so the socket dies at once and the container is still there
+    // for the teardown - the same thing disconnectNode does, for a container
+    // that has no flux node in it and so no entry in fluxNodes.
+    async disconnectStub(index) {
+      const container = env.stubContainers.get(index);
+      if (!container) throw new Error(`disconnectStub: index ${index} is not a stub peer`);
+      const rtClient = await getContainerRuntimeClient();
+      const network = rtClient.container.dockerode.getNetwork(networkName);
+      await network.disconnect({ Container: container.getId() });
     },
 
     async reconnectNode(index) {

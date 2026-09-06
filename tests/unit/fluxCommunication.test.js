@@ -1853,10 +1853,15 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
     });
 
+    // All four streams a request asks for. The peer is credited once every one
+    // of them has ended, so each has to name the peer it came from and each has
+    // to tell a refusal from an empty survey - the temp stream included, which
+    // used to report neither and left the peer credited on three.
     const cases = [
       ['apprunning', 'fluxapprunningsync', 'handleAppRunningSyncResponse'],
       ['appinstalling', 'fluxappinstallingsync', 'handleAppInstallingSyncResponse'],
       ['apperrors', 'fluxappinstallingerrorssync', 'handleAppInstallingErrorsSyncResponse'],
+      ['apptemp', 'fluxapptempsync', 'handleTempSyncResponse'],
     ];
 
     cases.forEach(([syncType, wireType, fn]) => {
@@ -1911,30 +1916,6 @@ describe('fluxCommunication tests', () => {
         expect(progress, 'a refusal kept its request alive as though it were working').to.deep.equal([]);
       });
 
-      // THE DEADLINE IS A STATEMENT ABOUT THE PEER, and processing time is a
-      // statement about us. Everything one peer sends goes through a single
-      // queue, one chunk at a time, and the temp-message stream asked for first
-      // re-verifies every pending registration at roughly a second each. A peer
-      // that answered all four requests at once went unheard for as long as WE
-      // took on the first of them, was recorded as having said nothing, and had
-      // the answers already queued behind it thrown away with the record.
-      it(`announces a ${syncType} arrival before anything processes it`, async () => {
-        const dispatch = peerManager.syncResponseDispatcher;
-        let progressAtWork = null;
-        // The handler's first slow step, and the boundary that matters: whether
-        // the peer SIGNED this is about the peer and is settled at arrival;
-        // storing what it sent is about us. If the peer is not already credited
-        // by here, every slower step below is on its clock.
-        sinon.stub(serviceHelper, 'processInSlices').callsFake(async () => {
-          progressAtWork = [...progress];
-        });
-
-        await dispatch({ data: { type: wireType, messages: [], done: false } }, PEER_SOCKET);
-
-        expect(progressAtWork, 'the peer was still silent when its own answer was already in hand')
-          .to.deep.equal([PEER]);
-      });
-
       // THE DEADLINE EXISTS TO TAKE THE SLOT BACK. Credited on arrival alone,
       // unverifiable bytes renewed it: a peer sending rubbish inside every stall
       // window held one of the answers this node needs for the whole attempt
@@ -1962,6 +1943,161 @@ describe('fluxCommunication tests', () => {
 
         expect(completions, 'an unasked connection completed a sync under an asked peer\'s name').to.deep.equal([]);
         expect(progress).to.deep.equal([]);
+      });
+    });
+
+    // THE QUEUE IS THE ORDER. Chunks carry meaning by position - the sender
+    // sorts by timestamp and an eviction carries none, so evictions arrive in
+    // the FIRST chunk and clear a node's locations outright, and `done` means
+    // "nothing after this". A chunk taking its place in the queue only once its
+    // envelope check came back put the order in the hands of whichever check
+    // finished first.
+    describe('a chunk takes its place in the queue when it arrives', () => {
+      const chunkFor = (marker) => ({
+        data: { type: 'fluxapprunningsync', messages: [{ marker }], done: false },
+      });
+
+      let processed;
+
+      beforeEach(() => {
+        processed = [];
+        sinon.stub(serviceHelper, 'processInSlices').callsFake(async (messages) => {
+          processed.push(messages[0].marker);
+        });
+      });
+
+      it('processes chunks in arrival order when a later check finishes first', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        let admitFirst;
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onFirstCall().returns(new Promise((resolve) => { admitFirst = resolve; }));
+
+        const first = dispatch(chunkFor('a'), PEER_SOCKET);
+        await dispatch(chunkFor('b'), PEER_SOCKET);
+
+        expect(processed, 'a chunk was processed while an earlier one was still being checked')
+          .to.deep.equal([]);
+
+        admitFirst(fluxCommunicationUtils.VerifyResult.OK);
+        await first;
+
+        expect(processed, 'the second chunk overtook the first because its check finished first')
+          .to.deep.equal(['a', 'b']);
+      });
+
+      // A HOLE IS NOT A SURVEY. Stepping over the chunk left the node counting a
+      // peer as having surveyed the network out of an answer it knows part of is
+      // missing - and it cannot say which part, because the chunk it could not
+      // attribute is the one it cannot read.
+      it('ends the request on a chunk it cannot verify, and processes no more of the stream', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        const unverified = [];
+        const onUnverified = (peerKey) => unverified.push(peerKey);
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        let admitFirst;
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onFirstCall().returns(new Promise((resolve) => { admitFirst = resolve; }));
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onSecondCall().resolves(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
+
+        try {
+          const first = dispatch(chunkFor('a'), PEER_SOCKET);
+          await dispatch(chunkFor('b'), PEER_SOCKET);
+          admitFirst(fluxCommunicationUtils.VerifyResult.OK);
+          await first;
+        } finally {
+          appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        }
+
+        expect(processed, 'the stream carried on past a chunk that could not be verified')
+          .to.deep.equal(['a']);
+        expect(unverified, 'a stream with a hole in it did not end the request').to.deep.equal([PEER]);
+      });
+
+      // A drain serves ONE connection. A backlog left behind by a connection
+      // that has since been replaced still runs, and a failure in it says
+      // nothing about the peer that dialled back in - which by then holds a
+      // request of its own, or none at all.
+      it('reports no failure for a connection it is no longer serving', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        const reconnected = { key: PEER, connectionId: PEER_SOCKET.connectionId + 1 };
+        const unverified = [];
+        const onUnverified = (peerKey) => unverified.push(peerKey);
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        let admitFirst;
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onFirstCall().returns(new Promise((resolve) => { admitFirst = resolve; }));
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .onSecondCall().resolves(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
+
+        try {
+          const stale = dispatch(chunkFor('a'), PEER_SOCKET);
+          await dispatch(chunkFor('bad'), PEER_SOCKET);
+          wanted = (socket) => socket === reconnected;
+          admitFirst(fluxCommunicationUtils.VerifyResult.OK);
+          await stale;
+        } finally {
+          appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        }
+
+        expect(unverified, 'a dead connection\'s bad chunk was reported against the peer at that address')
+          .to.deep.equal([]);
+      });
+
+      it('credits no progress and ends the request when the first chunk cannot be verified', async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        const unverified = [];
+        const onUnverified = (peerKey) => unverified.push(peerKey);
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        fluxCommunicationUtils.verifyFluxBroadcast
+          .resolves(fluxCommunicationUtils.VerifyResult.MALFORMED);
+
+        try {
+          await dispatch(chunkFor('a'), PEER_SOCKET);
+        } finally {
+          appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_UNVERIFIED, onUnverified);
+        }
+
+        expect(processed).to.deep.equal([]);
+        expect(progress, 'unverifiable bytes renewed the deadline that reclaims the slot').to.deep.equal([]);
+        expect(unverified).to.deep.equal([PEER]);
+      });
+    });
+
+    // THE DEADLINE IS A STATEMENT ABOUT THE PEER, and processing time is a
+    // statement about us. Everything one peer sends goes through a single
+    // queue, one chunk at a time, and the temp-message stream re-verifies every
+    // pending registration it is given. A peer that answered all four requests
+    // at once went unheard for as long as WE took on the first of them, was
+    // recorded as having said nothing, and had the answers already queued
+    // behind it thrown away with the record.
+    //
+    // Driven per stream because the first slow step is a different call in
+    // each: the three surveys hand a batch to processInSlices, the temp stream
+    // stores one message at a time. The boundary is the same either way -
+    // whether the peer SIGNED this is about the peer and is settled at arrival,
+    // storing what it sent is about us - and anything below it is on our clock.
+    const arrivalCases = [
+      ['apprunning', 'fluxapprunningsync', [], () => [serviceHelper, 'processInSlices']],
+      ['appinstalling', 'fluxappinstallingsync', [], () => [serviceHelper, 'processInSlices']],
+      ['apperrors', 'fluxappinstallingerrorssync', [], () => [serviceHelper, 'processInSlices']],
+      ['apptemp', 'fluxapptempsync', [{ hash: 'abc' }], () => [messageStore, 'storeAppTemporaryMessage']],
+    ];
+
+    arrivalCases.forEach(([syncType, wireType, messages, slowStep]) => {
+      it(`announces a ${syncType} arrival before anything processes it`, async () => {
+        const dispatch = peerManager.syncResponseDispatcher;
+        let progressAtWork = null;
+        const [owner, method] = slowStep();
+        sinon.stub(owner, method).callsFake(async () => {
+          progressAtWork = [...progress];
+          return true;
+        });
+
+        await dispatch({ data: { type: wireType, messages, done: false } }, PEER_SOCKET);
+
+        expect(progressAtWork, 'the peer was still silent when its own answer was already in hand')
+          .to.deep.equal([PEER]);
       });
     });
   });

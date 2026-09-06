@@ -251,15 +251,20 @@ describe('State sync: 3-peer ephemeral sync', function () {
     expect(reqEvent.data.peerCount).to.be.gte(3);
   });
 
-  it('should complete apprunning sync from 3 peers', async function () {
-    this.timeout(120000);
-    const client = env.clients[10];
-    const event = await client.waitForEvent(
-      'ephemeralSync:peerComplete',
-      (d) => d.syncType === 'apprunning' && d.completions >= 3,
-      90000,
-    );
-    expect(event.data.completions).to.be.gte(3);
+  // Every stream a request asks for is counted, so a peer is credited once all
+  // four have ended. Asserted per stream: a tally that quietly dropped one would
+  // still satisfy an assertion written only about the whole.
+  ['apprunning', 'appinstalling', 'apperrors', 'apptemp'].forEach((syncType) => {
+    it(`should complete ${syncType} sync from 3 peers`, async function () {
+      this.timeout(120000);
+      const client = env.clients[10];
+      const event = await client.waitForEvent(
+        'ephemeralSync:peerComplete',
+        (d) => d.syncType === syncType && d.completions >= 3,
+        90000,
+      );
+      expect(event.data.completions).to.be.gte(3);
+    });
   });
 
   it('should complete all ephemeral syncs', async function () {
@@ -273,6 +278,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
     expect(event.data.apprunning).to.be.gte(3);
     expect(event.data.appinstalling).to.be.gte(3);
     expect(event.data.apperrors).to.be.gte(3);
+    expect(event.data.apptemp, 'the pending-registration stream was not counted').to.be.gte(3);
   });
 
   it('should have verified chunks via worker threads', async function () {

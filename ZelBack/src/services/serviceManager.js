@@ -487,7 +487,6 @@ async function startFluxFunctions() {
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
-      peerConnectionId: (key) => peerManager.peerConnectionId(key),
       networkStateReady: () => networkStateService.waitStarted(),
       fluxVersion,
     });

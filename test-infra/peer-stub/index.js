@@ -12,6 +12,12 @@ if (process.env.FLUX_TEST_HARNESS !== 'true') {
 const WS_PORT = Number(process.env.WS_PORT) || 16127;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 16128;
 const SILENT_APP_STATE_SYNC = process.env.SILENT_APP_STATE_SYNC === 'true';
+// A PEER THAT ANSWERS WITH SOMETHING NOBODY CAN STAND BEHIND. The other way an
+// answer fails: not silence, not a refusal, but bytes that arrive and do not
+// verify. Every real responder signs correctly with its own key, so without
+// this the fleet has no way to reach the path a node takes when a peer's
+// envelope cannot be attributed to it.
+const UNVERIFIABLE_APP_STATE_SYNC = process.env.UNVERIFIABLE_APP_STATE_SYNC === 'true';
 const DIAL_TARGETS = (process.env.DIAL_TARGETS || '').split(',').filter(Boolean);
 const { PRIVATE_KEY, PUBLIC_KEY, NODE_IP } = process.env;
 
@@ -20,11 +26,21 @@ if (!PRIVATE_KEY || !PUBLIC_KEY) {
   process.exit(1);
 }
 
+// The first byte of a binary frame is its type. Only the four sync requests
+// matter here, and each is answered with the stream it asks for.
+const SYNC_REQUEST_RESPONSES = Object.freeze({
+  0x20: 'fluxapptempsync',
+  0x21: 'fluxapprunningsync',
+  0x22: 'fluxappinstallingsync',
+  0x23: 'fluxappinstallingerrorssync',
+});
+
 const messages = new Map();
 
 let connectionsReceived = 0;
 let requestsReceived = 0;
 let messagesServed = 0;
+let unverifiableResponsesSent = 0;
 const requestLog = [];
 
 // What this peer answers when a node asks what it is holding, and when it was
@@ -113,11 +129,48 @@ async function serialiseAndSignBroadcast(data) {
   return JSON.stringify({ version, timestamp, pubKey: PUBLIC_KEY, signature, data });
 }
 
+/**
+ * A response that is correctly shaped and cannot be attributed to this peer.
+ *
+ * Signed over a payload one millisecond off the one it carries, so the
+ * signature is a real signature of the right length made with the right key -
+ * it simply is not a signature of this message. That is the shape a forgery
+ * has on the wire, and it is what an envelope check has to catch. A random
+ * string would be caught by the parse instead, which tests the parser.
+ * @param {string} type The sync response type being answered.
+ * @returns {Promise<string>} the wire frame.
+ */
+async function serialiseUnverifiableSyncResponse(type) {
+  const version = 1;
+  const timestamp = Date.now();
+  const data = { type, messages: [], done: true };
+  const message = JSON.stringify(data);
+  const signature = await signBtcMessage(`${version}${message}${timestamp + 1}`, PRIVATE_KEY);
+  return JSON.stringify({ version, timestamp, pubKey: PUBLIC_KEY, signature, data });
+}
+
+async function handleSyncRequest(ws, rawData) {
+  const responseType = SYNC_REQUEST_RESPONSES[rawData[0]];
+  if (!responseType) return;
+  // Nothing holds this promise - the socket handler calls and returns - so a
+  // throw here would take the stub down with an unhandled rejection.
+  try {
+    const frame = await serialiseUnverifiableSyncResponse(responseType);
+    ws.send(frame);
+    unverifiableResponsesSent++;
+  } catch (e) {
+    console.error('Error answering sync request:', e.message);
+  }
+}
+
 async function handleMessage(ws, rawData) {
   // Binary frames are the peer protocol's own encoding - hash traffic and the
-  // app-state sync requests. This stub speaks neither, and a JSON parse error
-  // per incoming request is noise rather than a finding.
-  if (rawData[0] !== 0x7b) return;
+  // app-state sync requests. This stub speaks the second only when asked to,
+  // and a JSON parse error per incoming request is noise rather than a finding.
+  if (rawData[0] !== 0x7b) {
+    if (UNVERIFIABLE_APP_STATE_SYNC) await handleSyncRequest(ws, rawData);
+    return;
+  }
   try {
     const msg = JSON.parse(rawData);
     const { data } = msg;
@@ -169,7 +222,8 @@ wss.on('headers', (headers) => {
   // never answers - and the asker is now expected to give up on it and ask
   // someone else. So a suite can ask for exactly that, and gets it only when it
   // does.
-  const capabilities = SILENT_APP_STATE_SYNC ? 'peerExchange,appStateSync' : 'peerExchange';
+  const answersAppStateSync = SILENT_APP_STATE_SYNC || UNVERIFIABLE_APP_STATE_SYNC;
+  const capabilities = answersAppStateSync ? 'peerExchange,appStateSync' : 'peerExchange';
   headers.push(`X-Flux-Capabilities: ${capabilities}`);
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
@@ -409,6 +463,7 @@ const controlServer = http.createServer(async (req, res) => {
         connectionsReceived,
         requestsReceived,
         messagesServed,
+        unverifiableResponsesSent,
         messagesLoaded: messages.size,
         requestLog,
         promotedFolderRequests,

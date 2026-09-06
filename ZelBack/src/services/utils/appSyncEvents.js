@@ -5,6 +5,7 @@ const appSyncEvents = new EventEmitter();
 const EVENTS = Object.freeze({
   EPHEMERAL_SYNC_COMPLETE: 'ephemeralSyncComplete',
   EPHEMERAL_SYNC_REFUSED: 'ephemeralSyncRefused',
+  EPHEMERAL_SYNC_UNVERIFIED: 'ephemeralSyncUnverified',
   EPHEMERAL_SYNC_PROGRESS: 'ephemeralSyncProgress',
   SPAWNER_READY: 'spawnerReady',
   READINESS_LOST: 'readinessLost',
