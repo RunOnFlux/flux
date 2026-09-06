@@ -102,7 +102,13 @@ describe('an app whose specification changed is reinstalled at the new specifica
   });
 
   it('notices the new specification and reinstalls the component at it', async function () {
-    this.timeout(600000);
+    // A BACKSTOP, not the budget. The 108-block drive below is what bounds this
+    // test, and blocks cost whatever the node takes to process them - about 1s
+    // against an idle daemon and several times that on a loaded box. A cap sized
+    // for the idle case expires first there, which puts the wall clock back in
+    // charge of a wait deliberately counted in blocks. This is long enough that
+    // only a node which has stopped processing reaches it.
+    this.timeout(1500000);
 
     const updated = await buildSeedableUpdate(app, (spec) => {
       // Not hdd: that takes the hard path, which reformats the data volume. A
@@ -114,10 +120,17 @@ describe('an app whose specification changed is reinstalled at the new specifica
 
     await seedSpecUpdate(env, updated, [0]);
 
+    // BUDGETED IN BLOCKS, because the pass is. It fires on
+    // `blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0` with
+    // updateFluxAppsPeriod re-rolled to 4-9 after every firing, so at the worst
+    // period it comes round every 36 blocks: 108 is three firings whatever the
+    // roll, and three on a loaded box as much as an idle one. A wall-clock
+    // budget buys blocks at whatever rate the node processes them, which is how
+    // the same 420s came to buy 84 blocks rather than the ~504 it was sized for.
     await driveUntil(
       holder,
       async () => (await localSpec(holder))?.hash === updated.hash,
-      { timeoutMs: 420000, label: 'the node installs the app at the new specification' },
+      { blocks: 108, label: 'the node installs the app at the new specification' },
     );
 
     const installed = await localSpec(holder);
