@@ -42,6 +42,7 @@ describe('appLogsHandler tests', () => {
       rooms: new Set(),
       emit: sinon.stub(),
       join(room) { this.rooms.add(room); },
+      leave(room) { this.rooms.delete(room); },
       on(event, fn) {
         listeners[event] = listeners[event] || [];
         listeners[event].push(fn);
@@ -192,6 +193,32 @@ describe('appLogsHandler tests', () => {
       await socket.fire('unsubscribe');
 
       expect(appLogsHandler.feeds.has('abc123')).to.be.false;
+    });
+
+    it('stops the container reaching a viewer that unsubscribes', async () => {
+      // Releasing the feed is only half of it. The room is what carries lines to
+      // a socket, and a connection that has unsubscribed is free to follow
+      // another container - so a room it never left delivers the first one's
+      // lines into the second one's pane as soon as anybody reopens that feed.
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      await subscribe(socket);
+      expect([...socket.rooms], 'the subscription put it here').to.deep.equal(['applogs:abc123']);
+
+      await socket.fire('unsubscribe');
+
+      expect([...socket.rooms], 'still receiving a container it stopped watching').to.be.empty;
+    });
+
+    it('leaves no room behind when the stream could not be opened', async () => {
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      container.logs = sinon.stub().rejects(new Error('daemon went away'));
+
+      await subscribe(socket);
+
+      expect(appLogsHandler.feeds.has('abc123'), 'nothing was opened').to.be.false;
+      expect([...socket.rooms], 'a failed subscribe is not a subscription').to.be.empty;
     });
 
     it('does not hand a late viewer lines the room is about to send it', async () => {

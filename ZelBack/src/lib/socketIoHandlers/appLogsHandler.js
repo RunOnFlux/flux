@@ -220,6 +220,12 @@ async function appLogsHandler(socket) {
   // pass that finally has a feed would have nothing to name it by, and the
   // stream and its interval would run on with no viewer and nobody to stop them.
   const release = containerId => {
+    // Above the return, because the room is the half of a subscription that
+    // outlives having no feed: a subscribe whose open failed has nothing to
+    // release and used to carry the room out with it. And a connection that has
+    // given up `watching` is free to follow a second container while a room it
+    // never left still delivers the first one's lines into that pane.
+    socket.leave(roomFor(containerId));
     const feed = feeds.get(containerId);
     if (!feed) return;
     feed.subscribers.delete(socket.id);

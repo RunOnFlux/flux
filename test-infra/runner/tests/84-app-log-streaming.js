@@ -291,6 +291,41 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     b.close();
   });
 
+  it('stops feeding a viewer that unsubscribes without disconnecting', async function () {
+    this.timeout(120000);
+
+    // A second viewer holds the feed open for the whole test, which is what
+    // makes this an assertion about the leaver rather than about the stream:
+    // with the feed closed, nothing would arrive at either of them and the
+    // expectation below would pass without proving anything.
+    //
+    // Releasing the feed is only half of a subscription. The socket.io room is
+    // what carries lines to a connection, and a viewer that keeps its room
+    // after unsubscribing goes on being fed a container it stopped watching -
+    // and is free to follow a second container while it happens.
+    const keeper = watch();
+    await keeper.ready;
+    const leaver = watch();
+    await leaver.ready;
+    await new Promise((resolve) => { setTimeout(resolve, 3000); });
+
+    expect(leaver.lines, 'the leaver was never being fed, so leaving proves nothing').to.not.be.empty;
+    leaver.socket.emit('unsubscribe');
+    await new Promise((resolve) => { setTimeout(resolve, 1500); });
+    const settled = leaver.lines.length;
+
+    const keeperMark = keeper.lines.length;
+    await waitFor(
+      async () => keeper.lines.length > keeperMark + 10,
+      { timeout: 30000, interval: 500, label: 'the container is still writing and the keeper still being fed' },
+    );
+
+    expect(leaver.lines.length, 'an unsubscribed viewer is still being sent the container').to.equal(settled);
+    expect(leaver.ended, 'unsubscribing is not the container stopping').to.be.false;
+    keeper.close();
+    leaver.close();
+  });
+
   it('tells a viewer when the container stops', async function () {
     this.timeout(120000);
 
