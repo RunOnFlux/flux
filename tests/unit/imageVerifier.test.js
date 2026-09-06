@@ -127,6 +127,40 @@ describe('imageVerifier tests', () => {
         expect(verifier.tag).to.eql(null);
       });
     });
+
+    // The cost of a parse must not grow with the length of the name.
+    //
+    // The namespace separator used to accept an EMPTY run of hyphens, which made
+    // "letters and digits separated by nothing" a legal reading - so every way of
+    // cutting a plain word apart became a distinct reading to try, 2^(n-1) of them
+    // for an n-character name, and all of them are explored before a non-match can
+    // be reported. Measured on the pattern as it was: 0.7ms at 16 characters,
+    // 148.9ms at 24, 2455.5ms at 28, 9804.3ms at 30. The same 30-character name
+    // now parses in under 2ms.
+    //
+    // 250ms: thirty-nine times below the 9804ms the old pattern spent on this exact
+    // input and a hundred times above what it costs now, so it cannot fail on a
+    // slow box and cannot pass if the empty alternative comes back. Kept to 30
+    // characters deliberately - the growth is exponential, so each further
+    // character doubles what a reintroduction costs this suite before it fails,
+    // and a synchronous regex ignores mocha's timeout so it would hang rather
+    // than stop.
+    it('parses a long image name in time that does not grow with its length', () => {
+      const name = 'a'.repeat(30);
+      const repotag = `registry.example.com:5000/${name}:v1`;
+
+      const startedAt = process.hrtime.bigint();
+      const verifier = new ImageVerifier(repotag);
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+      expect(verifier.provider).to.eql('registry.example.com:5000');
+      expect(verifier.repository).to.eql(name);
+      expect(verifier.tag).to.eql('v1');
+      expect(
+        elapsedMs,
+        `parsing a ${name.length}-character image name took ${elapsedMs.toFixed(1)}ms`,
+      ).to.be.below(250);
+    });
   });
 
   describe('parseAuthHeader tests', () => {

@@ -8,7 +8,7 @@ const serviceHelper = require('../serviceHelper');
 class ImageVerifier {
   static defaultDockerRegistry = 'registry-1.docker.io';
 
-  static imagePattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-_.]+\/{0,1}[a-z0-9-_.]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
+  static imagePattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-_.]+\/{0,1}[a-z0-9-_.]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
 
   static wwwAuthHeaderPattern = /(?<scheme>Bearer|Basic)\s+realm="(?<realm>[^"]+)"(?:,\s*service="(?<service>[^"]+)")?(?:,\s*scope="(?<scope>[^"]+)")?/;
 
