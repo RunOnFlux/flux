@@ -159,19 +159,31 @@ async function openFeed(io, container, containerId) {
     const room = feeds.get(containerId);
     if (!room) return;
 
-    // Kept so a viewer that joins a stream already running opens with the same
-    // context the first one got from docker's `tail`, rather than an empty pane
-    // until the container next writes.
-    room.recent.push(...lines);
+    // Appended rather than spread, which is the rule dockerContainerLogsPolling
+    // states and keeps. One chunk finishes as many lines as it has newlines and
+    // not as many as it has frames - the decoder splits frame bodies - so a
+    // 64KB read of the shortest non-empty lines measures 32,768 against the
+    // 125,263 arguments V8 accepts. That margin belongs to the socket's read
+    // size rather than to anything here, and crossing it is not a crash: the
+    // RangeError lands in the data handler's guard, and every line of the chunk
+    // is lost before one of them reaches a viewer.
+    //
+    // `recent` is kept so a viewer that joins a stream already running opens
+    // with the same context the first one got from docker's `tail`, rather than
+    // an empty pane until the container next writes.
+    for (let i = 0; i < lines.length; i += 1) room.recent.push(lines[i]);
     if (room.recent.length > BACKFILL_LINES) room.recent = room.recent.slice(-BACKFILL_LINES);
 
     const space = MAX_QUEUED_LINES - room.queued.length;
     if (lines.length > space) {
       room.dropped += lines.length - space;
-      room.queued.push(...lines.slice(lines.length - space));
+      // From the offset rather than through a slice: the tail is all that is
+      // kept, and building it as an array of its own to hand over is an
+      // allocation of the same width for nothing.
+      for (let i = lines.length - space; i < lines.length; i += 1) room.queued.push(lines[i]);
       return;
     }
-    room.queued.push(...lines);
+    for (let i = 0; i < lines.length; i += 1) room.queued.push(lines[i]);
   };
 
   stream.on('data', guard('stream data', (chunk) => enqueue(decoder.push(chunk))));

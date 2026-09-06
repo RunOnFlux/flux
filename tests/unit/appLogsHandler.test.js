@@ -552,6 +552,29 @@ describe('appLogsHandler tests', () => {
       }
     });
 
+    // Wider than an argument list. Not reachable through a socket - a 64KB read
+    // of the shortest non-empty lines measures 32,768 - so this pins the rule
+    // dockerContainerLogsPolling writes down rather than a failure a container
+    // can reach today. The width is bounded by the socket's read size, which is
+    // not a property of this file and not one a later caller of enqueue carries.
+    //
+    // Spread, the batch is an argument list V8 refuses, and the RangeError lands
+    // in the data handler's guard: no crash, no log line, and every line of the
+    // chunk gone before a viewer sees one.
+    it('takes a batch wider than an argument list without losing it', async () => {
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      await subscribe(socket);
+
+      const written = 200000;
+      logStream.emit('data', frame('a\n'.repeat(written)));
+
+      const feed = appLogsHandler.feeds.get('abc123');
+      expect(feed.queued, 'the whole chunk was lost before a line of it was queued').to.have.length(appLogsHandler.MAX_QUEUED_LINES);
+      expect(feed.dropped, 'what did not fit is counted and reported, never passed over in silence').to.equal(written - appLogsHandler.MAX_QUEUED_LINES);
+      expect(feed.recent, 'a later viewer opens on the tail of what was written').to.have.length(appLogsHandler.BACKFILL_LINES);
+    });
+
     it('reports a drop only once, not on every later flush', async () => {
       const clock = sinon.useFakeTimers();
       try {
