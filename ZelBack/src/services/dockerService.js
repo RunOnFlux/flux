@@ -403,25 +403,6 @@ async function dockerContainerLogs(idOrName, lines) {
 }
 
 /**
- * How many log frames a raw docker payload carries, without decoding them.
- *
- * Only ever compared against a page size, so the length prefix in each header is
- * enough and the bodies never need touching.
- *
- * @param {Buffer} payload
- * @returns {number}
- */
-function countFrames(payload) {
-  let frames = 0;
-  let offset = 0;
-  while (offset + 8 <= payload.length) {
-    offset += 8 + payload.readUInt32BE(offset + 4);
-    frames += 1;
-  }
-  return frames;
-}
-
-/**
  * How many of `lines` docker will hand back again when asked from `ms`, so that
  * many can be skipped next time.
  *
@@ -518,18 +499,6 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
 
   const payload = await dockerContainer.logs(logOptions);
 
-  // The window came back full, so more is waiting than this read can see. The
-  // reader is moved to the end of the log rather than walked to it: seeing past
-  // the window means a read with no `tail`, which is the unbounded decode the
-  // docblock measures, and a reader writing faster than a page per poll would
-  // pay it on every poll forever without ever arriving.
-  //
-  // Moving them is also the answer they want. A viewer more than a page behind
-  // is asking to see what is happening now, which is what `docker logs`,
-  // kubectl and journalctl all answer by default. What it must not do is stay
-  // silent about the gap, so `skipped` says it outright.
-  const skipped = position !== null && countFrames(payload) > maxLines;
-
   // Every app container is created with Tty false (appDockerCreate), so docker
   // frames each write with an 8-byte header carrying the stream id and length.
   const raw = [];
@@ -540,6 +509,26 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     offset += 8 + length;
   }
   let lines = raw.join('').split('\n').filter((line) => line.trim());
+
+  // The window came back full, so more is waiting than this read can see. The
+  // reader is moved to the end of the log rather than walked to it: seeing past
+  // the window means a read with no `tail`, which is the unbounded decode the
+  // docblock measures, and a reader writing faster than a page per poll would
+  // pay it on every poll forever without ever arriving.
+  //
+  // Moving them is also the answer they want. A viewer more than a page behind
+  // is asking to see what is happening now, which is what `docker logs`,
+  // kubectl and journalctl all answer by default. What it must not do is stay
+  // silent about the gap, so `skipped` says it outright.
+  //
+  // Counted in lines, which is why it sits after the decode: `tail` bounds the
+  // read in lines and a frame is a write, so docker splitting a write larger
+  // than its buffer put several frames behind one line. Counting those declared
+  // an overflow that had not happened - which reported a gap the reader never
+  // had and, because an overflow skips the overlap drop below, handed back the
+  // lines it had just acknowledged. The decode below the old count ran
+  // unconditionally, so reading the bodies never cost anything to avoid.
+  const skipped = position !== null && lines.length > maxLines;
 
   // The line asked from is absent, so docker rotated it away between polls and
   // what sat between it and the oldest line here is gone. Reporting it is the

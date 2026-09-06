@@ -798,12 +798,52 @@ describe('dockerService tests', () => {
 
     const at = (ms, text) => `${new Date(ms).toISOString()} ${text}`;
 
+    // Frames built from arbitrary bodies rather than whole lines, so a test can
+    // put one log line behind several frames the way docker does for a write
+    // larger than its buffer.
+    function rawFrames(bodies) {
+      return Buffer.concat(bodies.map((body) => {
+        const payload = Buffer.from(body, 'utf8');
+        const header = Buffer.alloc(8);
+        header.writeUInt8(1, 0);
+        header.writeUInt32BE(payload.length, 4);
+        return Buffer.concat([header, payload]);
+      }));
+    }
+
     function stubLogs(lines) {
       return sinon.stub(Dockerode.Container.prototype, 'logs').resolves(dockerFrame(lines));
     }
 
     afterEach(() => {
       sinon.restore();
+    });
+
+    it('reports a page that fitted as complete, however docker framed it', async () => {
+      // `tail` bounds the read in lines; a frame is a write. Docker splits a
+      // write larger than its buffer across frames, so a page of long lines
+      // arrives as more frames than lines - and counting frames called that an
+      // overflow, which both reports a gap that never happened and keeps the
+      // overlap this reader has already acknowledged.
+      const written = Array.from({ length: 10 }, (_, i) => at(1000 + i * 1000, `line-${i}`));
+      const bodies = [];
+      written.forEach((line, i) => {
+        if (i < 3) {
+          bodies.push(line.slice(0, 12), `${line.slice(12)}\n`);
+        } else {
+          bodies.push(`${line}\n`);
+        }
+      });
+      sinon.stub(Dockerode.Container.prototype, 'logs').resolves(rawFrames(bodies));
+
+      const result = await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 2 },
+        maxLines: 10,
+      });
+
+      expect(result.skipped, 'thirteen frames carried ten lines, and ten was the page').to.be.false;
+      expect(result.lines, 'the lines the reader already holds are dropped, not handed back')
+        .to.deep.equal(written.slice(2));
     });
 
     it('rejects for a container that is not there', async () => {
