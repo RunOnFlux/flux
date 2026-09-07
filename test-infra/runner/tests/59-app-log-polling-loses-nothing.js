@@ -24,7 +24,10 @@
  * the author's belief about docker, not docker. What this suite adds is the real
  * daemon, a container writing on its own schedule, and the only assertion that
  * matters end to end: across a run of polls, every line the container wrote is seen
- * EXACTLY ONCE, in order, with no gap.
+ * EXACTLY ONCE, with no gap. Not in the container's order: docker merges stdout and
+ * stderr as it reads them and can serialise a line behind the one that follows it,
+ * which is what this fixture exists to produce and is not something a reader of the
+ * log can undo.
  *
  * The lines are numbered by the container itself, which is what makes that
  * checkable: a gap and a repeat are both visible in the sequence, and identical
@@ -174,22 +177,34 @@ describe('a log poll answers at once and loses nothing between polls', function 
 
     // The whole point. Ten polls a second apart, over a container writing ten
     // lines a second, so each poll has several new lines to carry and any dropped
-    // or repeated line shows up as a break in the sequence.
+    // or repeated line shows up in the collection.
     let cursor = (await poll()).cursor;
     const collected = [];
 
-    for (let i = 0; i < 10; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => { setTimeout(resolve, 1000); });
-      // eslint-disable-next-line no-await-in-loop
-      const body = await poll(cursor);
+    const take = (body) => {
       expect(body.rolledOver, 'docker discarded a line this reader had not read').to.be.false;
       body.logs.map(lineNumber).forEach((n) => {
         expect(n, `unparseable log line: ${JSON.stringify(body.logs)}`).to.not.equal(null);
         collected.push(n);
       });
-      cursor = body.cursor;
+      return body.cursor;
+    };
+
+    for (let i = 0; i < 10; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => { setTimeout(resolve, 1000); });
+      // eslint-disable-next-line no-await-in-loop
+      cursor = take(await poll(cursor));
     }
+
+    // One poll more than the run needs. The container alternates stdout and
+    // stderr and docker merges the two as it reads them, so a line can be
+    // serialised into the log behind the one that follows it - the property this
+    // fixture exists to produce. Every poll but the last has a successor that
+    // carries such a line; the last one does not, and without this it would be
+    // read as a line the node never delivered.
+    await new Promise((resolve) => { setTimeout(resolve, 2000); });
+    take(await poll(cursor));
 
     expect(collected.length, 'ten polls over a container writing ten lines a second').to.be.above(10);
     expect(
@@ -197,14 +212,18 @@ describe('a log poll answers at once and loses nothing between polls', function 
       `a line was delivered twice: ${collected.join(',')}`,
     ).to.equal(collected.length);
 
-    // Contiguous and ascending. A gap is a line the container wrote that no poll
-    // ever carried - the failure this whole design exists to prevent, and the one
-    // a reader could never detect for itself.
-    for (let i = 1; i < collected.length; i += 1) {
+    // Complete, not in the container's order. A gap is a line the container
+    // wrote that no poll ever carried - the failure this whole design exists to
+    // prevent, and the one a reader could never detect for itself. The order the
+    // lines arrive in is docker's: it merges the two streams as it reads them,
+    // so requiring the container's own sequence would fail on a merge this
+    // endpoint has no part in and cannot correct.
+    const ordered = [...collected].sort((a, b) => a - b);
+    for (let i = 1; i < ordered.length; i += 1) {
       expect(
-        collected[i],
-        `a gap between ${collected[i - 1]} and ${collected[i]}`,
-      ).to.equal(collected[i - 1] + 1);
+        ordered[i],
+        `a gap between ${ordered[i - 1]} and ${ordered[i]}`,
+      ).to.equal(ordered[i - 1] + 1);
     }
   });
 

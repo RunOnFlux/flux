@@ -28,6 +28,17 @@
  *                 in the sequence is visible, and identical lines would hide
  *                 both.
  *
+ *   LOG_BLOB_BYTES  if > 0, ONE line of this many bytes with no newline in it,
+ *                 written after every LOG_BLOB_AFTER numbered lines and
+ *                 terminated only once it is complete. A reader holds a line
+ *                 until its newline arrives, so this is what a container that
+ *                 does not send one costs it - and the numbered lines resume
+ *                 afterwards, which is what says a reader that gave up on the
+ *                 blob did not give up on what followed it. Repeated rather
+ *                 than written once, so a viewer that attaches at any point
+ *                 meets one rather than having to be there at the start.
+ *   LOG_BLOB_AFTER  how many numbered lines between blobs (default 50).
+ *
  *                 Lines ALTERNATE between stdout and stderr, and that is the
  *                 point rather than decoration. Docker gives each stream its own
  *                 writer, and each stamps its line before the write is
@@ -115,12 +126,39 @@ int main(void)
                 .tv_sec = interval_ms / 1000,
                 .tv_nsec = (interval_ms % 1000) * 1000000L,
             };
+            const char *blob_bytes = getenv("LOG_BLOB_BYTES");
+            const long blob = blob_bytes ? atol(blob_bytes) : 0;
+            const char *blob_after_s = getenv("LOG_BLOB_AFTER");
+            const unsigned long blob_after =
+                blob_after_s ? strtoul(blob_after_s, NULL, 10) : 50;
+
             char line[64];
+            char filler[4096];
+            for (size_t i = 0; i < sizeof(filler); i++)
+                filler[i] = 'B';
+
             for (unsigned long n = 1;; n++) {
                 int len = snprintf(line, sizeof(line), "log line %lu\n", n);
                 if (len > 0)
                     (void)!write(n & 1 ? STDOUT_FILENO : STDERR_FILENO,
                                  line, (size_t)len);
+
+                /* One line, written in pieces, with its newline only at the end:
+                 * what a reader holds is decided by the container, not by the
+                 * writes. On stdout alone, so the blob's own pieces cannot
+                 * interleave with the stderr half of the numbered lines. */
+                if (blob > 0 && blob_after > 0 && n % blob_after == 0) {
+                    long written = 0;
+                    while (written < blob) {
+                        long want = blob - written;
+                        if (want > (long)sizeof(filler))
+                            want = (long)sizeof(filler);
+                        (void)!write(STDOUT_FILENO, filler, (size_t)want);
+                        written += want;
+                    }
+                    (void)!write(STDOUT_FILENO, "\n", 1);
+                }
+
                 nanosleep(&gap, NULL);
             }
         }

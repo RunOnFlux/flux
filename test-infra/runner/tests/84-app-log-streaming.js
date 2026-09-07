@@ -40,6 +40,17 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const CONNECT_TIMEOUT_MS = 20000;
 
+// What the node holds of one line before it cuts it: `MAX_LINE_LENGTH` in
+// logFrameDecoder.js. Written out rather than imported - the runner is its own
+// package and reaching into ZelBack for a number would make this suite depend on
+// the node's module layout instead of on its behaviour.
+const NODE_MAX_LINE_LENGTH = 1024 * 1024;
+
+// Comfortably past it, and not a round multiple of anything docker frames with,
+// so a count that came from the framing rather than from the line would not
+// happen to match.
+const BLOB_BYTES = 1_300_003;
+
 describe('an app log stream loses nothing and is shared between viewers', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -51,6 +62,11 @@ describe('an app log stream loses nothing and is shared between viewers', functi
   // part of the contract and a single-component app cannot exercise it.
   const secondComponent = `${appName}b`;
   const secondIdentifier = `${secondComponent}_${appName}`;
+  // A third, which writes the line no reader can hold. Its own container because
+  // every other test here watches one whose entire output is its numbered lines,
+  // and a megabyte arriving every few seconds is not that.
+  const blobComponent = `${appName}c`;
+  const blobIdentifier = `${blobComponent}_${appName}`;
   let holder;
   let auth;
 
@@ -74,6 +90,7 @@ describe('an app log stream loses nothing and is shared between viewers', functi
       lines: [],
       frames: 0,
       skipped: [],
+      truncated: [],
       errors: [],
       ended: false,
       subscribed: null,
@@ -85,6 +102,7 @@ describe('an app log stream loses nothing and is shared between viewers', functi
       viewer.lines.push(...payload.lines);
     });
     socket.on('skipped', (payload) => viewer.skipped.push(payload));
+    socket.on('truncated', (payload) => viewer.truncated.push(payload));
     socket.on('error', (message) => viewer.errors.push(message));
     socket.on('ended', () => { viewer.ended = true; });
 
@@ -120,13 +138,18 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     const app = await buildSeedableApp({
       env,
       name: appName,
-      compose: [component, secondComponent].map((name) => ({
+      compose: [component, secondComponent, blobComponent].map((name) => ({
         name,
         description: 'writes numbered log lines on an interval',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [],
         domains: [''],
-        environmentParameters: ['LOG_EVERY_MS=100'],
+        // Only the third writes the unholdable line, and it writes it between
+        // numbered ones so a reader that gave up on it can be shown not to have
+        // given up on them.
+        environmentParameters: name === blobComponent
+          ? ['LOG_EVERY_MS=100', `LOG_BLOB_BYTES=${BLOB_BYTES}`, 'LOG_BLOB_AFTER=30']
+          : ['LOG_EVERY_MS=100'],
         commands: [],
         containerPorts: [80],
         containerData: '/tmp',
@@ -141,11 +164,11 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     await waitFor(
       async () => {
         const containers = await listAppContainers(holder.container, { all: true });
-        return [identifier, secondIdentifier].every(
+        return [identifier, secondIdentifier, blobIdentifier].every(
           (name) => containers.find((c) => c.name === `flux${name}`)?.status?.startsWith('Up'),
         );
       },
-      { timeout: 180000, interval: 2000, label: 'both log-writing components are running' },
+      { timeout: 240000, interval: 2000, label: 'every log-writing component is running' },
     );
 
     auth = await authenticate(holder.url, appOwnerKey());
@@ -189,7 +212,7 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     viewer.close();
   });
 
-  it('delivers every line exactly once, in order, over a run of the container', async function () {
+  it('delivers every line exactly once over a run of the container', async function () {
     this.timeout(120000);
 
     const viewer = watch();
@@ -198,16 +221,33 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     // Long enough that many batch windows pass and the container's own writes
     // straddle several of them - a gap or a repeat has somewhere to happen.
     await new Promise((resolve) => { setTimeout(resolve, 15000); });
+    const window = viewer.lines.map(lineNumber).filter((n) => n !== null);
 
+    // The container alternates stdout and stderr and docker merges the two as it
+    // reads them, so a line can reach the stream behind the one that follows it -
+    // the property this fixture exists to produce. What is asserted is the window
+    // above, closed by what arrives after it, so the last line of a snapshot is
+    // never read as the end of the container's output.
+    await new Promise((resolve) => { setTimeout(resolve, 2000); });
     const seen = viewer.lines.map(lineNumber).filter((n) => n !== null);
-    expect(seen.length, 'the stream delivered nothing to reason about').to.be.above(20);
+
+    expect(window.length, 'the stream delivered nothing to reason about').to.be.above(20);
     expect(viewer.skipped, 'a keeping-up viewer was told it skipped lines').to.be.empty;
 
-    const contiguous = seen.every((n, i) => i === 0 || n === seen[i - 1] + 1);
     expect(
-      contiguous,
-      `the sequence has a gap or a repeat: ${seen.slice(0, 40).join(',')}`,
-    ).to.be.true;
+      new Set(seen).size,
+      `a line was delivered twice: ${seen.slice(0, 40).join(',')}`,
+    ).to.equal(seen.length);
+
+    // Complete, not in the container's order: the order the lines arrive in is
+    // docker's merge of the two streams, which nothing downstream of it can undo.
+    const closed = [...seen].sort((a, b) => a - b).filter((n) => n <= Math.max(...window));
+    for (let i = 1; i < closed.length; i += 1) {
+      expect(
+        closed[i],
+        `a gap between ${closed[i - 1]} and ${closed[i]}`,
+      ).to.equal(closed[i - 1] + 1);
+    }
 
     // The framing test: a decoder that desynchronised on a chunk boundary
     // produces garbage rather than numbered lines, so a run this long with
@@ -216,6 +256,79 @@ describe('an app log stream loses nothing and is shared between viewers', functi
       viewer.lines.filter((line) => lineNumber(line) === null),
       'lines arrived that are not the container\'s own numbered output',
     ).to.be.empty;
+
+    viewer.close();
+  });
+
+  it('cuts a line it cannot hold, says how much it cut, and keeps the rest of the log', async function () {
+    this.timeout(180000);
+
+    // A reader holds a line until its newline arrives and nothing obliges a
+    // container to send one, so an unbounded reader is a container deciding how
+    // much of the node's memory a viewer costs - and then how much crosses the
+    // socket, because a line that completes is delivered whole. This is that
+    // container: one line of BLOB_BYTES, no newline in it, every three seconds.
+    //
+    // A unit test cuts a line the author framed. This is docker framing it - the
+    // blob crosses eighty of docker's own 16KB frames, and what the reader is
+    // given back has to be one line of them and not eighty.
+    const viewer = watch(blobIdentifier);
+    await viewer.ready;
+
+    await waitFor(
+      async () => viewer.truncated.length > 0,
+      { timeout: 60000, interval: 500, label: 'a line too long to hold was cut' },
+    );
+
+    const cut = viewer.lines.find((line) => line.length === NODE_MAX_LINE_LENGTH);
+    const longest = viewer.lines.reduce((max, line) => Math.max(max, line.length), 0);
+    expect(longest, 'a line past what the node holds crossed the socket').to.equal(NODE_MAX_LINE_LENGTH);
+
+    // One line of the container's, not eighty of docker's. Docker splits a
+    // message this long across its own 16KB frames, and a stamp inside the body
+    // would say each frame came back as a message of its own - which is the
+    // belief a crafted buffer cannot test and this can.
+    expect(cut, 'the cut line is not one the container wrote').to.match(/^\S+Z B+$/);
+
+    // What one cut line costs: the blob, plus the ONE stamp docker gave the
+    // message. The stamp's length is read off the line rather than assumed, and
+    // the copies of it docker puts on every 16KB chunk after the first are not
+    // part of what the container wrote and are not counted as cut from it.
+    const perLine = (cut.indexOf(' ') + 1) + BLOB_BYTES - NODE_MAX_LINE_LENGTH;
+
+    // A whole number of cut lines per notice, and never a part of one. The count
+    // settles when a line ends, and the batch that follows carries whatever
+    // settled during it - which is more than one line at a subscribe, because
+    // the backfill is 200 of docker's ENTRIES and a line this long is eighty of
+    // them. What must never appear is a remainder: that would be a stamp
+    // counted as content, or a line counted twice, or a line reported in
+    // instalments while its tail was still arriving.
+    expect(viewer.truncated, 'nothing was reported as cut').to.not.be.empty;
+    viewer.truncated.forEach((notice) => {
+      expect(notice.container, 'a notice that does not name its container cannot be attributed')
+        .to.equal(viewer.subscribed.container);
+      expect(notice.characters % perLine, `${notice.characters} is not a whole number of cut lines of ${perLine}`)
+        .to.equal(0);
+      expect(notice.characters, 'a notice reported nothing').to.be.at.least(perLine);
+    });
+
+    // And the numbered lines carry on across it: a reader that gave up on the
+    // blob must not give up on what followed it. The window is closed by what
+    // arrives after it, for the reason the single-viewer run gives.
+    const window = viewer.lines.map(lineNumber).filter((n) => n !== null);
+    await new Promise((resolve) => { setTimeout(resolve, 2000); });
+    const seen = viewer.lines.map(lineNumber).filter((n) => n !== null);
+
+    expect(window.length, 'nothing numbered arrived beside the blob').to.be.above(20);
+    expect(new Set(seen).size, `a line was delivered twice: ${seen.slice(0, 40).join(',')}`).to.equal(seen.length);
+
+    const closed = [...seen].sort((a, b) => a - b).filter((n) => n <= Math.max(...window));
+    for (let i = 1; i < closed.length; i += 1) {
+      expect(
+        closed[i],
+        `a gap between ${closed[i - 1]} and ${closed[i]} - the cut line took the log with it`,
+      ).to.equal(closed[i - 1] + 1);
+    }
 
     viewer.close();
   });
@@ -248,23 +361,35 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     await b.ready;
 
     await new Promise((resolve) => { setTimeout(resolve, 10000); });
+    const bWindow = b.lines.map(lineNumber).filter((n) => n !== null);
 
+    // Closed by what arrives after it, for the reason the single-viewer run gives:
+    // docker's merge of the two streams can put a line behind its successor, and
+    // the end of a snapshot is not the end of the container's output.
+    await new Promise((resolve) => { setTimeout(resolve, 2000); });
     const aSeen = a.lines.map(lineNumber).filter((n) => n !== null);
     const bSeen = b.lines.map(lineNumber).filter((n) => n !== null);
     expect(aSeen, 'the first viewer saw nothing').to.not.be.empty;
-    expect(bSeen, 'the second viewer saw nothing').to.not.be.empty;
+    expect(bWindow, 'the second viewer saw nothing').to.not.be.empty;
 
     // The late viewer's own sequence is the assertion that matters: it is served
     // backfill AND the live room, and any line appearing in both arrives twice.
-    const bContiguous = bSeen.every((n, i) => i === 0 || n === bSeen[i - 1] + 1);
     expect(
-      bContiguous,
-      `the late viewer was told lines twice or out of order: ${bSeen.slice(0, 40).join(',')}`,
-    ).to.be.true;
+      new Set(bSeen).size,
+      `the late viewer was told lines twice: ${bSeen.slice(0, 40).join(',')}`,
+    ).to.equal(bSeen.length);
+    const bClosed = [...bSeen].sort((x, y) => x - y).filter((n) => n <= Math.max(...bWindow));
+    for (let i = 1; i < bClosed.length; i += 1) {
+      expect(
+        bClosed[i],
+        `the late viewer has a gap between ${bClosed[i - 1]} and ${bClosed[i]}`,
+      ).to.equal(bClosed[i - 1] + 1);
+    }
 
-    // And where the two viewers' ranges overlap they must agree exactly.
-    const lo = Math.max(aSeen[0], bSeen[0]);
-    const hi = Math.min(aSeen[aSeen.length - 1], bSeen[bSeen.length - 1]);
+    // And where the two viewers' ranges overlap they must agree exactly - the same
+    // lines in the same order, because one docker stream feeds both.
+    const lo = Math.max(Math.min(...aSeen), Math.min(...bSeen));
+    const hi = Math.min(Math.max(...aSeen), Math.max(...bSeen));
     const inRange = (ns) => ns.filter((n) => n >= lo && n <= hi);
     expect(hi, 'the two viewers never overlapped, so nothing was compared').to.be.above(lo);
     expect(
