@@ -329,7 +329,7 @@ async function verifyLogin(req, res) {
               throw new Error('Node is still starting and cannot establish privileges yet');
             }
             let privilage = PRIVILEGE_RESPONSE.USER;
-            if (address === config.fluxTeamFluxID || address === config.fluxSupportTeamFluxID) {
+            if (address === config.fluxTeamFluxID || verificationHelperUtils.isFluxSupportTeamZelid(address)) {
               privilage = PRIVILEGE_RESPONSE.FLUX_TEAM;
             } else if (address === adminZelid) {
               privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;
@@ -706,7 +706,7 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
           throw new Error('Node is still starting and cannot establish privileges yet');
         }
         let privilage = PRIVILEGE_RESPONSE.USER;
-        if (result.zelid === config.fluxTeamFluxID || result.zelid === config.fluxSupportTeamFluxID) {
+        if (result.zelid === config.fluxTeamFluxID || verificationHelperUtils.isFluxSupportTeamZelid(result.zelid)) {
           privilage = PRIVILEGE_RESPONSE.FLUX_TEAM;
         } else if (result.zelid === adminZelid) {
           privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;

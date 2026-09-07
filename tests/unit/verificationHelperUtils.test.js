@@ -756,4 +756,37 @@ describe('verificationHelperUtils tests', () => {
     });
 
   });
+
+  describe('fluxSupportTeamZelids tests', () => {
+    // The config value is a list so support can be granted to a second identity
+    // without a release. It has to keep reading the single string it used to be:
+    // a node with an older local override would otherwise match no one and lock
+    // support out of itself entirely.
+    const withSupportConfig = (value) => proxyquire(
+      '../../ZelBack/src/services/verificationHelperUtils',
+      { config: { ...config, fluxSupportTeamFluxID: value } },
+    );
+
+    it('should read a list of ids', () => {
+      const utils = withSupportConfig(['1aaa', '1bbb']);
+      expect(utils.fluxSupportTeamZelids()).to.deep.equal(['1aaa', '1bbb']);
+      expect(utils.isFluxSupportTeamZelid('1aaa')).to.be.true;
+      expect(utils.isFluxSupportTeamZelid('1bbb')).to.be.true;
+      expect(utils.isFluxSupportTeamZelid('1ccc')).to.be.false;
+    });
+
+    it('should read a bare string as a one entry list', () => {
+      const utils = withSupportConfig('1aaa');
+      expect(utils.fluxSupportTeamZelids()).to.deep.equal(['1aaa']);
+      expect(utils.isFluxSupportTeamZelid('1aaa')).to.be.true;
+    });
+
+    it('should grant no one when unset, empty, or asked about a falsy id', () => {
+      expect(withSupportConfig(undefined).fluxSupportTeamZelids()).to.deep.equal([]);
+      expect(withSupportConfig([]).fluxSupportTeamZelids()).to.deep.equal([]);
+      expect(withSupportConfig(['1aaa', '', null]).fluxSupportTeamZelids()).to.deep.equal(['1aaa']);
+      expect(withSupportConfig(['1aaa']).isFluxSupportTeamZelid(undefined)).to.be.false;
+      expect(withSupportConfig([]).isFluxSupportTeamZelid('')).to.be.false;
+    });
+  });
 });
