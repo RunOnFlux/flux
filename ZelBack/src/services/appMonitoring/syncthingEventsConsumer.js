@@ -119,8 +119,13 @@ async function pollOnce() {
 // controller's lock for each iteration so stop() (controller.abort()) returns only
 // after the in-flight iteration finishes; the long-poll is aborted via the signal
 // and every inter-poll wait is a cancellable controller.sleep, so stop() is prompt.
+//
+// Conditioned on `active` rather than on the signal: the signal is reissued when
+// the abort finishes, so an iteration that yields and re-reads it afterwards
+// sees a controller that was never stopped and polls on for the life of the
+// process.
 async function runLoop() {
-  while (!controller.aborted) {
+  while (controller.active) {
     const startedAt = Date.now();
     // eslint-disable-next-line no-await-in-loop
     await controller.lock.enable();
@@ -135,7 +140,7 @@ async function runLoop() {
     } catch (error) {
       // a deliberate stop() aborts the in-flight long-poll (or the sleep above),
       // which surfaces here - exit rather than re-anchoring and backing off
-      if (controller.aborted) break;
+      if (!controller.active) break;
       log.warn(`syncthingEventsConsumer - poll failed (${error.message}); retrying in ${EVENTS_RETRY_DELAY_MS / 1000}s (the periodic poll keeps covering meanwhile)`);
       // a syncthing restart resets the event ids, and the API never returns
       // events below a stale `since` - after any failure the position is
