@@ -498,12 +498,17 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     // goes, which answers byte-for-byte the same in ~4ms and stays flat however
     // big the log is.
     //
-    // One more than a page, because docker applies `tail` AFTER `since` and so
-    // returns the NEWEST maxLines of the matching set. At maxLines or fewer the
-    // whole set fitted and this is the complete answer; at maxLines + 1 the
-    // reader is further behind than one page and what came back is the newest
-    // lines rather than their next ones, so it is re-read below.
-    logOptions.tail = maxLines + 1;
+    // `tail` bounds the window over the FILE and `since` is applied to that
+    // window afterwards - measured on a live daemon 2026-09-07: asked for the
+    // last 1884 lines at-or-after a timestamp, it answered 1883, having dropped
+    // a leading line stamped before it. So the window has to hold the overlap
+    // this reader already acknowledged as well as the page it is owed, or the
+    // filter trims the front of the window and `count` - a place in the sequence
+    // docker returns - is measured from a different first line than the one it
+    // was taken from. That loses the lines in between with nothing to report it:
+    // the answer comes back shorter than a page, which reads as "the whole set
+    // fitted".
+    logOptions.tail = maxLines + 1 + position.count;
   } else if (lineCount && lineCount !== 'all') {
     logOptions.tail = lineCount;
   }
@@ -557,7 +562,10 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
   // had and, because an overflow skips the overlap drop below, handed back the
   // lines it had just acknowledged. The decode below the old count ran
   // unconditionally, so reading the bodies never cost anything to avoid.
-  const skipped = position !== null && lines.length > maxLines;
+  // Against the NEW lines, not the window: the window is a page plus the
+  // overlap, so comparing its whole length would call a reader that is up to
+  // date more than a page behind and resync it.
+  const skipped = position !== null && lines.length - position.count > maxLines;
 
   // The line asked from is absent, so docker rotated it away between polls and
   // what sat between it and the oldest line here is gone. Reporting it is the

@@ -912,11 +912,65 @@ describe('dockerService tests', () => {
       await dockerService.dockerContainerLogsPolling('website', {
         position: { ms: 1000, count: 1 }, maxLines: 50,
       });
-      // One MORE than a page: docker applies tail after since and returns the
-      // NEWEST of the matching set, so the extra frame is what says whether the
-      // whole set fitted.
-      expect(logs.secondCall.args[0].tail, 'a positioned read is bounded, not unbounded').to.equal(51);
+      // A page, plus one to say whether the whole set fitted, plus the overlap
+      // this reader has already acknowledged. `tail` bounds the window over the
+      // FILE and `since` trims that window afterwards - measured on a live
+      // daemon - so a window of only a page would have its front trimmed away
+      // and the count would be measured from a different first line.
+      expect(logs.secondCall.args[0].tail, 'a positioned read is bounded, not unbounded').to.equal(52);
       expect(logs.secondCall.args[0].since).to.equal(1);
+    });
+
+    // Every stub above answers with a fixed buffer whatever it is asked for,
+    // which is what let the ordering below go unnoticed: `tail` and `since` had
+    // no effect on the answer, so no test could see them applied in the wrong
+    // order. This one honours both, the way a live daemon was measured to on
+    // 2026-09-07 - the window is the last `tail` lines of the FILE, and `since`
+    // trims that window afterwards, dropping leading lines until the first
+    // at-or-after the timestamp and then keeping everything, in order or not.
+    function stubDaemon(file) {
+      const tsOf = (line) => Date.parse(line.split(' ')[0]);
+      return sinon.stub(Dockerode.Container.prototype, 'logs').callsFake(async (opts) => {
+        let window = file;
+        if (opts.tail) window = window.slice(-opts.tail);
+        if (opts.since) {
+          const sinceMs = opts.since * 1000;
+          const first = window.findIndex((line) => tsOf(line) >= sinceMs);
+          window = first === -1 ? [] : window.slice(first);
+        }
+        return dockerFrame(window);
+      });
+    }
+
+    it('loses nothing when the window it reads has to be trimmed to the reader', async () => {
+      // The page this reader is given ends on timestamps that go backwards, the
+      // way stdout and stderr interleave on a real container. Its position is a
+      // place in the sequence docker returns for that timestamp - so the next
+      // window has to start at the same first line, or the count is measured
+      // from somewhere else and the lines in between are dropped with nothing
+      // said about it.
+      const file = [];
+      for (let i = 0; i < 40; i += 1) file.push(at(1000 + i, `old-${i}`));
+      file.push(at(2000, 'p-a'), at(2010, 'p-b'), at(2005, 'p-c'), at(2010, 'p-d'), at(2008, 'p-e'));
+      stubDaemon(file);
+
+      const first = await dockerService.dockerContainerLogsPolling('website', { lineCount: 5, maxLines: 5 });
+      expect(first.lines.map((line) => line.split(' ')[1]))
+        .to.deep.equal(['p-a', 'p-b', 'p-c', 'p-d', 'p-e']);
+
+      file.push(at(2020, 'n-0'), at(2021, 'n-1'), at(2022, 'n-2'));
+
+      const second = await dockerService.dockerContainerLogsPolling('website', {
+        position: first.position, maxLines: 5,
+      });
+
+      expect({
+        lines: second.lines.map((line) => line.split(' ')[1]),
+        skipped: second.skipped,
+        rolledOver: second.rolledOver,
+      }, 'lines went missing and the answer called itself complete').to.deep.equal({
+        lines: ['n-0', 'n-1', 'n-2'], skipped: false, rolledOver: false,
+      });
     });
 
     it('resyncs a reader that is further behind than one read reaches, and says so', async () => {
@@ -972,7 +1026,13 @@ describe('dockerService tests', () => {
     it('carries no earlier position through a resync', async () => {
       // The count belongs to a place in a sequence the reader is no longer in,
       // so applying it would drop lines from the front of the page it just got.
-      const behind = [at(1000, 'a'), at(1001, 'b'), at(1002, 'c'), at(1003, 'd')];
+      // More than a page of NEW lines: the window carries the two this reader
+      // already holds as well, so the overflow is measured against what is left
+      // after them.
+      const behind = [
+        at(1000, 'a'), at(1001, 'b'), at(1002, 'c'),
+        at(1003, 'd'), at(1004, 'e'), at(1005, 'f'), at(1006, 'g'),
+      ];
       stubLogs(behind);
 
       const result = await dockerService.dockerContainerLogsPolling('website', {
@@ -981,7 +1041,7 @@ describe('dockerService tests', () => {
 
       expect(result.skipped).to.be.true;
       expect(result.lines, 'the stale count is not applied to the resynced page').to.deep.equal(behind.slice(-3));
-      expect(result.position.ms, 'the position is rebuilt from what was actually delivered').to.equal(1003);
+      expect(result.position.ms, 'the position is rebuilt from what was actually delivered').to.equal(1006);
     });
 
     it('does not re-read when the whole answer fitted', async () => {
