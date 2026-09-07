@@ -93,7 +93,10 @@ describe('fluxController tests', () => {
     expect(waiterVar).to.be.true;
   });
 
-  it('should reset the abort controller on abort', async () => {
+  it('reissues the signal when the abort finishes, so the controller can be used again', async () => {
+    // The signal is handed to work that has no loop - an http client built from
+    // it, rebuilt straight after a stop - so it cannot stay aborted. That is
+    // exactly why it cannot also carry whether the loop is wanted.
     const fc = new FluxController();
 
     const tester = async () => {
@@ -109,7 +112,9 @@ describe('fluxController tests', () => {
     expect(fc.aborted).to.be.false;
     await fc.abort();
     await promise;
-    expect(fc.aborted).to.be.false;
+
+    expect(fc.aborted, 'a client rebuilt after a stop is born cancelled').to.be.false;
+    expect(fc.state).to.equal('idle');
   });
 
   it('should start a loop when runner passed in', async () => {
@@ -154,8 +159,248 @@ describe('fluxController tests', () => {
 
     await fc.abort();
 
-    // Verify the loop has stopped and state is reset
     expect(fc.running).to.be.false;
-    expect(fc.aborted).to.be.false; // Should be reset after abort completes
+    expect(fc.state).to.equal('idle');
+  });
+
+  it('does not run a runner again after a stop, whatever locks it holds', async () => {
+    // The iteration in flight is what undoes a stop: it ends by arming the next
+    // one. Holding no lock is the case a stop cannot wait for, so it is the one
+    // that has to be decided by the controller's own state.
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+
+    let runs = 0;
+    const runner = async () => {
+      runs += 1;
+      await new Promise((r) => { setTimeout(r, 60); });
+      return 40;
+    };
+
+    fc.startLoop(runner);
+    await clock.tickAsync(20);
+    const stopping = fc.abort();
+    await clock.tickAsync(60);
+    await stopping;
+    const ranByTheStop = runs;
+
+    await clock.tickAsync(10000);
+
+    expect(runs, 'the loop outlived the stop and went on running').to.equal(ranByTheStop);
+    clock.restore();
+  });
+
+  it('says a run is no longer wanted from the first line of a stop', async () => {
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+
+    expect(fc.active, 'a controller that has never run reported a live run').to.be.false;
+
+    fc.startLoop(() => 1000);
+    expect(fc.active).to.be.true;
+
+    const holder = (async () => {
+      await fc.lock.enable();
+      await new Promise((r) => { setTimeout(r, 5000); });
+      fc.lock.disable();
+    })();
+
+    const stopping = fc.abort();
+    expect(fc.active, 'a run being stopped still reported itself wanted').to.be.false;
+    expect(fc.running, 'a stop in progress reported itself stopped').to.be.true;
+
+    await clock.tickAsync(5000);
+    await holder;
+    await stopping;
+
+    expect(fc.active).to.be.false;
+    expect(fc.running).to.be.false;
+    clock.restore();
+  });
+
+  it('ends a runner that loops on its own, which the signal cannot do', async () => {
+    // The case `active` exists for: a runner that yields and re-reads its
+    // condition AFTER the stop has finished. The signal is reissued by then, so
+    // a loop conditioned on it sees a controller that was never stopped and
+    // runs for the life of the process.
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+
+    let iterations = 0;
+    let sawSignalAfterStop = null;
+    const runner = async () => {
+      while (fc.active) {
+        iterations += 1;
+        // Holds no lock, so the stop has nothing to wait for and completes
+        // while this is sleeping - the window the signal cannot cover.
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => { setTimeout(r, 100); });
+        sawSignalAfterStop = fc.aborted;
+      }
+      return 0;
+    };
+
+    fc.startLoop(runner);
+    await clock.tickAsync(250);
+    expect(iterations, 'the loop never ran').to.be.above(1);
+
+    await fc.abort();
+    const ranByTheStop = iterations;
+    await clock.tickAsync(10000);
+
+    expect(iterations, 'the loop outlived the stop').to.equal(ranByTheStop);
+    expect(sawSignalAfterStop, 'the signal still read as aborted, so this proves nothing').to.be.false;
+    clock.restore();
+  });
+
+  it('waits on a named lock that was added as a barrier', async () => {
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+    fc.addLock('teardown', { blocksAbort: true });
+
+    let workDone = false;
+    const work = (async () => {
+      await fc.getLock('teardown').enable();
+      await new Promise((r) => { setTimeout(r, 5000); });
+      workDone = true;
+      fc.getLock('teardown').disable();
+    })();
+
+    let doneWhenStopReturned = null;
+    const stopping = fc.abort().then(() => { doneWhenStopReturned = workDone; });
+
+    await clock.tickAsync(4000);
+    expect(doneWhenStopReturned, 'the stop returned before its barrier work finished').to.be.null;
+
+    await clock.tickAsync(1000);
+    await work;
+    await stopping;
+
+    expect(doneWhenStopReturned, 'the stop did not wait for a lock declared as a barrier').to.be.true;
+    clock.restore();
+  });
+
+  it('forgets a barrier when its lock is removed', async () => {
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+    fc.addLock('teardown', { blocksAbort: true });
+    const lock = fc.getLock('teardown');
+    fc.removeLock('teardown');
+
+    let workDone = false;
+    const work = (async () => {
+      await lock.enable();
+      await new Promise((r) => { setTimeout(r, 5000); });
+      workDone = true;
+      lock.disable();
+    })();
+
+    await fc.abort();
+
+    expect(workDone, 'a removed lock still held up a stop').to.be.false;
+    expect(fc.state).to.equal('idle');
+
+    await clock.tickAsync(5000);
+    await work;
+    clock.restore();
+  });
+
+  it('waits on the default lock and leaves a named one to its owner', async () => {
+    // The default lock is this controller's teardown barrier. A named lock
+    // means whatever the caller made it mean - networkStateManager's `fetcher`
+    // is how its readers wait for a fetch - and a stop that waited on those
+    // would hang against a caller's own coordination.
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+    fc.addLock('fetcher');
+
+    let named = false;
+    const namedWork = (async () => {
+      await fc.getLock('fetcher').enable();
+      await new Promise((r) => { setTimeout(r, 5000); });
+      named = true;
+      fc.getLock('fetcher').disable();
+    })();
+
+    await fc.abort();
+    expect(named, 'the stop waited for work it does not own').to.be.false;
+    expect(fc.state, 'a stop held up by a named lock never finishes').to.equal('idle');
+
+    await clock.tickAsync(5000);
+    await namedWork;
+    clock.restore();
+  });
+
+  it('refuses to start while a stop is still unwinding', async () => {
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+
+    const holder = (async () => {
+      await fc.lock.enable();
+      await new Promise((r) => { setTimeout(r, 5000); });
+      fc.lock.disable();
+    })();
+
+    fc.startLoop(() => 1000);
+    const stopping = fc.abort();
+
+    expect(fc.state).to.equal('stopping');
+    // Callers guard their own start on `running`. A stop in progress reading as
+    // stopped is a caller that resets its state for a loop it never gets.
+    expect(fc.running, 'a stop in progress reported itself stopped').to.be.true;
+    expect(fc.startLoop(() => 1000), 'a second loop was started beside the one being stopped').to.be.false;
+
+    await clock.tickAsync(5000);
+    await holder;
+    await stopping;
+
+    expect(fc.startLoop(() => 1000), 'a stopped controller refused to start again').to.be.true;
+    await fc.abort();
+    clock.restore();
+  });
+
+  it('does not let an iteration from before a stop run beside the loop that replaced it', async () => {
+    const clock = sinon.useFakeTimers();
+    const fc = new FluxController();
+
+    let release;
+    let staleRuns = 0;
+    let freshRuns = 0;
+    const stale = async () => {
+      staleRuns += 1;
+      await new Promise((r) => { release = r; });
+      return 10;
+    };
+
+    fc.startLoop(stale);
+    await clock.tickAsync(0);
+    // Holds no lock, so the stop has nothing to wait for and returns with the
+    // iteration still in flight.
+    await fc.abort();
+
+    fc.startLoop(() => { freshRuns += 1; return 100; });
+    release();
+    await clock.tickAsync(1000);
+
+    expect(staleRuns, 'the stale iteration armed a loop of its own beside the new one').to.equal(1);
+    expect(freshRuns, 'the new loop did not run').to.be.above(1);
+
+    await fc.abort();
+    clock.restore();
+  });
+
+  it('lets a runner that throws reach the process, rather than losing the loop to it', async () => {
+    // Every runner this serves guards the failures it expects, so a throw that
+    // arrives here is one nobody predicted - and the node already has an answer
+    // for those: apiServer's uncaughtException handler logs it and exits, and
+    // systemd starts the node again with every subsystem back. Swallowed here
+    // instead, the node stays up and this loop is stopped for the life of the
+    // process, with nothing reading `running` and nothing to start it again.
+    const fc = new FluxController();
+
+    await expect(
+      fc.loop(async () => { throw new Error('the runner gave up'); }),
+      'the loop swallowed a fault the node restarts for',
+    ).to.eventually.be.rejectedWith('the runner gave up');
   });
 });

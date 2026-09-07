@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 const { EventEmitter } = require('node:events');
 
@@ -11,7 +12,11 @@ describe('containerCrashRecovery die bridge', () => {
     stubs = {
       log: { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       dockerService: { dockerGetEvents: sinon.stub() },
-      globalState: { stoppingContainers: new Set(), bootContainerStateSettled: true },
+      globalState: (() => {
+        const state = resetGlobalState();
+        state.bootContainerStateSettled = true;
+        return state;
+      })(),
       appsRuntimeState: { recordExit: sinon.stub().resolves() },
       appReconciler: { enqueue: sinon.stub(), enqueueAll: sinon.stub().resolves() },
     };

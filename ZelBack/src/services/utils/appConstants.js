@@ -109,6 +109,29 @@ const INSTALLING_ERRORS_EXPIRY_MS = (config.fluxapps.installErrorTtlS ?? 86400) 
 const SIGTERM_EXPIRY_MS = (config.fluxapps.sigtermExpiryS ?? 420) * 1000;
 const EVICTED_EXPIRY_MS = RUNNING_EXPIRY_MS;
 
+/**
+ * How often a node announces the apps it is running.
+ *
+ * Derived, not configured. A node writes its OWN location row when it
+ * announces, and that row expires RUNNING_EXPIRY_MS after the announcement that
+ * carried it - so the interval and the expiry are one decision and the pair
+ * cannot be allowed to drift. Two numbers here were a pairing an edit could set
+ * wrong in either file, with a node's presence on the network as the thing that
+ * silently degraded.
+ *
+ * TWO announcements inside one lifetime, because a node must be able to miss
+ * one and still be refreshed before the row lapses. The 4% is the slack that
+ * miss needs: without it the refresh lands exactly as the row expires.
+ *
+ * Production 7500s -> 3600s, and the harness's 63s -> 30s: the values both
+ * configurations were carrying by hand.
+ */
+const ANNOUNCES_PER_EXPIRY = 2;
+const ANNOUNCE_SLACK = 0.04;
+const ANNOUNCE_INTERVAL_MS = Math.floor(
+  (RUNNING_EXPIRY_MS * (1 - ANNOUNCE_SLACK)) / ANNOUNCES_PER_EXPIRY / 1000,
+) * 1000;
+
 // Hash sync constants (blocks, at 30s per block)
 const HASH_EXPIRY_BLOCKS = 1051200; // ~1 year — permanently flag unresolvable hashes
 const HASH_RETRY_BACKOFF = [0, 100, 500, 2500, 12500, 50000, 100000]; // ~0, 50min, 4h, 21h, 4d, 17d, 35d
@@ -151,6 +174,7 @@ module.exports = {
   // Expiry / TTL
   GOSSIP_VALIDITY_MS,
   RUNNING_EXPIRY_MS,
+  ANNOUNCE_INTERVAL_MS,
   INSTALLING_EXPIRY_MS,
   INSTALLING_ERRORS_EXPIRY_MS,
   SIGTERM_EXPIRY_MS,

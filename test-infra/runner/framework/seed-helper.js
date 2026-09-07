@@ -128,6 +128,74 @@ export async function buildSeedableApp({
 }
 
 /**
+ * The same app, one specification later.
+ *
+ * An owner changing a running app is most of what owners do, and until this
+ * existed the harness could create an app and destroy one but never change one -
+ * so every path that answers a spec change (the periodic reinstall pass, the
+ * change detector that decides soft against hard, the strip list that decides
+ * what counts as a change at all) had no fleet coverage.
+ *
+ * The node decides an app is obsolete by comparing the hash it installed against
+ * the hash the global specification now carries, so `mutate` has to change
+ * something: an update that leaves the spec identical is signed over the same
+ * bytes, hashes the same, and the node is right to do nothing with it.
+ *
+ * Ports are NOT reassigned. They were allocated for this app when it was first
+ * built and are already stamped into the components being copied; re-running the
+ * allocator would either hand out a second port or trip its own reuse guard.
+ *
+ * @param {object} app - what buildSeedableApp returned
+ * @param {(spec: object) => void} mutate - changes the copy in place
+ * @param {{height?: number}} opts - the block the update lands on
+ * @returns {Promise<object>} the same shape buildSeedableApp returns
+ */
+export async function buildSeedableUpdate(app, mutate, { height = null } = {}) {
+  const ownerKey = appOwnerKey();
+
+  // hash and height are what the seeding added; the signature and the hash below
+  // are taken over the specification alone, exactly as registration took them.
+  const previousHeight = app.spec.height;
+  const bare = JSON.parse(JSON.stringify(app.spec));
+  delete bare.hash;
+  delete bare.height;
+  // Present if this fixture has already been seeded into mongo, and it belongs
+  // to that row rather than to the specification the owner signed.
+  delete bare._id;
+  const before = JSON.stringify(bare);
+
+  const spec = JSON.parse(before);
+  spec.compose = (spec.compose ?? []).map((component) => ({ ...component }));
+  mutate(spec);
+
+  if (JSON.stringify(spec) === before) {
+    throw new Error(`buildSeedableUpdate: mutate left ${spec.name} unchanged, so its hash is unchanged and the node has nothing to notice`);
+  }
+
+  const type = 'fluxappupdate';
+  const version = 1;
+  const timestamp = Date.now();
+  const payload = type + version + JSON.stringify(spec) + timestamp;
+  const signature = await signBtcMessage(payload, ownerKey.privkey);
+
+  const hash = sha256(type + version + JSON.stringify(spec) + timestamp + signature);
+  const txid = fakeTxid();
+  const at = height ?? previousHeight + 1;
+
+  return {
+    spec: { ...spec, hash, height: at },
+    permanentMessage: {
+      type, version, appSpecifications: spec, hash, timestamp, signature, txid, height: at, valueSat: 200000000,
+    },
+    hashEntry: {
+      hash, txid, height: at, value: 200000000, message: true, messageNotFound: false, createdAt: new Date(),
+    },
+    hash,
+    txid,
+  };
+}
+
+/**
  * A seedable LEGACY app - version <= 3, which has no compose array at all: the
  * one component's fields sit flat on the specification itself.
  *

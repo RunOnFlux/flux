@@ -113,11 +113,20 @@ export async function signAppSpec(spec, type = 'fluxappregister') {
   return { type, version, appSpecification: spec, timestamp, signature };
 }
 
+// The endpoint follows the message type, because they are two different
+// handlers: appregister refuses a name that already exists, appupdate refuses
+// one that does not. Sending an update to appregister is answered with "Flux App
+// already registered", which reads like a harness fault rather than the wrong
+// door.
+function endpointForType(type) {
+  return type === 'fluxappupdate' || type === 'zelappupdate' ? 'appupdate' : 'appregister';
+}
+
 export async function registerApp(nodeUrl, adminKeypair, spec, type = 'fluxappregister') {
   const auth = await authenticate(nodeUrl, adminKeypair);
   const signed = await signAppSpec(spec, type);
 
-  const res = await fetch(`${nodeUrl}/apps/appregister`, {
+  const res = await fetch(`${nodeUrl}/apps/${endpointForType(type)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', zelidauth: auth.zelidauth },
     body: JSON.stringify(signed),
@@ -167,6 +176,18 @@ export async function registerAndConfirm(nodeUrl, adminKeypair, spec, nodes, {
     tempPropagation: { count: tempCount, total: nodes.length },
     targetHeight,
   };
+}
+
+// A spec change, confirmed on chain the same way a registration is. The node
+// compares the hash it holds against the one the chain now carries, which is
+// what the periodic reinstall pass acts on - so this is the only way to reach
+// every path that answers an owner changing a running app.
+//
+// The spec must differ from the installed one somewhere, or the hash matches and
+// nothing happens: the update is accepted and the node correctly does nothing
+// with it.
+export async function updateAndConfirm(nodeUrl, adminKeypair, spec, nodes, options = {}) {
+  return registerAndConfirm(nodeUrl, adminKeypair, spec, nodes, { ...options, type: 'fluxappupdate' });
 }
 
 export async function checkPermanentSpec(nodes, appName) {

@@ -19,6 +19,7 @@ const {
   DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch, ipsMatch,
 } = require('../utils/socketAddressUtils');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { InstallOutcome } = require('../utils/installOutcome');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 // eslint-disable-next-line no-unused-vars
@@ -920,35 +921,40 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // check if hash is in blockchain
   // register and launch according to specifications in message
   // throw without catching
+  // Whether THIS call raised the install hold. The guards below refuse because
+  // someone else is holding the node, and a refusal must not release their hold
+  // on its way out.
+  let acquired = false;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
-      return;
+      return InstallOutcome.REFUSED;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
-      return;
+      return InstallOutcome.REFUSED;
     }
     globalState.installationInProgress = true;
+    acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
-      return;
+      return InstallOutcome.REFUSED;
     }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
@@ -993,14 +999,13 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
-      globalState.installationInProgress = false;
       const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
-        res.end();
+        if (res.flush) res.flush();
       }
-      return;
+      return InstallOutcome.REFUSED;
     }
 
     // Verify the apps this app must be networked with (networkWith token in the
@@ -1124,12 +1129,14 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
     if (res) {
+      // Written, not closed. Every caller here is mid-stream on a response its
+      // own endpoint opened, and closing it from inside the installer is what
+      // left that endpoint writing into a finished response.
       res.write(serviceHelper.ensureString(successStatus));
-      res.end();
+      if (res.flush) res.flush();
     }
-    globalState.installationInProgress = false;
+    return InstallOutcome.INSTALLED;
   } catch (error) {
-    globalState.installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
@@ -1149,7 +1156,24 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
-    appUninstaller.removeAppLocally(appSpecs.name, res, true);
+    // The teardown reports its progress into this response, and the endpoint
+    // closes it the moment this function returns - so it finishes first. A write
+    // arriving after the close is ERR_STREAM_WRITE_AFTER_END on a response still
+    // draining to a browser, which reaches apiServer's uncaughtException handler
+    // and exits the node.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
+    // The app is gone from this node, and removed without telling anyone -
+    // `sendMessage` is false above, so peers keep their location record until it
+    // expires. A caller that reads this outcome the same as a refusal either
+    // announces an installation that is not there, or destroys a running app
+    // over a scheduling collision.
+    return InstallOutcome.FAILED;
+  } finally {
+    // The one place the hold is released, so every way out of this function
+    // releases it. A tier lookup that failed used to return without releasing,
+    // and the node then refused every install, redeploy, spawn and reinstall
+    // pass it was offered until FluxOS restarted.
+    if (acquired) globalState.installationInProgress = false;
   }
 }
 
@@ -1315,37 +1339,23 @@ async function softRemoveAppLocally(app, res) {
  * @param {object} res - Response object
  */
 async function softRedeploy(appSpecs, res) {
+  // Whether softRemoveAppLocally ran to completion. False means the removal did
+  // not FINISH - which is not the same as "it never started": softRemoveAppLocally
+  // is a sequence (guards, spec lookup, per-component uninstall, database
+  // cleanup) and a failure part way through can leave one component's container
+  // already gone. What the flag is good for is the only decision made on it: the
+  // forced, network-broadcast uninstall below is justified once the app is
+  // demonstrably down, and never before.
+  let softRemoved = false;
   try {
-    if (globalState.removalInProgress) {
-      log.warn('Another application is undergoing removal');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.installationInProgress) {
-      log.warn('Another application is undergoing installation');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.softRedeployInProgress) {
-      log.warn('Another application is undergoing soft redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.hardRedeployInProgress) {
-      log.warn('Another application is undergoing hard redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+    // Every operation, including the periodic reinstall pass - which sets its
+    // flag before it tears anything down and holds it across the wait, so the
+    // node it comes back to is still its own.
+    const holder = globalState.operationHolding();
+    if (holder) {
+      const message = `Another application is undergoing ${holder}`;
+      log.warn(message);
+      const appRedeployResponse = messageHelper.createWarningMessage(message);
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
         if (res.flush) res.flush();
@@ -1387,6 +1397,7 @@ async function softRedeploy(appSpecs, res) {
     log.info('Starting softRedeploy');
     try {
       await softRemoveAppLocally(appSpecs.name, res);
+      softRemoved = true;
     } catch (error) {
       log.error(error);
       globalState.softRedeployInProgress = false;
@@ -1404,17 +1415,68 @@ async function softRedeploy(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register
-    await softRegisterAppLocally(appSpecs, undefined, res);
+    const outcome = await softRegisterAppLocally(appSpecs, undefined, res);
+    if (outcome !== InstallOutcome.INSTALLED) {
+      // Neither outcome is undone here, and neither leaves the app as it was:
+      // the removal above has already taken its containers AND its local row,
+      // and this is the only pass that would have put them back.
+      //
+      // REFUSED is the node being held by another operation for the length of
+      // the delay above. FAILED is the installer's own teardown, which removes
+      // locally without telling anyone (`sendMessage` is false at its call). So
+      // in both cases this node ends with no containers, no row, and peers
+      // holding a location record until it expires on its own - nothing here
+      // announces the loss, and with no row there is nothing for the reconciler
+      // to converge either.
+      //
+      // Left as it is deliberately: v9 replaces this path with the operation
+      // registry, which is where the recovery belongs. Uninstalling and
+      // broadcasting from here would answer it at the cost of the app's data,
+      // and a retry belongs to something that owns the whole redeploy rather
+      // than to its last step.
+      const notReinstalled = messageHelper.createErrorMessage(
+        `Application ${appSpecs.name} was not reinstalled (${outcome})`,
+      );
+      log.warn(notReinstalled);
+      if (res) {
+        res.write(serviceHelper.ensureString(notReinstalled));
+        if (res.flush) res.flush();
+      }
+      globalState.softRedeployInProgress = false;
+      return;
+    }
     log.info('Application softly redeployed');
     globalState.softRedeployInProgress = false;
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
-    log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     globalState.softRedeployInProgress = false;
+    if (!softRemoved) {
+      // The removal never completed, so the app was not taken down as a unit.
+      // Uninstalling it here - forced, and broadcast to the network - turned a
+      // transient failure (a concurrent reconcile racing the removal, a docker
+      // call finding no container) into the loss of a running application.
+      // Whatever state the removal did reach, the reconciler converges it:
+      // a container it left behind is recreated, one it left running is kept.
+      const failedDuringRemoval = messageHelper.createErrorMessage(
+        `Soft redeploy of ${appSpecs.name} failed during removal: ${error.message}. `
+        + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.',
+      );
+      log.warn(failedDuringRemoval);
+      // Told to the caller, not only to the log. Returning quietly closes the
+      // stream on whatever the teardown last wrote - a progress line - so a
+      // redeploy that did not happen answers 200 and reads as one that did.
+      if (res) {
+        res.write(serviceHelper.ensureString(failedDuringRemoval));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
+    // endResponse false: redeployAPI opened this response and closes it.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
     log.info(`Cleanup completed for ${appSpecs.name} after soft redeploy failure`);
   }
 }
@@ -1428,36 +1490,14 @@ async function hardRedeploy(appSpecs, res) {
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
   try {
-    if (globalState.removalInProgress) {
-      log.warn('Another application is undergoing removal');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.installationInProgress) {
-      log.warn('Another application is undergoing installation');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.softRedeployInProgress) {
-      log.warn('Another application is undergoing soft redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.hardRedeployInProgress) {
-      log.warn('Another application is undergoing hard redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+    // Every operation, including the periodic reinstall pass - which sets its
+    // flag before it tears anything down and holds it across the wait, so the
+    // node it comes back to is still its own.
+    const holder = globalState.operationHolding();
+    if (holder) {
+      const message = `Another application is undergoing ${holder}`;
+      log.warn(message);
+      const appRedeployResponse = messageHelper.createWarningMessage(message);
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
         if (res.flush) res.flush();
@@ -1479,14 +1519,27 @@ async function hardRedeploy(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register
-    await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true); // can throw
+    const outcome = await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true); // can throw
+    if (outcome !== InstallOutcome.INSTALLED) {
+      const notReinstalled = messageHelper.createErrorMessage(
+        `Application ${appSpecs.name} was not reinstalled (${outcome})`,
+      );
+      log.warn(notReinstalled);
+      if (res) {
+        res.write(serviceHelper.ensureString(notReinstalled));
+        if (res.flush) res.flush();
+      }
+      globalState.hardRedeployInProgress = false;
+      return;
+    }
     log.info('Application redeployed');
     globalState.hardRedeployInProgress = false;
   } catch (error) {
     log.error(error);
     log.warn(`REMOVAL REASON: Hard redeploy failure - ${appSpecs.name} failed during hard redeploy: ${error.message} (hardRedeploy)`);
     globalState.hardRedeployInProgress = false;
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
+    // endResponse false: redeployAPI opened this response and closes it.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
     log.info(`Cleanup completed for ${appSpecs.name} after hard redeploy failure`);
   }
 }
@@ -1504,36 +1557,14 @@ async function softRedeployComponent(appName, componentName, res) {
   const appInstaller = require('./appInstaller');
 
   try {
-    if (globalState.removalInProgress) {
-      log.warn('Another application is undergoing removal');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.installationInProgress) {
-      log.warn('Another application is undergoing installation');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.softRedeployInProgress) {
-      log.warn('Another application is undergoing soft redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.hardRedeployInProgress) {
-      log.warn('Another application is undergoing hard redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+    // Every operation, including the periodic reinstall pass - which sets its
+    // flag before it tears anything down and holds it across the wait, so the
+    // node it comes back to is still its own.
+    const holder = globalState.operationHolding();
+    if (holder) {
+      const message = `Another application is undergoing ${holder}`;
+      log.warn(message);
+      const appRedeployResponse = messageHelper.createWarningMessage(message);
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
         if (res.flush) res.flush();
@@ -1566,10 +1597,33 @@ async function softRedeployComponent(appName, componentName, res) {
     }
 
     const fullComponentName = `${componentName}_${appName}`;
+    const componentAppId = dockerService.getAppIdentifier(fullComponentName);
+
+    // Whether softUninstallComponent ran to completion. False means the removal
+    // did not FINISH, which is not the same as "it never started" - and it is the
+    // only thing the forced, network-broadcast uninstall below is decided on.
+    let componentRemoved = false;
 
     try {
       log.warn(`Beginning Soft Redeployment of component ${fullComponentName}...`);
-      await appUninstaller.softUninstallComponent(fullComponentName, null, componentSpec, res, stopAppMonitoring);
+      // Both arguments used to be wrong, and softUninstallComposedApp is the
+      // reference for what they should be: the BARE app name, and the docker id
+      // of the component.
+      //
+      // The id was passed as `null`. softUninstallComponent hands it straight to
+      // appDockerStop (whose `.catch` swallowed it) and then appDockerRemove
+      // (which does not), where it reached getAppIdentifier and threw on
+      // `null.startsWith` before any container was looked up. So EVERY soft
+      // component redeploy failed, and the catch below answered by uninstalling
+      // the whole app - forced, and broadcast to the network.
+      //
+      // The name was passed already joined. The callee builds
+      // `${component}_${appName}` from it for the monitoring key and hands it to
+      // cleanupPorts, so `frontend_myapp` became `frontend_frontend_myapp`: the
+      // stop targeted a monitor that does not exist and the real one kept
+      // sampling a container that was gone.
+      await appUninstaller.softUninstallComponent(appName, componentAppId, componentSpec, res, stopAppMonitoring);
+      componentRemoved = true;
 
       const appRedeployResponse = messageHelper.createSuccessMessage(`Component ${fullComponentName} softly removed. Awaiting installation...`);
       log.info(appRedeployResponse);
@@ -1585,15 +1639,62 @@ async function softRedeployComponent(appName, componentName, res) {
 
       // Register component
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
-      await softRegisterAppLocally(appSpecifications, componentSpec, res);
+      const outcome = await softRegisterAppLocally(appSpecifications, componentSpec, res);
+      if (outcome !== InstallOutcome.INSTALLED) {
+        // Neither outcome reaches the catch below, which would uninstall the
+        // WHOLE app over one component: a scheduling collision is not grounds
+        // for that, and on FAILED the installer's teardown is already running.
+        //
+        // What neither outcome does is put the component back. The soft removal
+        // above has taken it down, so this node is left short a component with
+        // nothing announcing it - the same gap the whole-app path has, and left
+        // to v9's operation registry for the same reason.
+        const notReinstalled = messageHelper.createErrorMessage(
+          `Component ${fullComponentName} was not reinstalled (${outcome})`,
+        );
+        log.warn(notReinstalled);
+        // Reported, even though there is nothing to undo. Returning quietly here
+        // leaves the caller's stream closing on whatever the installer wrote last
+        // - and on FAILED that is its teardown's "was successfuly removed", so a
+        // destroyed app reads as a completed redeploy.
+        if (res) {
+          res.write(serviceHelper.ensureString(notReinstalled));
+          if (res.flush) res.flush();
+        }
+        globalState.softRedeployInProgress = false;
+        return;
+      }
 
       log.info(`Component ${fullComponentName} softly redeployed`);
+      // The only report that a SINGLE component was replaced. app:installed and
+      // app:removed both speak for a whole app, so neither fires here and neither
+      // could: this path leaves the app installed throughout, which is the point
+      // of it. Nothing observing the node could tell a component redeploy from
+      // never having been asked - which is how this endpoint failing on every
+      // call went unnoticed.
+      fluxEventBus.publish('app:componentRedeployed', {
+        name: appName, component: componentName, identifier: fullComponentName, hard: false,
+      });
       globalState.softRedeployInProgress = false;
     } catch (error) {
       log.error(error);
-      log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
       globalState.softRedeployInProgress = false;
-      await appUninstaller.removeAppLocally(appName, res, true, true, true);
+      if (!componentRemoved) {
+        // One component's removal did not complete, and the answer to that was
+        // to uninstall the WHOLE app - forced, and broadcast to the network. A
+        // transient failure (the reconciler racing the removal, appDockerRemove
+        // finding no container) took every other component of the app with it.
+        // Whatever state the removal did reach, the reconciler converges it: a
+        // container it left behind is recreated, one it left running is kept.
+        // The throw is what tells the caller, and redeployComponentAPI answers
+        // on it.
+        log.warn(`Soft redeploy of ${fullComponentName} failed during removal: ${error.message}. `
+          + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
+        throw error;
+      }
+      log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
+      // endResponse false: the endpoint opened this response and closes it.
+      await appUninstaller.removeAppLocally(appName, res, true, false, true);
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} soft redeploy failure`);
       throw error;
     }
@@ -1618,36 +1719,14 @@ async function hardRedeployComponent(appName, componentName, res) {
   const appInstaller = require('./appInstaller');
 
   try {
-    if (globalState.removalInProgress) {
-      log.warn('Another application is undergoing removal');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.installationInProgress) {
-      log.warn('Another application is undergoing installation');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.softRedeployInProgress) {
-      log.warn('Another application is undergoing soft redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-    if (globalState.hardRedeployInProgress) {
-      log.warn('Another application is undergoing hard redeploy');
-      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+    // Every operation, including the periodic reinstall pass - which sets its
+    // flag before it tears anything down and holds it across the wait, so the
+    // node it comes back to is still its own.
+    const holder = globalState.operationHolding();
+    if (holder) {
+      const message = `Another application is undergoing ${holder}`;
+      log.warn(message);
+      const appRedeployResponse = messageHelper.createWarningMessage(message);
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
         if (res.flush) res.flush();
@@ -1680,11 +1759,17 @@ async function hardRedeployComponent(appName, componentName, res) {
 
     const fullComponentName = `${componentName}_${appName}`;
 
+    // Same decision as the soft path: whether hardUninstallComponent finished is
+    // the only thing the forced, network-broadcast uninstall below is decided on.
+    let componentRemoved = false;
+
     try {
       log.warn(`Beginning Hard Redeployment of component ${fullComponentName}...`);
       log.warn(`REMOVAL REASON: Hard redeploy initiated - ${fullComponentName} being removed as part of hard redeploy process (hardRedeployComponent)`);
 
-      await appUninstaller.hardUninstallComponent(fullComponentName, null, componentSpec, res, stopAppMonitoring, false);
+      // same contract as the soft path above: bare app name, real docker id
+      await appUninstaller.hardUninstallComponent(appName, dockerService.getAppIdentifier(fullComponentName), componentSpec, res, stopAppMonitoring, false);
+      componentRemoved = true;
 
       const appRedeployResponse = messageHelper.createSuccessMessage(`Component ${fullComponentName} removed. Awaiting installation...`);
       log.info(appRedeployResponse);
@@ -1700,15 +1785,53 @@ async function hardRedeployComponent(appName, componentName, res) {
 
       // Register component
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
-      await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
+      if (outcome !== InstallOutcome.INSTALLED) {
+        // Neither outcome reaches the catch below, which would uninstall the
+        // WHOLE app over one component: a scheduling collision is not grounds
+        // for that, and on FAILED the installer's teardown is already running.
+        //
+        // What neither outcome does is put the component back. The soft removal
+        // above has taken it down, so this node is left short a component with
+        // nothing announcing it - the same gap the whole-app path has, and left
+        // to v9's operation registry for the same reason.
+        const notReinstalled = messageHelper.createErrorMessage(
+          `Component ${fullComponentName} was not reinstalled (${outcome})`,
+        );
+        log.warn(notReinstalled);
+        // Reported, even though there is nothing to undo. Returning quietly here
+        // leaves the caller's stream closing on whatever the installer wrote last
+        // - and on FAILED that is its teardown's "was successfuly removed", so a
+        // destroyed app reads as a completed redeploy.
+        if (res) {
+          res.write(serviceHelper.ensureString(notReinstalled));
+          if (res.flush) res.flush();
+        }
+        globalState.hardRedeployInProgress = false;
+        return;
+      }
 
       log.info(`Component ${fullComponentName} hard redeployed`);
+      // Same fact as the soft path, and `hard` is the consequence that differs:
+      // the component's volume was rebuilt, so its data on this node is gone.
+      fluxEventBus.publish('app:componentRedeployed', {
+        name: appName, component: componentName, identifier: fullComponentName, hard: true,
+      });
       globalState.hardRedeployInProgress = false;
     } catch (error) {
       log.error(error);
-      log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
       globalState.hardRedeployInProgress = false;
-      await appUninstaller.removeAppLocally(appName, res, true, true, true);
+      if (!componentRemoved) {
+        // See the soft path. A hard redeploy asks for one component's volume to
+        // be rebuilt, and a removal that did not finish is not grounds for
+        // destroying the components beside it and telling the network.
+        log.warn(`Hard redeploy of ${fullComponentName} failed during removal: ${error.message}. `
+          + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
+        throw error;
+      }
+      log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
+      // endResponse false: the endpoint opened this response and closes it.
+      await appUninstaller.removeAppLocally(appName, res, true, false, true);
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} hard redeploy failure`);
       throw error;
     }
@@ -1771,14 +1894,15 @@ async function redeployComponentAPI(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
 
+    // This response has one owner and it is here. The redeploy paths below write
+    // their progress into it and none of them close it, so every exit - a
+    // completed redeploy, a failure, and the four guards that refuse the request
+    // outright - reaches the same close.
     if (force) {
       await hardRedeployComponent(appname, component, res);
     } else {
       await softRedeployComponent(appname, component, res);
     }
-
-    const successMessage = messageHelper.createSuccessMessage(`Component ${component} of ${appname} redeployed successfully`);
-    res.json(successMessage);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1786,7 +1910,20 @@ async function redeployComponentAPI(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    // Before anything has been written the status line is still ours, so a
+    // refusal can be answered as one. Once the body has started it cannot, and
+    // the envelope goes into the stream where a client parses it out.
+    if (res.headersSent) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    } else {
+      res.json(errorResponse);
+    }
+  } finally {
+    // Writing to a closed response is not a caught error: node reports it a tick
+    // later as an `error` event on res, nothing listens for one, and an unheard
+    // `error` reaches apiServer's uncaughtException handler and exits the
+    // process. Closing from one place is what keeps every write above it live.
+    if (!res.writableEnded) res.end();
   }
 }
 
@@ -1814,6 +1951,9 @@ async function redeployAPI(req, res) {
     const redeploySkip = globalState.restoreInProgress.some((backupItem) => appname === backupItem);
     if (redeploySkip) {
       log.info(`Restore is running for ${appname}, redeploy skipped...`);
+      // Answered, not just closed: the caller asked for a redeploy and did not
+      // get one, and an empty body would read as success.
+      res.json(messageHelper.createWarningMessage(`Restore is running for ${appname}, redeploy skipped`));
       return;
     }
 
@@ -1865,7 +2005,16 @@ async function redeployAPI(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    if (res.headersSent) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    } else {
+      res.json(errorResponse);
+    }
+  } finally {
+    // Same owner rule as redeployComponentAPI: the redeploy writes progress, this
+    // closes. The guards inside softRedeploy return without closing, and a
+    // failure after the stream has started leaves nothing else that can.
+    if (!res.writableEnded) res.end();
   }
 }
 
@@ -4088,23 +4237,12 @@ async function reinstallOldApplications() {
           // eslint-disable-next-line no-await-in-loop
           const tier = await generalService.nodeTier();
           if (appSpecifications.version >= 4 && installedApp.version <= 3) {
-            if (globalState.removalInProgress) {
-              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.installationInProgress) {
-              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.softRedeployInProgress) {
-              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.hardRedeployInProgress) {
-              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+            // Its own flag excluded and no other: this pass set
+            // reinstallationOfOldAppsInProgress before the loop, and asking
+            // without the exclusion would skip every app on its own account.
+            const heldBy = globalState.operationHolding('reinstallation');
+            if (heldBy) {
+              log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
               // eslint-disable-next-line no-continue
               continue;
             }
@@ -4155,18 +4293,29 @@ async function reinstallOldApplications() {
 
             // Now install components - containers will be created but app is already in DB
             // eslint-disable-next-line no-restricted-syntax
+            let allComponentsBack = true;
             for (const appComponent of appSpecifications.compose) {
               log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
               // eslint-disable-next-line no-await-in-loop
               await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
               // install the app
               // eslint-disable-next-line no-await-in-loop
-              await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+              const outcome = await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+              if (outcome !== InstallOutcome.INSTALLED) {
+                log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
+                allComponentsBack = false;
+                break;
+              }
             }
-            log.warn(`Composed application ${appSpecifications.name} updated.`);
-            log.warn(`Restarting application ${appSpecifications.name}`);
-            // eslint-disable-next-line no-await-in-loop, no-use-before-define
-            await appDockerRestart(appSpecifications.name);
+            // Announced and restarted only if it is actually back. Saying so
+            // regardless is what turned a refused install into a node reporting
+            // an app it had taken apart.
+            if (allComponentsBack) {
+              log.warn(`Composed application ${appSpecifications.name} updated.`);
+              log.warn(`Restarting application ${appSpecifications.name}`);
+              // eslint-disable-next-line no-await-in-loop, no-use-before-define
+              await appDockerRestart(appSpecifications.name);
+            }
           } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
               const hddTier = `hdd${tier}`;
@@ -4177,23 +4326,12 @@ async function reinstallOldApplications() {
               appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
             }
 
-            if (globalState.removalInProgress) {
-              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.installationInProgress) {
-              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.softRedeployInProgress) {
-              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.hardRedeployInProgress) {
-              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+            // Its own flag excluded and no other: this pass set
+            // reinstallationOfOldAppsInProgress before the loop, and asking
+            // without the exclusion would skip every app on its own account.
+            const heldBy = globalState.operationHolding('reinstallation');
+            if (heldBy) {
+              log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
               // eslint-disable-next-line no-continue
               continue;
             }
@@ -4223,23 +4361,12 @@ async function reinstallOldApplications() {
           } else {
             // composed application
             log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
-            if (globalState.removalInProgress) {
-              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.installationInProgress) {
-              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.softRedeployInProgress) {
-              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            if (globalState.hardRedeployInProgress) {
-              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+            // Its own flag excluded and no other: this pass set
+            // reinstallationOfOldAppsInProgress before the loop, and asking
+            // without the exclusion would skip every app on its own account.
+            const heldBy = globalState.operationHolding('reinstallation');
+            if (heldBy) {
+              log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
               // eslint-disable-next-line no-continue
               continue;
             }
@@ -4281,8 +4408,16 @@ async function reinstallOldApplications() {
 
               // register
               // eslint-disable-next-line no-await-in-loop
-              await appInstaller.registerAppLocally(appSpecifications, undefined, null, false, true);
-              log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
+              const outcome = await appInstaller.registerAppLocally(appSpecifications, undefined, null, false, true);
+              if (outcome === InstallOutcome.INSTALLED) {
+                log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
+              } else {
+                // The removal above deleted the local row, and only a successful
+                // install writes it back. Nothing reconciles an app with no row,
+                // so this node has simply lost the instance until it is placed
+                // here again.
+                log.error(`Application ${appSpecifications.name} was removed for a component structure change and NOT reinstalled (${outcome}). This node no longer holds it and cannot recover it on its own.`);
+              }
 
               // eslint-disable-next-line no-continue
               continue;
@@ -4309,8 +4444,10 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
+                  // Bare app name: the callee joins it with the component's own
+                  // name for the monitoring key and for cleanupPorts.
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.softUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
+                  await appUninstaller.softUninstallComponent(appSpecifications.name, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -4319,8 +4456,9 @@ async function reinstallOldApplications() {
                   log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
                   // hard redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
+                  // same contract as the soft branch above
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
+                  await appUninstaller.hardUninstallComponent(appSpecifications.name, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -4363,6 +4501,7 @@ async function reinstallOldApplications() {
               }
               log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (composed redeployment path)`);
 
+              let allComponentsBack = true;
               // Now install components - containers will be created but app is already in DB
               // eslint-disable-next-line no-restricted-syntax
               for (const appComponent of appSpecifications.compose) {
@@ -4385,20 +4524,33 @@ async function reinstallOldApplications() {
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
-                  await softRegisterAppLocally(appSpecifications, appComponent); // component
+                  const outcome = await softRegisterAppLocally(appSpecifications, appComponent); // component
+                  if (outcome !== InstallOutcome.INSTALLED) {
+                    log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
+                    allComponentsBack = false;
+                    break;
+                  }
                 } else {
                   log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
-                  await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+                  const outcome = await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+                  if (outcome !== InstallOutcome.INSTALLED) {
+                    log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
+                    allComponentsBack = false;
+                    break;
+                  }
                 }
               }
-              log.warn(`Composed application ${appSpecifications.name} updated.`);
-              log.warn(`Restarting application ${appSpecifications.name}`);
-              // eslint-disable-next-line no-await-in-loop, no-use-before-define
-              await appDockerRestart(appSpecifications.name);
+              // Announced and restarted only if it is actually back.
+              if (allComponentsBack) {
+                log.warn(`Composed application ${appSpecifications.name} updated.`);
+                log.warn(`Restarting application ${appSpecifications.name}`);
+                // eslint-disable-next-line no-await-in-loop, no-use-before-define
+                await appDockerRestart(appSpecifications.name);
+              }
             } catch (error) {
               log.error(error);
               log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);

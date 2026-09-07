@@ -86,24 +86,45 @@ export async function advanceBlocks(count) {
  *   `block:processed` decides when the next block may be sent. A CLIENT, not an
  *   index: the two suites that grew this independently disagreed about whether
  *   the index was 0- or 1-based, which is not a mistake worth leaving available.
+ * BUDGETED IN THE UNIT THE CONDITION IS COUNTED IN. A pass that fires on
+ * `blockHeight % N === 0` is waiting for BLOCKS, and a wall-clock budget buys a
+ * number of them that depends on how busy the box is: 420s buys about 504
+ * blocks against an idle daemon and about 84 when the node is slow to process
+ * them, so the pass gets six times fewer chances with nothing in the suite
+ * saying so. `blocks` is the same count on any box - it takes longer to spend,
+ * which is the point.
+ *
+ * `timeoutMs` is for a wait whose cadence is a real interval - a departure
+ * cycle, an election cycle - because seconds are the unit it is counted in.
+ * Exactly one of the two, because a block budget with a wall clock beside it is
+ * bounded by whichever runs out first, and under load that is always the clock.
+ *
+ * A block budget carries no outer clock. A node that has stopped processing is
+ * caught by the per-block wait below, which gives every block 60s of its own.
+ *
  * @param {Function} condition Async predicate; driving stops when it holds.
- * @param {object} opts
- * @param {number} opts.timeoutMs How long to keep driving before giving up.
+ * @param {object} opts Exactly one of `blocks` or `timeoutMs`.
+ * @param {number} [opts.blocks] Blocks to drive before giving up.
+ * @param {number} [opts.timeoutMs] How long to keep driving before giving up.
  * @param {number} [opts.blockIntervalMs] Minimum wall-clock between blocks.
  * @param {string} [opts.label] What the caller was waiting for, for the error.
  * @returns {Promise<number>} Blocks driven.
  */
-export async function driveUntil(node, condition, { timeoutMs, blockIntervalMs, label } = {}) {
-  if (!Number.isFinite(timeoutMs)) {
-    // No default. The deadline is wall-clock and every caller's is derived from
-    // something different - a departure cycle, an election cycle - so a shared
-    // default would be one suite's number silently applied to another's wait.
-    throw new Error('driveUntil: timeoutMs is required');
+export async function driveUntil(node, condition, {
+  blocks: blockBudget, timeoutMs, blockIntervalMs, label,
+} = {}) {
+  const budgetedInBlocks = Number.isFinite(blockBudget);
+  if (budgetedInBlocks === Number.isFinite(timeoutMs)) {
+    // No default for either. Every caller's budget is derived from something of
+    // its own, so a shared default would be one suite's number silently applied
+    // to another's wait - and naming both leaves the wait bounded by whichever
+    // expires first rather than by the one the caller reasoned about.
+    throw new Error('driveUntil: exactly one of `blocks` or `timeoutMs` is required');
   }
   const interval = blockIntervalMs ?? loadSharedConfig().fluxapps.explorerPollIntervalMs;
-  const deadline = Date.now() + timeoutMs;
+  const deadline = budgetedInBlocks ? Infinity : Date.now() + timeoutMs;
   let blocks = 0;
-  while (Date.now() < deadline) {
+  while (budgetedInBlocks ? blocks < blockBudget : Date.now() < deadline) {
     // eslint-disable-next-line no-await-in-loop
     if (await condition()) return blocks;
     const startedAt = Date.now();
@@ -118,7 +139,10 @@ export async function driveUntil(node, condition, { timeoutMs, blockIntervalMs, 
     if (spent < interval) await new Promise((resolve) => { setTimeout(resolve, interval - spent); });
   }
   if (await condition()) return blocks;
-  throw new Error(`${label ? `${label}: ` : ''}condition not reached in ${timeoutMs}ms (${blocks} blocks driven)`);
+  const budgetSpent = budgetedInBlocks
+    ? `${blocks} blocks driven of the ${blockBudget} budgeted`
+    : `${timeoutMs}ms (${blocks} blocks driven)`;
+  throw new Error(`${label ? `${label}: ` : ''}condition not reached in ${budgetSpent}`);
 }
 
 export async function setHeight(height) {

@@ -288,7 +288,6 @@ module.exports = {
     installErrorTtlS: 86400,
     tempMsgTtlS: 3600,
     hashSyncIntervalMs: 1800000,
-    peerNotifyIntervalMs: 3600000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,

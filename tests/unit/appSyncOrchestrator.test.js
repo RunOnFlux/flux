@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -23,6 +24,7 @@ describe('AppSyncOrchestrator', () => {
   let reindexStub;
   let globalStateStub;
   let checkAndNotifyStub;
+  let startBroadcastingStub;
   let resetHashSyncForUpgradeStub;
   let dbHelperStub;
   let findOneAndUpdateStub;
@@ -124,14 +126,13 @@ describe('AppSyncOrchestrator', () => {
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
     getMissingHashesStub = sinon.stub().resolves([]);
     reindexStub = sinon.stub().resolves();
-    globalStateStub = {
-      dbReady: false,
-      // globalState's own initial value: nothing is authoritative until the
-      // orchestrator says so.
-      appStateAuthoritative: false,
-      waitForBootContainerStateSettled: () => Promise.resolve(),
-    };
+    // The real module. dbReady stays closed - the assertions below are about the
+    // orchestrator opening it - and only the boot-settled wait is spied, so a
+    // test does not sit on a gate nothing here opens.
+    globalStateStub = resetGlobalState();
+    sinon.stub(globalStateStub, 'waitForBootContainerStateSettled').resolves();
     checkAndNotifyStub = sinon.stub().resolves();
+    startBroadcastingStub = sinon.stub();
     resetHashSyncForUpgradeStub = sinon.stub().resolves(0);
     findOneAndUpdateStub = sinon.stub().resolves();
     dbHelperStub = {
@@ -154,7 +155,11 @@ describe('AppSyncOrchestrator', () => {
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
       './appHashSyncService': { syncMissingHashes: syncMissingHashesStub, getMissingHashes: getMissingHashesStub, resetHashSyncForUpgrade: resetHashSyncForUpgradeStub },
-      './peerNotification': { checkAndNotifyPeersOfRunningApps: checkAndNotifyStub, stopBroadcastInterval: sinon.stub() },
+      './peerNotification': {
+        checkAndNotifyPeersOfRunningApps: checkAndNotifyStub,
+        startBroadcasting: startBroadcastingStub,
+        stopBroadcasting: sinon.stub().resolves(),
+      },
       '../appDatabase/registryManager': {
         reindexGlobalAppsInformation: reindexStub,
       },
@@ -272,7 +277,7 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
-      expect(checkAndNotifyStub.calledOnce).to.be.true;
+      expect(startBroadcastingStub.calledOnce).to.be.true;
     });
 
     it('should start sync from the latched level when the threshold edge fired before start', async () => {
@@ -283,7 +288,7 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
       await clock.tickAsync(0);
       expect(getEligibleSyncPeersStub.calledOnce).to.be.true;
-      expect(checkAndNotifyStub.calledOnce).to.be.true;
+      expect(startBroadcastingStub.calledOnce).to.be.true;
     });
 
     it('should not start sync from the level when the threshold has not been reached', async () => {
@@ -683,7 +688,7 @@ describe('AppSyncOrchestrator', () => {
         await clock.tickAsync(0);
       } finally {
         process.removeListener('unhandledRejection', onRejection);
-        orchestrator.stop();
+        await orchestrator.stop();
       }
 
       expect(rejections, 'a failed pass left a rejection nobody was holding').to.deep.equal([]);
@@ -711,7 +716,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
 
       expect(peers.every((p) => p.send.called), 'the reconciler stopped after one pass failed').to.equal(true);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
   });
 
@@ -738,7 +743,7 @@ describe('AppSyncOrchestrator', () => {
         orchestrator.isSyncResponseWanted(peers[0]),
         'a peer whose stream had a hole in it was still being waited on',
       ).to.equal(false);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // The response path has the key and always had it. One arriving without a
@@ -758,7 +763,7 @@ describe('AppSyncOrchestrator', () => {
       expect(orchestrator.isSyncResponseWanted(peers[0]), 'an unattributed failure closed a peer\'s request')
         .to.equal(true);
       expect(logStub.error.called, 'an unattributable failure was absorbed silently').to.equal(true);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
   });
 
@@ -816,7 +821,7 @@ describe('AppSyncOrchestrator', () => {
         orchestrator.isSyncResponseWanted(peers[0]),
         'a peer that had delivered everything was still being waited on',
       ).to.equal(false);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
   });
 
@@ -920,10 +925,10 @@ describe('AppSyncOrchestrator', () => {
       expect(logStub.error.called, 'a refusal with no peer was absorbed silently').to.equal(true);
     });
 
-    it('stops listening for refusals on stop', () => {
+    it('stops listening for refusals on stop', async () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
-      orchestrator.stop();
+      await orchestrator.stop();
 
       expect(appSyncEvents.listenerCount(EVENTS.EPHEMERAL_SYNC_REFUSED)).to.equal(0);
     });
@@ -986,7 +991,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
       expect(globalStateStub.appStateAuthoritative).to.equal(true);
 
-      orchestrator.stop();
+      await orchestrator.stop();
 
       expect(globalStateStub.appStateAuthoritative, 'a stopped orchestrator still claimed authority').to.equal(false);
     });
@@ -1052,7 +1057,7 @@ describe('AppSyncOrchestrator', () => {
     const STALL_MS = 30000;
     const SYNC_TIMEOUT_MS = 120000;
 
-    // FluxPeerManager.add() emits peerThresholdReached and then peerAdded from
+    // FluxPeerManager.add() emits peerThresholdReached and then peerConnected from
     // the same call, so the trigger that starts the sync and one that tops it
     // up land in the same tick. Choosing peers cannot be one uninterrupted step
     // - the signing key is fetched in the middle - so without the reconciler
@@ -1072,7 +1077,7 @@ describe('AppSyncOrchestrator', () => {
       for (const peer of asked) {
         expect(peer.send.callCount, 'a peer was sent the same four requests twice').to.equal(4);
       }
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // A node below its degraded threshold has judged its own gossip
@@ -1107,7 +1112,7 @@ describe('AppSyncOrchestrator', () => {
       }
       expect(joiner.send.called, 'a degraded node asked a joining peer for state').to.equal(false);
       expect(globalStateStub.appStateAuthoritative, 'a degraded node still claimed authority').to.equal(false);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // And it starts again - a guard that stops the asking has to be shown to
@@ -1132,7 +1137,7 @@ describe('AppSyncOrchestrator', () => {
       for (const peer of recovered) {
         expect(peer.send.callCount, 'a node that recovered its peers never asked again').to.equal(4);
       }
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // WHAT THE RE-ENTRANCY GUARD BUYS, beyond holding the pool cap.
@@ -1158,7 +1163,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
 
       expect(getFluxNodePublicKeyStub.callCount, 'a burst of joins fetched the node key once each').to.equal(1);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // WHAT THE RE-RUN BUYS, on its own.
@@ -1196,7 +1201,7 @@ describe('AppSyncOrchestrator', () => {
 
       const asked = spares.filter((p) => p.send.called).length;
       expect(asked, 'a peer lost during the key fetch went unreplaced').to.equal(2);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // A PASS THAT CANNOT SIGN COSTS NOTHING. Signing is the last thing that can
@@ -1221,7 +1226,7 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
 
       for (const peer of peers) expect(peer.send.callCount, 'a peer was left marked asked by a pass that sent nothing').to.equal(4);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // The round's budget and the per-peer deadlines used to be kept in separate
@@ -1252,7 +1257,7 @@ describe('AppSyncOrchestrator', () => {
       // And its request is closed, so nothing arriving afterwards is taken as
       // an answer to a round that is over.
       expect(orchestrator.isSyncResponseWanted(peers[0]), 'a finished round still wanted answers').to.equal(false);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // THE BUDGET BOUNDS THE ATTEMPT, not one round of an open-ended series.
@@ -1282,7 +1287,7 @@ describe('AppSyncOrchestrator', () => {
       expect(joiner.send.called, 'a peer that joined after the budget was asked').to.equal(false);
       expect([...peers, untried].reduce((n, p) => n + p.send.callCount, 0),
         'the budget ran out and it went on asking').to.equal(spent);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // And a spent budget is not a permanent one. A guard that stops the asking
@@ -1312,7 +1317,7 @@ describe('AppSyncOrchestrator', () => {
       expect(recovered.reduce((n, p) => n + p.send.callCount, 0),
         'a sync that restarted never asked anyone').to.be.greaterThan(0);
       expect(spent, 'the first attempt never asked at all').to.be.greaterThan(0);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // A PEER GETS ONE TURN. Its socket dying in the middle of the attempt is
@@ -1340,7 +1345,7 @@ describe('AppSyncOrchestrator', () => {
       expect(orchestrator.isSyncResponseWanted(oldConnection), 'a dead connection could still complete the sync').to.equal(false);
       expect(reconnected.send.called, 'a peer that dropped mid-attempt was asked again on its new connection').to.equal(false);
       expect(spare.send.callCount, 'the slot the dropped peer freed was never refilled').to.equal(4);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     // A peer refuses all three types when it refuses any. Only the first of
@@ -1363,7 +1368,7 @@ describe('AppSyncOrchestrator', () => {
         .map((c) => String(c.args[0]))
         .filter((m) => m.includes(peers[0].key) && m.includes('declined'));
       expect(declines.length, 'one peer declining once was reported three times').to.equal(1);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
   });
 
@@ -1488,7 +1493,7 @@ describe('AppSyncOrchestrator', () => {
     it('fires no slot deadline after stop', async () => {
       const { orchestrator, extra } = await askThree();
 
-      orchestrator.stop();
+      await orchestrator.stop();
       await clock.tickAsync(STALL_MS * 2);
 
       expect(extra.some((p) => p.send.called), 'a stopped orchestrator went on asking peers').to.equal(false);
@@ -1907,10 +1912,10 @@ describe('AppSyncOrchestrator', () => {
   });
 
   describe('stop', () => {
-    it('should remove all listeners and clear intervals', () => {
+    it('should remove all listeners and clear intervals', async () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
-      orchestrator.stop();
+      await orchestrator.stop();
       expect(blockEmitter.listenerCount('blocksProcessed')).to.equal(0);
       expect(blockEmitter.listenerCount('hashesChanged')).to.equal(0);
       expect(peerEmitter.listenerCount('peerThresholdReached')).to.equal(0);
@@ -1918,10 +1923,10 @@ describe('AppSyncOrchestrator', () => {
       expect(peerEmitter.listenerCount('peerConnected')).to.equal(0);
     });
 
-    it('should clear heartbeat interval on stop', () => {
+    it('should clear heartbeat interval on stop', async () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
-      orchestrator.stop();
+      await orchestrator.stop();
       // No error thrown, interval cleaned up
     });
   });
@@ -2029,7 +2034,7 @@ describe('AppSyncOrchestrator', () => {
       );
       expect(heartbeatCall).to.not.be.undefined;
       expect(heartbeatCall.args[3].$set.machineBootId).to.equal('test-boot-id-12345');
-      orchestrator.stop();
+      await orchestrator.stop();
     });
 
     it('should store boot context and expose via getter', async () => {
@@ -2037,7 +2042,7 @@ describe('AppSyncOrchestrator', () => {
       await orchestrator.start(defaultBootContext);
 
       expect(orchestrator.bootContext).to.deep.equal(defaultBootContext);
-      orchestrator.stop();
+      await orchestrator.stop();
     });
   });
 

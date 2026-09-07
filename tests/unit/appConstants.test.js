@@ -108,6 +108,42 @@ describe('appConstants tests', () => {
     });
   });
 
+  describe('the announce interval derived from the location expiry', () => {
+    // proxyquire rather than the loaded config, so the derivation is exercised
+    // against the numbers the fleet and the harness actually run rather than
+    // against one of them.
+    const derive = (locationTtlS) => {
+      // eslint-disable-next-line global-require
+      const proxyquire = require('proxyquire');
+      const real = require('config');
+
+      return proxyquire('../../ZelBack/src/services/utils/appConstants', {
+        config: { ...real, fluxapps: { ...real.fluxapps, locationTtlS } },
+      }).ANNOUNCE_INTERVAL_MS;
+    };
+
+    it('reproduces what production and the harness carried by hand', () => {
+      expect(derive(7500), 'production announced hourly against a 125 minute row').to.equal(3600000);
+      expect(derive(63), 'the harness announced every 30s against a 63s row').to.equal(30000);
+    });
+
+    it('fits two announcements inside one row lifetime, with slack', () => {
+      [7500, 63, 300, 86400].forEach((ttl) => {
+        const expiry = ttl * 1000;
+        const interval = derive(ttl);
+
+        expect(interval * 2, `two announcements do not fit inside a ${ttl}s row`).to.be.below(expiry);
+        // A node that misses one announcement is refreshed by the next with
+        // time to spare, rather than exactly as the row lapses.
+        expect(expiry - interval * 2, `a ${ttl}s row leaves a missed announcement no slack`).to.be.at.least(expiry * 0.03);
+      });
+    });
+
+    it('moves with the expiry, so the pair cannot drift', () => {
+      expect(derive(126)).to.equal(derive(63) * 2);
+    });
+  });
+
   describe('database collections tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
