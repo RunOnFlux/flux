@@ -56,7 +56,7 @@ const MAX_FOLLOWED = 10;
  * closed by the last one leaving. Module scope because the streams outlive the
  * connection that opened them.
  *
- * @type {Map<string, {stream: object, queued: string[], dropped: number, timer: object, subscribers: Set<string>}>}
+ * @type {Map<string, {stream: object, queued: string[], dropped: number, timer: object, subscribers: Set<object>}>}
  */
 const feeds = new Map();
 
@@ -78,6 +78,13 @@ function closeFeed(io, containerId) {
   // and is showing every line twice. Emptied here because a feed knows its room
   // and cannot reach the connections that hold it.
   io.socketsLeave(roomFor(containerId));
+  // And the record each viewer keeps of following this container, which is the
+  // other half of the same subscription. A connection cannot be reached from
+  // here except through its viewers, so the record carries the way to forget
+  // it. Left behind, it counts against that connection's limit for the life of
+  // the socket while naming a container it no longer follows - and the id it
+  // names may since have been filed to somebody else's feed.
+  feed.subscribers.forEach((entry) => entry.forget());
   // Marked as well as dropped, because a feed can be closed while its stream is
   // still being opened: the open has no way back to this map once the record is
   // gone, and the flag is what tells it the stream it is holding has no viewer.
@@ -295,7 +302,7 @@ async function appLogsHandler(socket) {
   // there is a feed, finds nothing to release, and gives the slot up - so the
   // pass that finally has a feed would have nothing to name it by, and the
   // stream and its interval would run on with no viewer and nobody to stop them.
-  const release = containerId => {
+  const release = (containerId, entry) => {
     // Above the return, because the room is the half of a subscription that
     // outlives having no feed: a subscribe whose open failed has nothing to
     // release and used to carry the room out with it. And a connection that has
@@ -304,7 +311,7 @@ async function appLogsHandler(socket) {
     socket.leave(roomFor(containerId));
     const feed = feeds.get(containerId);
     if (!feed) return;
-    feed.subscribers.delete(socket.id);
+    if (entry) feed.subscribers.delete(entry);
     // The last viewer left, so nothing is reading what the daemon is sending.
     if (!feed.subscribers.size) closeFeed(io, containerId);
   };
@@ -318,7 +325,7 @@ async function appLogsHandler(socket) {
     // leave the connection following a container it has asked to leave.
     entry.abandoned = true;
     following.delete(containerId);
-    release(containerId);
+    release(containerId, entry);
   };
 
   /**
@@ -368,20 +375,38 @@ async function appLogsHandler(socket) {
       return;
     }
     if (typeof zelidauth !== 'string') {
-      socket.emit('error', 'Not authorized.');
+      socket.emit('error', 'Not authorized.', nameOrId);
       return;
     }
     // Refused before the signature is checked, so a connection at its limit
     // cannot spend the node's verification on a subscribe that cannot be
-    // accepted. The count is checked again at the claim below, where nothing is
-    // awaited and it cannot move underneath the decision.
-    if (following.size >= MAX_FOLLOWED) {
-      socket.emit('error', `This connection already follows ${MAX_FOLLOWED} containers.`);
+    // accepted. The passes still in setup count too: a pass reaches `following`
+    // only after the verification and the docker lookup, so counting the
+    // settled ones alone lets any number of subscribes arriving together run
+    // both of those in parallel and be refused afterwards - the cost this
+    // refusal exists to avoid, taken as many times as they were sent.
+    //
+    // The count is checked again at the claim below, where nothing is awaited
+    // and it cannot move underneath the decision.
+    if (following.size + pending.size >= MAX_FOLLOWED) {
+      socket.emit('error', `This connection already follows ${MAX_FOLLOWED} containers.`, nameOrId);
       return;
     }
 
     const mine = {
-      containerId: null, name: nameOrId, feed: null, abandoned: false,
+      containerId: null,
+      name: nameOrId,
+      feed: null,
+      abandoned: false,
+      // How the feed reaches back to this connection when it closes. Nothing at
+      // module scope can see `following`, so the record carries the way to
+      // forget it - guarded by identity, because a later pass may have taken
+      // this container over and its record is not this one's to remove.
+      forget: () => {
+        if (mine.containerId && following.get(mine.containerId) === mine) {
+          following.delete(mine.containerId);
+        }
+      },
     };
     pending.add(mine);
 
@@ -394,7 +419,7 @@ async function appLogsHandler(socket) {
     const drop = () => {
       if (!mine.containerId || following.get(mine.containerId) !== mine) return;
       following.delete(mine.containerId);
-      release(mine.containerId);
+      release(mine.containerId, mine);
     };
 
     try {
@@ -408,7 +433,7 @@ async function appLogsHandler(socket) {
         { appName: mainAppName },
       );
       if (authorized !== true) {
-        socket.emit('error', 'Not authorized.');
+        socket.emit('error', 'Not authorized.', nameOrId);
         return;
       }
 
@@ -417,7 +442,7 @@ async function appLogsHandler(socket) {
         return null;
       });
       if (!container) {
-        socket.emit('error', 'Container not found.');
+        socket.emit('error', 'Container not found.', nameOrId);
         return;
       }
 
@@ -431,15 +456,23 @@ async function appLogsHandler(socket) {
       // count and the feed identity are settled in one tick, so a second
       // subscribe cannot pass a check this pass is about to invalidate.
       const held = following.get(containerId);
-      if (held && !(held.feed && held.feed.closed)) {
-        // Already followed. Saying so again is the honest answer to a client
-        // that asked twice, and costs the node nothing: the feed is shared and
-        // the room already carries it.
-        socket.emit('subscribed', { container: containerId });
+      if (held && held.feed && !held.feed.closed) {
+        // Already receiving it, which is the only thing 'subscribed' says.
+        // Answering it again is the honest reply to a client that asked twice,
+        // and costs the node nothing: the feed is shared and the room already
+        // carries it.
+        if (held.feed.subscribers.has(held)) {
+          socket.emit('subscribed', { container: containerId });
+          return;
+        }
+        // Held by a pass that is still opening the stream. Answering
+        // 'subscribed' here would say a feed exists before it does, and leave
+        // the client believing it while an open that then fails is reported to
+        // the pass that made it. That pass answers for both.
         return;
       }
       if (!held && following.size >= MAX_FOLLOWED) {
-        socket.emit('error', `This connection already follows ${MAX_FOLLOWED} containers.`);
+        socket.emit('error', `This connection already follows ${MAX_FOLLOWED} containers.`, nameOrId);
         return;
       }
       // Whatever the dead entry's pass is still doing, it stands down rather
@@ -492,11 +525,11 @@ async function appLogsHandler(socket) {
         return;
       }
 
-      mine.feed.subscribers.add(socket.id);
+      mine.feed.subscribers.add(mine);
       socket.emit('subscribed', { container: containerId });
     } catch (error) {
       log.error(`appLogsHandler: ${nameOrId}: ${error.message}`);
-      socket.emit('error', 'Error following logs.');
+      socket.emit('error', 'Error following logs.', nameOrId);
       drop();
     } finally {
       pending.delete(mine);

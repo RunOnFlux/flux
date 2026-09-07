@@ -328,6 +328,81 @@ describe('appLogsHandler tests', () => {
       expect(verifyPrivilege.callCount, 'a subscribe that cannot be accepted still cost a verification').to.equal(verifications);
     });
 
+    it('says which container a refusal is about, so a viewer of several can tell', async () => {
+      // The batches name their container; a refusal that does not cannot be
+      // attributed by a connection following more than one.
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+
+      getDockerContainerByIdOrName.resolves(null);
+      await subscribe(socket, 'fluxa_myapp');
+      expect(socket.emit.calledWith('error', 'Container not found.', 'fluxa_myapp')).to.be.true;
+
+      verifyPrivilege.resolves(false);
+      await subscribe(socket, 'fluxb_myapp');
+      expect(socket.emit.calledWith('error', 'Not authorized.', 'fluxb_myapp')).to.be.true;
+
+      await socket.fire('subscribe', 12345, 'fluxc_myapp');
+      expect(socket.emit.calledWith('error', 'Not authorized.', 'fluxc_myapp')).to.be.true;
+    });
+
+    it('does not call a container subscribed while its stream is still opening', async () => {
+      // 'subscribed' says one thing: you are receiving this container. A repeat
+      // arriving while the first pass is still opening used to be answered
+      // straight away, so a client could be told it was subscribed to a feed
+      // that then failed to open - and nothing said otherwise afterwards.
+      let releaseLogs;
+      container.logs.returns(new Promise((resolve) => { releaseLogs = resolve; }));
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+
+      const first = subscribe(socket);
+      await until(() => container.logs.called);
+      await subscribe(socket);
+
+      expect(
+        socket.emit.getCalls().filter((call) => call.args[0] === 'subscribed'),
+        'told it was subscribed before the stream existed',
+      ).to.be.empty;
+
+      releaseLogs(logStream);
+      await first;
+
+      expect(
+        socket.emit.getCalls().filter((call) => call.args[0] === 'subscribed'),
+        'the pass that opened it answers for both',
+      ).to.have.lengthOf(1);
+      expect(appLogsHandler.feeds.get('abc123').subscribers.size).to.equal(1);
+    });
+
+    it('refuses past the limit before the signature check, however fast they arrive', async () => {
+      // The limit is a bound on what this connection can make the node do. A
+      // pass reaches `following` only after the verification and the docker
+      // lookup, so counting settled subscriptions alone lets any number of them
+      // run those in parallel and be refused afterwards.
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      getDockerContainerByIdOrName.callsFake(async (name) => ({
+        id: `container-${name}`,
+        logs: sinon.stub().callsFake(async () => {
+          const stream = new EventEmitter();
+          stream.destroy = sinon.stub();
+          return stream;
+        }),
+      }));
+
+      const burst = 60;
+      await Promise.all(
+        Array.from({ length: burst }, (_, i) => socket.fire('subscribe', 'zelidauth', `flux${i}_myapp`)),
+      );
+
+      expect(
+        verifyPrivilege.callCount,
+        'a burst of subscribes each cost a signature verification before being refused',
+      ).to.be.at.most(appLogsHandler.MAX_FOLLOWED);
+      expect(appLogsHandler.feeds.size).to.equal(appLogsHandler.MAX_FOLLOWED);
+    });
+
     it('gives up one container by name and keeps the rest', async () => {
       const socket = makeSocket('s1', makeNamespace());
       const second = new EventEmitter();
@@ -557,7 +632,12 @@ describe('appLogsHandler tests', () => {
       const feed = appLogsHandler.feeds.get('abc123');
       expect(feed, 'the viewer that opened it leaving is not the last viewer leaving').to.not.be.undefined;
       expect(feed.stream.destroyed, 'b is left holding a feed with no stream').to.be.false;
-      expect(feed.subscribers.has('s2')).to.be.true;
+      // One viewer, and it is the one still connected: a feed remembers its
+      // viewers by their own records now, so this asserts the count and the
+      // room rather than a socket id it no longer holds.
+      expect(feed.subscribers.size, 'the departed viewer was left counted').to.equal(1);
+      expect([...b.rooms]).to.deep.equal(['applogs:abc123']);
+      expect([...a.rooms], 'the viewer that left kept the room').to.be.empty;
     });
 
     it('releases the claim when the daemon refuses, so the next viewer opens', async () => {
@@ -780,6 +860,38 @@ describe('appLogsHandler tests', () => {
 
       expect(socket.emit.calledWith('subscribed', { container: 'abc123' })).to.be.true;
       expect([...appLogsHandler.feeds.keys()]).to.deep.equal(['def456', 'abc123']);
+    });
+
+    it('forgets a viewer\'s subscription when the container it names goes', async () => {
+      // The connection's record and the feed are two halves of one
+      // subscription. Left behind when the feed closes, the record counts
+      // against this connection's limit for the life of the socket while naming
+      // a container it no longer follows - and the limit is what refuses the
+      // next subscribe.
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      await subscribe(socket);
+      expect(appLogsHandler.feeds.get('abc123').subscribers.size).to.equal(1);
+
+      logStream.emit('end');
+      expect(appLogsHandler.feeds.has('abc123'), 'the container stopped').to.be.false;
+
+      // The record is gone at THAT moment, not on the next subscribe: every one
+      // of the connection's places is free, each for a different container.
+      getDockerContainerByIdOrName.callsFake(async (name) => ({
+        id: `container-${name}`,
+        logs: sinon.stub().callsFake(async () => freshStream()),
+      }));
+      for (let i = 0; i < appLogsHandler.MAX_FOLLOWED; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await subscribe(socket, `flux${i}_myapp`);
+      }
+
+      expect(
+        socket.emit.getCalls().filter((call) => call.args[0] === 'error'),
+        'a subscription its container outlived was still counted against the limit',
+      ).to.be.empty;
+      expect(appLogsHandler.feeds.size).to.equal(appLogsHandler.MAX_FOLLOWED);
     });
 
     it('lets a viewer back on a container another viewer has already reopened', async () => {
