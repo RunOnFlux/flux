@@ -442,7 +442,11 @@ module.exports = {
     // appConstants.js. Each record carries its own deadline and the collection
     // index is expireAt/expireAfterSeconds:0, so changing one of these takes
     // effect on records written after it, not on the ones already stored.
-    locationTtlS: 7500, // a running-app location record: 125 minutes
+    // A running-app location record: 125 minutes. It also SETS how often a node
+    // announces - appConstants derives the interval from it, two announcements
+    // to a lifetime with slack, so the pair cannot drift. There is no separate
+    // announce interval to keep in step with this number.
+    locationTtlS: 7500,
     // Grace after a node announces its own shutdown, before peers drop its
     // locations. MUST stay below locationTtlS: appStartupManager expires on
     // `(cleanShutdown && downtime > sigterm) || downtime > running`, so a value
@@ -457,7 +461,6 @@ module.exports = {
     installErrorTtlS: 86400,
     tempMsgTtlS: 3600, // collection-level index, serviceManager.js
     hashSyncIntervalMs: 1800000,
-    peerNotifyIntervalMs: 3600000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,

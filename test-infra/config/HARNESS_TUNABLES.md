@@ -114,7 +114,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.nodeMonitorIntervalMs` | 1200000 | 10000 | 120.0x |
 | `fluxapps.nodeMonitorRemovalDelayMs` | 60000 | 1000 | 60.0x |
 | `fluxapps.nonEnterpriseSpawnDelayMs` | 120000 | 500 | 240.0x |
-| `fluxapps.peerNotifyIntervalMs` | 3600000 | 30000 | 120.0x |
 | `fluxapps.portRestoreIntervalMs` | 600000 | 30000 | 20.0x |
 | `fluxapps.portTestBindDelayMs` | 5000 | 100 | 50.0x |
 | `fluxapps.portTestMaxAttempts` | 5 | 2 | 2.5x |

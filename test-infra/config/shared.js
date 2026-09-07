@@ -141,11 +141,13 @@ module.exports = {
     // file claimed otherwise. The numbers below are derived; the old ones were
     // round guesses that nothing could contradict.
     //
-    // A running-app location record is refreshed by the peerNotifyIntervalMs
-    // re-announce, so the ratio between them IS the property: how many
-    // announcements a node may miss before its apps look gone. Production is
-    // 7500s/3600s = 2.08, so this tracks the announce interval's 120x.
-    locationTtlS: 63, // 2.10 announces, against production's 2.08
+    // A running-app location record, and with it the announce interval:
+    // appConstants derives that from this number, so compressing this one
+    // compresses both and the ratio between them - how many announcements a
+    // node may miss before its apps look gone - is structural rather than a
+    // pairing this file has to hold. 63s gives a 30s announce, the value this
+    // file used to carry by hand.
+    locationTtlS: 63,
     // NOT the announce ratio, deliberately. What locationTtlS is coupled to is
     // a compressed clock; what this is measured across is a NODE BOOT, and the
     // harness does not compress boots. Measured on cindy under a MAXN=6 gate: a
@@ -171,7 +173,6 @@ module.exports = {
     installErrorTtlS: 86400,
     tempMsgTtlS: 300,
     hashSyncIntervalMs: 30000,
-    peerNotifyIntervalMs: 30000,
     cpuCheckIntervalMs: 30000,
     statsSampleIntervalMs: 2000,
     portRestoreIntervalMs: 30000,

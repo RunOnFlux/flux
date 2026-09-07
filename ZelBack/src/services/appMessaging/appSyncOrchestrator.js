@@ -1035,7 +1035,7 @@ class AppSyncOrchestrator {
     this.#broadcastStarted = true;
     log.info('AppSyncOrchestrator - App running broadcast started');
     await globalState.waitForBootContainerStateSettled();
-    peerNotification.checkAndNotifyPeersOfRunningApps();
+    peerNotification.startBroadcasting();
   }
 
   get bootContext() {
@@ -1129,7 +1129,16 @@ class AppSyncOrchestrator {
     }
   }
 
-  stop() {
+  /**
+   * Tear the orchestrator down, and do not return until it is torn down.
+   *
+   * Async because the announcement loop's stop waits for the cycle in flight:
+   * a teardown that returns while that cycle is still running leaves it to
+   * finish against services this method has already taken apart.
+   *
+   * @returns {Promise<void>}
+   */
+  async stop() {
     this.#started = false;
     if (this.#heartbeatInterval) {
       clearInterval(this.#heartbeatInterval);
@@ -1169,7 +1178,7 @@ class AppSyncOrchestrator {
       this.#offPeerEvent('peerDisconnected', this.#peerDisconnectedHandler);
     }
     for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
-    peerNotification.stopBroadcastInterval();
+    await peerNotification.stopBroadcasting();
     this.#broadcastStarted = null;
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);

@@ -28,9 +28,7 @@ describe('peerNotification tests', () => {
           collections: { appsLocations: 'appsLocations' },
         },
       },
-      fluxapps: {
-        peerNotifyIntervalMs: opts.peerNotifyIntervalMs ?? 3600000,
-      },
+      fluxapps: {},
     },
     '../dbHelper': {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
@@ -94,8 +92,9 @@ describe('peerNotification tests', () => {
     },
     '../utils/appConstants': {
       localAppsInformation: 'localAppsInformation',
-      // The announcement interval is capped against this, so a suite that
-      // leaves it undefined schedules on NaN and re-fires forever.
+      // The announcement schedules on this, so a suite that leaves it undefined
+      // schedules on NaN and re-fires forever.
+      ANNOUNCE_INTERVAL_MS: opts.announceIntervalMs ?? 3600000,
       RUNNING_EXPIRY_MS: opts.runningExpiryMs ?? 7500 * 1000,
     },
     '../nodeConfirmationService': {
@@ -269,7 +268,11 @@ describe('peerNotification tests', () => {
         return { status: 'success', data: [{ Names: ['/fluxc1_app1'] }] };
       });
       const mod = loadPeerNotification({ ...opts, listRunningApps });
-      await mod.checkAndNotifyPeersOfRunningApps();
+      // Through the lifecycle rather than a bare announcement: an announcement
+      // asked for on its own does not arm the loop, which is what makes a stop
+      // taken during one final.
+      mod.startBroadcasting();
+      await clock.tickAsync(0);
       return mod;
     };
 
@@ -279,7 +282,7 @@ describe('peerNotification tests', () => {
     });
 
     it('subtracts the time the cycle took from the wait for the next one', async () => {
-      await runOneCycle({ peerNotifyIntervalMs: 30000, cycleMs: 20000 });
+      await runOneCycle({ announceIntervalMs: 30000, cycleMs: 20000 });
       const announced = broadcastMessageToAllStub.callCount;
 
       await clock.tickAsync(9999);
@@ -293,16 +296,19 @@ describe('peerNotification tests', () => {
     });
 
     it('announces again immediately when a cycle outran its whole interval', async () => {
-      await runOneCycle({ peerNotifyIntervalMs: 30000, cycleMs: 40000 });
-      const announced = broadcastMessageToAllStub.callCount;
+      // The first cycle takes 40s against a 30s interval, so its successor is
+      // due before it finishes: clamped at zero rather than scheduled into the
+      // past, which is the most the node can do.
+      await runOneCycle({ announceIntervalMs: 30000, cycleMs: 40000 });
 
-      // Clamped at zero rather than scheduled into the past.
-      await clock.tickAsync(0);
-      expect(broadcastMessageToAllStub.callCount).to.equal(announced + 1);
+      expect(
+        broadcastMessageToAllStub.callCount,
+        'a cycle that outran its interval waited another whole one',
+      ).to.equal(2);
     });
 
     it('says a cycle no longer fits its interval once, not on every cycle', async () => {
-      const mod = await runOneCycle({ peerNotifyIntervalMs: 30000, cycleMs: 40000, slowCycles: 2 });
+      const mod = await runOneCycle({ announceIntervalMs: 30000, cycleMs: 40000, slowCycles: 2 });
       // Driven rather than left to the timer, so the second overrun is the only
       // thing between the two readings.
       await mod.checkAndNotifyPeersOfRunningApps();
@@ -312,18 +318,71 @@ describe('peerNotification tests', () => {
       expect(said, 'the overrun is reported on the transition, not per cycle').to.have.lengthOf(1);
     });
 
-    it('refuses an interval longer than the row it keeps alive', async () => {
-      // 60s expiry caps the interval at 30s however large the configured value.
-      await runOneCycle({ peerNotifyIntervalMs: 3600000, runningExpiryMs: 60000 });
+    it('stays stopped when the stop lands while a cycle is running', async () => {
+      // The cycle ends by arming its successor, so a stop that only clears the
+      // pending timer is undone by the work it was trying to end.
+      const mod = await runOneCycle({ announceIntervalMs: 30000, cycleMs: 20000 });
+
+      // Taken while a cycle is in flight, which is the only case that matters:
+      // a stop at an idle moment has nothing to be undone by.
+      const inFlight = mod.checkAndNotifyPeersOfRunningApps();
+      const stopping = mod.stopBroadcasting();
+      await clock.tickAsync(0);
+      await inFlight;
+      await stopping;
       const announced = broadcastMessageToAllStub.callCount;
 
-      await clock.tickAsync(29999);
+      await clock.tickAsync(600000);
+      expect(
+        broadcastMessageToAllStub.callCount,
+        'the loop outlived the stop and went on announcing',
+      ).to.equal(announced);
+    });
+
+    it('returns from a stop only once the cycle in flight has finished', async () => {
+      const mod = await runOneCycle({ announceIntervalMs: 30000, cycleMs: 20000 });
+      let cycleDone = false;
+      const inFlight = mod.checkAndNotifyPeersOfRunningApps().then(() => { cycleDone = true; });
+
+      const stopped = mod.stopBroadcasting().then(() => cycleDone);
+      await clock.tickAsync(0);
+      await inFlight;
+
+      expect(
+        await stopped,
+        'the stop returned while the cycle it was stopping was still running',
+      ).to.equal(true);
+    });
+
+    it('announces again when asked to, without restarting the loop it stopped', async () => {
+      // The install-complete and container-started hooks call this directly. It
+      // is a request to announce, not a request to resume announcing.
+      const mod = await runOneCycle({ announceIntervalMs: 30000, cycleMs: 20000 });
+      await mod.stopBroadcasting();
+      const announced = broadcastMessageToAllStub.callCount;
+
+      await mod.checkAndNotifyPeersOfRunningApps();
+      expect(broadcastMessageToAllStub.callCount, 'the explicit announcement was refused').to.equal(announced + 1);
+
+      await clock.tickAsync(600000);
+      expect(
+        broadcastMessageToAllStub.callCount,
+        'announcing once restarted the loop that had been stopped',
+      ).to.equal(announced + 1);
+    });
+
+    it('announces on the interval the expiry derives, not on one of its own', async () => {
+      // 60s of expiry derives a 28s announce: two to a lifetime, with slack.
+      await runOneCycle({ announceIntervalMs: 28000 });
+      const announced = broadcastMessageToAllStub.callCount;
+
+      await clock.tickAsync(27999);
       expect(broadcastMessageToAllStub.callCount).to.equal(announced);
 
       await clock.tickAsync(1);
       expect(
         broadcastMessageToAllStub.callCount,
-        'an interval longer than half the row expiry was accepted, so the row lapses between announcements',
+        'the announcement did not follow the derived interval',
       ).to.equal(announced + 1);
     });
   });

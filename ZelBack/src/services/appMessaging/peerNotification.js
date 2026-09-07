@@ -14,7 +14,8 @@ const appReconciler = require('../appMonitoring/appReconciler');
 
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
-const { RUNNING_EXPIRY_MS } = require('../utils/appConstants');
+const { ANNOUNCE_INTERVAL_MS } = require('../utils/appConstants');
+const { AsyncLock } = require('../utils/asyncLock');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -23,36 +24,30 @@ let broadcastInProgress = false;
 let rebroadcastNeeded = false;
 let overrunning = false;
 
-/**
- * How often this node announces the apps it is running.
- *
- * Not a preference. The announcement below writes this node's OWN location row
- * before it sends, and that row expires RUNNING_EXPIRY_MS after the
- * announcement that carried it - so a node announcing less often than the row
- * lives stops being a holder of its own apps, on its own reading and on every
- * peer's. Production ships 3600s against a 7500s expiry.
- *
- * The ceiling is what stops any other pairing deleting that property in
- * silence, whether it arrives as a harness compression or a hand edit. Half the
- * expiry, so one missed announcement is survivable and two are not.
- *
- * @returns {number} milliseconds
- */
-function announceIntervalMs() {
-  const configured = config.fluxapps.peerNotifyIntervalMs ?? 3600000;
-  return Math.min(configured, Math.floor(RUNNING_EXPIRY_MS / 2));
-}
+// Whether this node announces at all, and the only thing that decides whether a
+// cycle arms the next one. A cycle ends by scheduling its successor, so a stop
+// that clears the pending timer alone is undone a moment later by the work it
+// was trying to end - the announcement loop outlives every stop taken while it
+// is running.
+//
+// Ours rather than an abort signal's: FluxController's `aborted` is reset the
+// moment its lock frees, so which of the two resumes first decides whether the
+// loop survives its own abort. Nothing resets this.
+let broadcasting = false;
+
+// Held for the whole of a cycle, so a stop can wait for the cycle in flight
+// rather than returning while it is still running. A teardown that returns
+// before the thing is torn down is the same lie as a stop that does not stop.
+const cycleLock = new AsyncLock();
 
 /**
  * Schedule the next announcement so that the PERIOD is fixed, rather than the
  * gap between one cycle ending and the next beginning.
  *
- * The timer used to be recreated after the cycle, which made the real period
- * `interval + however long the cycle took`: the work sat inside the thing it
- * was being timed against. Nothing reported it and nothing measured it, so a
- * node whose cycle took 40s against a 30s interval announced every 70s while
- * every configuration file said 30. Subtracting the elapsed time is what makes
- * the period the period.
+ * The cycle's own duration is subtracted, so the work does not sit inside the
+ * thing it is timed against: a timer recreated after the cycle makes the real
+ * period `interval + however long the cycle took`, and a node announcing every
+ * 70s while its configuration says 30 keeps a row alive that expires at 63.
  *
  * Measured monotonically. A wall clock can step backwards over an NTP
  * correction, and a negative elapsed would push the next announcement away by
@@ -62,19 +57,23 @@ function announceIntervalMs() {
  */
 function scheduleNextBroadcast(startedAt) {
   if (broadcastTimer) clearTimeout(broadcastTimer);
+  // Asked here rather than at the caller, because every path that ends a cycle
+  // arrives here and a stop must be honoured by all of them.
+  if (!broadcasting) {
+    broadcastTimer = null;
+    return;
+  }
 
-  const interval = announceIntervalMs();
   const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
 
   // Said once on the transition and once when it clears, never per cycle. A
-  // node whose cycle no longer fits its interval is announcing itself less
-  // often than it is configured to, and its presence on the network decays with
-  // nothing anywhere saying so - which is why this went unseen for as long as
-  // it did.
-  if (elapsedMs > interval) {
+  // node whose cycle no longer fits its interval announces itself less often
+  // than the row it keeps alive, and its presence on the network decays with
+  // nothing anywhere saying so.
+  if (elapsedMs > ANNOUNCE_INTERVAL_MS) {
     if (!overrunning) {
       overrunning = true;
-      log.warn(`peerNotification - a broadcast cycle took ${Math.round(elapsedMs)}ms against a ${interval}ms interval; this node is announcing itself less often than it is configured to`);
+      log.warn(`peerNotification - a broadcast cycle took ${Math.round(elapsedMs)}ms against a ${ANNOUNCE_INTERVAL_MS}ms interval; this node is announcing itself less often than the location row it refreshes`);
     }
   } else if (overrunning) {
     overrunning = false;
@@ -85,19 +84,42 @@ function scheduleNextBroadcast(startedAt) {
   // its interval runs again immediately, which is the most the node can do.
   broadcastTimer = setTimeout(() => {
     checkAndNotifyPeersOfRunningApps();
-  }, Math.max(0, interval - elapsedMs));
+  }, Math.max(0, ANNOUNCE_INTERVAL_MS - elapsedMs));
 }
 
-function stopBroadcastInterval() {
+/**
+ * Start announcing, and keep announcing.
+ *
+ * Idempotent: a second call while the loop is running is not a second loop.
+ *
+ * @returns {void}
+ */
+function startBroadcasting() {
+  if (broadcasting) return;
+  broadcasting = true;
+  checkAndNotifyPeersOfRunningApps();
+}
+
+/**
+ * Stop announcing, and return once the cycle in flight has finished.
+ *
+ * @returns {Promise<void>}
+ */
+async function stopBroadcasting() {
+  broadcasting = false;
   if (broadcastTimer) {
     clearTimeout(broadcastTimer);
     broadcastTimer = null;
   }
+  // The queued repeat goes with the stop. Left set, it is a cycle the next
+  // start would run before the one it schedules for itself.
+  rebroadcastNeeded = false;
+  await cycleLock.waitReady();
 }
 
 function initialize() {
   nodeConfirmationService.onMessageCapabilityChange((capable) => {
-    if (capable && broadcastTimer) {
+    if (capable && broadcasting) {
       log.info('peerNotification - Message capability regained, triggering immediate broadcast');
       checkAndNotifyPeersOfRunningApps();
     }
@@ -114,6 +136,7 @@ async function checkAndNotifyPeersOfRunningApps() {
   // Taken before any work, so the schedule below subtracts the WHOLE cycle -
   // including the paths that give up early, which cost time too.
   const startedAt = process.hrtime.bigint();
+  await cycleLock.enable();
   try {
     if (!nodeConfirmationService.canSendMessages()) {
       log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');
@@ -247,6 +270,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     log.error(error);
   } finally {
     broadcastInProgress = false;
+    cycleLock.disable();
     if (rebroadcastNeeded) {
       rebroadcastNeeded = false;
       setImmediate(() => checkAndNotifyPeersOfRunningApps());
@@ -259,5 +283,6 @@ async function checkAndNotifyPeersOfRunningApps() {
 module.exports = {
   initialize,
   checkAndNotifyPeersOfRunningApps,
-  stopBroadcastInterval,
+  startBroadcasting,
+  stopBroadcasting,
 };
