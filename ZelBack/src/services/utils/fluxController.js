@@ -1,5 +1,4 @@
 const { AsyncLock } = require('./asyncLock');
-const log = require('../../lib/log');
 
 /**
  * What the controller is for, as opposed to what its signal is doing.
@@ -148,23 +147,21 @@ class FluxController {
    * may still be unwinding. A runner is free to hold any lock or none, to watch
    * the signal or ignore it: after a stop it is not run again.
    *
+   * A runner that throws is deliberately NOT caught. Every runner this serves
+   * guards its own expected failures, so a throw arriving here is a fault nobody
+   * predicted - and what the node does with one of those is already decided at
+   * the process level: apiServer's uncaughtException handler logs it and exits,
+   * and systemd brings the node back thirty seconds later with every subsystem
+   * running again. Catching it here would keep the node up and leave this loop
+   * stopped for the life of the process instead, with nothing reading `running`
+   * to notice and nothing that would start it again.
+   *
    * @param {async function():number} runner function to be run
    * @param {number} generation the run this iteration belongs to
    * @returns {Promise<void>}
    */
   async loop(runner, generation = this.#generation) {
-    let ms;
-
-    try {
-      ms = await runner();
-    } catch (error) {
-      // A background loop is started and never awaited, so a throw here is a
-      // rejection nobody handles - which is a process exit. The loop is over
-      // either way; it ends deliberately and says why.
-      log.error(`FluxController: loop runner threw, stopping the loop: ${error.message}`);
-      if (generation === this.#generation) this.#state = ControllerState.IDLE;
-      return;
-    }
+    const ms = await runner();
 
     this.#loopCount += 1;
 

@@ -6,7 +6,6 @@ const { expect } = chai;
 const sinon = require('sinon');
 
 const { FluxController } = require('../../ZelBack/src/services/utils/fluxController');
-const log = require('../../ZelBack/src/lib/log');
 
 describe('fluxController tests', () => {
   beforeEach(async () => { });
@@ -390,26 +389,18 @@ describe('fluxController tests', () => {
     clock.restore();
   });
 
-  it('ends the loop and says so when the runner throws', async () => {
-    // A loop is started and never awaited, so a throw that escapes it is a
-    // rejection nobody handles - which is a process exit.
-    const clock = sinon.useFakeTimers();
-    const errorStub = sinon.stub(log, 'error');
+  it('lets a runner that throws reach the process, rather than losing the loop to it', async () => {
+    // Every runner this serves guards the failures it expects, so a throw that
+    // arrives here is one nobody predicted - and the node already has an answer
+    // for those: apiServer's uncaughtException handler logs it and exits, and
+    // systemd starts the node again with every subsystem back. Swallowed here
+    // instead, the node stays up and this loop is stopped for the life of the
+    // process, with nothing reading `running` and nothing to start it again.
     const fc = new FluxController();
 
-    let runs = 0;
-    fc.startLoop(async () => {
-      runs += 1;
-      throw new Error('the runner gave up');
-    });
-    await clock.tickAsync(0);
-
-    await clock.tickAsync(10000);
-
-    expect(runs, 'a throwing runner was run again').to.equal(1);
-    expect(fc.running, 'a loop whose runner threw reported itself running').to.be.false;
-    expect(errorStub.calledOnce, 'the loop ended in silence').to.be.true;
-    expect(errorStub.firstCall.args[0]).to.match(/loop runner threw/);
-    clock.restore();
+    await expect(
+      fc.loop(async () => { throw new Error('the runner gave up'); }),
+      'the loop swallowed a fault the node restarts for',
+    ).to.eventually.be.rejectedWith('the runner gave up');
   });
 });
