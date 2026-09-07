@@ -2,6 +2,7 @@ const chai = require('chai');
 const sinon = require('sinon');
 const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire');
+const LogFrameDecoder = require('../../ZelBack/src/services/utils/logFrameDecoder');
 
 const { expect } = chai;
 
@@ -403,6 +404,46 @@ describe('appLogsHandler tests', () => {
       expect(appLogsHandler.feeds.size).to.equal(appLogsHandler.MAX_FOLLOWED);
     });
 
+    it('leaves the whole limit to the containers, while one of them is opening', async () => {
+      // A pass is in `pending` until its setup ends, and in `following` from the
+      // moment it takes a container - so it is in both for as long as the daemon
+      // takes to answer. Counting the whole of both sets spends two of the ten on
+      // one container, and the limit then refuses the tenth component of a
+      // ten-component app: the case the limit is sized for.
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+
+      let opening = false;
+      getDockerContainerByIdOrName.callsFake(async (name) => ({
+        id: `container-${name}`,
+        logs: sinon.stub().callsFake(() => {
+          if (name === 'flux0_myapp') {
+            opening = true;
+            // Never settles: this pass holds its container for the rest of the test.
+            return new Promise(() => {});
+          }
+          const stream = new EventEmitter();
+          stream.destroy = sinon.stub();
+          return Promise.resolve(stream);
+        }),
+      }));
+
+      subscribe(socket, 'flux0_myapp');
+      await until(() => opening);
+
+      for (let i = 1; i < appLogsHandler.MAX_FOLLOWED; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await subscribe(socket, `flux${i}_myapp`);
+      }
+
+      expect(
+        socket.emit.getCalls().filter((call) => call.args[0] === 'error'
+          && call.args[1] === `This connection already follows ${appLogsHandler.MAX_FOLLOWED} containers.`),
+        'a container was refused to a connection that holds fewer than the limit',
+      ).to.be.empty;
+      expect(appLogsHandler.feeds.size).to.equal(appLogsHandler.MAX_FOLLOWED);
+    });
+
     it('gives up one container by name and keeps the rest', async () => {
       const socket = makeSocket('s1', makeNamespace());
       const second = new EventEmitter();
@@ -769,6 +810,65 @@ describe('appLogsHandler tests', () => {
       }
     });
 
+    it('tells a viewer how much of a line it did not get', async () => {
+      // Its own event rather than `skipped`: that counts lines the queue could
+      // not carry, and a truncated line is one the viewer HAS, missing its tail.
+      const clock = sinon.useFakeTimers();
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      await subscribe(socket);
+
+      const overlong = 'x'.repeat(LogFrameDecoder.MAX_LINE_LENGTH + 40);
+      logStream.emit('data', frame(`${overlong}\n`));
+      clock.tick(appLogsHandler.BATCH_MS);
+
+      const cut = emitted.filter((e) => e.event === 'truncated');
+      expect(cut, 'a viewer was handed a cut line and not told').to.have.lengthOf(1);
+      expect(cut[0].payload).to.deep.equal({
+        container: 'abc123',
+        characters: 40,
+      });
+
+      const lines = emitted.filter((e) => e.event === 'logs');
+      expect(lines[0].payload.lines[0].length, 'the line was delivered whole').to.equal(LogFrameDecoder.MAX_LINE_LENGTH);
+      // Under the line it describes, not over it. `skipped` announces lines that
+      // never arrived and belongs ahead of the ones that did; this is about a
+      // line the viewer is being shown.
+      expect(
+        emitted.indexOf(cut[0]) > emitted.indexOf(lines[0]),
+        'the notice was sent before the line it is about',
+      ).to.be.true;
+      clock.restore();
+    });
+
+    it('says a line was cut once, when it ends, not once a batch', async () => {
+      // The container is still writing that one line, so the node is discarding
+      // and the pane is quiet. Reporting what had been cut so far on every batch
+      // would fill it with one notice per quarter second, all for the same line.
+      const clock = sinon.useFakeTimers();
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      await subscribe(socket);
+
+      logStream.emit('data', frame('x'.repeat(LogFrameDecoder.MAX_LINE_LENGTH + 10)));
+      clock.tick(appLogsHandler.BATCH_MS);
+      logStream.emit('data', frame('y'.repeat(20)));
+      clock.tick(appLogsHandler.BATCH_MS);
+
+      expect(
+        emitted.filter((e) => e.event === 'truncated'),
+        'reported before the line it belongs to had ended',
+      ).to.be.empty;
+
+      logStream.emit('data', frame(`${'z'.repeat(5)}\n`));
+      clock.tick(appLogsHandler.BATCH_MS);
+
+      const cut = emitted.filter((e) => e.event === 'truncated');
+      expect(cut, 'one cut line, one notice').to.have.lengthOf(1);
+      expect(cut[0].payload.characters, 'the whole of what was cut: 10 + 20 + 5').to.equal(35);
+      clock.restore();
+    });
+
     it('reports a drop only once, not on every later flush', async () => {
       const clock = sinon.useFakeTimers();
       try {
@@ -812,6 +912,56 @@ describe('appLogsHandler tests', () => {
 
       expect(emitted.some((e) => e.event === 'error')).to.be.true;
       expect(appLogsHandler.feeds.has('abc123')).to.be.false;
+    });
+
+    // A stream outlives the feed it was opened for. closeFeed destroys it, and
+    // the events that follow a destroy still reach its handlers - by which time
+    // a later viewer holds a fresh feed under the same container id. An `error`
+    // after a destroy is ordinary: a premature close, or a socket error racing
+    // the teardown.
+    async function replacedStream() {
+      const streams = [];
+      container.logs = sinon.stub().callsFake(async () => {
+        const stream = new EventEmitter();
+        stream.destroy = sinon.stub();
+        streams.push(stream);
+        return stream;
+      });
+
+      const nsp = makeNamespace();
+      const first = makeSocket('s1', nsp);
+      appLogsHandler(first);
+      await subscribe(first);
+      await first.fire('disconnect');
+
+      const second = makeSocket('s2', nsp);
+      appLogsHandler(second);
+      await subscribe(second);
+
+      expect(streams, 'the second viewer was served the first stream').to.have.lengthOf(2);
+      return { dead: streams[0], second };
+    }
+
+    it('takes no lines from a stream whose feed has been replaced', async () => {
+      const { dead } = await replacedStream();
+
+      dead.emit('data', frame('a line from the subscription that ended\n'));
+
+      const feed = appLogsHandler.feeds.get('abc123');
+      expect(feed.queued, 'a dead stream queued into a live feed').to.be.empty;
+      expect(feed.recent, 'a dead stream left a line for the next viewer to be backfilled with').to.be.empty;
+    });
+
+    it('does not let a stream whose feed has been replaced close the one that replaced it', async () => {
+      const { dead, second } = await replacedStream();
+
+      dead.emit('error', new Error('premature close'));
+
+      expect(appLogsHandler.feeds.has('abc123'), 'a dead stream closed a live feed').to.be.true;
+      expect(
+        second.received.filter((message) => message.event === 'error'),
+        'a live viewer was told a stream it never had has failed',
+      ).to.be.empty;
     });
 
     it('does not exit the process when a stream listener throws', async () => {

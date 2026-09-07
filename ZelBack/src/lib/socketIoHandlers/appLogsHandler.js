@@ -114,11 +114,29 @@ function flush(io, containerId) {
     io.to(roomFor(containerId)).emit('skipped', { container: containerId, count: feed.dropped });
     feed.dropped = 0;
   }
-  if (!feed.queued.length) return;
+  if (feed.queued.length) {
+    const lines = feed.queued;
+    feed.queued = [];
+    io.to(roomFor(containerId)).emit('logs', { container: containerId, lines });
+  }
 
-  const lines = feed.queued;
-  feed.queued = [];
-  io.to(roomFor(containerId)).emit('logs', { container: containerId, lines });
+  // A line too long to hold was handed over cut, and this is what was cut from
+  // it. Its own event rather than `skipped`, which counts LINES the queue could
+  // not carry: a truncated line is one the viewer HAS, missing its tail, and
+  // reporting it as a skipped line would name the wrong thing and the wrong
+  // unit. Additive, like `skipped`: a client that reads `lines` and ignores the
+  // rest is unaffected.
+  //
+  // AFTER the lines, unlike `skipped` above. That one announces lines that never
+  // arrived, which belongs ahead of the ones that did; this one is about a line
+  // the viewer is being shown, so a reader meets the cut line first and then
+  // what was cut from it. Sent whether or not this batch carries lines, because
+  // a line that ends on the last character of a chunk settles what was cut from
+  // it with nothing queued behind it.
+  if (feed.truncated) {
+    io.to(roomFor(containerId)).emit('truncated', { container: containerId, characters: feed.truncated });
+    feed.truncated = 0;
+  }
 }
 
 /**
@@ -139,7 +157,7 @@ function flush(io, containerId) {
  */
 function claimFeed(containerId) {
   const feed = {
-    stream: null, queued: [], dropped: 0, timer: null, subscribers: new Set(), recent: [], closed: false,
+    stream: null, queued: [], dropped: 0, truncated: 0, timer: null, subscribers: new Set(), recent: [], closed: false,
   };
   feeds.set(containerId, feed);
   return feed;
@@ -155,7 +173,14 @@ function claimFeed(containerId) {
  * @returns {Promise<void>} resolves once the stream is attached
  */
 async function openFeed(io, container, containerId, feed) {
-  const decoder = new LogFrameDecoder();
+  // Bounded, unlike the polling read's decoder: that one is handed a single
+  // payload and is bounded by it, while this lives for as long as a viewer
+  // watches, and a container that never writes a newline would otherwise decide
+  // how much of the node's memory that costs - and then send all of it.
+  const decoder = new LogFrameDecoder({
+    maxLineLength: LogFrameDecoder.MAX_LINE_LENGTH,
+    timestamped: true,
+  });
 
   let stream;
   try {
@@ -208,10 +233,15 @@ async function openFeed(io, container, containerId, feed) {
     }
   };
 
+  // This stream outlives the feed it was opened for: closeFeed destroys it, and
+  // the events that follow a destroy still arrive here - by which time a later
+  // viewer's feed can be filed under the same container id. So the handlers below
+  // act on the record this stream belongs to and stand down once it is closed,
+  // which "no longer filed" always agrees with. Reaching for the id instead hands
+  // a dead subscription's lines to the live one that replaced it, and lets a dead
+  // stream's error close a subscription it never had.
   const enqueue = (lines) => {
-    if (!lines.length) return;
-    const room = feeds.get(containerId);
-    if (!room) return;
+    if (!lines.length || feed.closed) return;
 
     // Appended rather than spread, which is the rule dockerContainerLogsPolling
     // states and keeps. One chunk finishes as many lines as it has newlines and
@@ -225,24 +255,28 @@ async function openFeed(io, container, containerId, feed) {
     // `recent` is kept so a viewer that joins a stream already running opens
     // with the same context the first one got from docker's `tail`, rather than
     // an empty pane until the container next writes.
-    for (let i = 0; i < lines.length; i += 1) room.recent.push(lines[i]);
-    if (room.recent.length > BACKFILL_LINES) room.recent = room.recent.slice(-BACKFILL_LINES);
+    for (let i = 0; i < lines.length; i += 1) feed.recent.push(lines[i]);
+    if (feed.recent.length > BACKFILL_LINES) feed.recent = feed.recent.slice(-BACKFILL_LINES);
 
-    const space = MAX_QUEUED_LINES - room.queued.length;
+    const space = MAX_QUEUED_LINES - feed.queued.length;
     if (lines.length > space) {
-      room.dropped += lines.length - space;
+      feed.dropped += lines.length - space;
       // From the offset rather than through a slice: the tail is all that is
       // kept, and building it as an array of its own to hand over is an
       // allocation of the same width for nothing.
-      for (let i = lines.length - space; i < lines.length; i += 1) room.queued.push(lines[i]);
+      for (let i = lines.length - space; i < lines.length; i += 1) feed.queued.push(lines[i]);
       return;
     }
-    for (let i = 0; i < lines.length; i += 1) room.queued.push(lines[i]);
+    for (let i = 0; i < lines.length; i += 1) feed.queued.push(lines[i]);
   };
 
-  stream.on('data', guard('stream data', (chunk) => enqueue(decoder.push(chunk))));
+  stream.on('data', guard('stream data', (chunk) => {
+    enqueue(decoder.push(chunk));
+    feed.truncated += decoder.takeTruncated();
+  }));
 
   stream.on('error', guard('stream error', (error) => {
+    if (feed.closed) return;
     log.error(`appLogsHandler: stream error for ${containerId}: ${error.message}`);
     io.to(roomFor(containerId)).emit('error', 'Log stream error.', containerId);
     closeFeed(io, containerId);
@@ -253,7 +287,9 @@ async function openFeed(io, container, containerId, feed) {
   // stops updating - and the connection is free to follow it again when it is
   // started, because the entry holding it names a feed that is now closed.
   stream.on('end', guard('stream end', () => {
+    if (feed.closed) return;
     enqueue(decoder.flush());
+    feed.truncated += decoder.takeTruncated();
     flush(io, containerId);
     io.to(roomFor(containerId)).emit('ended', { container: containerId });
     closeFeed(io, containerId);
@@ -386,9 +422,17 @@ async function appLogsHandler(socket) {
     // both of those in parallel and be refused afterwards - the cost this
     // refusal exists to avoid, taken as many times as they were sent.
     //
+    // A pass stays in `pending` until its setup ends, which is after it has taken
+    // a container, so the two sets overlap. What this gate is owed is the
+    // containers the connection is committed to - the ones it holds and the
+    // passes that have yet to name one - and adding the whole of both charges a
+    // pass in mid-open twice, refusing a tenth container to a connection with
+    // nine open. A pass holds a container exactly when it carries its id.
+    //
     // The count is checked again at the claim below, where nothing is awaited
     // and it cannot move underneath the decision.
-    if (following.size + pending.size >= MAX_FOLLOWED) {
+    const settling = [...pending].filter((pass) => !pass.containerId).length;
+    if (following.size + settling >= MAX_FOLLOWED) {
       socket.emit('error', `This connection already follows ${MAX_FOLLOWED} containers.`, nameOrId);
       return;
     }
