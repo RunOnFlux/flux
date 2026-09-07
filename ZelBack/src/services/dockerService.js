@@ -436,6 +436,24 @@ function countFrom(lines, ms) {
 const LOG_DECODE_CHUNK_BYTES = 65536;
 
 /**
+ * The whole of a container's log, as `appDockerCreate` configures the daemon to
+ * keep it. Named here rather than written into the create call, because a read
+ * has to be sized against what a log can hold and the two must be the same fact.
+ */
+const LOG_MAX_FILES = 4;
+const LOG_MAX_FILE_MB = 5;
+
+/**
+ * The most lines that log can hold. The smallest thing docker can return is one
+ * frame carrying an empty message: its 8-byte header, an RFC3339Nano timestamp,
+ * the space before the message and the newline after it.
+ */
+const MIN_LOG_LINE_BYTES = 8 + 30 + 1 + 1;
+const MAX_RETAINED_LINES = Math.ceil(
+  (LOG_MAX_FILES * LOG_MAX_FILE_MB * 1024 * 1024) / MIN_LOG_LINE_BYTES,
+);
+
+/**
  * The lines a reader has not seen yet, and the position it has reached.
  *
  * A poll, not a subscription: docker is asked for what it has and closes the
@@ -508,7 +526,15 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     // was taken from. That loses the lines in between with nothing to report it:
     // the answer comes back shorter than a page, which reads as "the whole set
     // fitted".
-    logOptions.tail = maxLines + 1 + position.count;
+    //
+    // Capped at what the log can hold, because `position.count` is a value the
+    // caller writes and this is the bound that keeps the read cheap: uncapped, a
+    // crafted position sizes the window itself and asks for the whole retained
+    // log. Capped by the page instead it would be too SMALL - `count` grows past
+    // a page whenever a burst lands inside one millisecond - and a window that
+    // does not cover the overlap answers a reader with nothing, forever, and
+    // says nothing about it.
+    logOptions.tail = Math.min(maxLines + 1 + position.count, MAX_RETAINED_LINES);
   } else if (lineCount && lineCount !== 'all') {
     logOptions.tail = lineCount;
   }
@@ -530,7 +556,7 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
   // milliseconds answer no peer and no other request. This holds it for 0.4ms.
   // Peak RSS halves as well, because the joined 8MB string is never built. The
   // answer is identical line for line; only who else gets to run changes.
-  const decoder = new LogFrameDecoder();
+  const decoder = new LogFrameDecoder({ timestamped: true });
   let lines = [];
   for (let at = 0; at < payload.length; at += LOG_DECODE_CHUNK_BYTES) {
     const decoded = decoder.push(payload.subarray(at, Math.min(at + LOG_DECODE_CHUNK_BYTES, payload.length)));
@@ -1121,8 +1147,8 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         // everything with it. Split into four, only the oldest quarter is dropped
         // per rotation, so at least 15MB is always readable. `docker logs` reads
         // across the set, so nothing that reads logs needs to know.
-        'max-file': '4',
-        'max-size': '5m',
+        'max-file': `${LOG_MAX_FILES}`,
+        'max-size': `${LOG_MAX_FILE_MB}m`,
       },
     };
   const autoAssignedIP = await getNextAvailableIPForApp(appName);

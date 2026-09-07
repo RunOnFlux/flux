@@ -921,6 +921,60 @@ describe('dockerService tests', () => {
       expect(logs.secondCall.args[0].since).to.equal(1);
     });
 
+    it('does not let a caller size the read past what the log can hold', async () => {
+      // The window is sized from `position.count`, and a position is opaque on
+      // the wire rather than signed - so the caller writes the number that bounds
+      // this read. Uncapped, the bound is whatever the caller says it is, and the
+      // number it says is the whole retained log on every poll.
+      const logs = stubLogs([at(1000, 'a')]);
+
+      await dockerService.dockerContainerLogsPolling('website', {
+        position: { ms: 1000, count: 50000000 }, maxLines: 5000,
+      });
+
+      // Four files of five megabytes, over the smallest frame docker can return:
+      // an 8-byte header, an RFC3339Nano stamp, a space and a newline.
+      expect(
+        logs.firstCall.args[0].tail,
+        'the caller sized the read',
+      ).to.equal(Math.ceil((4 * 5 * 1024 * 1024) / 40));
+    });
+
+    it('keeps a window that reaches back over an overlap larger than a page', async () => {
+      // The cap above cannot be the page. `count` grows past one whenever a burst
+      // lands inside a single millisecond, and a window that does not reach back
+      // over the overlap is answered entirely by lines this reader already holds:
+      // it is handed nothing, its position stays where it was, and it repeats
+      // that for as long as it polls - with neither `skipped` nor `rolledOver`
+      // saying so.
+      const file = Array.from({ length: 20 }, (_, i) => at(1000, `burst-${i}`));
+      stubDaemon(file);
+
+      const first = await dockerService.dockerContainerLogsPolling('website', { lineCount: 'all' });
+      expect(
+        first.position,
+        'the overlap has to be larger than the page below for this to test anything',
+      ).to.deep.equal({ ms: 1000, count: 20 });
+
+      file.push(at(2000, 'n-0'), at(2000, 'n-1'), at(2000, 'n-2'));
+
+      const second = await dockerService.dockerContainerLogsPolling('website', {
+        position: first.position, maxLines: 5,
+      });
+
+      expect({
+        lines: second.lines.map((line) => line.split(' ')[1]),
+        position: second.position,
+        skipped: second.skipped,
+        rolledOver: second.rolledOver,
+      }, 'a reader with a large overlap was answered with nothing').to.deep.equal({
+        lines: ['n-0', 'n-1', 'n-2'],
+        position: { ms: 2000, count: 3 },
+        skipped: false,
+        rolledOver: false,
+      });
+    });
+
     // Every stub above answers with a fixed buffer whatever it is asked for,
     // which is what let the ordering below go unnoticed: `tail` and `since` had
     // no effect on the answer, so no test could see them applied in the wrong
