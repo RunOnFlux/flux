@@ -47,6 +47,10 @@ describe('an app log stream loses nothing and is shared between viewers', functi
   const appName = `e2elogstream${Date.now()}`;
   const component = `${appName}a`;
   const identifier = `${component}_${appName}`;
+  // A second component, because one connection following several containers is
+  // part of the contract and a single-component app cannot exercise it.
+  const secondComponent = `${appName}b`;
+  const secondIdentifier = `${secondComponent}_${appName}`;
   let holder;
   let auth;
 
@@ -116,8 +120,8 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     const app = await buildSeedableApp({
       env,
       name: appName,
-      compose: [{
-        name: component,
+      compose: [component, secondComponent].map((name) => ({
+        name,
         description: 'writes numbered log lines on an interval',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [],
@@ -130,16 +134,18 @@ describe('an app log stream loses nothing and is shared between viewers', functi
         ram: 100,
         hdd: 1,
         repoauth: '',
-      }],
+      })),
     });
 
     await installOnNodes(env, app, [0]);
     await waitFor(
       async () => {
         const containers = await listAppContainers(holder.container, { all: true });
-        return containers.find((c) => c.name === `flux${identifier}`)?.status?.startsWith('Up');
+        return [identifier, secondIdentifier].every(
+          (name) => containers.find((c) => c.name === `flux${name}`)?.status?.startsWith('Up'),
+        );
       },
-      { timeout: 120000, interval: 2000, label: 'the log-writing component is running' },
+      { timeout: 180000, interval: 2000, label: 'both log-writing components are running' },
     );
 
     auth = await authenticate(holder.url, appOwnerKey());
@@ -346,22 +352,13 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     await holder.getAuthed(`/apps/appstart/${identifier}`, auth.zelidauth);
   });
 
-  it('gives a connection one container however fast a second subscribe follows', async function () {
+  it('takes both containers when two subscribes arrive together, and strands no stream', async function () {
     this.timeout(120000);
 
     // Both emitted before either can be answered, which the `watch` helper
     // cannot do: it subscribes once and waits. Two panes on one connection
-    // produce exactly this, and it is the case a unit test reaches only by
-    // holding the daemon's answer open - here the daemon is real and the round
-    // trip it takes to answer is the window.
-    //
-    // The refusal is what proves the connection's claim is taken when the
-    // subscribe is accepted rather than when the container is finally known. A
-    // claim made after the lookup is one both subscribes pass, and the second
-    // one then replaces what the first is following: the disconnect releases
-    // the container named last, and the other keeps a departed subscriber, so
-    // its count never reaches zero and its docker stream is followed for nobody
-    // until the container itself stops.
+    // produce exactly this, and the daemon's round trip is the window a claim
+    // taken after the lookup would be passed through by both.
     const socket = io(`${holder.url}/applogs`, {
       transports: ['websocket'],
       reconnection: false,
@@ -369,10 +366,14 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     });
     const subscribed = [];
     const errors = [];
-    const lines = [];
-    socket.on('subscribed', (payload) => subscribed.push(payload));
+    const byContainer = new Map();
+    socket.on('subscribed', (payload) => subscribed.push(payload.container));
     socket.on('error', (message) => errors.push(message));
-    socket.on('logs', (payload) => lines.push(...payload.lines));
+    socket.on('logs', (payload) => {
+      const seen = byContainer.get(payload.container) || [];
+      seen.push(...payload.lines);
+      byContainer.set(payload.container, seen);
+    });
 
     try {
       await new Promise((resolve, reject) => {
@@ -385,40 +386,102 @@ describe('an app log stream loses nothing and is shared between viewers', functi
       });
 
       socket.emit('subscribe', auth.zelidauth, identifier);
-      socket.emit('subscribe', auth.zelidauth, identifier);
+      socket.emit('subscribe', auth.zelidauth, secondIdentifier);
 
       await waitFor(
         async () => subscribed.length + errors.length >= 2,
         { timeout: 30000, interval: 200, label: 'the node answered both subscribes' },
       );
 
-      expect(subscribed, 'one connection was given two subscriptions').to.have.length(1);
-      expect(errors, 'the second subscribe was not refused').to.deep.equal([
-        'This connection already follows a container.',
-      ]);
+      expect(errors, 'a second container on one connection was refused').to.be.empty;
+      expect(subscribed, 'one connection was not given both containers').to.have.length(2);
+      expect(new Set(subscribed).size, 'the same container was answered twice').to.equal(2);
 
-      // The refusal must not cost the subscription that was accepted: a claim
-      // released by the wrong pass takes the live one down with it.
-      const beforeRefusal = lines.length;
+      // Both are fed, and each message says which container it carries - a
+      // batch that does not is unreadable to a connection following two.
       await waitFor(
-        async () => lines.length > beforeRefusal,
-        { timeout: 30000, interval: 500, label: 'the accepted subscription is still being fed' },
+        async () => byContainer.size === 2 && [...byContainer.values()].every((lines) => lines.length > 5),
+        { timeout: 30000, interval: 500, label: 'both containers are reaching the connection' },
       );
+      expect([...byContainer.keys()].sort(), 'lines arrived attributed to something else').to.deep.equal(subscribed.slice().sort());
 
-      // Given up rather than disconnected, so the claim is released without the
-      // connection going: a claim only a disconnect can clear is a viewer that
-      // must reconnect to change pane.
-      socket.emit('unsubscribe');
-      subscribed.length = 0;
-      socket.emit('subscribe', auth.zelidauth, identifier);
+      // Given up by name rather than by disconnecting, so the other one is
+      // proved to survive it.
+      const kept = byContainer.get(subscribed[0]).length;
+      socket.emit('unsubscribe', secondIdentifier);
+      await new Promise((resolve) => { setTimeout(resolve, 1500); });
+      const leftSettled = byContainer.get(subscribed[1]).length;
 
       await waitFor(
-        async () => subscribed.length === 1,
-        { timeout: 30000, interval: 200, label: 'the connection subscribed again after unsubscribing' },
+        async () => byContainer.get(subscribed[0]).length > kept + 5,
+        { timeout: 30000, interval: 500, label: 'the container that was kept is still being fed' },
       );
+      expect(
+        byContainer.get(subscribed[1]).length,
+        'a container given up by name is still being sent',
+      ).to.equal(leftSettled);
     } finally {
       socket.close();
     }
+  });
+
+  it('lets a viewer back on a container another viewer has already reopened', async function () {
+    this.timeout(180000);
+
+    // Both are watching when the container stops, so both hold a subscription
+    // naming it. The one that asks again second finds the id filed to a feed
+    // that is not the one it was following.
+    const first = watch();
+    await first.ready;
+    const second = watch();
+    await second.ready;
+
+    await holder.getAuthed(`/apps/appstop/${identifier}`, auth.zelidauth);
+    await waitFor(
+      async () => first.ended && second.ended,
+      { timeout: 60000, interval: 1000, label: 'both viewers were told the container stopped' },
+    );
+    await holder.getAuthed(`/apps/appstart/${identifier}`, auth.zelidauth);
+    await waitFor(
+      async () => {
+        const containers = await listAppContainers(holder.container, { all: true });
+        return containers.find((c) => c.name === `flux${identifier}`)?.status?.startsWith('Up');
+      },
+      { timeout: 120000, interval: 2000, label: 'the container is running again' },
+    );
+
+    // The reopen and the retry go in that order on purpose: the second viewer
+    // is the one that files a new feed under the id the first one is still
+    // holding.
+    const reopened = [];
+    second.socket.on('subscribed', (payload) => reopened.push(payload.container));
+    second.socket.emit('subscribe', auth.zelidauth, identifier);
+    await waitFor(
+      async () => reopened.length === 1,
+      { timeout: 30000, interval: 200, label: 'the other viewer reopened the container' },
+    );
+
+    const answers = [];
+    first.socket.on('subscribed', (payload) => answers.push(payload.container));
+    first.errors.length = 0;
+    first.socket.emit('subscribe', auth.zelidauth, identifier);
+
+    await waitFor(
+      async () => answers.length + first.errors.length >= 1,
+      { timeout: 30000, interval: 200, label: 'the node answered the viewer that came back' },
+    );
+
+    expect(first.errors, 'the viewer was locked out for the life of its connection').to.be.empty;
+    expect(answers, 'the viewer was not given the container back').to.have.length(1);
+
+    const mark = first.lines.length;
+    await waitFor(
+      async () => first.lines.length > mark,
+      { timeout: 30000, interval: 500, label: 'the viewer that came back is being fed again' },
+    );
+
+    first.close();
+    second.close();
   });
 
   it('leaves the polling endpoint answering exactly as it did', async function () {

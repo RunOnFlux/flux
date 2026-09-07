@@ -272,19 +272,84 @@ describe('appLogsHandler tests', () => {
       }
     });
 
-    it('refuses a second container on one connection', async () => {
-      const socket = makeSocket('s1', makeNamespace());
+    it('follows a second container on the same connection', async () => {
+      const nsp = makeNamespace();
+      const socket = makeSocket('s1', nsp);
+      const second = new EventEmitter();
+      second.destroy = sinon.stub();
       appLogsHandler(socket);
       await subscribe(socket);
 
+      getDockerContainerByIdOrName.resolves({ id: 'def456', logs: sinon.stub().resolves(second) });
       await subscribe(socket, 'fluxother_app2');
 
-      expect(socket.emit.calledWith('error', 'This connection already follows a container.')).to.be.true;
-      expect(container.logs.callCount).to.equal(1);
+      expect(socket.emit.calledWith('subscribed', { container: 'abc123' })).to.be.true;
+      expect(socket.emit.calledWith('subscribed', { container: 'def456' })).to.be.true;
+      expect([...appLogsHandler.feeds.keys()]).to.deep.equal(['abc123', 'def456']);
+      expect([...socket.rooms]).to.deep.equal(['applogs:abc123', 'applogs:def456']);
+    });
+
+    it('answers a repeat of a container it already follows without opening a second stream', async () => {
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      await subscribe(socket);
+      socket.emit.resetHistory();
+
+      await subscribe(socket);
+
+      expect(socket.emit.calledWith('subscribed', { container: 'abc123' }), 'a repeat is answered').to.be.true;
+      expect(container.logs.callCount, 'the daemon was asked twice for one container').to.equal(1);
+      expect(appLogsHandler.feeds.get('abc123').subscribers.size).to.equal(1);
+    });
+
+    it('refuses the container past the limit, before it costs a signature check', async () => {
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+      getDockerContainerByIdOrName.callsFake(async (name) => ({
+        id: `container-${name}`,
+        logs: sinon.stub().callsFake(async () => {
+          const stream = new EventEmitter();
+          stream.destroy = sinon.stub();
+          return stream;
+        }),
+      }));
+
+      for (let i = 0; i < appLogsHandler.MAX_FOLLOWED; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await subscribe(socket, `flux${i}_myapp`);
+      }
+      expect(appLogsHandler.feeds.size).to.equal(appLogsHandler.MAX_FOLLOWED);
+      const verifications = verifyPrivilege.callCount;
+
+      await subscribe(socket, 'fluxover_myapp');
+
+      expect(socket.emit.calledWith('error', `This connection already follows ${appLogsHandler.MAX_FOLLOWED} containers.`)).to.be.true;
+      expect(appLogsHandler.feeds.size).to.equal(appLogsHandler.MAX_FOLLOWED);
+      expect(verifyPrivilege.callCount, 'a subscribe that cannot be accepted still cost a verification').to.equal(verifications);
+    });
+
+    it('gives up one container by name and keeps the rest', async () => {
+      const socket = makeSocket('s1', makeNamespace());
+      const second = new EventEmitter();
+      second.destroy = sinon.stub();
+      appLogsHandler(socket);
+      await subscribe(socket);
+      getDockerContainerByIdOrName.resolves({ id: 'def456', logs: sinon.stub().resolves(second) });
+      await subscribe(socket, 'fluxother_app2');
+
+      await socket.fire('unsubscribe', 'fluxother_app2');
+
+      expect([...appLogsHandler.feeds.keys()], 'the named container was left, the other kept').to.deep.equal(['abc123']);
+      expect([...socket.rooms]).to.deep.equal(['applogs:abc123']);
+
+      await socket.fire('unsubscribe');
+
+      expect(appLogsHandler.feeds.size, 'no argument leaves everything').to.equal(0);
+      expect([...socket.rooms]).to.be.empty;
     });
   });
 
-  describe('the connection\'s one slot', () => {
+  describe('what one connection holds', () => {
     // Two containers rather than one, so a claim that is not held across the
     // daemon's answer shows as two feeds instead of as one feed opened twice.
     // The streams are handed out one per call, which is what the daemon does:
@@ -306,7 +371,7 @@ describe('appLogsHandler tests', () => {
       return streams;
     };
 
-    it('refuses a second container claimed in the same tick', async () => {
+    it('takes both containers claimed in the same tick, and strands no stream', async () => {
       const streams = twoContainers();
       const socket = makeSocket('s1', makeNamespace());
       appLogsHandler(socket);
@@ -319,11 +384,8 @@ describe('appLogsHandler tests', () => {
         socket.fire('subscribe', 'zelidauth', 'fluxb_myapp'),
       ]);
 
-      expect(
-        socket.emit.calledWith('error', 'This connection already follows a container.'),
-        'the second subscribe was accepted while the first was still being set up',
-      ).to.be.true;
-      expect([...appLogsHandler.feeds.keys()]).to.deep.equal(['containerA']);
+      expect([...appLogsHandler.feeds.keys()]).to.deep.equal(['containerA', 'containerB']);
+      expect(streams.length, 'one stream per container, however they were asked for').to.equal(2);
 
       await socket.fire('disconnect');
 
@@ -335,6 +397,21 @@ describe('appLogsHandler tests', () => {
         streams.filter((stream) => !stream.destroyed),
         'a docker follow stream, its interval and its decoding running for nobody',
       ).to.be.empty;
+    });
+
+    it('opens one stream for one container asked for twice in the same tick', async () => {
+      const streams = twoContainers();
+      const socket = makeSocket('s1', makeNamespace());
+      appLogsHandler(socket);
+
+      await Promise.all([
+        socket.fire('subscribe', 'zelidauth', 'fluxa_myapp'),
+        socket.fire('subscribe', 'zelidauth', 'fluxa_myapp'),
+      ]);
+
+      expect([...appLogsHandler.feeds.keys()]).to.deep.equal(['containerA']);
+      expect(streams.length, 'the second pass opened a stream nothing holds').to.equal(1);
+      expect(appLogsHandler.feeds.get('containerA').subscribers.size).to.equal(1);
     });
 
     it('stands a subscribe down when the connection unsubscribes while authorisation is in flight', async () => {
@@ -353,7 +430,7 @@ describe('appLogsHandler tests', () => {
       expect(socket.emit.calledWith('subscribed'), 'the connection was left following what it asked to leave').to.be.false;
     });
 
-    it('frees the slot when the container is not there, so the connection can ask again', async () => {
+    it('holds nothing when the container is not there, so the connection can ask again', async () => {
       getDockerContainerByIdOrName.resolves(null);
       const socket = makeSocket('s1', makeNamespace());
       appLogsHandler(socket);
@@ -366,7 +443,7 @@ describe('appLogsHandler tests', () => {
 
       expect(
         socket.emit.calledWith('subscribed', { container: 'abc123' }),
-        'a subscribe that reached nothing kept the slot for the life of the connection',
+        'a subscribe that reached nothing was left holding the connection',
       ).to.be.true;
     });
   });
@@ -591,6 +668,27 @@ describe('appLogsHandler tests', () => {
       expect(feed.recent, 'a later viewer opens on the tail of what was written').to.have.length(appLogsHandler.BACKFILL_LINES);
     });
 
+    it('names the container on every message, so a connection can follow several', async () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const socket = makeSocket('s1', makeNamespace());
+        appLogsHandler(socket);
+        await subscribe(socket);
+
+        const over = appLogsHandler.MAX_QUEUED_LINES + 5;
+        logStream.emit('data', frame(`${Array.from({ length: over }, (_, i) => `line${i}`).join('\n')}\n`));
+        clock.tick(appLogsHandler.BATCH_MS);
+        logStream.emit('end');
+
+        const byEvent = (name) => socket.received.filter((r) => r.event === name).map((r) => r.payload);
+        expect(byEvent('logs')[0]).to.have.property('container', 'abc123');
+        expect(byEvent('skipped')[0]).to.have.property('container', 'abc123');
+        expect(byEvent('ended')[0]).to.deep.equal({ container: 'abc123' });
+      } finally {
+        clock.restore();
+      }
+    });
+
     it('reports a drop only once, not on every later flush', async () => {
       const clock = sinon.useFakeTimers();
       try {
@@ -669,10 +767,197 @@ describe('appLogsHandler tests', () => {
       await subscribe(socket, 'fluxother_app2');
 
       expect(
-        socket.emit.calledWith('error', 'This connection already follows a container.'),
-        'the slot outlived the container it named, so ended was terminal for the connection',
-      ).to.be.false;
+        socket.emit.getCalls().filter((call) => call.args[0] === 'error'),
+        'a subscription its container outlived refused the next one',
+      ).to.be.empty;
       expect(socket.emit.calledWith('subscribed', { container: 'def456' })).to.be.true;
+
+      // And the container that stopped can be taken again, which is the dead
+      // entry being replaced rather than merely ignored.
+      container.logs = sinon.stub().resolves(freshStream());
+      getDockerContainerByIdOrName.resolves(container);
+      await subscribe(socket);
+
+      expect(socket.emit.calledWith('subscribed', { container: 'abc123' })).to.be.true;
+      expect([...appLogsHandler.feeds.keys()]).to.deep.equal(['def456', 'abc123']);
+    });
+
+    it('lets a viewer back on a container another viewer has already reopened', async () => {
+      // Both were watching when it stopped, so both hold an entry naming the
+      // same container. The one that asks again second finds the id filed to a
+      // feed that is not the one it was following, which is the only thing that
+      // separates its dead subscription from a live one.
+      const nsp = makeNamespace();
+      const first = makeSocket('s1', nsp);
+      const second = makeSocket('s2', nsp);
+      appLogsHandler(first);
+      appLogsHandler(second);
+      await subscribe(first);
+      await subscribe(second);
+
+      logStream.emit('end');
+      expect(appLogsHandler.feeds.has('abc123'), 'the container stopped').to.be.false;
+
+      container.logs = sinon.stub().resolves(freshStream());
+      await subscribe(second);
+      expect(appLogsHandler.feeds.has('abc123'), 'the other viewer reopened it').to.be.true;
+
+      first.emit.resetHistory();
+      await subscribe(first);
+
+      expect(
+        first.emit.calledWith('subscribed', { container: 'abc123' }),
+        'the viewer was locked out of logs for the life of its connection',
+      ).to.be.true;
+      expect(appLogsHandler.feeds.get('abc123').subscribers.size).to.equal(2);
+    });
+
+    it('tells a viewer its stream failed rather than that it is subscribed', async () => {
+      // The last viewer leaves while the daemon is answering, so the feed this
+      // pass claimed is closed before it has a stream. 'subscribed' would leave
+      // a pane attached to nothing, with no 'ended' to fall back from.
+      let releaseLogs;
+      container.logs.returns(new Promise((resolve) => { releaseLogs = resolve; }));
+      const nsp = makeNamespace();
+      const opener = makeSocket('s1', nsp);
+      const leaver = makeSocket('s2', nsp);
+      appLogsHandler(opener);
+      appLogsHandler(leaver);
+
+      const pending = subscribe(opener);
+      await until(() => container.logs.called);
+      await subscribe(leaver);
+      await leaver.fire('disconnect');
+      releaseLogs(logStream);
+      await pending;
+
+      expect(opener.emit.calledWith('subscribed'), 'attached to a feed that was already closed').to.be.false;
+      expect(opener.emit.calledWith('error', 'Log stream error.')).to.be.true;
+      expect([...opener.rooms], 'left in the room of a feed that has gone').to.be.empty;
+      expect(appLogsHandler.feeds.size).to.equal(0);
+    });
+
+    it('takes the viewers of a failed open out of the room with it', async () => {
+      // The joiner subscribed against a claim that never carried a stream. Left
+      // in the room, it is handed the lines of whatever feed opens for that id
+      // next, into a pane that has already fallen back to the poll.
+      let rejectLogs;
+      container.logs.returns(new Promise((resolve, reject) => { rejectLogs = reject; }));
+      const nsp = makeNamespace();
+      const opener = makeSocket('s1', nsp);
+      const joiner = makeSocket('s2', nsp);
+      appLogsHandler(opener);
+      appLogsHandler(joiner);
+
+      const pending = subscribe(opener);
+      await until(() => container.logs.called);
+      await subscribe(joiner);
+      rejectLogs(new Error('daemon went away'));
+      await pending;
+
+      expect([...joiner.rooms], 'still in the room of a feed that failed to open').to.be.empty;
+
+      const clock = sinon.useFakeTimers();
+      try {
+        const later = freshStream();
+        container.logs = sinon.stub().resolves(later);
+        const next = makeSocket('s3', nsp);
+        appLogsHandler(next);
+        await subscribe(next);
+        joiner.received = [];
+
+        later.emit('data', frame('a feed it never asked for\n'));
+        clock.tick(appLogsHandler.BATCH_MS);
+
+        expect(joiner.received.filter((r) => r.event === 'logs'), 'fed a container it is not watching').to.be.empty;
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('leaves a live feed alone when a stale open finally fails', async () => {
+      // The failing pass claimed this container, gave it up, and another viewer
+      // opened a feed for the same id while the daemon was still answering.
+      // Emptying that room would strand a viewer on a stream it is still
+      // subscribed to.
+      let rejectLogs;
+      container.logs.returns(new Promise((resolve, reject) => { rejectLogs = reject; }));
+      const nsp = makeNamespace();
+      const stale = makeSocket('s1', nsp);
+      const live = makeSocket('s2', nsp);
+      appLogsHandler(stale);
+      appLogsHandler(live);
+
+      const pending = subscribe(stale);
+      await until(() => container.logs.called);
+      await stale.fire('disconnect');
+
+      // Installed before the live feed opens: its flush interval is created at
+      // that moment, and an interval taken from the real timers is not one this
+      // clock can tick.
+      const clock = sinon.useFakeTimers();
+      try {
+        const current = freshStream();
+        container.logs = sinon.stub().resolves(current);
+        await subscribe(live);
+        expect(appLogsHandler.feeds.has('abc123'), 'the live viewer holds a feed').to.be.true;
+
+        rejectLogs(new Error('daemon went away'));
+        await pending;
+        live.received = [];
+
+        current.emit('data', frame('still watching\n'));
+        clock.tick(appLogsHandler.BATCH_MS);
+
+        expect([...live.rooms], 'a stale failure emptied a live feed\'s room').to.deep.equal(['applogs:abc123']);
+        expect(live.received.filter((r) => r.event === 'logs'), 'subscribed to a stream that can no longer reach it').to.not.be.empty;
+        expect(live.received.filter((r) => r.event === 'error'), 'told a stream it does not hold had failed').to.be.empty;
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('does not let a failing pass release what a later one on the same connection holds', async () => {
+      // The first pass claimed the container, the last viewer left while the
+      // daemon was answering, and the same connection asked for it again and
+      // opened a new feed. The first pass then fails: what it releases must be
+      // its own subscription and not the live one filed under the same id.
+      let rejectLogs;
+      container.logs.returns(new Promise((resolve, reject) => { rejectLogs = reject; }));
+      const nsp = makeNamespace();
+      const socket = makeSocket('s1', nsp);
+      const other = makeSocket('s2', nsp);
+      appLogsHandler(socket);
+      appLogsHandler(other);
+
+      const stale = subscribe(socket);
+      await until(() => container.logs.called);
+      await subscribe(other);
+      await other.fire('disconnect');
+      expect(appLogsHandler.feeds.has('abc123'), 'the last viewer left, so the claim closed').to.be.false;
+
+      // Installed before the live feed opens: its flush interval is taken at
+      // that moment, and one taken from the real timers this clock cannot tick.
+      const clock = sinon.useFakeTimers();
+      try {
+        const live = freshStream();
+        container.logs = sinon.stub().resolves(live);
+        await subscribe(socket);
+        expect(appLogsHandler.feeds.has('abc123'), 'the connection opened it again').to.be.true;
+
+        rejectLogs(new Error('daemon went away'));
+        await stale;
+        socket.received = [];
+
+        live.emit('data', frame('still following\n'));
+        clock.tick(appLogsHandler.BATCH_MS);
+
+        expect(appLogsHandler.feeds.has('abc123'), 'the failing pass closed the live feed').to.be.true;
+        expect([...socket.rooms], 'the failing pass took the room with it').to.deep.equal(['applogs:abc123']);
+        expect(socket.received.filter((r) => r.event === 'logs'), 'the live subscription stopped being fed').to.not.be.empty;
+      } finally {
+        clock.restore();
+      }
     });
 
     it('stops handing a container to a connection whose feed already ended', async () => {

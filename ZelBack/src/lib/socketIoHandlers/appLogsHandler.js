@@ -34,6 +34,20 @@ const MAX_QUEUED_LINES = 20000;
 const BACKFILL_LINES = 200;
 
 /**
+ * How many containers one connection may follow.
+ *
+ * Ten, because an app is capped at ten components (`appValidator.js:679`), so
+ * this is a viewer following every container of the largest app it can be
+ * looking at.
+ *
+ * It bounds a connection's own bookkeeping, not the node's work. The most
+ * streams a node can have open is the number of containers it runs, whatever
+ * any client does: `feeds` is keyed by container and one stream serves every
+ * viewer of it, so connecting more times opens no more streams.
+ */
+const MAX_FOLLOWED = 10;
+
+/**
  * One docker stream per container, however many viewers are watching it.
  *
  * The alternative is a stream per subscriber, which multiplies the daemon's work
@@ -85,15 +99,43 @@ function flush(io, containerId) {
   const feed = feeds.get(containerId);
   if (!feed) return;
 
+  // Named on every message, because a connection may follow several containers
+  // and a batch that does not say which one it belongs to can only be read by a
+  // client that follows exactly one. Additive: a client that reads `lines` and
+  // ignores the rest is unaffected.
   if (feed.dropped) {
-    io.to(roomFor(containerId)).emit('skipped', { count: feed.dropped });
+    io.to(roomFor(containerId)).emit('skipped', { container: containerId, count: feed.dropped });
     feed.dropped = 0;
   }
   if (!feed.queued.length) return;
 
   const lines = feed.queued;
   feed.queued = [];
-  io.to(roomFor(containerId)).emit('logs', { lines });
+  io.to(roomFor(containerId)).emit('logs', { container: containerId, lines });
+}
+
+/**
+ * Take the container's feed record. Filed before anything is awaited.
+ *
+ * Nothing may be awaited between the caller's `feeds.get` and this claim: two
+ * viewers opening one container in the same tick must find one feed between
+ * them. The map holds one record per container, so a second stream for the same
+ * container is held by nothing, cannot be destroyed, and follows the container
+ * for the life of the process - delivering every line to the room twice.
+ *
+ * Returned rather than kept private, because a subscription is held by the
+ * record and not by the id. Ids survive a container's restart; the record is
+ * what makes one subscription distinguishable from the next.
+ *
+ * @param {string} containerId
+ * @returns {object} the feed record, already filed
+ */
+function claimFeed(containerId) {
+  const feed = {
+    stream: null, queued: [], dropped: 0, timer: null, subscribers: new Set(), recent: [], closed: false,
+  };
+  feeds.set(containerId, feed);
+  return feed;
 }
 
 /**
@@ -102,22 +144,11 @@ function flush(io, containerId) {
  * @param {object} io The namespace to emit on
  * @param {object} container The dockerode container
  * @param {string} containerId
+ * @param {object} feed The record `claimFeed` filed for this container
  * @returns {Promise<void>} resolves once the stream is attached
  */
-async function openFeed(io, container, containerId) {
+async function openFeed(io, container, containerId, feed) {
   const decoder = new LogFrameDecoder();
-  const feed = {
-    stream: null, queued: [], dropped: 0, timer: null, subscribers: new Set(), recent: [], closed: false,
-  };
-  // Claimed BEFORE the daemon is asked, with nothing awaited between the
-  // caller's `feeds.get` and this line. Two viewers opening the same container
-  // in one tick both looked into the gap this closes, both found nothing, and
-  // both opened a stream - and the second one replaced the first in this map,
-  // which is the only reference to it. A stream nothing holds cannot be
-  // destroyed: it follows the container for the life of the process and its
-  // data handler keeps resolving `feeds.get(containerId)` to whatever feed is
-  // current, so every later viewer of that container sees every line twice.
-  feeds.set(containerId, feed);
 
   let stream;
   try {
@@ -133,12 +164,20 @@ async function openFeed(io, container, containerId) {
       tail: BACKFILL_LINES,
     });
   } catch (error) {
-    // The claim goes before the throw, so the next viewer opens a stream rather
-    // than joining a record that will never carry one. Whoever joined on the
-    // strength of it is told through the room: their own subscribe succeeded and
-    // has nothing left to report to them.
-    if (feeds.get(containerId) === feed) feeds.delete(containerId);
-    io.to(roomFor(containerId)).emit('error', 'Log stream error.');
+    // Through closeFeed, the only thing that removes a feed from the map, so
+    // "not filed" and "marked closed" always agree - the invariant every holder
+    // of a subscription reads. It empties the room too: a viewer left in a room
+    // whose feed has gone is handed the lines of whatever feed opens for that id
+    // next, into a pane that has already fallen back to the poll.
+    //
+    // Guarded by identity, because a failing open can be the stale one - the
+    // feed it claimed already closed and the container reopened by another
+    // viewer. Emptying that room would leave a live feed's viewers subscribed to
+    // a stream that can no longer reach them.
+    if (feeds.get(containerId) === feed) {
+      io.to(roomFor(containerId)).emit('error', 'Log stream error.', containerId);
+      closeFeed(io, containerId);
+    }
     throw error;
   }
 
@@ -198,18 +237,18 @@ async function openFeed(io, container, containerId) {
 
   stream.on('error', guard('stream error', (error) => {
     log.error(`appLogsHandler: stream error for ${containerId}: ${error.message}`);
-    io.to(roomFor(containerId)).emit('error', 'Log stream error.');
+    io.to(roomFor(containerId)).emit('error', 'Log stream error.', containerId);
     closeFeed(io, containerId);
   }));
 
-  // The container stopped, so docker closed the stream. The subscribers stay
-  // where they are - the room is theirs, not the stream's - and are told, so a
-  // viewer shows a stopped container rather than a pane that quietly stops
-  // updating.
+  // The container stopped, so docker closed the stream. Told before the feed
+  // goes, so a viewer shows a stopped container rather than a pane that quietly
+  // stops updating - and the connection is free to follow it again when it is
+  // started, because the entry holding it names a feed that is now closed.
   stream.on('end', guard('stream end', () => {
     enqueue(decoder.flush());
     flush(io, containerId);
-    io.to(roomFor(containerId)).emit('ended');
+    io.to(roomFor(containerId)).emit('ended', { container: containerId });
     closeFeed(io, containerId);
   }));
 
@@ -229,22 +268,26 @@ async function openFeed(io, container, containerId) {
  */
 async function appLogsHandler(socket) {
   const io = socket.nsp;
-  // The connection's one subscription, taken the moment a subscribe is accepted
-  // and before anything is awaited. One container per connection, the same
-  // bargain the terminal makes.
+  // What this connection follows, by container, each entry holding the feed
+  // record itself rather than the id it is filed under. Ids are names and names
+  // are reused - a container keeps its id across a restart - so an entry that
+  // held only an id cannot tell its own feed from the one another viewer opens
+  // for that container later.
   //
-  // A record rather than the container id, because the id cannot also be the
-  // claim: whether the slot is taken has an answer from this listener's first
-  // line, and which container to release has none until the daemon has answered
-  // two awaits later. Named by the container, the claim was not made until the
-  // second of those returned - so two subscribes arriving in one tick both
-  // passed the guard, the second replaced the first, and the disconnect released
-  // only the second. The first kept a departed socket.id among its subscribers,
-  // which is a count that never reaches zero: a docker follow stream, its
-  // interval and its decoding ran on with no viewer, and no later viewer of that
-  // container could close it either.
-  /** @type {{containerId: string|null, abandoned: boolean}|null} */
-  let slot = null;
+  // A map rather than a single slot, because nothing about a log stream is
+  // exclusive. The terminal takes one container per connection because `cmd`
+  // and `resize` name no session; everything here is addressed by room and
+  // keyed by container, and one docker stream serves every viewer of a
+  // container however they are connected. A connection following ten containers
+  // costs the node what ten connections following one each cost it, measured,
+  // and saves nine sockets.
+  /** @type {Map<string, {containerId: string, name: string, feed: object|null, abandoned: boolean}>} */
+  const following = new Map();
+  // Subscribes that have not settled. A pass reaches `following` only once the
+  // daemon has named its container; an unsubscribe arriving before that marks
+  // the pass here, so a connection cannot end up following a container it has
+  // asked to leave.
+  const pending = new Set();
   let clientGone = false;
 
   // By container rather than by the slot, because the two get out of step
@@ -266,15 +309,31 @@ async function appLogsHandler(socket) {
     if (!feed.subscribers.size) closeFeed(io, containerId);
   };
 
-  const leave = () => {
-    if (!slot) return;
+  const leave = (containerId) => {
+    const entry = following.get(containerId);
+    if (!entry) return;
     // Marked as well as dropped, because a subscribe still in setup holds this
-    // record and has no other way to learn the slot was given up: the flag is
-    // what tells that pass to stand down, rather than to finish and leave the
-    // connection following a container it has already asked to leave.
-    slot.abandoned = true;
-    if (slot.containerId) release(slot.containerId);
-    slot = null;
+    // record and has no other way to learn the subscription was given up: the
+    // flag is what tells that pass to stand down rather than to finish and
+    // leave the connection following a container it has asked to leave.
+    entry.abandoned = true;
+    following.delete(containerId);
+    release(containerId);
+  };
+
+  /**
+   * Give up everything this connection follows, or only what `name` names.
+   *
+   * @param {string|null} name a container id, the name a subscribe asked with,
+   *   or null for all of them
+   */
+  const leaveMatching = (name) => {
+    pending.forEach((pass) => {
+      if (!name || pass.name === name) pass.abandoned = true;
+    });
+    [...following.values()]
+      .filter((entry) => !name || entry.containerId === name || entry.name === name)
+      .forEach((entry) => leave(entry.containerId));
   };
 
   // Registered at connection, ahead of any message: a disconnect can land while
@@ -283,10 +342,17 @@ async function appLogsHandler(socket) {
   // fires, and the feed it should have released would outlive every viewer.
   socket.on('disconnect', () => {
     clientGone = true;
-    leave();
+    leaveMatching(null);
   });
 
-  socket.on('unsubscribe', () => leave());
+  // Named by whatever the client called it - the id it was given back, or the
+  // name it subscribed with. Matching both is what lets a viewer give up one
+  // container without a docker lookup to resolve what it already holds. No
+  // argument leaves everything, which is what a client that follows one
+  // container sends.
+  socket.on('unsubscribe', (nameOrId) => {
+    leaveMatching(typeof nameOrId === 'string' ? nameOrId : null);
+  });
 
   socket.on('subscribe', async (zelidauth, nameOrId) => {
     // Ahead of everything, because this namespace takes no middleware: both
@@ -305,31 +371,31 @@ async function appLogsHandler(socket) {
       socket.emit('error', 'Not authorized.');
       return;
     }
-    // A feed that ended took the subscription with it: the container stopped,
-    // the stream is closed and there is nothing left to leave. Held, the slot
-    // makes 'ended' terminal for the CONNECTION rather than for the container -
-    // and the only way out was an unsubscribe no client is told to send.
-    if (slot && slot.containerId && !feeds.has(slot.containerId)) leave();
-    if (slot) {
-      socket.emit('error', 'This connection already follows a container.');
+    // Refused before the signature is checked, so a connection at its limit
+    // cannot spend the node's verification on a subscribe that cannot be
+    // accepted. The count is checked again at the claim below, where nothing is
+    // awaited and it cannot move underneath the decision.
+    if (following.size >= MAX_FOLLOWED) {
+      socket.emit('error', `This connection already follows ${MAX_FOLLOWED} containers.`);
       return;
     }
 
-    // Taken with nothing awaited between the guard above and this line, so the
-    // next subscribe on this connection finds it held however long the daemon
-    // takes to answer this one.
-    const mine = { containerId: null, abandoned: false };
-    slot = mine;
-
-    // Hands the slot back only while this pass still holds it. A pass abandoned
-    // mid-setup can be overtaken by the subscribe that follows it, and must not
-    // free a slot that one is now using.
-    const abandon = message => {
-      if (slot === mine) slot = null;
-      if (message) socket.emit('error', message);
+    const mine = {
+      containerId: null, name: nameOrId, feed: null, abandoned: false,
     };
+    pending.add(mine);
 
     const mainAppName = nameOrId.split('_')[1] || nameOrId;
+
+    // Gives up what this pass took, and only while the entry is still this
+    // pass's. A pass abandoned mid-setup can be overtaken by a later subscribe
+    // for the same container: releasing then would take the room and the feed
+    // out from under the pass that now holds them.
+    const drop = () => {
+      if (!mine.containerId || following.get(mine.containerId) !== mine) return;
+      following.delete(mine.containerId);
+      release(mine.containerId);
+    };
 
     try {
       // Authorise BEFORE touching docker: the lookup below is a remote-controlled
@@ -342,7 +408,7 @@ async function appLogsHandler(socket) {
         { appName: mainAppName },
       );
       if (authorized !== true) {
-        abandon('Not authorized.');
+        socket.emit('error', 'Not authorized.');
         return;
       }
 
@@ -351,39 +417,60 @@ async function appLogsHandler(socket) {
         return null;
       });
       if (!container) {
-        abandon('Container not found.');
+        socket.emit('error', 'Container not found.');
         return;
       }
 
       // The client may have gone, or given this subscription up, while the
-      // awaits above ran. Either way what would have released it has already run
-      // and found no container to name, so opening a feed now would leave one
-      // with no viewer and nobody left to close it.
-      if (mine.abandoned || clientGone || !socket.connected) {
-        abandon();
-        return;
-      }
+      // awaits above ran. Nothing is held yet, so there is nothing to release.
+      if (mine.abandoned || clientGone || !socket.connected) return;
 
       const containerId = container.id;
+
+      // From here to the feed being in hand, nothing is awaited: the entry, the
+      // count and the feed identity are settled in one tick, so a second
+      // subscribe cannot pass a check this pass is about to invalidate.
+      const held = following.get(containerId);
+      if (held && !(held.feed && held.feed.closed)) {
+        // Already followed. Saying so again is the honest answer to a client
+        // that asked twice, and costs the node nothing: the feed is shared and
+        // the room already carries it.
+        socket.emit('subscribed', { container: containerId });
+        return;
+      }
+      if (!held && following.size >= MAX_FOLLOWED) {
+        socket.emit('error', `This connection already follows ${MAX_FOLLOWED} containers.`);
+        return;
+      }
+      // Whatever the dead entry's pass is still doing, it stands down rather
+      // than releasing the container this pass is about to take.
+      if (held) held.abandoned = true;
+
       mine.containerId = containerId;
+      following.set(containerId, mine);
       socket.join(roomFor(containerId));
 
       const existing = feeds.get(containerId);
       if (!existing) {
-        await openFeed(io, container, containerId);
-      } else if (existing.recent.length) {
-        // Sent to this socket alone, and only the part the room will NOT send
-        // again. Every line is put in both `recent` and `queued`, so whatever is
-        // queued right now is also the tail of `recent` and is about to arrive
-        // here through the room - handing the whole of `recent` over delivers
-        // that tail twice, which is the one thing a log pane must never do.
-        //
-        // The two are read in the same tick with nothing awaited between them,
-        // and only a stream 'data' event appends to either, so this is a
-        // consistent snapshot rather than a race narrowed.
-        const alsoComing = Math.min(existing.queued.length, existing.recent.length);
-        const backfill = existing.recent.slice(0, existing.recent.length - alsoComing);
-        if (backfill.length) socket.emit('logs', { lines: backfill });
+        mine.feed = claimFeed(containerId);
+        await openFeed(io, container, containerId, mine.feed);
+      } else {
+        mine.feed = existing;
+        if (existing.recent.length) {
+          // Sent to this socket alone, and only the part the room will NOT send
+          // again. Every line is put in both `recent` and `queued`, so whatever
+          // is queued right now is also the tail of `recent` and is about to
+          // arrive here through the room - handing the whole of `recent` over
+          // delivers that tail twice, which is the one thing a log pane must
+          // never do.
+          //
+          // The two are read in the same tick with nothing awaited between them,
+          // and only a stream 'data' event appends to either, so this is a
+          // consistent snapshot rather than a race narrowed.
+          const alsoComing = Math.min(existing.queued.length, existing.recent.length);
+          const backfill = existing.recent.slice(0, existing.recent.length - alsoComing);
+          if (backfill.length) socket.emit('logs', { container: containerId, lines: backfill });
+        }
       }
 
       // Re-checked after that await. The feed was opened during it, so this is
@@ -391,18 +478,28 @@ async function appLogsHandler(socket) {
       // disconnect that preceded it already did: release() is written to find
       // nothing and return.
       if (mine.abandoned || clientGone || !socket.connected) {
-        release(containerId);
-        abandon();
+        drop();
         return;
       }
 
-      feeds.get(containerId)?.subscribers.add(socket.id);
+      // The feed this pass claimed is no longer the container's: the last viewer
+      // left while the daemon was answering, or the stream failed on open.
+      // 'subscribed' here would attach a pane to nothing, with no 'ended' or
+      // 'error' to fall back from.
+      if (feeds.get(containerId) !== mine.feed) {
+        drop();
+        socket.emit('error', 'Log stream error.', containerId);
+        return;
+      }
+
+      mine.feed.subscribers.add(socket.id);
       socket.emit('subscribed', { container: containerId });
     } catch (error) {
       log.error(`appLogsHandler: ${nameOrId}: ${error.message}`);
       socket.emit('error', 'Error following logs.');
-      if (mine.containerId) release(mine.containerId);
-      abandon();
+      drop();
+    } finally {
+      pending.delete(mine);
     }
   });
 }
@@ -412,3 +509,4 @@ module.exports.feeds = feeds;
 module.exports.BATCH_MS = BATCH_MS;
 module.exports.MAX_QUEUED_LINES = MAX_QUEUED_LINES;
 module.exports.BACKFILL_LINES = BACKFILL_LINES;
+module.exports.MAX_FOLLOWED = MAX_FOLLOWED;
