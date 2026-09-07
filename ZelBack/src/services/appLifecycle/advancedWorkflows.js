@@ -1162,9 +1162,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     // draining to a browser, which reaches apiServer's uncaughtException handler
     // and exits the node.
     await appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
-    // The app is gone from this node. A caller that reads this the same as a
-    // refusal - where nothing was touched - either announces an installation
-    // that is not there, or destroys a running app over a scheduling collision.
+    // The app is gone from this node, and removed without telling anyone -
+    // `sendMessage` is false above, so peers keep their location record until it
+    // expires. A caller that reads this outcome the same as a refusal either
+    // announces an installation that is not there, or destroys a running app
+    // over a scheduling collision.
     return InstallOutcome.FAILED;
   } finally {
     // The one place the hold is released, so every way out of this function
@@ -1415,10 +1417,23 @@ async function softRedeploy(appSpecs, res) {
     // register
     const outcome = await softRegisterAppLocally(appSpecs, undefined, res);
     if (outcome !== InstallOutcome.INSTALLED) {
-      // REFUSED means nothing was touched - another operation held the node -
-      // so the app is as it was and the reconciler converges it. FAILED means
-      // the installer already tore it down and told the network; doing it again
-      // here runs two removals over the same app at once.
+      // Neither outcome is undone here, and neither leaves the app as it was:
+      // the removal above has already taken its containers AND its local row,
+      // and this is the only pass that would have put them back.
+      //
+      // REFUSED is the node being held by another operation for the length of
+      // the delay above. FAILED is the installer's own teardown, which removes
+      // locally without telling anyone (`sendMessage` is false at its call). So
+      // in both cases this node ends with no containers, no row, and peers
+      // holding a location record until it expires on its own - nothing here
+      // announces the loss, and with no row there is nothing for the reconciler
+      // to converge either.
+      //
+      // Left as it is deliberately: v9 replaces this path with the operation
+      // registry, which is where the recovery belongs. Uninstalling and
+      // broadcasting from here would answer it at the cost of the app's data,
+      // and a retry belongs to something that owns the whole redeploy rather
+      // than to its last step.
       const notReinstalled = messageHelper.createErrorMessage(
         `Application ${appSpecs.name} was not reinstalled (${outcome})`,
       );
@@ -1626,11 +1641,14 @@ async function softRedeployComponent(appName, componentName, res) {
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
       const outcome = await softRegisterAppLocally(appSpecifications, componentSpec, res);
       if (outcome !== InstallOutcome.INSTALLED) {
-        // REFUSED means the app is exactly as it was, so the catch below must not
-        // uninstall it - a five-second scheduling collision is not grounds for
-        // destroying a running application. FAILED means the installer has
-        // already torn it down, so a second teardown here would run concurrently
-        // with the first over the same app.
+        // Neither outcome reaches the catch below, which would uninstall the
+        // WHOLE app over one component: a scheduling collision is not grounds
+        // for that, and on FAILED the installer's teardown is already running.
+        //
+        // What neither outcome does is put the component back. The soft removal
+        // above has taken it down, so this node is left short a component with
+        // nothing announcing it - the same gap the whole-app path has, and left
+        // to v9's operation registry for the same reason.
         const notReinstalled = messageHelper.createErrorMessage(
           `Component ${fullComponentName} was not reinstalled (${outcome})`,
         );
@@ -1769,11 +1787,14 @@ async function hardRedeployComponent(appName, componentName, res) {
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
       const outcome = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
       if (outcome !== InstallOutcome.INSTALLED) {
-        // REFUSED means the app is exactly as it was, so the catch below must not
-        // uninstall it - a five-second scheduling collision is not grounds for
-        // destroying a running application. FAILED means the installer has
-        // already torn it down, so a second teardown here would run concurrently
-        // with the first over the same app.
+        // Neither outcome reaches the catch below, which would uninstall the
+        // WHOLE app over one component: a scheduling collision is not grounds
+        // for that, and on FAILED the installer's teardown is already running.
+        //
+        // What neither outcome does is put the component back. The soft removal
+        // above has taken it down, so this node is left short a component with
+        // nothing announcing it - the same gap the whole-app path has, and left
+        // to v9's operation registry for the same reason.
         const notReinstalled = messageHelper.createErrorMessage(
           `Component ${fullComponentName} was not reinstalled (${outcome})`,
         );

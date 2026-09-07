@@ -2715,7 +2715,9 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line global-require
       const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
-      sinon.stub(appInstaller, 'registerAppLocally').resolves();
+      // An InstallOutcome, not undefined: anything else is read as a failed
+      // reinstall and takes a branch this test is not about.
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
 
       // Stub serviceHelper.delay so hardRedeploy doesn't wait
       // eslint-disable-next-line global-require
@@ -2773,7 +2775,9 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line global-require
       const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
-      sinon.stub(appInstaller, 'registerAppLocally').resolves();
+      // An InstallOutcome, not undefined: anything else is read as a failed
+      // reinstall and takes a branch this test is not about.
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
 
       // Stub serviceHelper.delay so hardRedeploy doesn't wait
       // eslint-disable-next-line global-require
@@ -4326,9 +4330,11 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
       sinon.stub(appInstaller, 'installApplicationSoft').resolves();
       // The hard path reinstalls through registerAppLocally, which needs a
-      // detectable Flux IP; the soft path builds its own install inline.
-      // It answers true or false - false means it force-uninstalled the app.
-      sinon.stub(appInstaller, 'registerAppLocally').resolves(true);
+      // detectable Flux IP; the soft path builds its own install inline. It
+      // answers an InstallOutcome, so a stub answering anything else - `true`
+      // did - sends every test in here down the not-reinstalled branch, and the
+      // success path they are written for is never reached.
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
     });
 
     afterEach(() => {
@@ -4362,6 +4368,9 @@ describe('advancedWorkflows tests', () => {
       // thing that decides whether the container is really torn down.
       const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // eslint-disable-next-line global-require
+      const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+      const publishStub = sinon.stub(fluxEventBus, 'publish');
 
       await advancedWorkflows.hardRedeployComponent('myapp', 'web', null);
 
@@ -4371,6 +4380,13 @@ describe('advancedWorkflows tests', () => {
       expect(appIdArg).to.equal('fluxweb_myapp');
       expect(componentSpecArg.name).to.equal('web');
       expect(removeAppLocally.called, 'a successful component redeploy must not uninstall the app').to.be.false;
+      // And it was a successful one: the event is published on success only, so
+      // this is what separates the claim above from the not-reinstalled branch,
+      // which also happens not to uninstall.
+      expect(
+        publishStub.getCalls().filter((call) => call.args[0] === 'app:componentRedeployed'),
+        'the success path was never reached, so the assertion above proves nothing',
+      ).to.have.lengthOf(1);
     });
   });
 
