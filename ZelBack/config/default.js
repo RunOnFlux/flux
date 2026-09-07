@@ -357,7 +357,13 @@ module.exports = {
       // From here a fork names a list rather than one address. The address above
       // is carried forward - a fork replaces its predecessor rather than adding
       // to it, so leaving it out would stop it signing.
-      height: 2919141,
+      //
+      // Dated about a week ahead of the tip it was written at (2931010, 7th
+      // September 2026, ~30s blocks) rather than at it: a node on an older FluxOS
+      // reads only the fork at 1851659 and rejects a message signed by any of the
+      // new addresses, so the fork has to fall after the network has had time to
+      // update.
+      height: 2951000, // ~14th September 2026
       addresses: [
         '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
         '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',

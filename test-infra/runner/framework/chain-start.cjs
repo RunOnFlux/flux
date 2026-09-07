@@ -21,4 +21,4 @@
 // Pinned by tests/unit/harnessChainStart.test.js, which fails if any gate in the
 // production config rises above it. A suite that WANTS to be before a fork asks
 // for it: createTestEnv({ initialHeight }).
-module.exports = { DEFAULT_INITIAL_HEIGHT: 2920000 };
+module.exports = { DEFAULT_INITIAL_HEIGHT: 2952000 };
