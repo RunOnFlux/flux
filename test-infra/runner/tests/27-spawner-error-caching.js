@@ -21,7 +21,7 @@ async function bootToSpawnerReady(env) {
   await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
   await advanceBlock();
   for (const c of env.clients) {
-    await waitForBlockProcessed(c, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(c, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
   await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
@@ -52,7 +52,7 @@ describe('Spawner error caching: local install failure', function () {
         name: appName,
         description: 'broken test app',
         repotag: brokenRepotag,
-        ports: [39111],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],
@@ -148,7 +148,7 @@ describe.skip('Spawner error caching: network-wide error skip', function () {
         name: appName,
         description: 'good test app for network error test',
         repotag: goodRepotag,
-        ports: [39222],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],

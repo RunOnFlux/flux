@@ -1,17 +1,12 @@
-const df = require('node-df');
 const fs = require('fs').promises;
 const fs2 = require('fs');
-const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
 const path = require('path');
-const { formidable } = require('formidable');
+const deviceHelper = require('./deviceHelper');
 const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
-const verificationHelper = require('./verificationHelper');
-const exec = util.promisify(require('child_process').exec);
 const { URL } = require('url');
-const { sanitizePath, validateFilename, verifyRealPathOfExistingPath } = require('./utils/pathSecurity');
+const { measureTree } = require('./utils/treeSize');
 const { validateUrlWithDns } = require('./utils/urlSecurity');
 
 /**
@@ -60,7 +55,7 @@ async function requestWithValidatedRedirects(url, method = 'GET', axiosOptions =
     }
 
     // Handle redirect
-    const location = response.headers.location;
+    const { location } = response.headers;
     if (!location) {
       throw new Error('Redirect response missing Location header');
     }
@@ -141,32 +136,70 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
 
 /**
  * Get the total size of a folder, including its subdirectories and files.
+ *
+ * Follows no symlink. It used to `stat` its way down with unbounded recursion
+ * and a Promise.all fan-out, which an app owner could turn on the node hosting
+ * them: this measures volumes the apps themselves write to, so a `loop -> ..`
+ * planted in one measured itself until the process died, and an `escape -> /`
+ * measured the host. Both callers run as the FluxOS process, before any
+ * container exists - a copy's capacity check, and the file browser, which
+ * measures every directory it lists.
+ *
+ * Approximate upwards of nothing: an entry that cannot be stat'ed is skipped
+ * and a directory that cannot be opened is walked no further, so a tree only
+ * partly readable reports less than it holds. That is what a size in a listing
+ * means, and what `du` does with the same problem. Anything deciding whether
+ * something FITS needs a bound applied to what actually lands, not this.
+ *
  * @param {string} folderPath - The path to the folder.
- * @returns {string|boolean} - The total size of the folder formatted with the specified multiplier and decimal places, or false if an error occurs.
+ * @returns {Promise<number>} - Total bytes.
  */
 async function getFolderSize(folderPath) {
+  // What the files say, which is what a listing means by the size of a folder
+  // and what every file browser shows. Anything comparing a figure against
+  // free space wants measureTree's `occupied` instead, because that is a count
+  // of blocks and this is not.
+  return measureTree(folderPath, fs);
+}
+
+/**
+ * The size of a whole app volume's directory tree, in bytes. `du` walks it in
+ * one process with bounded memory; getFolderSize recurses in-process and fans
+ * out a Promise per entry at every level, which is fine for the handful of
+ * entries a folder listing shows and unbounded on an app's real data.
+ *
+ * Null rather than false when the size cannot be established: zero is a real
+ * answer for an empty directory, and a falsy sentinel makes the two
+ * indistinguishable at every call site that tests the result for truth.
+ *
+ * @param {string} dirPath - The path of the directory to measure.
+ * @returns {Promise<number|null>} - Size in bytes, or null if it could not be measured.
+ */
+async function getDirectorySizeBytes(dirPath) {
   try {
-    let totalSize = 0;
-    const calculateSize = async (filePath) => {
-      const stats = await fs.stat(filePath);
-
-      if (stats.isFile()) {
-        return stats.size;
-      // eslint-disable-next-line no-else-return
-      } else if (stats.isDirectory()) {
-        const files = await fs.readdir(filePath);
-        const sizes = await Promise.all(files.map((file) => calculateSize(path.join(filePath, file))));
-        return sizes.reduce((acc, size) => acc + size, 0);
-      }
-
-      return 0; // Unknown file type
-    };
-
-    totalSize = await calculateSize(folderPath);
-    return totalSize;
-  } catch (err) {
-    console.error(`Error getting folder size: ${err}`);
-    return false;
+    // Without -s, du reports each directory as it walks it and its own total
+    // last, so the answer is unchanged while the walk becomes observable - which
+    // is what an idle limit needs to mean anything. argv, no shell, for the same
+    // reason as the tar calls.
+    let total = null;
+    const result = await serviceHelper.runStreamingCommand('du', {
+      runAsRoot: true,
+      params: ['-b', dirPath],
+      idleTimeout: 5 * 60 * 1000,
+      onLine: (line) => {
+        const value = Number.parseInt(line.split(/\s+/)[0], 10);
+        if (Number.isFinite(value)) total = value;
+      },
+    });
+    if (result.error) {
+      const message = (result.stderr || result.error.message || '').replace(/\n/g, ' ').trim();
+      log.error(`Error measuring directory ${dirPath}: ${message}`);
+      return null;
+    }
+    return total;
+  } catch (error) {
+    log.error(`Error measuring directory ${dirPath}: ${error.message}`);
+    return null;
   }
 }
 
@@ -219,56 +252,60 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @returns {Array|boolean} - Array of objects containing volume information for the specified component, or false if no matching mount is found.
+ * @returns {Promise<{error: Error|null, mounts: object[]}>} - `mounts` is the
+ *          matching mount info (empty when the volume is not mounted - df only
+ *          reports mounted filesystems), and `error` is set only when the mount
+ *          table itself could not be read. An empty `mounts` with no `error` is
+ *          an answer ("not mounted"); an `error` is a failure to answer, which a
+ *          destructive caller must refuse on rather than read as "not mounted".
  */
 async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
-    const options = {
-      prefixMultiplier: multiplier,
-      isDisplayPrefixMultiplier: false,
-      precision: +decimal,
-    };
-    const dfAsync = util.promisify(df);
-    const dfData = await dfAsync(options);
-    let regex;
-    if (component === 'null') {
-      regex = new RegExp(`flux${appname}$`);
-    } else {
-      regex = new RegExp(`flux${component}_${appname}$`);
-    }
-    const allowedFields = fields ? fields.split(',') : null;
-    const adjustValue = (value) => (multiplier.toLowerCase() === 'b' ? value * 1024 : value);
-    const dfSorted = dfData
-      .filter((entry) => {
-        const testResult = regex.test(entry.mount);
-        return testResult;
-      })
-      .map((entry) => {
-        const filteredEntry = allowedFields
-          ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
-          : entry;
+    const mounts = await deviceHelper.listMountedFilesystems();
 
-        if (allowedFields && allowedFields.some((field) => ['size', 'available', 'used'].includes(field))) {
-          ['size', 'available', 'used'].forEach((property) => {
-            if (filteredEntry[property] !== undefined) {
-              filteredEntry[property] = adjustValue(filteredEntry[property]);
-            }
-          });
-        }
-        return filteredEntry;
-      })
-      .filter((entry) => {
-        if (allowedFields) {
-          return Object.keys(entry).length > 0;
-        // eslint-disable-next-line no-else-return
-        } else {
-          return true;
-        }
-      });
-    return dfSorted.length > 0 ? dfSorted : false;
+    // The identifier is `flux<component>_<app>`, and neither name may contain an
+    // underscore (components are alphanumeric, app names alphanumeric plus
+    // internal hyphens), so the pair cannot be ambiguous. Both are validated
+    // against those charsets before reaching here, which is also what keeps them
+    // safe to interpolate into a pattern.
+    const identifier = component === 'null' ? `flux${appname}` : `flux${component}_${appname}`;
+
+    // A path the KERNEL reports as a mountpoint, selected by the request - never
+    // a path built from it. The worst a hostile appname can do is match nothing.
+    const matched = mounts.filter((mount) => path.basename(mount.target) === identifier);
+    if (!matched.length) return { error: null, mounts: [] };
+
+    const divisor = {
+      b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3,
+    }[String(multiplier || 'B').toLowerCase()] ?? 1;
+    // Two argument orders for this function exist in the codebase, so `decimal`
+    // sometimes arrives as a field name. Anything non-numeric means "no rounding"
+    // rather than NaN, which is what the previous implementation produced for
+    // every size it returned to the file API.
+    const precision = Number.isFinite(+decimal) ? +decimal : null;
+    const toUnit = (bytes) => {
+      const value = bytes / divisor;
+      return precision === null ? value : Number(value.toFixed(precision));
+    };
+
+    const allowedFields = fields ? String(fields).split(',') : null;
+    const mountsInfo = matched.map((mount) => {
+      const full = {
+        filesystem: mount.source,
+        size: toUnit(mount.sizeBytes),
+        used: toUnit(mount.usedBytes),
+        available: toUnit(mount.availableBytes),
+        capacity: mount.usePercent / 100,
+        mount: mount.target,
+      };
+      return allowedFields
+        ? Object.fromEntries(Object.entries(full).filter(([key]) => allowedFields.includes(key)))
+        : full;
+    }).filter((entry) => Object.keys(entry).length > 0);
+    return { error: null, mounts: mountsInfo };
   } catch (error) {
     log.error(error);
-    return false;
+    return { error, mounts: [] };
   }
 }
 
@@ -286,8 +323,12 @@ async function getPathFileList(targetpath, multiplier, decimal, filterKeywords =
     // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
       const filePath = `${targetpath}/${file}`;
+      // lstat, so every entry describes ITSELF. This lists a directory on an
+      // application's own volume, where the application can put a link pointing
+      // anywhere on the node - and following one would answer with the size and
+      // creation time of whatever it names.
       // eslint-disable-next-line no-await-in-loop
-      const stats = await fs.stat(filePath);
+      const stats = await fs.lstat(filePath);
       // eslint-disable-next-line no-await-in-loop
       const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => {
         const includes = file.includes(keyword);
@@ -406,14 +447,95 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, re
 async function untarFile(extractPath, tarFilePath) {
   try {
     await fs.mkdir(extractPath, { recursive: true });
-    const unpackCmd = `sudo tar -xvzf ${tarFilePath} -C ${extractPath}`;
-    await exec(unpackCmd, { maxBuffer: 1024 * 1024 * 10 });
+    // argv, not a command string: a path reaching this from anywhere a user can
+    // name a file would otherwise turn a filename containing $( ) into
+    // arbitrary root execution on the node.
+    //
+    // -v is also gone. It printed every extracted filename into a 10MB buffer,
+    // and a file-count-heavy tree overflowed it - which threw partway through
+    // an extraction, leaving a half-extracted tree and no way back.
+    const result = await serviceHelper.runCommand('tar', {
+      runAsRoot: true,
+      params: ['-xzf', tarFilePath, '-C', extractPath],
+    });
+    if (result.error) {
+      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      log.error(`Error during extraction: ${message}`);
+      return { status: false, error: message };
+    }
     return { status: true };
   } catch (error) {
-    const stringstderr = error.stderr.replace(/\n/g, ' ');
-    const stringstdout = error.stdout.replace(/\n/g, ' ');
-    log.error('Error during extraction:', error.stderr || error.stdout);
-    return { status: false, error: stringstderr || stringstdout };
+    log.error('Error during extraction:', error);
+    return { status: false, error: error.message };
+  }
+}
+
+/**
+ * Read a gzipped tar without extracting it. One decompression pass, nothing
+ * written to disk and no space consumed, establishing that the archive is
+ * complete and readable BEFORE anything is deleted to make room for its
+ * contents, and yielding the numbers needed to decide whether those contents
+ * will fit.
+ *
+ * The whole stream has to be inflated: gzip's CRC is in the trailing bytes, so
+ * a truncated or corrupt archive cannot be recognised any other way, and the
+ * ISIZE field beside it wraps at 4 GiB - useless on exactly the archives where
+ * the size answer matters. The listing is counted as it arrives and never held,
+ * so an archive of any member count costs the same to read.
+ *
+ * @param {string} tarFilePath - The path of the tarball (tar.gz) file to read.
+ * @returns {Promise<{status: boolean, entries?: number, bytes?: number, error?: string}>}
+ *          entries is the member count; bytes is their total uncompressed size.
+ */
+async function inspectTarGz(tarFilePath) {
+  try {
+    let entries = 0;
+    let bytes = 0;
+    let sized = 0;
+
+    // argv, and no shell: root is the only reason this is a child process, and
+    // a path reaches tar as an argument rather than as anything parsed.
+    //
+    // `sized` counts the members whose size column actually parsed as a number,
+    // which is what separates a differently-shaped listing from an archive whose
+    // members are all genuinely zero length.
+    const result = await serviceHelper.runStreamingCommand('tar', {
+      runAsRoot: true,
+      params: ['-tzvf', tarFilePath],
+      // Bounded by work rather than by size. These archives are the largest
+      // thing the node handles, and a total limit can only kill the ones that
+      // are merely big - which this then reports to an operator as their backup
+      // being unreadable. Every line of the listing is proof of progress, so
+      // silence this long is a read that has stalled.
+      idleTimeout: 5 * 60 * 1000,
+      onLine: (line) => {
+        entries += 1;
+        const size = line.split(/\s+/)[2];
+        if (/^[0-9]+$/.test(size)) {
+          sized += 1;
+          bytes += Number(size);
+        }
+      },
+    });
+
+    if (result.error) {
+      const message = (result.stderr || result.error.message || '').replace(/\n/g, ' ').trim();
+      log.error(`Error reading archive: ${message}`);
+      return { status: false, error: message };
+    }
+    // The size column is the third field of GNU tar's verbose listing. If no
+    // member's third field parsed as a number the listing is a different tar's
+    // column layout, and reporting its total as zero would walk an unmeasured
+    // archive through the free-space check. Testing the total rather than the
+    // parse would also condemn an archive whose members are all genuinely empty,
+    // which is a real thing to restore.
+    if (entries > 0 && sized === 0) {
+      return { status: false, error: 'archive listing not in the expected format' };
+    }
+    return { status: true, entries, bytes };
+  } catch (error) {
+    log.error('Error reading archive:', error);
+    return { status: false, error: error.message };
   }
 }
 
@@ -428,14 +550,20 @@ async function createTarGz(sourceDirectory, outputFileName) {
   try {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
     await fs.mkdir(outputDirectory, { recursive: true });
-    const packCmd = `sudo tar -czvf ${outputFileName} -C ${sourceDirectory} .`;
-    await exec(packCmd, { maxBuffer: 1024 * 1024 * 10 });
+    // argv, and without -v, for the same two reasons as untarFile above.
+    const result = await serviceHelper.runCommand('tar', {
+      runAsRoot: true,
+      params: ['-czf', outputFileName, '-C', sourceDirectory, '.'],
+    });
+    if (result.error) {
+      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      log.error(`Error creating tarball: ${message}`);
+      return { status: false, error: message };
+    }
     return { status: true };
   } catch (error) {
-    const stringstderr = error.stderr.replace(/\n/g, ' ');
-    const stringstdout = error.stdout.replace(/\n/g, ' ');
-    log.error('Error creating tarball:', error.stderr || error.stdout);
-    return { status: false, error: stringstderr || stringstdout };
+    log.error('Error creating tarball:', error);
+    return { status: false, error: error.message };
   }
 }
 
@@ -448,150 +576,25 @@ async function createTarGz(sourceDirectory, outputFileName) {
  */
 async function removeDirectory(rpath, directory = false) {
   try {
-    let execFinal;
-    if (directory === false) {
-      execFinal = `sudo rm -rf "${rpath}"`;
-    } else {
-      execFinal = `sudo find "${rpath}" -mindepth 1 -exec rm -rf {} +`;
+    // argv, not a command string. fluxshareService passes a path built from a
+    // caller-supplied folder name straight into this, so a name containing
+    // $( ) or a backtick was arbitrary root execution the moment the character
+    // rule that happened to exclude them was relaxed.
+    const result = directory
+      ? await serviceHelper.runCommand('find', {
+        runAsRoot: true,
+        params: [rpath, '-mindepth', '1', '-exec', 'rm', '-rf', '{}', '+'],
+      })
+      : await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', rpath] });
+
+    if (result.error) {
+      log.error(result.error);
+      return false;
     }
-    await exec(execFinal, { maxBuffer: 1024 * 1024 * 10 });
     return true;
   } catch (error) {
     log.error(error);
     return false;
-  }
-}
-
-/**
- * To upload a specified folder to FluxShare. Checks that there is enough space available. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function fileUpload(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
-    if (!appname) {
-      throw new Error('appname parameter is mandatory.');
-    }
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      throw new Error('Unauthorized. Access denied.');
-    }
-    let { component } = req.params;
-    component = component || req.query.component || '';
-    let { filename } = req.params;
-    filename = filename || req.query.filename || '';
-    let { folder } = req.params;
-    folder = folder || req.query.folder || '';
-    let { type } = req.params;
-    type = type || req.query.type || '';
-    if (!type || !component) {
-      throw new Error('component and type parameters are mandatory');
-    }
-    let filepath;
-    const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
-    if (appVolumePath.length > 0) {
-      if (type === 'backup') {
-        filepath = `${appVolumePath[0].mount}/backup/upload/`;
-      } else {
-        // Use appid level to access appdata and all other mount points
-        // Sanitize folder path to prevent directory traversal attacks
-        filepath = sanitizePath(folder, appVolumePath[0].mount);
-      }
-    } else {
-      throw new Error('Application volume not found');
-    }
-    // Verify resolved path stays within the allowed base directory
-    await verifyRealPathOfExistingPath(filepath, appVolumePath[0].mount);
-    const options = {
-      multiples: true,
-      uploadDir: `${filepath}`,
-      maxFileSize: 10 * 1024 * 1024 * 1024, // 10gb
-      hashAlgorithm: false,
-      keepExtensions: true,
-      // eslint-disable-next-line no-unused-vars
-      filename: (name, ext, part, form) => {
-        const { originalFilename } = part;
-        return originalFilename;
-      },
-    };
-    await fs.mkdir(filepath, { recursive: true });
-    const permission = `sudo chmod 777 "${filepath}"`;
-    await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
-    const form = formidable(options);
-
-    form
-      // eslint-disable-next-line no-unused-vars
-      .on('fileBegin', (name, file) => {
-        // Validate filename to prevent path traversal via filename parameter
-        let safeFilename;
-        if (!filename) {
-          // Use form field name - validate it doesn't contain path separators
-          safeFilename = validateFilename(name);
-        } else {
-          // Use provided filename - validate it doesn't contain path separators
-          safeFilename = validateFilename(filename);
-        }
-        // eslint-disable-next-line no-param-reassign
-        file.filepath = `${filepath}/${safeFilename}`;
-      })
-      .on('progress', (bytesReceived, bytesExpected) => {
-        try {
-          res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
-          if (res.flush) res.flush();
-        } catch (error) {
-          log.error(error);
-        }
-      })
-      // eslint-disable-next-line no-unused-vars
-      .on('field', (name, field) => {
-
-      })
-      // eslint-disable-next-line no-unused-vars
-      .on('file', (name, file) => {
-        try {
-          res.write(serviceHelper.ensureString(name));
-          if (res.flush) res.flush();
-        } catch (error) {
-          log.error(error);
-        }
-      })
-      .on('aborted', () => {
-        console.error('Request aborted by the user');
-      })
-      .on('error', (error) => {
-        log.error(error);
-        const errorResponse = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        try {
-          res.write(serviceHelper.ensureString(errorResponse));
-          if (res.flush) res.flush();
-        } catch (e) {
-          log.error(e);
-        }
-      })
-      .on('end', () => {
-        try {
-          res.end();
-        } catch (error) {
-          log.error(error);
-        }
-      });
-
-    form.parse(req);
-  } catch (error) {
-    log.error(error);
-    if (res) {
-      try {
-        res.connection.destroy();
-      } catch (e) {
-        log.error(e);
-      }
-    }
   }
 }
 
@@ -605,8 +608,9 @@ module.exports = {
   convertFileSize,
   downloadFileFromUrl,
   untarFile,
+  inspectTarGz,
   createTarGz,
   removeDirectory,
   getFolderSize,
-  fileUpload,
+  getDirectorySizeBytes,
 };

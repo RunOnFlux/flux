@@ -13,30 +13,113 @@ const appQueryService = require('../appQuery/appQueryService');
 const appReconciler = require('../appMonitoring/appReconciler');
 
 const fluxEventBus = require('../utils/fluxEventBus');
+const { nodeSigner } = require('../utils/nodeSigner');
+const { ANNOUNCE_INTERVAL_MS } = require('../utils/appConstants');
+const { AsyncLock } = require('../utils/asyncLock');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-let broadcastInterval = null;
+let broadcastTimer = null;
 let broadcastInProgress = false;
 let rebroadcastNeeded = false;
+let overrunning = false;
 
-function resetBroadcastInterval() {
-  if (broadcastInterval) clearInterval(broadcastInterval);
-  broadcastInterval = setInterval(() => {
+// Whether this node announces at all, and the only thing that decides whether a
+// cycle arms the next one. A cycle ends by scheduling its successor, so a stop
+// that clears the pending timer alone is undone a moment later by the work it
+// was trying to end - the announcement loop outlives every stop taken while it
+// is running.
+//
+// Ours rather than an abort signal's: FluxController's `aborted` is reset the
+// moment its lock frees, so which of the two resumes first decides whether the
+// loop survives its own abort. Nothing resets this.
+let broadcasting = false;
+
+// Held for the whole of a cycle, so a stop can wait for the cycle in flight
+// rather than returning while it is still running. A teardown that returns
+// before the thing is torn down is the same lie as a stop that does not stop.
+const cycleLock = new AsyncLock();
+
+/**
+ * Schedule the next announcement so that the PERIOD is fixed, rather than the
+ * gap between one cycle ending and the next beginning.
+ *
+ * The cycle's own duration is subtracted, so the work does not sit inside the
+ * thing it is timed against: a timer recreated after the cycle makes the real
+ * period `interval + however long the cycle took`, and a node announcing every
+ * 70s while its configuration says 30 keeps a row alive that expires at 63.
+ *
+ * Measured monotonically. A wall clock can step backwards over an NTP
+ * correction, and a negative elapsed would push the next announcement away by
+ * the size of the step.
+ *
+ * @param {bigint} startedAt process.hrtime.bigint() taken when the cycle began
+ */
+function scheduleNextBroadcast(startedAt) {
+  if (broadcastTimer) clearTimeout(broadcastTimer);
+  // Asked here rather than at the caller, because every path that ends a cycle
+  // arrives here and a stop must be honoured by all of them.
+  if (!broadcasting) {
+    broadcastTimer = null;
+    return;
+  }
+
+  const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+  // Said once on the transition and once when it clears, never per cycle. A
+  // node whose cycle no longer fits its interval announces itself less often
+  // than the row it keeps alive, and its presence on the network decays with
+  // nothing anywhere saying so.
+  if (elapsedMs > ANNOUNCE_INTERVAL_MS) {
+    if (!overrunning) {
+      overrunning = true;
+      log.warn(`peerNotification - a broadcast cycle took ${Math.round(elapsedMs)}ms against a ${ANNOUNCE_INTERVAL_MS}ms interval; this node is announcing itself less often than the location row it refreshes`);
+    }
+  } else if (overrunning) {
+    overrunning = false;
+    log.info('peerNotification - broadcast cycles fit inside their interval again');
+  }
+
+  // Clamped at zero rather than scheduled into the past. A cycle that outran
+  // its interval runs again immediately, which is the most the node can do.
+  broadcastTimer = setTimeout(() => {
     checkAndNotifyPeersOfRunningApps();
-  }, config.fluxapps.peerNotifyIntervalMs ?? 3600000);
+  }, Math.max(0, ANNOUNCE_INTERVAL_MS - elapsedMs));
 }
 
-function stopBroadcastInterval() {
-  if (broadcastInterval) {
-    clearInterval(broadcastInterval);
-    broadcastInterval = null;
+/**
+ * Start announcing, and keep announcing.
+ *
+ * Idempotent: a second call while the loop is running is not a second loop.
+ *
+ * @returns {void}
+ */
+function startBroadcasting() {
+  if (broadcasting) return;
+  broadcasting = true;
+  checkAndNotifyPeersOfRunningApps();
+}
+
+/**
+ * Stop announcing, and return once the cycle in flight has finished.
+ *
+ * @returns {Promise<void>}
+ */
+async function stopBroadcasting() {
+  broadcasting = false;
+  if (broadcastTimer) {
+    clearTimeout(broadcastTimer);
+    broadcastTimer = null;
   }
+  // The queued repeat goes with the stop. Left set, it is a cycle the next
+  // start would run before the one it schedules for itself.
+  rebroadcastNeeded = false;
+  await cycleLock.waitReady();
 }
 
 function initialize() {
   nodeConfirmationService.onMessageCapabilityChange((capable) => {
-    if (capable && broadcastInterval) {
+    if (capable && broadcasting) {
       log.info('peerNotification - Message capability regained, triggering immediate broadcast');
       checkAndNotifyPeersOfRunningApps();
     }
@@ -50,6 +133,10 @@ async function checkAndNotifyPeersOfRunningApps() {
     return;
   }
   broadcastInProgress = true;
+  // Taken before any work, so the schedule below subtracts the WHOLE cycle -
+  // including the paths that give up early, which cost time too.
+  const startedAt = process.hrtime.bigint();
+  await cycleLock.enable();
   try {
     if (!nodeConfirmationService.canSendMessages()) {
       log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');
@@ -73,7 +160,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       throw new Error('Failed to get installed Apps');
     }
     let appsInstalled = installedAppsRes.data;
-    appsInstalled = await decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
+    ({ inPlace: appsInstalled } = await decryptEnterpriseApps(appsInstalled, { formatSpecs: false }));
     const runningAppsRes = await appQueryService.listRunningApps();
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
@@ -154,6 +241,16 @@ async function checkAndNotifyPeersOfRunningApps() {
         osUptime: os.uptime(),
         staticIp: geolocationService.isStaticIP(),
       };
+      // The announcement is one fact, recorded twice - the location table, and
+      // the event log that peers sync from - and sent once. A node that cannot
+      // sign as itself sends nothing a peer would accept, so it records nothing
+      // either: its own view of where it runs stays the network's view. Asked
+      // before the first write, for that reason.
+      const signer = await nodeSigner();
+      if (!signer) {
+        log.warn('checkAndNotifyPeersOfRunningApps - this node cannot sign as itself; its running apps are not announced');
+        return;
+      }
       await messageStore.storeAppRunningMessage(appRunningMessage);
       const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
@@ -162,7 +259,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     } catch (err) {
       log.error(err);
     }
-    const runningAppsCache = globalState.runningAppsCache;
+    const { runningAppsCache } = globalState;
     runningAppsCache.clear();
     apps.forEach((app) => {
       runningAppsCache.add(app.name);
@@ -173,11 +270,12 @@ async function checkAndNotifyPeersOfRunningApps() {
     log.error(error);
   } finally {
     broadcastInProgress = false;
+    cycleLock.disable();
     if (rebroadcastNeeded) {
       rebroadcastNeeded = false;
       setImmediate(() => checkAndNotifyPeersOfRunningApps());
     } else {
-      resetBroadcastInterval();
+      scheduleNextBroadcast(startedAt);
     }
   }
 }
@@ -185,5 +283,6 @@ async function checkAndNotifyPeersOfRunningApps() {
 module.exports = {
   initialize,
   checkAndNotifyPeersOfRunningApps,
-  stopBroadcastInterval,
+  startBroadcasting,
+  stopBroadcasting,
 };

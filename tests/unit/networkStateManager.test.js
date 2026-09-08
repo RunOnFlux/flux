@@ -434,6 +434,334 @@ describe('networkStateManager tests', () => {
     expect(response).to.equal(null);
   });
 
+  describe('lookups before the first population', () => {
+    const knownPubkey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
+
+    let nsm;
+    let releaseFetch;
+
+    async function flush() {
+      await new Promise((r) => { setImmediate(r); });
+    }
+
+    beforeEach(() => {
+      const blockEmitter = new EventEmitter();
+
+      const options = {
+        stateEvent: 'blocksProcessed',
+        stateEmitter: blockEmitter,
+      };
+
+      const firstFetch = new Promise((resolve) => { releaseFetch = resolve; });
+
+      fetcher.callsFake(async () => {
+        await firstFetch;
+        return defaultNetworkState;
+      });
+
+      nsm = new NetworkStateManager(fetcher, options);
+    });
+
+    it('does not report a node absent while the fleet is still unknown', async () => {
+      const startPromise = nsm.start();
+
+      let answered = false;
+      let found = null;
+
+      async function askEarly() {
+        found = await nsm.includes(knownPubkey, 'pubkey');
+        answered = true;
+      }
+
+      const lookup = askEarly();
+
+      await flush();
+
+      expect(answered).to.equal(false);
+
+      releaseFetch();
+      await startPromise;
+      await lookup;
+
+      expect(found).to.equal(true);
+
+      await nsm.stop();
+    });
+
+    it('does not draw a null peer while the fleet is still unknown', async () => {
+      const startPromise = nsm.start();
+
+      let answered = false;
+      let address = null;
+
+      async function askEarly() {
+        address = await nsm.getRandomSocketAddress('203.0.113.1:16127');
+        answered = true;
+      }
+
+      const lookup = askEarly();
+
+      await flush();
+
+      expect(answered).to.equal(false);
+
+      releaseFetch();
+      await startPromise;
+      await lookup;
+
+      expect(address).to.be.a('string');
+
+      await nsm.stop();
+    });
+
+    it('answers absent once a fetch has come back empty', async () => {
+      fetcher.callsFake(async () => []);
+
+      // start() does not resolve here: the loop keeps asking until it gets a
+      // fleet. The lookup is what has to come back - an empty list is a
+      // truthful "absent", not a state that cannot answer.
+      const startPromise = nsm.start();
+
+      const response = await nsm.search(knownPubkey, 'pubkey');
+
+      expect(response).to.equal(null);
+
+      await nsm.stop();
+
+      try {
+        await startPromise;
+      } catch (error) {
+        // stopping interrupts the retry sleep, which is how the loop ends here
+      }
+    });
+
+    it('arms no refresh loop when the stop lands after a retry sleep', async () => {
+      // The one way into it. A fetch that comes back empty sleeps before asking
+      // again; aborting DURING that sleep rejects it and start() throws, so it
+      // never reaches the updater. Aborting once the sleep has fired is the
+      // narrow case that gets through: the loop wakes, sees the abort at the
+      // top, breaks without populating, and start() carries on to arm a loop on
+      // a manager that has just been torn down.
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+
+      try {
+        fetcher.callsFake(async () => []);
+
+        const startPromise = nsm.start();
+
+        // First fetch comes back empty and the retry sleep is armed.
+        await clock.tickAsync(0);
+        const askedBeforeSleep = fetcher.callCount;
+        expect(askedBeforeSleep).to.be.greaterThan(0);
+
+        // Fire the sleep rather than abort it: the timer is consumed here, so
+        // the abort below has no timeout left to reject. tick() rather than
+        // tickAsync() so the loop has not resumed and armed the NEXT sleep -
+        // aborting that one rejects it and start() throws instead, which is the
+        // path that already cannot arm anything.
+        clock.tick(15_000);
+
+        const stopPromise = nsm.stop();
+        await startPromise;
+        await stopPromise;
+
+        // A refresh loop would keep asking. Nothing should be asking now.
+        const askedAfterStop = fetcher.callCount;
+        await clock.tickAsync(120_000);
+
+        expect(fetcher.callCount).to.equal(askedAfterStop);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    describe('after a stop, on the same instance', () => {
+      // stop() empties the indexes, so the instance must stop saying it can
+      // answer from them - otherwise a restarted manager reports every node
+      // absent until its own first fetch lands, which is the defect this whole
+      // class of wait exists to close.
+      //
+      // Nothing restarts one in production: networkStateService drops the
+      // instance and builds a fresh one. That is the service's arrangement
+      // though, not a promise this class makes about itself.
+
+      // A fetcher held shut until the test says otherwise, so a restart can be
+      // examined in the window between start() and the fetch coming back.
+      // Held by whichever promise is current when a run begins: the loop is
+      // free to ask more than once, and every one of those waits.
+      function gatedFetcher() {
+        let open;
+        let shut;
+
+        function close() {
+          shut = new Promise((resolve) => { open = resolve; });
+        }
+
+        close();
+
+        fetcher.callsFake(async () => {
+          await shut;
+          return defaultNetworkState;
+        });
+
+        return {
+          close,
+          async release() {
+            open();
+            await flush();
+          },
+        };
+      }
+
+      async function startAndPopulate(gate) {
+        const started = nsm.start();
+        await gate.release();
+        await started;
+        gate.close();
+      }
+
+      it('reports itself un-started, so nothing arms a loop on it', async () => {
+        // start() only switches on the refresh loop for a manager that got its
+        // list. Leaving `started` true after a stop tells it - and isReady() -
+        // that a torn-down manager is running.
+        const gate = gatedFetcher();
+
+        await startAndPopulate(gate);
+        expect(nsm.started).to.equal(true);
+
+        await nsm.stop();
+
+        expect(nsm.started).to.equal(false);
+      });
+
+      it('does not answer from the empty index until its own fetch returns', async () => {
+        const gate = gatedFetcher();
+
+        await startAndPopulate(gate);
+        expect(await nsm.includes(knownPubkey, 'pubkey')).to.equal(true);
+
+        await nsm.stop();
+
+        const restarted = nsm.start();
+
+        let answered = false;
+        const lookup = nsm.includes(knownPubkey, 'pubkey').then((found) => {
+          answered = true;
+          return found;
+        });
+
+        await flush();
+
+        // The index is empty here. Answering at all would answer `false`.
+        expect(answered).to.equal(false);
+
+        await gate.release();
+        await restarted;
+
+        expect(await lookup).to.equal(true);
+
+        await nsm.stop();
+      });
+
+      it('holds every lookup that can report a node absent, not just one', async () => {
+        const gate = gatedFetcher();
+
+        await startAndPopulate(gate);
+        await nsm.stop();
+
+        const restarted = nsm.start();
+
+        const answered = { search: false, includes: false, random: false };
+        const lookups = [
+          nsm.search(knownPubkey, 'pubkey').then(() => { answered.search = true; }),
+          nsm.includes(knownPubkey, 'pubkey').then(() => { answered.includes = true; }),
+          nsm.getRandomSocketAddress('203.0.113.1:16127').then(() => { answered.random = true; }),
+        ];
+
+        await flush();
+
+        expect(answered).to.deep.equal({ search: false, includes: false, random: false });
+
+        await gate.release();
+        await restarted;
+        await Promise.all(lookups);
+
+        expect(answered).to.deep.equal({ search: true, includes: true, random: true });
+
+        await nsm.stop();
+      });
+
+      it('answers absent promptly when the restarted fleet comes back empty', async () => {
+        // The rewind must not turn the legitimately empty fleet into a hang:
+        // a fetch that comes back with nothing is a truthful "absent".
+        const gate = gatedFetcher();
+
+        await startAndPopulate(gate);
+        await nsm.stop();
+
+        fetcher.callsFake(async () => []);
+
+        const restarted = nsm.start();
+
+        expect(await nsm.includes(knownPubkey, 'pubkey')).to.equal(false);
+
+        await nsm.stop();
+
+        try {
+          await restarted;
+        } catch (error) {
+          // the retry loop ends by being stopped, as it does elsewhere here
+        }
+      });
+
+      it('rewinds on every stop, not only the first', async () => {
+        const gate = gatedFetcher();
+
+        await startAndPopulate(gate);
+        await nsm.stop();
+        await startAndPopulate(gate);
+        await nsm.stop();
+
+        const restarted = nsm.start();
+
+        let answered = false;
+        const lookup = nsm.includes(knownPubkey, 'pubkey').then(() => { answered = true; });
+
+        await flush();
+
+        expect(answered).to.equal(false);
+
+        await gate.release();
+        await restarted;
+        await lookup;
+
+        expect(answered).to.equal(true);
+
+        await nsm.stop();
+      });
+    });
+
+    it('releases a waiting lookup when the manager is stopped', async () => {
+      const startPromise = nsm.start();
+
+      const lookup = nsm.search(knownPubkey, 'pubkey');
+
+      await flush();
+
+      // The fleet never arrives here. A stop is the other way a lookup becomes
+      // answerable: no population is coming, so a waiter still holding out for
+      // one would never return.
+      await nsm.stop();
+
+      const response = await lookup;
+
+      expect(response).to.equal(null);
+
+      releaseFetch();
+      await startPromise;
+    });
+  });
+
   it('should set the indexesReady property to false if indexes are being built', async () => {
     const dummyElement = {
       collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
@@ -726,5 +1054,120 @@ describe('networkStateManager tests', () => {
     expect(nsm.indexesReady).to.be.false;
     await nsm.waitIndexesReady;
     expect(nsm.indexesReady).to.be.true;
+  });
+
+  describe('drawing a peer to ask', () => {
+    // A node that only needs an ip: the picker indexes on socketAddress and the
+    // rest of the record is not read on this path.
+    const nodeAt = (ip) => ({
+      collateral: `COutPoint(${ip}, 0)`,
+      txhash: ip,
+      outidx: '0',
+      ip,
+      network: '',
+      added_height: 1,
+      confirmed_height: 1,
+      last_confirmed_height: 1,
+      last_paid_height: 1,
+      tier: 'CUMULUS',
+      payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+      pubkey: ip,
+      activesince: '1',
+      lastpaid: '1',
+      amount: '1000.00',
+      rank: 0,
+    });
+
+    async function fleetOf(...ips) {
+      fetcher.callsFake(async () => ips.map(nodeAt));
+      const nsm = new NetworkStateManager(fetcher);
+      await nsm.start();
+      return nsm;
+    }
+
+    it('never returns this node, however the draw lands', async () => {
+      const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127');
+
+      for (let i = 0; i < 50; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await nsm.getRandomSocketAddress('10.0.0.1:16127')).to.not.equal('10.0.0.1:16127');
+      }
+
+      await nsm.stop();
+    });
+
+    it('answers nothing rather than throwing when this node is the only one', async () => {
+      // The old draw took "the one before, or else the next" without checking
+      // either existed, so a single-node fleet threw instead of answering absent.
+      const nsm = await fleetOf('10.0.0.1:16127');
+
+      expect(await nsm.getRandomSocketAddress('10.0.0.1:16127')).to.equal(null);
+
+      await nsm.stop();
+    });
+
+    describe('an external observer', () => {
+      it('is never a node at our own address', async () => {
+        // Four nodes behind one router, one stranger. Only the stranger can
+        // report what our address looks like from outside it.
+        const nsm = await fleetOf(
+          '10.0.0.1:16127', '10.0.0.1:16137', '10.0.0.1:16147', '10.0.0.1:16157',
+          '203.0.113.9:16127',
+        );
+
+        for (let i = 0; i < 50; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          expect(await nsm.getRandomExternalObserver('10.0.0.1:16127')).to.equal('203.0.113.9:16127');
+        }
+
+        await nsm.stop();
+      });
+
+      it('skips an observer already asked, so a redraw is another peer', async () => {
+        // "Ask another peer" has to mean another peer. A redraw that can return
+        // the one just asked is not a second opinion, and a caller counting
+        // distinct witnesses never reaches two however often it tries - which is
+        // exactly what happened on a fleet with a two-attempt budget.
+        const nsm = await fleetOf('10.0.0.1:16127', '203.0.113.9:16127', '203.0.113.10:16127');
+
+        for (let i = 0; i < 50; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const drawn = await nsm.getRandomExternalObserver('10.0.0.1:16127', {
+            exclude: ['203.0.113.9:16127'],
+          });
+          expect(drawn).to.equal('203.0.113.10:16127');
+        }
+
+        await nsm.stop();
+      });
+
+      it('is absent when every observer has already been asked', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '203.0.113.9:16127');
+
+        expect(await nsm.getRandomExternalObserver('10.0.0.1:16127', {
+          exclude: ['203.0.113.9:16127'],
+        })).to.equal(null);
+
+        await nsm.stop();
+      });
+
+      it('is absent when every other node shares our address', async () => {
+        // The answer that matters: not a neighbour drawn anyway, and not a
+        // throw - nothing, so the caller can say it learned nothing.
+        const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.1:16137', '10.0.0.1:16147');
+
+        expect(await nsm.getRandomExternalObserver('10.0.0.1:16127')).to.equal(null);
+
+        await nsm.stop();
+      });
+
+      it('still excludes us when we are the only node', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127');
+
+        expect(await nsm.getRandomExternalObserver('10.0.0.1:16127')).to.equal(null);
+
+        await nsm.stop();
+      });
+    });
   });
 });

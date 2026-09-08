@@ -25,10 +25,24 @@ const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
 const {
-  normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress,
+  normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+// Fired once, with the apps that survived an address change, after the node's
+// public IP has moved. serviceManager wires it to appReconciler.requestRestartOf
+// (mirrors appUninstaller.setOnComponentRemoved).
+//
+// A seam rather than a require, and not for tidiness: appUninstaller requires
+// THIS module and appReconciler requires appUninstaller, so reaching upward from
+// here for either closes a cycle. Twenty-odd app-layer modules import this one -
+// it sits underneath them and stays there. What it knows is that the address
+// moved and which apps it kept; what restarting one involves is not its business.
+let onAddressChanged = null;
+function setOnAddressChanged(callback) {
+  onAddressChanged = callback;
+}
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
@@ -40,6 +54,29 @@ let dosMessage = null;
 let stickyDosState = 0;
 let stickyDosMessage = null;
 
+// Who may hold this node back from placement. An owner is an IDENTITY, not a
+// message: the reason is what an operator reads, and the owner is what a release
+// is checked against. Adding a feature that holds placement means adding a value
+// here, which is the point - an unknown owner is refused rather than accepted as
+// a new one.
+const PlacementHoldOwner = Object.freeze({
+  RESIDENTIAL_DOS: 'residentialDos',
+});
+
+// Stops the node taking on NEW apps without declaring it unfit for the ones it
+// already runs. DOS conflates those: isNodeDos() makes appSpawner refuse
+// installs AND makes nodeStatusMonitor and appStartupManager delete every app on
+// the box. A node that must stop growing but keep its customer volumes needs
+// only the first, so this is a separate flag whose only consumer is the spawner.
+//
+// owner -> reason, rather than one slot. A single slot cannot express two
+// owners: a second hold OVERWROTE the first, and whoever cleared next released
+// both - so the node resumed taking apps for a condition that had not lifted.
+// Checking ownership on a single slot only moves the failure, because the
+// overwritten owner can then never clear and the node stays held forever. The
+// node is held while any owner holds it.
+const placementHolds = new Map();
+
 let storedFluxBenchAllowed = null;
 let ipChangeData = null;
 let dosTooManyIpChanges = false;
@@ -47,6 +84,7 @@ let maxNumberOfIpChanges = 0;
 
 const myCache = cacheManager.ipCache;
 const { lruRateLimit } = require('./utils/rateLimit');
+const { Privilege, authOf } = require('./utils/privileges');
 
 // This node's socket address (ip:port) from benchmark
 let localSocketAddress = null;
@@ -82,9 +120,12 @@ async function isInterfaceUp(interfaceName) {
 }
 
 /**
- * Gets the IP address assigned to a specific network interface.
+ * Gets the first routable IPv4 address assigned to a network interface. An
+ * interface can carry a private primary and a public secondary; stopping at
+ * the first non-internal address would answer for whichever the kernel lists
+ * first rather than for the interface.
  * @param {string} interfaceName - The name of the network interface
- * @returns {string|null} The IPv4 address or null if not found
+ * @returns {string|null} The routable IPv4 address or null if none is bound
  */
 function getInterfaceIp(interfaceName) {
   const interfaces = os.networkInterfaces();
@@ -92,7 +133,7 @@ function getInterfaceIp(interfaceName) {
   if (!iface) return null;
 
   for (const addr of iface) {
-    if (addr.family === 'IPv4' && !addr.internal) {
+    if (addr.family === 'IPv4' && !addr.internal && !serviceHelper.isNonRoutableAddress(addr.address)) {
       return addr.address;
     }
   }
@@ -104,7 +145,9 @@ function getInterfaceIp(interfaceName) {
  * This is a strong indicator of a static IP (data center/VPS/dedicated server).
  * Uses the Linux routing table to find the default route interface, then checks
  * if that interface has a public IP assigned.
- * @returns {Promise<boolean>} True if a public IP is configured on the default route interface
+ * @returns {Promise<boolean|null>} True if a public IP is configured on the
+ *   default route interface, false if none is, null if the routing table could
+ *   not be read - which is not the same answer as "there is none".
  */
 async function hasPublicIpOnInterface() {
   try {
@@ -157,7 +200,7 @@ async function hasPublicIpOnInterface() {
       const isUp = await isInterfaceUp(route.iface);
       if (isUp) {
         const ip = getInterfaceIp(route.iface);
-        if (ip && !serviceHelper.isNonRoutableAddress(ip)) {
+        if (ip) {
           log.info(`Public IP ${ip} found on default route interface ${route.iface}`);
           return true;
         }
@@ -166,8 +209,13 @@ async function hasPublicIpOnInterface() {
 
     return false;
   } catch (error) {
+    // Null, not false. "There is no public address on any interface" is a fact
+    // about the node; "I could not read the routing table" is a fact about this
+    // process, and answering the second with the first asserts NAT on a node
+    // that may well hold a public address. The one caller that decides anything
+    // on this treats null as unknown.
     log.error(`Failed to check network interfaces via routing table: ${error.message}`);
-    return false;
+    return null;
   }
 }
 
@@ -255,6 +303,73 @@ function isPortUPNPBanned(port) {
     }
   });
   return portBanned;
+}
+
+/**
+ * The most a peer will hand back from a port it was asked to read.
+ *
+ * A DISCLOSURE bound, and only that. The port may be forwarded to a neighbour at
+ * the same public address, so what comes back can be a stranger's response, and
+ * nobody should be askable to shuttle a payload. Choose it on that question
+ * alone.
+ *
+ * It is NOT what makes the proof survive. The test server writes its secret into
+ * the first response header, so the thing the requester has to find sits at byte
+ * 67 of an answer that server authors in full - inside this prefix however large
+ * the rest of what a port says turns out to be. The two were entangled once: the
+ * token was last in the body, and any 48 bytes appearing before it silently
+ * turned every install on the network into "a neighbour holds this port".
+ */
+const MAX_ECHO_BYTES = 256;
+
+/**
+ * What a port answered, capped, for the requester to judge.
+ *
+ * The requester published a secret on its own test server and did NOT tell us
+ * what it is: we fetch whatever is on that port and hand it back verbatim, and
+ * the requester decides. That direction is the point. This check exists because
+ * a peer cannot tell the requester's application from a neighbour's at the same
+ * address - so a peer is not in a position to judge, and one that is old,
+ * broken or lying cannot manufacture a secret it was never given.
+ *
+ * Bounded by MAX_ECHO_BYTES, because this relays bytes read from a stranger's
+ * port and nobody can be asked to shuttle a payload. That bound cannot cost the
+ * requester its answer: the secret is in the first header of a reply the test
+ * server writes in full, so it is inside any prefix this returns.
+ *
+ * @param {string} ip - the requester's address
+ * @param {number} port - the port to read
+ * @param {object} options - { timeout }
+ * @returns {Promise<string|null>} what it answered, or null if nothing did
+ */
+async function portAnswered(ip, port, options = {}) {
+  const timeout = options.timeout || 5_000;
+
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let received = '';
+    let settled = false;
+
+    const done = (answer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(answer);
+    };
+
+    const timer = setTimeout(() => done(received || null), timeout);
+
+    socket.connect(port, ip, () => {
+      socket.write(`GET / HTTP/1.1\r\nHost: ${ip}:${port}\r\nConnection: close\r\n\r\n`);
+    });
+    socket.on('data', (chunk) => {
+      received += chunk.toString('utf8');
+      if (received.length >= MAX_ECHO_BYTES) done(received.slice(0, MAX_ECHO_BYTES));
+    });
+    socket.on('end', () => done(received || null));
+    socket.on('error', () => done(null));
+  });
 }
 
 /**
@@ -389,6 +504,87 @@ async function checkFluxAvailability(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
+/**
+ * Whether a signed body - asked or answered - carries a signature from a
+ * Fluxnode on the deterministic list, over its own contents.
+ *
+ * Extracted rather than written twice. Two copies of a signature check is the
+ * one duplication that must not drift - whichever copy is corrected, the other
+ * keeps accepting what it always did, and nothing points at it.
+ *
+ * The body is verified as it arrived minus the signature itself, which is how
+ * the sender built the message it signed.
+ *
+ * `socketAddress` binds the signer to a place, and the two directions need
+ * different answers. For a request, "some listed Fluxnode signed this" is the
+ * whole question - any node on the list may ask. For an ANSWER it is not enough:
+ * we dialled one address, and what comes back has to be from the node that lives
+ * there rather than a signature made by, or relayed from, somewhere else.
+ *
+ * @param {object} processedBody The parsed body, carrying pubKey and signature
+ * @param {{socketAddress?: string}} [options] The address the signer must hold
+ * @returns {Promise<boolean>} True when a listed Fluxnode signed this body
+ */
+async function verifySignedFluxnodeMessage(processedBody, options = {}) {
+  if (!processedBody || !processedBody.pubKey || !processedBody.signature) return false;
+
+  const { pubKey, signature } = processedBody;
+
+  const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
+  if (!nodes.length) return false;
+
+  const { socketAddress = null } = options;
+  if (socketAddress && !nodes.some((node) => socketAddressesMatch(node.ip, socketAddress))) return false;
+
+  const dataToVerify = { ...processedBody };
+  delete dataToVerify.signature;
+
+  return verificationHelper.verifyMessage(JSON.stringify(dataToVerify), pubKey, signature) === true;
+}
+
+/**
+ * The most ports one request may ask this node to test.
+ *
+ * An application is capped at maxComponents (10) components of ports (5) each in
+ * appValidator, so 50 is the largest honest ask. The bound exists because the
+ * ports are tested one after another, each for up to a full connect timeout.
+ */
+const MAX_TESTABLE_PORTS = 50;
+
+// Every installed application's ports plus the four node service ports the
+// keep-alive caller adds - maxAppsPerNode x MAX_TESTABLE_PORTS + 4. A bound on
+// how long one request can keep this node poking, and nothing tighter: the
+// honest list really can be that long.
+const NODE_SERVICE_PORTS_KEPT_ALIVE = 4;
+const MAX_KEEPALIVE_PORTS = config.fluxapps.maxAppsPerNode * MAX_TESTABLE_PORTS + NODE_SERVICE_PORTS_KEPT_ALIVE;
+
+/**
+ * The address a peer endpoint acts on: the one the caller connected from, or the
+ * one it named when it holds the privilege to name one.
+ *
+ * Never an input otherwise. A caller that names the address chooses where this
+ * node connects, which makes the endpoint a probe aimed at anything the caller
+ * likes - the loopback and the RFC1918 side of its own router included. The
+ * honest caller never needed it: it is asking about ITS OWN ports, so the
+ * address it means is the one it is connecting from. That is the rule
+ * /flux/addpeer already applies, and every inbound peer is already identified by
+ * its socket address - a Fluxnode whose egress differed from its declared
+ * address could not hold a peer slot anywhere on the network, so nothing
+ * legitimate is lost by insisting on it.
+ *
+ * An IPv4 connection to a dual-stack listener arrives as ::ffff:a.b.c.d, and an
+ * address that does not match itself would refuse every honest caller.
+ *
+ * @param {object} req
+ * @param {string|undefined} namedAddress - what the body says, if anything
+ * @param {boolean} mayName - whether this caller may choose the address
+ * @returns {string} the address, or '' when there is none to act on
+ */
+function addressToProbe(req, namedAddress, mayName) {
+  const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
+  return mayName === true ? (namedAddress || remoteIp) : remoteIp;
+}
+
 async function checkAppAvailability(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -396,27 +592,65 @@ async function checkAppAvailability(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      // The other way in. This endpoint's caller is a Fluxnode proving itself by
+      // signature; this is for a PERSON driving it by hand instead, and the only
+      // thing a person gets out of it is naming the address to probe below -
+      // asking whether the ports are open on the machine they happen to be
+      // sitting at answers nothing anyone wants. Skipping the signature and
+      // choosing the address are therefore one question, and it is asked once.
+      //
+      // Not the node operator. NODE_OPERATOR_OR_FLUX_TEAM reads node-local and is
+      // not: it is thousands of separate credentials, one per node, holding what
+      // is a Flux team diagnostic. An operator wanting to dial out of their own
+      // box has a shell on it, and their node still reaches this endpoint the way
+      // every node does - by signing.
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
 
       const processedBody = serviceHelper.ensureObject(body);
 
-      const {
-        ip, ports, pubKey, signature,
-      } = processedBody;
+      const { ports } = processedBody;
 
       const ipPort = processedBody.port;
 
       // pubkey of the message has to be on the list
-      const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
-      const dataToVerify = processedBody;
-      delete dataToVerify.signature;
-      const messageToVerify = JSON.stringify(dataToVerify);
-      const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-      if ((verified !== true || !nodes.length) && authorized !== true) {
+      const verified = await verifySignedFluxnodeMessage(processedBody);
+      if (!verified && authorized !== true) {
         throw new Error('Unable to verify request authenticity');
       }
 
+      // The address to probe is NOT an input - see addressToProbe. Here the
+      // stakes are highest: the echo below hands back the first bytes of what
+      // answered, so a body-supplied address turns every Flux node into a fetch
+      // primitive aimed at anything a signed peer likes. The range guard does
+      // not help: portMin is 1 and portMax is 65535, and bannedPorts names this
+      // node's own services rather than a database's.
+      //
+      // Flux team may still name one, which is the whole of what the privilege
+      // above is for: see it.
+      const ip = addressToProbe(req, processedBody.ip, authorized);
+
+      if (!ip) {
+        throw new Error('Unable to determine which address to test');
+      }
+
+      if (!Array.isArray(ports)) {
+        throw new Error('No ports to test');
+      }
+
+      // A valid application cannot hold more ports than the specification allows
+      // it: maxComponents (10) x ports per component (5) = 50, both in
+      // appValidator. Bounded at all because each port below costs up to a full
+      // connect timeout and they are tested in sequence.
+      if (ports.length > MAX_TESTABLE_PORTS) {
+        throw new Error(`Too many ports to test. Maximum of ${MAX_TESTABLE_PORTS} allowed.`);
+      }
+
       const { fluxapps: { portMin: minPort, portMax: maxPort } } = config;
+
+      // A requester that wants proof asks for it. One that does not - an older
+      // node - gets exactly the check it always got.
+      const echo = processedBody.echo === true;
+      const answered = {};
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
@@ -425,16 +659,32 @@ async function checkAppAvailability(req, res) {
         const withinRange = portNum >= minPort && portNum <= maxPort;
 
         if (withinRange && !iBP) {
-          // eslint-disable-next-line no-await-in-loop
-          const isOpen = await isPortOpen(ip, port);
-          if (!isOpen) {
-            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+          if (echo) {
+            // Read rather than merely reached. The requester compares.
+            // eslint-disable-next-line no-await-in-loop
+            const answer = await portAnswered(ip, port);
+            if (answer === null) {
+              throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+            }
+            answered[port] = answer;
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            const isOpen = await isPortOpen(ip, port);
+            if (!isOpen) {
+              throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+            }
           }
         } else {
           log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
+      // `answered` present at all is how the requester knows this peer READ the
+      // ports rather than merely reaching them. Absent means no proof is
+      // available from this peer, which is not the same as the ports being bad.
+      // Added as a field rather than through createSuccessMessage, whose second
+      // and third parameters are name and code.
+      if (echo) successResponse.data.answered = answered;
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
@@ -489,16 +739,33 @@ function tcpConnectAndDestroy(host, port, timeout) {
  * @param {object} res Response
  * @returns {Promise<void>}
  */
+/**
+ * POST /flux/keepupnpportsopen - poke the caller's ports so its router keeps the
+ * UPnP mappings for them alive.
+ *
+ * The address poked is the one the caller connected from, never one it names -
+ * the rule /flux/checkappavailability applies, for the reason on addressToProbe.
+ * Naming one by hand is the same single privilege as skipping the signature:
+ * Flux team, not one every node operator holds. The API port stays the caller's
+ * to name, being a port on the address just bound.
+ *
+ * NO range or banned-port filter on the ports, deliberately, and unlike the
+ * availability endpoint beside this one. The caller sends its own service ports
+ * alongside its application ports - the API port minus one, minus five, plus one
+ * and plus two - and every one of those sits inside the banned 16100-16299
+ * block. The filter that is right there would silently end the keep-alive here.
+ *
+ * @param {object} req
+ * @param {object} res
+ */
 async function keepUPNPPortsOpen(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
 
     const { body } = req;
     const processedBody = serviceHelper.ensureObject(body);
 
-    const {
-      ip, apiPort, ports, pubKey, timestamp, signature,
-    } = processedBody;
+    const { apiPort, ports, timestamp } = processedBody;
 
     const now = Math.floor(Date.now() / 1000);
 
@@ -508,12 +775,12 @@ async function keepUPNPPortsOpen(req, res) {
       return;
     }
 
-    if (!ip || !apiPort || !pubKey || !signature) {
+    if (!apiPort) {
       res.status(422).end();
       return;
     }
 
-    if (!Array.isArray(ports)) {
+    if (!Array.isArray(ports) || ports.length > MAX_KEEPALIVE_PORTS) {
       res.status(422).end();
       return;
     }
@@ -527,14 +794,16 @@ async function keepUPNPPortsOpen(req, res) {
     }
 
     // pubkey of the message has to be on the list
-    const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
-    const dataToVerify = processedBody;
-    delete dataToVerify.signature;
-    const messageToVerify = JSON.stringify(dataToVerify);
-    const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-    if ((verified !== true || !nodes.length) && authorized !== true) {
+    const verified = await verifySignedFluxnodeMessage(processedBody);
+    if (!verified && authorized !== true) {
       res.status(401).end();
       throw new Error('Unable to verify request authenticity');
+    }
+
+    const ip = addressToProbe(req, processedBody.ip, authorized);
+    if (!ip) {
+      res.status(422).end();
+      return;
     }
 
     // make sure that we can reach the api port first. This is in case of nodes that
@@ -575,6 +844,11 @@ async function keepUPNPPortsOpen(req, res) {
  */
 function setLocalSocketAddress(value) {
   localSocketAddress = value ? normalizeSocketAddress(value) : null;
+  // Told here because this is the one place the node learns what it is. The
+  // peer manager needs it to keep this node out of its own peer draws - a node
+  // that syncs from itself learns nothing, and it spends one of very few
+  // attempts doing so. Optional because the unit suite stubs peerState.
+  peerManager.setOwnSocketAddress?.(localSocketAddress);
 }
 
 /**
@@ -606,6 +880,7 @@ function getDosMessage() {
  */
 function setStickyDosMessage(message) {
   stickyDosMessage = message;
+  publishEffectiveDosState();
 }
 
 /**
@@ -622,6 +897,30 @@ function getStickyDosMessage() {
 function clearStickyDosMessage() {
   stickyDosMessage = null;
   stickyDosState = 0;
+  publishEffectiveDosState();
+}
+
+/**
+ * Publish the DOS state a reader would actually see.
+ *
+ * isNodeDos() answers on `stickyDosMessage ? stickyDosState : dosState`, so the
+ * effective value moves when EITHER half of the sticky pair moves, and neither
+ * setter emitted anything. A consumer therefore had to poll /flux/info, and a
+ * poll cannot order a DOS against anything else: the installed-apps record
+ * outlives the removal it follows by ~20s, so two polls of two sources disagree
+ * about what happened first. On one event stream the ids settle it.
+ *
+ * Inert in production - fluxEventBus.publish returns immediately unless
+ * config.testEventStream is set, which it is only under the harness. This is
+ * not the 21-site refactor noted below getDosStateValue; that one is about the
+ * product's own scattered dosState mutations.
+ */
+function publishEffectiveDosState() {
+  const effectiveDosState = stickyDosMessage ? stickyDosState : dosState;
+  fluxEventBus.publish('dos:changed', {
+    dosState: effectiveDosState,
+    dosMessage: stickyDosMessage || dosMessage,
+  });
 }
 
 /**
@@ -630,6 +929,7 @@ function clearStickyDosMessage() {
  */
 function setStickyDosStateValue(value) {
   stickyDosState = value;
+  publishEffectiveDosState();
 }
 
 /**
@@ -660,6 +960,53 @@ function getDosStateValue() {
 function isNodeDos() {
   const effectiveState = stickyDosMessage ? stickyDosState : dosState;
   return effectiveState >= 100;
+}
+
+/**
+ * Hold this node back from new placements. Idempotent per owner.
+ * @param {string} owner A PlacementHoldOwner value. An unknown one throws: it is
+ * a caller that was never given an identity, and accepting it would create an
+ * owner nothing can ever release.
+ * @param {string} reason Logged and reported.
+ */
+function setPlacementHold(owner, reason) {
+  if (!Object.values(PlacementHoldOwner).includes(owner)) {
+    throw new Error(`setPlacementHold: unknown owner ${owner}`);
+  }
+  if (placementHolds.get(owner) === reason) return;
+  placementHolds.set(owner, reason);
+  log.info(`Placement hold set by ${owner}: ${reason}`);
+}
+
+/**
+ * Release one owner's hold. Any other owner's hold stands, and the node stays
+ * held until every one of them has released - so a feature clearing its own
+ * condition can never speak for a condition it knows nothing about.
+ * @param {string} owner A PlacementHoldOwner value.
+ */
+function clearPlacementHold(owner) {
+  const reason = placementHolds.get(owner);
+  if (reason === undefined) return;
+  placementHolds.delete(owner);
+  log.info(`Placement hold cleared by ${owner} (was: ${reason})`);
+}
+
+/**
+ * @returns {string|null} Why the node is held, or null when it is not.
+ */
+function getPlacementHold() {
+  if (!placementHolds.size) return null;
+  // Every reason, not an arbitrary one: the spawner logs this to say why the
+  // node is not installing, and naming one of two holds would send an operator
+  // to lift a condition that would not release the node.
+  return [...placementHolds.values()].join('; ');
+}
+
+/**
+ * @returns {boolean} True when this node must not take on new apps.
+ */
+function isPlacementHeld() {
+  return placementHolds.size > 0;
 }
 
 /**
@@ -705,7 +1052,14 @@ async function getFluxNodePublicKey(privatekey) {
     const pubKey = privKeyToPubKey(privateKey, isCompressed);
     return pubKey;
   } catch (error) {
-    return error;
+    // Null, not the Error. An Error here is the worst of both: truthy, so a
+    // guard on the value passes; not a string, so nothing type-based notices;
+    // and `{}` once JSON.stringify reaches it - which is how a node with a
+    // briefly unavailable key went on broadcasting messages that every peer
+    // silently refused. Said out loud too, because it was silent at the point
+    // it happened and loud only at the far end.
+    log.error(`getFluxNodePublicKey - unable to derive this node's public key: ${error.message || error}`);
+    return null;
   }
 }
 
@@ -722,7 +1076,10 @@ async function closeConnection(ip, port) {
   if (!peer || peer.direction !== DIRECTION.OUTBOUND) {
     return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
-  peer.close(CLOSE_CODES.CLOSED_OUTBOUND, 'purposefully closed');
+  // Evicted rather than closed: the caller asked for this peer to be gone, and
+  // until it leaves the map it still fills a slot no reconnect is dialled for
+  // and is still offered as a sync source.
+  peerManager.evict(key, CLOSE_CODES.CLOSED_OUTBOUND, 'purposefully closed');
   log.info(`Connection to ${ip}:${port} closed with code ${CLOSE_CODES.CLOSED_OUTBOUND}`);
   return messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} closed`);
 }
@@ -742,7 +1099,7 @@ async function closeIncomingConnection(ip, port) {
   if (!peer || peer.direction !== DIRECTION.INBOUND) {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
-  peer.close(CLOSE_CODES.CLOSED_INBOUND, 'purposefully closed');
+  peerManager.evict(key, CLOSE_CODES.CLOSED_INBOUND, 'purposefully closed');
   log.info(`Connection from ${ip}:${port} closed with code ${CLOSE_CODES.CLOSED_INBOUND}`);
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
@@ -1022,8 +1379,7 @@ async function clockDrift(req, res) {
  * @param {object} res Response.
  */
 function isCommunicationEstablished(req, res) {
-  const outboundCount = peerManager.outboundCount;
-  const inboundCount = peerManager.inboundCount;
+  const { outboundCount, inboundCount } = peerManager;
   let message;
   if (outboundCount < config.fluxapps.minOutgoing) { // easier to establish
     message = messageHelper.createErrorMessage(`Not enough outgoing connections established to Flux network. Minimum required ${config.fluxapps.minOutgoing} found ${outboundCount}`);
@@ -1117,6 +1473,23 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
+    // Everything below needs to know which node this is: whose registration among
+    // the ones found at the new address is our own, which apps are ours to hand
+    // over, and what address the fluxipchanged broadcast is moving FROM.
+    // localSocketAddress is cleared whenever benchmark hiccups, and a comparison
+    // against nothing matches nothing - so acting here would read our own rows as
+    // strangers' and uninstall the apps they belong to.
+    //
+    // Return BEFORE the userconfig write, which is what makes this a deferral
+    // rather than a silent drop: the write is what marks the change handled, so
+    // leaving it unwritten leaves the change pending. checkMyFluxAvailability
+    // already refuses to run while the address is unknown, so nothing reaches here
+    // again until benchmark answers - and then this runs with the node knowing
+    // itself, exactly once, as designed.
+    if (!localSocketAddress) {
+      log.warn(`adjustExternalIP - own address unknown, deferring the change to ${ip} until benchmark answers`);
+      return;
+    }
     const oldUserConfigIp = userconfig.initial.ipaddress;
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
@@ -1156,13 +1529,15 @@ async function adjustExternalIP(ip) {
       // eslint-disable-next-line global-require
       const appUninstaller = require('./appLifecycle/appUninstaller');
       // eslint-disable-next-line global-require
-      const appController = require('./appManagement/appController');
-      // eslint-disable-next-line global-require
       const enterpriseHelper = require('./utils/enterpriseHelper');
       let apps = await appQueryService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
         let appsRemoved = 0;
+        // The apps still installed once the loop has removed the ones that cannot
+        // stay. Handed to whoever registered for an address change; nothing here
+        // knows what bringing them back involves.
+        const staying = [];
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // Check if app requires static IP - if so, uninstall it since IP changed
@@ -1193,7 +1568,21 @@ async function adjustExternalIP(ip) {
 
           // eslint-disable-next-line no-await-in-loop
           const runningAppList = await registryManager.appLocation(app.name);
-          const duplicateInstance = runningAppList.find((instance) => extractIp(instance.ip) === ip);
+          // An instance at this address means the ports are taken and this node
+          // cannot run the app: one instance per IP is enforced by the host port
+          // mapping, so a UPnP sibling on another port holds them just as surely
+          // as a node that owns the address alone. That is why the address is
+          // compared at IP granularity.
+          //
+          // The node's OWN registration is not that. It stores its own running-app
+          // row locally, at the address benchmark reports, so the row sitting at
+          // this address is most often itself - and removing on that is a node
+          // deleting an app that is exactly where it belongs, then telling the
+          // network it is gone. Own-ness is the full socket address, which is what
+          // separates it from the sibling that shares only the IP.
+          const duplicateInstance = runningAppList.find(
+            (instance) => ipsMatch(instance.ip, ip) && !socketAddressesMatch(instance.ip, localSocketAddress),
+          );
           if (duplicateInstance) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
             log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${ip} (after IP change)`);
@@ -1201,10 +1590,19 @@ async function adjustExternalIP(ip) {
             await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
             appsRemoved += 1;
           } else {
-            // once app specs v8 is done we check if app have specs that is using fluxnode service.
-            // eslint-disable-next-line no-await-in-loop
-            await appController.appDockerRestart(app.name);
+            staying.push(app);
           }
+        }
+        // One handover for the whole set, not a call per app: what an app is made
+        // of - a composed one's containers are `<component>_<app>`, and an
+        // enterprise one's names are inside a blob this layer cannot read - is
+        // knowledge the reconciler already holds. Failures stay inside it too, so
+        // one app that cannot be asked costs the others nothing and leaves the
+        // broadcast, the confirmation transaction and the geolocation update below
+        // reachable.
+        if (staying.length && onAddressChanged) {
+          await onAddressChanged(staying, `node ip changed to ${ip}`)
+            .catch((error) => log.error(`adjustExternalIP - restart request failed: ${error.message}`));
         }
         if (apps.length > appsRemoved) {
           const broadcastedAt = Date.now();
@@ -1270,11 +1668,22 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
 
-  const randomSocketAddress = await networkStateService.getRandomSocketAddress(
+  // An external observer. This asks a peer whether it can reach US, and a Flux
+  // node sharing our public address cannot answer: reaching us means leaving the
+  // router and being sent straight back in, which most consumer routers do not
+  // do. Asking one produced a false "unreachable" and two points of dosState,
+  // on exactly the shared-address topology this release is about.
+  const randomSocketAddress = await networkStateService.getRandomExternalObserver(
     localSocketAddress,
   );
 
-  if (!randomSocketAddress) return false;
+  // Nobody outside this address to ask, so nothing is learned and nothing is
+  // concluded - dosState is deliberately untouched here, unlike every failure
+  // path below it. The next cycle asks again.
+  if (!randomSocketAddress) {
+    log.warn('checkMyFluxAvailability - no Flux node outside this address could be asked; skipping this pass');
+    return false;
+  }
 
   const remoteIp = extractIp(randomSocketAddress);
   const remotePort = extractPort(randomSocketAddress);
@@ -1401,6 +1810,20 @@ async function checkDeterministicNodesCollisions() {
     if (localSocketAddr) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
+        setTimeout(() => {
+          checkDeterministicNodesCollisions();
+        }, 120 * 1000);
+        return;
+      }
+      // Same shape as the daemon check above, for the same reason. The list
+      // accessors wait for the list to arrive, and this loop only re-arms once
+      // it has finished - so awaiting in here would retire it for the life of
+      // the process rather than delay it, and this is the only thing that ever
+      // clears this node's DOS state. Reading an unknown list instead is no
+      // better: it makes every branch below conclude this node is not in the
+      // confirmed list, log that as the reason, and skip the availability check
+      // that would have cleared the DOS.
+      if (!networkStateService.isReady()) {
         setTimeout(() => {
           checkDeterministicNodesCollisions();
         }, 120 * 1000);
@@ -1562,12 +1985,12 @@ async function setDOSStateApi(req, res) {
   if (!config.has('testEventStream') || config.get('testEventStream') !== true) {
     return res.status(404).json({ status: 'error', data: { message: 'Not available' } });
   }
-  const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  let body = req.body;
+  let { body } = req;
   if (typeof body !== 'object') {
     try { body = JSON.parse(body); } catch { body = {}; }
   }
@@ -1779,7 +2202,7 @@ async function allowPortApi(req, res) {
     const errMessage = messageHelper.createErrorMessage('No Port address specified.');
     return res.json(errMessage);
   }
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
 
   let message;
 
@@ -2228,6 +2651,7 @@ module.exports = {
   getLocalSocketAddress,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
+  MAX_KEEPALIVE_PORTS,
   checkDeterministicNodesCollisions,
   getIncomingConnections,
   getIncomingConnectionsInfo,
@@ -2246,6 +2670,7 @@ module.exports = {
   checkFluxbenchVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIP,
+  setOnAddressChanged,
   allowPort,
   allowOutPort,
   isFirewallActive,
@@ -2261,6 +2686,11 @@ module.exports = {
   setDosStateValue,
   getDosStateValue,
   isNodeDos,
+  PlacementHoldOwner,
+  setPlacementHold,
+  clearPlacementHold,
+  getPlacementHold,
+  isPlacementHeld,
   setStickyDosMessage,
   getStickyDosMessage,
   clearStickyDosMessage,
@@ -2270,7 +2700,10 @@ module.exports = {
   isCommunicationEstablished,
   lruRateLimit,
   isPortOpen,
+  portAnswered,
+  MAX_ECHO_BYTES,
   checkAppAvailability,
+  verifySignedFluxnodeMessage,
   isPortEnterprise,
   isPortBanned,
   isPortUPNPBanned,

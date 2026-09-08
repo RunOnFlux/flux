@@ -1,5 +1,7 @@
 const chai = require('chai');
 const sinon = require('sinon');
+
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const chaiAsPromised = require('chai-as-promised');
 const os = require('os');
 const bitcoinMessage = require('bitcoinjs-message');
@@ -523,6 +525,10 @@ describe('idService tests', () => {
     let bitcoinMessageStub;
 
     beforeEach(() => {
+      // A successful login defers stripping the signature from the database by
+      // a minute. Left real, that timer outlives this file and writes to the
+      // database against restored stubs.
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       bitcoinMessageStub = sinon.stub(bitcoinMessage, 'verify');
     });
 
@@ -631,7 +637,7 @@ describe('idService tests', () => {
 
     it('should return error if the message is empty', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '',
       };
@@ -655,7 +661,7 @@ describe('idService tests', () => {
 
     it('should return error if message is undefined', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
       };
       const mockStream = new PassThrough();
@@ -678,7 +684,7 @@ describe('idService tests', () => {
 
     it('should return error if message is less than 40 chars', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '1234',
       };
@@ -702,7 +708,7 @@ describe('idService tests', () => {
 
     it('should return error if message first 13 chars timestamp is too low', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '111111111111111111111111111111111111111111111',
       };
@@ -726,7 +732,7 @@ describe('idService tests', () => {
 
     it('should return error if message first 13 chars timestamp is too high', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '999999999999911111111111111111111111111111111',
       };
@@ -754,7 +760,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -785,7 +791,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -817,7 +823,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -850,7 +856,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -862,7 +868,7 @@ describe('idService tests', () => {
         status: 'success',
         data: {
           message: 'Successfully logged in',
-          zelid: '1Z1234341Z1234341Z1234341Z1234341',
+          zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           loginPhrase: sinon.match.string,
           signature: '1234356asdf',
           privilage: 'user',
@@ -988,7 +994,7 @@ describe('idService tests', () => {
 
     it('should return error if the message is empty', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '',
       };
@@ -1012,7 +1018,7 @@ describe('idService tests', () => {
 
     it('should return error if message is undefined', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
       };
       const mockStream = new PassThrough();
@@ -1035,7 +1041,7 @@ describe('idService tests', () => {
 
     it('should return error if message is less than 40 chars', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '1234',
       };
@@ -1067,7 +1073,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -1078,7 +1084,7 @@ describe('idService tests', () => {
       const expectedError = {
         status: 'success',
         data: {
-          identifier: '1Z1234341Z1234341Z1234341Z12343411111111111111',
+          identifier: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg1111111111111',
           signature: '1234356asdf',
         },
       };
@@ -1430,6 +1436,28 @@ describe('idService tests', () => {
     });
   });
 
+  // The four strings /id/checkprivilege answers. The frontend branches on these
+  // in fourteen places and is deployed separately, so changing one here breaks
+  // login, navigation, app management and checkout in a repo this one cannot
+  // see. Pinned by value deliberately: the point is that they do not move.
+  describe('the privilege vocabulary on the wire', () => {
+    it('answers exactly the four tokens the frontend reads', () => {
+      expect(idService.PRIVILEGE_RESPONSE).to.deep.equal({
+        NODE_OPERATOR: 'admin',
+        FLUX_TEAM: 'fluxteam',
+        USER: 'user',
+        NONE: 'none',
+      });
+    });
+
+    it('is not the enum a route requires internally - the two are free to diverge', () => {
+      // NODE_OPERATOR is the same string on both sides today, and nothing keeps
+      // it that way. Reading one from the other is what would couple them.
+      expect(Object.values(idService.PRIVILEGE_RESPONSE)).to.include(Privilege.NODE_OPERATOR);
+      expect(Object.values(Privilege)).to.not.include(idService.PRIVILEGE_RESPONSE.NONE);
+    });
+  });
+
   describe('checkLoggedUser tests', () => {
     let verifyPrivilegeStub;
 
@@ -1441,7 +1469,7 @@ describe('idService tests', () => {
       sinon.restore();
     });
 
-    it('should return error message if no zelid parameter is passed', async () => {
+    it('should answer none, not the thrown text, if no zelid parameter is passed', async () => {
       const res = generateResponse();
       const params = {
         loginPhrase: 'phrase',
@@ -1459,12 +1487,12 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user Flux ID specificed',
+          message: 'none',
         },
       });
     });
 
-    it('should return error message if no loggedPhrase parameter is passed', async () => {
+    it('should answer none, not the thrown text, if no loggedPhrase parameter is passed', async () => {
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1482,12 +1510,12 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user loginPhrase specificed',
+          message: 'none',
         },
       });
     });
 
-    it('should return error message if no loggedPhrase parameter is passed', async () => {
+    it('should answer none, not the thrown text, if no signature parameter is passed', async () => {
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1505,13 +1533,13 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user Flux ID signature specificed',
+          message: 'none',
         },
       });
     });
 
     it('should return peroper success message if user is an admin', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1532,8 +1560,8 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is fluxteam', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1554,9 +1582,9 @@ describe('idService tests', () => {
     });
 
     it('should return peroper success message if user is an ordinary user', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(true);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.USER, sinon.match.string).returns(true);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',
@@ -1576,10 +1604,34 @@ describe('idService tests', () => {
       });
     });
 
+    it('should answer none when the privilege check itself throws, so the session is cleared', async () => {
+      verifyPrivilegeStub.throws(new Error('database unavailable'));
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        loginPhrase: 'loginphrase',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      // 'none' is the only value that makes the frontend drop zelidauth, and a
+      // thrown error is exactly when the session should end. `name` is what
+      // still separates this from the refusal below, which carries none.
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'none' },
+      });
+    });
+
     it('should return error message if user has no privileges', async () => {
-      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
-      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.NODE_OPERATOR, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.FLUX_TEAM, sinon.match.string).returns(false);
+      verifyPrivilegeStub.withArgs(Privilege.USER, sinon.match.string).returns(false);
       const res = generateResponse();
       const params = {
         zelid: '1zel12343434',

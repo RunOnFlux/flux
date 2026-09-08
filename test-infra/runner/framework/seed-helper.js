@@ -4,6 +4,10 @@ import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
 import { assertHermeticRepotags } from './app-helper.js';
+import { allocatePortFor, assignPorts } from './port-allocator.js';
+import chainStart from './chain-start.cjs';
+
+const { DEFAULT_INITIAL_HEIGHT } = chainStart;
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -16,13 +20,27 @@ function fakeTxid() {
 export async function buildSeedableApp({
   name,
   compose = null,
-  height = 2100010,
+  // Seeded RELATIVE TO THE CHAIN THIS SUITE IS ON, never to a literal. An app is
+  // seeded `expire` blocks before it expires, so a height pinned to some older
+  // chain start seeds an app that is already long expired at the fleet's first
+  // block: the spawner filters it out of every candidate list and
+  // expireGlobalApplications deletes it outright.
+  //
+  // Pass `env` and it follows that suite's chain, including one that opted out
+  // via createTestEnv({ initialHeight }) - which is the whole reason that
+  // parameter exists, and the reason a bare constant here would go stale again
+  // the first time somebody uses it.
+  env = null,
+  height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
   instances = 3,
   owner = null,
   staticip = false,
   enterprise = '',
   expire = 22000,
   allowExternalRepotag = false,
+  // Two apps in a suite wanting one port is refused here by default. A suite
+  // for which the collision IS the subject - 98 - says so.
+  allowPortReuse = false,
 }) {
   const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
@@ -39,7 +57,7 @@ export async function buildSeedableApp({
       // pull over live internet (rate-limit flakes); the env registry is
       // seeded with this image at bootstrap (test-env.js)
       repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-      ports: [31111],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -58,6 +76,18 @@ export async function buildSeedableApp({
     staticip,
     enterprise,
   };
+
+  // Components copied before anything is written into them: assignPorts sets the
+  // allocated port on the component it is given, and a caller that reuses the array
+  // it passed in would get a port stamped into its own object.
+  spec.compose = spec.compose.map((component) => ({ ...component }));
+
+  // Before the signature and the hash, never after: both are taken over
+  // JSON.stringify(spec), so a port added later leaves the app carrying a hash
+  // of a specification that no longer exists. An enterprise app has an empty
+  // compose here - its components are already inside the blob, ported by
+  // buildSeedableEnterpriseApp before it encrypted them.
+  if (spec.compose.length) assignPorts(spec.compose, name, { allowPortReuse });
 
   const type = 'fluxappregister';
   const version = 1;
@@ -98,6 +128,167 @@ export async function buildSeedableApp({
 }
 
 /**
+ * The same app, one specification later.
+ *
+ * An owner changing a running app is most of what owners do, and until this
+ * existed the harness could create an app and destroy one but never change one -
+ * so every path that answers a spec change (the periodic reinstall pass, the
+ * change detector that decides soft against hard, the strip list that decides
+ * what counts as a change at all) had no fleet coverage.
+ *
+ * The node decides an app is obsolete by comparing the hash it installed against
+ * the hash the global specification now carries, so `mutate` has to change
+ * something: an update that leaves the spec identical is signed over the same
+ * bytes, hashes the same, and the node is right to do nothing with it.
+ *
+ * Ports are NOT reassigned. They were allocated for this app when it was first
+ * built and are already stamped into the components being copied; re-running the
+ * allocator would either hand out a second port or trip its own reuse guard.
+ *
+ * @param {object} app - what buildSeedableApp returned
+ * @param {(spec: object) => void} mutate - changes the copy in place
+ * @param {{height?: number}} opts - the block the update lands on
+ * @returns {Promise<object>} the same shape buildSeedableApp returns
+ */
+export async function buildSeedableUpdate(app, mutate, { height = null } = {}) {
+  const ownerKey = appOwnerKey();
+
+  // hash and height are what the seeding added; the signature and the hash below
+  // are taken over the specification alone, exactly as registration took them.
+  const previousHeight = app.spec.height;
+  const bare = JSON.parse(JSON.stringify(app.spec));
+  delete bare.hash;
+  delete bare.height;
+  // Present if this fixture has already been seeded into mongo, and it belongs
+  // to that row rather than to the specification the owner signed.
+  delete bare._id;
+  const before = JSON.stringify(bare);
+
+  const spec = JSON.parse(before);
+  spec.compose = (spec.compose ?? []).map((component) => ({ ...component }));
+  mutate(spec);
+
+  if (JSON.stringify(spec) === before) {
+    throw new Error(`buildSeedableUpdate: mutate left ${spec.name} unchanged, so its hash is unchanged and the node has nothing to notice`);
+  }
+
+  const type = 'fluxappupdate';
+  const version = 1;
+  const timestamp = Date.now();
+  const payload = type + version + JSON.stringify(spec) + timestamp;
+  const signature = await signBtcMessage(payload, ownerKey.privkey);
+
+  const hash = sha256(type + version + JSON.stringify(spec) + timestamp + signature);
+  const txid = fakeTxid();
+  const at = height ?? previousHeight + 1;
+
+  return {
+    spec: { ...spec, hash, height: at },
+    permanentMessage: {
+      type, version, appSpecifications: spec, hash, timestamp, signature, txid, height: at, valueSat: 200000000,
+    },
+    hashEntry: {
+      hash, txid, height: at, value: 200000000, message: true, messageNotFound: false, createdAt: new Date(),
+    },
+    hash,
+    txid,
+  };
+}
+
+/**
+ * A seedable LEGACY app - version <= 3, which has no compose array at all: the
+ * one component's fields sit flat on the specification itself.
+ *
+ * That shape is why a restore of such an app used to throw before it did
+ * anything: the code reached for `.compose` and found nothing. `seed-helper`
+ * builds v8 everywhere else, so nothing in the harness could produce an app that
+ * takes the legacy branch.
+ *
+ * The field list is what appValidator demands of version <= 3, including two
+ * details that are easy to get wrong: `ports` and `containerPorts` are arrays of
+ * STRINGS rather than numbers, and the environment array is spelled
+ * `enviromentParameters` - the historical misspelling that dockerService still
+ * reads as a fallback.
+ *
+ * @param {object} opts - name, containerData and the usual overrides
+ * @returns {Promise<object>} the same shape buildSeedableApp returns
+ */
+export async function buildSeedableLegacyApp({
+  name,
+  version = 3,
+  containerData = '/appdata',
+  // Chain-relative, same as buildSeedableApp above and for the same reason its
+  // comment gives: a literal height seeds an app already expired on any suite
+  // whose chain starts later, and assertAliveOnThisChain refuses it.
+  env = null,
+  height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
+  instances = 1,
+  owner = null,
+  expire = 22000,
+  allowExternalRepotag = false,
+}) {
+  const ownerKey = appOwnerKey();
+  const appOwner = owner ?? ownerKey.zelid;
+
+  const spec = {
+    version,
+    name,
+    description: `Seeded legacy test app ${name}`,
+    owner: appOwner,
+    repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
+    // A v3 spec spells its ports as STRINGS, so this is the one builder that
+    // has to ask the allocator for a number rather than leave the field absent
+    // for buildSeedableApp to fill in - it builds its own spec.
+    ports: [String(allocatePortFor(name))],
+    domains: [''],
+    enviromentParameters: [],
+    commands: [],
+    containerPorts: ['80'],
+    containerData,
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    instances,
+    expire,
+  };
+
+  const type = 'fluxappregister';
+  const messageVersion = 1;
+  const timestamp = Date.now();
+  const payload = type + messageVersion + JSON.stringify(spec) + timestamp;
+  const signature = await signBtcMessage(payload, ownerKey.privkey);
+
+  const messageContent = type + messageVersion + JSON.stringify(spec) + timestamp + signature;
+  const hash = sha256(messageContent);
+  const txid = fakeTxid();
+
+  const permanentMessage = {
+    type,
+    version: messageVersion,
+    appSpecifications: spec,
+    hash,
+    timestamp,
+    signature,
+    txid,
+    height,
+    valueSat: 200000000,
+  };
+
+  const hashEntry = {
+    hash,
+    txid,
+    height,
+    value: 200000000,
+    message: true,
+    messageNotFound: false,
+    createdAt: new Date(),
+  };
+
+  assertHermeticRepotags(spec, allowExternalRepotag);
+  return { spec: { ...spec, hash, height }, permanentMessage, hashEntry, hash, txid };
+}
+
+/**
  * A seedable app whose primary component carries a syncthing containerData flag
  * (`g:` masterSlave gateway, `r:` receive-only, `s:` shared). Drive its sync
  * state with framework/syncthing-control and its election with framework/fdm-control.
@@ -108,7 +299,6 @@ export async function buildSeedableSyncthingApp({
   name,
   mode = 'g',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [31111],
   containerPorts = [80],
   sibling = false,
   ...rest
@@ -117,7 +307,7 @@ export async function buildSeedableSyncthingApp({
     name,
     description: `${mode}: sync component`,
     repotag,
-    ports: [ports[0]],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],
@@ -134,7 +324,7 @@ export async function buildSeedableSyncthingApp({
       name: `${name}sib`,
       description: 'plain sibling component',
       repotag,
-      ports: [ports[0] + 1],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -158,7 +348,7 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, port = 31111, ...rest
+  name, exitCode = 0, exitAfterS = null, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
@@ -167,7 +357,7 @@ export async function buildSeedableTestApp({
     name,
     description: 'configurable exit test container',
     repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
-    ports: [port],
+    ports: [],
     domains: [''],
     environmentParameters,
     commands: [],
@@ -195,7 +385,6 @@ export async function buildSeedableMixedMountApp({
   plainPath = '/data',
   syncPath = '/db',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  ports = [31111],
   containerPorts = [80],
   ...rest
 }) {
@@ -203,7 +392,7 @@ export async function buildSeedableMixedMountApp({
     name,
     description: `mixed plain + ${mode}: component`,
     repotag,
-    ports: [ports[0]],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],
@@ -229,7 +418,6 @@ export async function buildSeedableMultiSyncthingApp({
   mode = 'g',
   components = 2,
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
-  basePort = 31111,
   containerPorts = [80],
   ...rest
 }) {
@@ -239,7 +427,7 @@ export async function buildSeedableMultiSyncthingApp({
       name: `${name}c${i}`,
       description: `${mode}: component ${i}`,
       repotag,
-      ports: [basePort + i],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -288,7 +476,7 @@ export async function buildSeedableIndexRefApp({
       ...base,
       name,
       description: 'invalid self-referencing component (index 0 -> 0)',
-      ports: [31111],
+      ports: [],
       containerData: `${mode}:/appdata|0:/selfref`,
     }]
     : [
@@ -296,14 +484,14 @@ export async function buildSeedableIndexRefApp({
         ...base,
         name: `${name}c0`,
         description: `${mode}: base component (index 0)`,
-        ports: [31111],
+        ports: [],
         containerData: `${mode}:/appdata`,
       },
       {
         ...base,
         name: `${name}c1`,
         description: 'component referencing component 0 volume (index 1 -> 0)',
-        ports: [31112],
+        ports: [],
         containerData: '/own|0:/shared',
       },
     ];
@@ -339,8 +527,12 @@ export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null
   return { locations, stateEvents };
 }
 
-export async function seedAppOnAllNodes(dbClients, { name, compose, height, instances } = {}) {
-  const app = await buildSeedableApp({ name, compose, height, instances });
+export async function seedAppOnAllNodes(dbClients, {
+  name, compose, height, instances, env,
+} = {}) {
+  const app = await buildSeedableApp({
+    name, compose, height, instances, env,
+  });
 
   const seedPromises = dbClients.map(async (dbc) => {
     await dbc.seedGlobalAppSpec(app.spec);
@@ -352,8 +544,12 @@ export async function seedAppOnAllNodes(dbClients, { name, compose, height, inst
   return app;
 }
 
-export async function seedAppWithRunningState(dbClients, nodeIps, { name, compose, height, instances } = {}) {
-  const app = await seedAppOnAllNodes(dbClients, { name, compose, height, instances });
+export async function seedAppWithRunningState(dbClients, nodeIps, {
+  name, compose, height, instances, env,
+} = {}) {
+  const app = await seedAppOnAllNodes(dbClients, {
+    name, compose, height, instances, env,
+  });
   const state = buildRunningState({ appName: name, nodeIps, hash: app.hash });
 
   const seedPromises = dbClients.map(async (dbc, i) => {
@@ -376,12 +572,14 @@ export async function seedAppWithRunningState(dbClients, nodeIps, { name, compos
  * node decrypts it through the normal path). Pass the same `compose` you would
  * give buildSeedableApp.
  */
-export async function buildSeedableEnterpriseApp({ name, compose, contacts = [], ...rest }) {
+export async function buildSeedableEnterpriseApp({
+  name, compose, contacts = [], allowPortReuse = false, ...rest
+}) {
   const components = compose ?? [{
     name,
     description: 'seeded enterprise component',
     repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-    ports: [31131],
+    ports: [],
     domains: [''],
     environmentParameters: [],
     commands: [],
@@ -392,7 +590,12 @@ export async function buildSeedableEnterpriseApp({ name, compose, contacts = [],
     hdd: 1,
     repoauth: '',
   }];
-  const enterprise = buildEnterpriseBlob(components, contacts);
+  // Ported here, not in buildSeedableApp: once these are encrypted into the
+  // blob the spec's own compose is empty and there is nothing left to give a
+  // port to. Copied first, for the reason buildSeedableApp copies.
+  const ported = components.map((component) => ({ ...component }));
+  assignPorts(ported, name, { allowPortReuse });
+  const enterprise = buildEnterpriseBlob(ported, contacts);
   return buildSeedableApp({
     name, compose: [], enterprise, ...rest,
   });

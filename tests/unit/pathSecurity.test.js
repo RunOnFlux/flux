@@ -16,6 +16,7 @@ const {
   verifyRealPathSync,
   sanitizeAndVerifyPath,
   rejectBackslashes,
+  openNoFollow,
 } = require('../../ZelBack/src/services/utils/pathSecurity');
 
 describe('pathSecurity', () => {
@@ -80,16 +81,29 @@ describe('pathSecurity', () => {
       expect(() => sanitizePath('..', basePath)).to.throw('directory traversal');
     });
 
-    // Allowlist tests (Solution 2)
-    it('should block special characters via allowlist', () => {
-      expect(() => sanitizePath('file<script>', basePath)).to.throw('disallowed characters');
-      expect(() => sanitizePath('path|injection', basePath)).to.throw('disallowed characters');
-      expect(() => sanitizePath('file;rm -rf', basePath)).to.throw('disallowed characters');
-      expect(() => sanitizePath('$(command)', basePath)).to.throw('disallowed characters');
-      expect(() => sanitizePath('file`cmd`', basePath)).to.throw('disallowed characters');
-      expect(() => sanitizePath('path&command', basePath)).to.throw('disallowed characters');
-      expect(() => sanitizePath("file'injection", basePath)).to.throw('disallowed characters');
-      expect(() => sanitizePath('file"injection', basePath)).to.throw('disallowed characters');
+    it('should block control characters, which no filename can safely carry', () => {
+      // A newline corrupts anything line-oriented that later handles the name.
+      // mountinfo escapes them for that reason, and the marker recording where
+      // displaced data belongs during a publish is one line of text.
+      expect(() => sanitizePath('bad\nname', basePath)).to.throw('disallowed characters');
+      expect(() => sanitizePath('bad\rname', basePath)).to.throw('disallowed characters');
+      expect(() => sanitizePath('tab\tname', basePath)).to.throw('disallowed characters');
+    });
+
+    it('should allow shell metacharacters, because no path is built into a shell string', () => {
+      // These were blocked when paths were interpolated into `sudo rm -rf "..."`
+      // and `sudo chmod 777 "..."`. Every such call site takes an argv array
+      // now, and operands reach a container with only the app's own volume
+      // mounted - so refusing a comma or an apostrophe protects nothing while
+      // making ordinary files unmanageable.
+      expect(() => sanitizePath('$(command)', basePath)).to.not.throw();
+      expect(() => sanitizePath('file`cmd`', basePath)).to.not.throw();
+      expect(() => sanitizePath('path&command', basePath)).to.not.throw();
+      expect(() => sanitizePath('file;rm -rf', basePath)).to.not.throw();
+      expect(() => sanitizePath("Mary's photo.png", basePath)).to.not.throw();
+      expect(() => sanitizePath('report,final.pdf', basePath)).to.not.throw();
+      expect(() => sanitizePath('caf\u00e9.jpg', basePath)).to.not.throw();
+      expect(() => sanitizePath('\u65e5\u672c\u8a9e.txt', basePath)).to.not.throw();
     });
 
     it('should block absolute paths via allowlist', () => {
@@ -133,12 +147,22 @@ describe('pathSecurity', () => {
       expect(isValidPathComponent(undefined)).to.be.false;
     });
 
-    it('should return false for components with special characters', () => {
-      expect(isValidPathComponent('file<tag>')).to.be.false;
-      expect(isValidPathComponent('cmd;rm')).to.be.false;
-      expect(isValidPathComponent('$(cmd)')).to.be.false;
-      expect(isValidPathComponent('file|pipe')).to.be.false;
-      expect(isValidPathComponent('file&bg')).to.be.false;
+    it('should return false for path separators and control characters', () => {
+      expect(isValidPathComponent('a/b')).to.be.false;
+      expect(isValidPathComponent('a\\b')).to.be.false;
+      expect(isValidPathComponent('file\nname')).to.be.false;
+      expect(isValidPathComponent('file\u0000name')).to.be.false;
+    });
+
+    it('should return true for punctuation and non-ASCII names', () => {
+      // Uploadable but previously unmanageable: the upload path applied no
+      // character rule, so these names could be created and then never
+      // renamed, moved, downloaded or deleted.
+      expect(isValidPathComponent('caf\u00e9.jpg')).to.be.true;
+      expect(isValidPathComponent("Mary's photo.png")).to.be.true;
+      expect(isValidPathComponent('report,final.pdf')).to.be.true;
+      expect(isValidPathComponent('100%.txt')).to.be.true;
+      expect(isValidPathComponent('\u65e5\u672c\u8a9e.txt')).to.be.true;
     });
 
     it('should allow consecutive dots in filenames', () => {
@@ -169,9 +193,9 @@ describe('pathSecurity', () => {
       expect(() => validatePathAllowlist('/root')).to.throw('absolute paths not allowed');
     });
 
-    it('should throw for paths with special characters', () => {
-      expect(() => validatePathAllowlist('file<script>')).to.throw('disallowed characters');
-      expect(() => validatePathAllowlist('cmd;rm')).to.throw('disallowed characters');
+    it('should throw for paths with control characters', () => {
+      expect(() => validatePathAllowlist('file\nname')).to.throw('disallowed characters');
+      expect(() => validatePathAllowlist('file\u0007bell')).to.throw('disallowed characters');
     });
 
     it('should throw for dot components', () => {
@@ -347,6 +371,32 @@ describe('pathSecurity', () => {
         }
       }
     });
+
+    it('refuses a parent symlink that dangles on the host but resolves in the container', async () => {
+      // The real vector is `ln -s /work appdata/root`: /work does not exist on
+      // the host so the link is dangling, but in the container /work IS the
+      // volume and it resolves to the root, reaching a reserved name the guard
+      // decides from the host resolution. lstat succeeds on the dangling link
+      // and realpath then fails - which used to pass through as "cannot resolve,
+      // therefore safe". A target guaranteed absent on any host stands in for
+      // /work here.
+      const symlinkPath = path.join(tempDir, 'container-namespace-link');
+      try {
+        await fs.symlink('/flux-nonexistent-target-a1b2c3', symlinkPath);
+        await expect(verifyRealPathOfExistingPath(path.join(symlinkPath, '.stfolder'), tempDir))
+          .to.be.rejectedWith('does not resolve on the host');
+      } catch (err) {
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        try {
+          await fs.unlink(symlinkPath);
+        } catch (e) {
+          // ignore cleanup failures
+        }
+      }
+    });
   });
 
   describe('verifyRealPathSync', () => {
@@ -397,6 +447,50 @@ describe('pathSecurity', () => {
 
     it('should throw for null bytes before symlink check', async () => {
       await expect(sanitizeAndVerifyPath('file\0name', tempDir)).to.be.rejectedWith('null bytes');
+    });
+  });
+
+  describe('openNoFollow', () => {
+    let tempDir;
+
+    before(async () => {
+      tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-open-test-')));
+      await fs.writeFile(path.join(tempDir, 'real.txt'), 'hello');
+    });
+
+    after(async () => {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('opens a regular file and reports its size', async () => {
+      const { handle, stats } = await openNoFollow(path.join(tempDir, 'real.txt'));
+      try {
+        expect(stats.size).to.equal(5);
+      } finally {
+        await handle.close();
+      }
+    });
+
+    it('refuses a symlink with an actionable message, not an opaque errno', async () => {
+      // O_NOFOLLOW fails ELOOP on a symlink at the final component; the download
+      // reads on the host, so following it could serve a file outside the
+      // volume. The owner is told how to get the data instead of just "ELOOP".
+      const linkPath = path.join(tempDir, 'latest.txt');
+      try {
+        await fs.symlink(path.join(tempDir, 'real.txt'), linkPath);
+        await expect(openNoFollow(linkPath))
+          .to.be.rejectedWith(/symbolic link cannot be downloaded directly.*compress the folder/);
+      } catch (err) {
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        try {
+          await fs.unlink(linkPath);
+        } catch (e) {
+          // ignore cleanup failures
+        }
+      }
     });
   });
 });

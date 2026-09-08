@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
 describe('appStartupManager tests', () => {
@@ -58,21 +59,19 @@ describe('appStartupManager tests', () => {
     const mockDb = { db: sinon.stub().returns('mockDatabase') };
     dbHelperStub.databaseConnection.returns(mockDb);
 
-    globalStateStub = {
-      dbReady: false,
-      daemonReady: false,
-      bootContainerStateSettled: false,
-      waitForDbReady: sinon.stub().resolves(),
-      waitForDaemonReady: sinon.stub().resolves(),
-      waitForBootContainerStateSettled: sinon.stub().resolves(),
-      backupInProgress: [],
-      restoreInProgress: [],
-      appsMonitored: new Map(),
-    };
+    // The real module, with the three gate waits spied. The gates stay CLOSED -
+    // this suite is about a startup that has not finished - and the waits are
+    // stubbed to resolve so a test does not sit on a gate nothing here opens.
+    // On the module itself those two are the same fact, which is why this has to
+    // be sinon over the real object rather than an object asserting both.
+    globalStateStub = resetGlobalState();
+    sinon.stub(globalStateStub, 'waitForDbReady').resolves();
+    sinon.stub(globalStateStub, 'waitForDaemonReady').resolves();
+    sinon.stub(globalStateStub, 'waitForBootContainerStateSettled').resolves();
 
     appQueryServiceStub = {
       installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
-      decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
+      decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
     };
 
     appUtilities = proxyquire('../../ZelBack/src/services/utils/appUtilities', {
@@ -555,11 +554,8 @@ describe('appStartupManager tests', () => {
     });
 
     it('should remove all apps on sync timeout', async () => {
-      const bootContext = {
-        machineRebooted: true, downtimeMs: 60000, cleanShutdown: false,
-      };
       // waitForDbReady never resolves — simulate timeout
-      globalStateStub.waitForDbReady = sinon.stub().returns(new Promise(() => {}));
+      globalStateStub.waitForDbReady.returns(new Promise(() => {}));
       appQueryServiceStub.installedApps.resolves({
         status: 'success',
         data: [{ name: 'app1' }],

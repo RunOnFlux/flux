@@ -1,5 +1,6 @@
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 /**
  * @typedef {import('./utils/networkStateManager').Fluxnode} Fluxnode
@@ -12,6 +13,14 @@ const networkStateManager = require('./utils/networkStateManager');
  * @type {networkStateManager.NetworkStateManager | null}
  */
 let stateManager = null;
+
+/**
+ * Resolves once the node list has been fetched and indexed. It exists before
+ * start() is called, so a caller that arrives early waits for the state rather
+ * than being handed an empty list and reading it as a network with no nodes.
+ */
+let resolveStarted;
+let started = new Promise((resolve) => { resolveStarted = resolve; });
 
 /**
  * Throttle state for daemon RPC calls
@@ -70,7 +79,18 @@ async function start(options = {}) {
 
     stateManager.once('populated', () => {
       clearTimeout(timeout);
+      resolveStarted();
       resolve();
+    });
+
+    // Every refresh, with what the node now believes the fleet to be. Nothing in
+    // production consumes it - the bus is test-only - and it exists because a
+    // test that changes the node list otherwise has no way to know when this
+    // node has read the change: the list is polled on a timer, and the only
+    // endpoints that report one ask the daemon rather than this cache. Sleeping
+    // long enough instead is the thing that turns into a flaky suite.
+    stateManager.on('updated', () => {
+      fluxEventBus.publish('networkstate:updated', { nodes: stateManager.nodeCount });
     });
 
     setImmediate(() => stateManager.start());
@@ -86,6 +106,7 @@ async function stop() {
 
   await stateManager.stop();
   stateManager = null;
+  started = new Promise((resolve) => { resolveStarted = resolve; });
 }
 
 /**
@@ -103,10 +124,48 @@ function networkState(options = {}) {
   return state;
 }
 
-async function waitStarted() {
-  if (!stateManager) return;
+/**
+ * Whether the node list has been fetched and indexed.
+ *
+ * The bulk accessors - networkState(), nodeCount() - answer an unknown state
+ * and a genuinely empty one with the same value, so a caller that would read
+ * those differently asks this first rather than guessing. The lookups that
+ * answer a question about one node do not: they wait for the list rather than
+ * report it absent from a state that has never held it.
+ * @returns {boolean}
+ */
+function isReady() {
+  return Boolean(stateManager && stateManager.started);
+}
 
-  await stateManager.waitStarted;
+/**
+ * Runs a callback once the network state is known, immediately if it already is.
+ *
+ * This is for work that cannot begin without the node list, so that it starts
+ * when the list arrives rather than whenever the next poll happens to come
+ * round. Callers on a schedule of their own should use isReady() instead.
+ * @param {Function} callback
+ * @returns {void}
+ */
+function onReady(callback) {
+  if (isReady()) {
+    callback();
+    return;
+  }
+
+  started.then(callback);
+}
+
+/**
+ * Waits until the network state is known.
+ *
+ * Only for one-shot startup gates. Anything on a repeating schedule must use
+ * isReady() - several of those only re-arm once they have finished, so awaiting
+ * here would retire them for the life of the process rather than delay them.
+ * @returns {Promise<void>}
+ */
+async function waitStarted() {
+  await started;
 }
 
 function nodeCount() {
@@ -168,6 +227,19 @@ async function getRandomSocketAddress(socketAddress) {
 }
 
 /**
+ * A random node that can observe this one from outside its address - i.e. not a
+ * Flux node sharing our public address. Null when there is no such node.
+ *
+ * @param {string} socketAddress
+ * @returns {Promise<string | null>}
+ */
+async function getRandomExternalObserver(socketAddress, options = {}) {
+  if (!stateManager) return null;
+
+  return stateManager.getRandomExternalObserver(socketAddress, options);
+}
+
+/**
  *
  * @param {string} socketAddress
  * @returns {Promise<Fluxnode | null>}
@@ -200,8 +272,11 @@ module.exports = {
   getFluxnodeBySocketAddress,
   getFluxnodesByPubkey,
   getRandomSocketAddress,
+  getRandomExternalObserver,
+  isReady,
   networkState,
   nodeCount,
+  onReady,
   pubkeyInNetworkState,
   socketAddressInNetworkState,
   start,

@@ -9,6 +9,8 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
+const placementFeasibility = require('../appPlacement/placementFeasibility');
+const mountParser = require('../utils/mountParser');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -22,6 +24,7 @@ const {
   appsHashesCollection,
   scannedHeightCollection,
 } = require('../utils/appConstants');
+const { Privilege, authOf } = require('../utils/privileges');
 
 let reindexRunning = false;
 
@@ -407,6 +410,28 @@ async function appInstallingLocation(appname) {
 }
 
 /**
+ * How many nodes are claiming each app, counted in one grouped pass.
+ *
+ * The spawner needs this for every candidate at once, to decide which apps
+ * still need a node before it picks one. Asking per app would be a read per
+ * candidate; this is a single scan of a collection that holds only live claims,
+ * since they expire on a TTL index.
+ *
+ * Names are lowercased because an app is addressed case-insensitively
+ * everywhere else here, so a caller must not have to know which case the
+ * claiming node happened to send.
+ * @returns {Promise<Map<string, number>>} Lowercased app name to claim count.
+ */
+async function installingCountsByApp() {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const rows = await dbHelper.aggregateInDatabase(database, globalAppsInstallingLocations, [
+    { $group: { _id: { $toLower: '$name' }, count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [row._id, row.count]));
+}
+
+/**
  * Get app installing errors locations for a specific app or all apps
  * @param {string} appname - Application name (optional)
  * @returns {Promise<Array>} Array of app installing error locations
@@ -759,6 +784,99 @@ async function getApplicationSpecifications(appName) {
 }
 
 /**
+ * What the flux team may know about an app whose specification they cannot
+ * read: the names of its components, whether each is election managed, and what
+ * the app costs in total.
+ *
+ * Deliberately NOT specification-shaped. A redacted specification is the
+ * dangerous thing here: it is indistinguishable from a complete one, so an
+ * update composed from it writes its blanks back over the customer's app.
+ * Nothing can mistake this shape for a spec or submit it as one.
+ *
+ * Two different claims, which is why they are two fields:
+ *
+ * `resources` is public information that happens to be sealed today. v9 keeps
+ * the totals OUTSIDE the encrypted envelope on purpose - a node has to judge
+ * whether it can host an app without being able to read it - and binds them
+ * into the AAD so a relayer cannot understate them. Returning them here is that
+ * same decision, made for a spec version that has not shipped it yet.
+ *
+ * `components` is not. v9 seals the component list and publishes only a count,
+ * so handing over the names is a deliberate exception rather than a claim they
+ * are harmless: the container tools address a component as `<component>_<app>`,
+ * so logs, terminal, monitoring and file changes cannot function without them.
+ * The exception is granted to an authenticated flux team caller, on a node that
+ * already holds the plaintext, and to nobody else.
+ *
+ * Withheld either way: environment parameters, repository credentials, secrets,
+ * commands, image tags, ports and domains.
+ *
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ */
+async function getApplicationComponentNamesAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Application Name specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    // fluxteam, not appownerorfluxteam: an owner reads the specification itself
+    // and has no use for this, and the node operator is not a party to a
+    // customer's app at all.
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+
+    const specifications = await getApplicationSpecifications(mainAppName);
+    if (!specifications) {
+      throw new Error(`Application: ${mainAppName} not found`);
+    }
+
+    const components = specifications.version >= 4 && Array.isArray(specifications.compose)
+      ? specifications.compose
+      : [specifications];
+
+    // Totals, not per-component sizing: it is what an app costs, it is what the
+    // app list renders, and it is the granularity v9 publishes. Named for the
+    // fields a v8 spec carries - v9 calls the same three cpu, memoryMb and
+    // storageGb.
+    const resources = components.reduce((total, component) => ({
+      cpu: total.cpu + (Number(component.cpu) || 0),
+      ram: total.ram + (Number(component.ram) || 0),
+      hdd: total.hdd + (Number(component.hdd) || 0),
+    }), { cpu: 0, ram: 0, hdd: 0 });
+
+    const response = messageHelper.createDataMessage({
+      components: components.map((component) => ({
+        name: component.name,
+        // The classifier the election itself uses. A sync flag counts only on the
+        // primary mount, so this must agree with what decides the component's
+        // fate rather than with anywhere the letters happen to appear.
+        masterSlave: mountParser.isGComponent(component.containerData || ''),
+      })),
+      resources,
+    });
+
+    return res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
+}
+
+/**
  * Get application specification via API
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -813,32 +931,24 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
     }
 
-    const ownerAuthorized = await verificationHelper.verifyPrivilege(
-      'appowner',
-      req,
-      mainAppName,
+    // Decrypting a spec is the owner's alone. A partly-redacted one would be
+    // neither usable nor safe: an update composed from a spec whose
+    // environmentParameters and repoauth have been blanked writes those blanks
+    // back over the customer's app, and everything left in it is still theirs.
+    //
+    // The flux team decrypts out of band instead, which keeps a decryption a
+    // deliberate act by a named person rather than a side effect of opening a
+    // page.
+    const authorized = await verificationHelper.verifyPrivilege(
+      Privilege.APP_OWNER,
+      authOf(req),
+      { appName: mainAppName },
     );
 
-    const fluxTeamAuthorized = ownerAuthorized === true
-      ? false
-      : await verificationHelper.verifyPrivilege(
-        'appownerabove',
-        req,
-        mainAppName,
-      );
-
-    if (ownerAuthorized !== true && fluxTeamAuthorized !== true) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return null;
-    }
-
-    if (fluxTeamAuthorized) {
-      specifications.compose.forEach((component) => {
-        const comp = component;
-        comp.environmentParameters = [];
-        comp.repoauth = '';
-      });
     }
 
     // this seems a bit weird, but the client can ask for the specs encrypted or decrypted.
@@ -937,10 +1047,14 @@ async function updateApplicationSpecificationAPI(req, res) {
       }
     }
 
+    // The owner alone, as for the decrypt path above. This upgrades the stored
+    // spec and hands it back whole, encrypted to a session key the caller
+    // supplies - environmentParameters and repoauth included - which is the
+    // spec its owner is about to re-sign, and nobody else's business.
     const authorized = await verificationHelper.verifyPrivilege(
-      'appownerabove',
-      req,
-      mainAppName,
+      Privilege.APP_OWNER,
+      authOf(req),
+      { appName: mainAppName },
     );
 
     if (!authorized) {
@@ -1685,7 +1799,7 @@ async function reconstructAppMessagesHashCollection() {
  */
 async function reconstructAppMessagesHashCollectionAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
       const result = await reconstructAppMessagesHashCollection();
       const message = messageHelper.createSuccessMessage(result);
@@ -1736,7 +1850,7 @@ async function registerAppGlobalyApi(req, res) {
   });
   req.on('end', async () => {
     try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
@@ -1796,6 +1910,11 @@ async function registerAppGlobalyApi(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await appValidator.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // placement feasibility at the front door, while the spec is still
+      // decrypted: an impossible spec is rejected before it is paid for, a
+      // diversity-constrained one is accepted with a warning
+      await placementFeasibility.checkPlacementFeasibility(appSpecFormatted, 'registerAppGlobalyApi');
 
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
@@ -1919,7 +2038,7 @@ async function reindexGlobalAppsLocation() {
  */
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = messageHelper.createSuccessMessage('Reindex successfull');
@@ -1946,7 +2065,7 @@ async function reindexGlobalAppsLocationAPI(req, res) {
  */
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       await reindexGlobalAppsInformation();
       const message = messageHelper.createSuccessMessage('Reindex successfull');
@@ -2013,7 +2132,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
  */
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req.query.blockheight;
@@ -2132,6 +2251,7 @@ module.exports = {
   appLocation,
   appLocationFromEvents,
   appInstallingLocation,
+  installingCountsByApp,
   appInstallingErrorsLocation,
   countAppInstallingErrors,
   storeAppInstallingMessage,
@@ -2143,6 +2263,7 @@ module.exports = {
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
   getApplicationSpecifications,
+  getApplicationComponentNamesAPI,
   getApplicationSpecificationAPI,
   updateApplicationSpecificationAPI,
   getApplicationOwner,

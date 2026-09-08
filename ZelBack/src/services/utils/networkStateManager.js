@@ -1,6 +1,6 @@
 const { EventEmitter } = require('node:events');
 const { FluxController } = require('./fluxController');
-const { normalizeSocketAddress } = require('./socketAddressUtils');
+const { normalizeSocketAddress, ipsMatch } = require('./socketAddressUtils');
 
 const log = require('../../lib/log');
 
@@ -47,7 +47,7 @@ class NetworkStateManager extends EventEmitter {
   #lastFetchTime = BigInt(0);
 
   /**
-   * @type {() => Promise | null}
+   * @type {(() => Promise) | null}
    */
   #onStartComplete = null;
 
@@ -63,6 +63,28 @@ class NetworkStateManager extends EventEmitter {
     this.#onStartComplete = () => {
       resolve();
       this.#onStartComplete = () => Promise.resolve();
+    };
+  });
+
+  /**
+   * Whether a fetch has completed, so that what the indexes hold is what this
+   * node knows about the fleet - as distinct from having populated them, which
+   * an empty fleet never does.
+   */
+  #answerable = false;
+
+  /**
+   * @type {(() => void) | null}
+   */
+  #onAnswerable = null;
+
+  /**
+   * @type {Promise<void>}
+   */
+  #answerableWait = new Promise((resolve) => {
+    this.#onAnswerable = () => {
+      resolve();
+      this.#onAnswerable = () => {};
     };
   });
 
@@ -175,6 +197,48 @@ class NetworkStateManager extends EventEmitter {
     return this.#controller.lock.waitReady();
   }
 
+  /**
+   * Resolves once a lookup can be answered truthfully.
+   *
+   * A node list has three conditions, not two. Never fetched: the node cannot
+   * answer, and the indexing lock is free at that point, so waiting on that
+   * alone reads an empty index and reports every node absent - the answer a
+   * node gives about a peer it has simply not heard of yet. Fetched and empty:
+   * it can answer, and "absent" is the truth. Fetched and populated: it answers
+   * from the index. Only the first of those waits.
+   *
+   * The indexing wait then still earns its place: mid-rebuild it costs ~10ms
+   * and returns the newer state.
+   * @returns {Promise<void>}
+   */
+  async #waitAnswerable() {
+    if (!this.#answerable) await this.#answerableWait;
+
+    await this.waitIndexesReady;
+  }
+
+  /**
+   * Marks the node able to answer questions about the fleet: a fetch has come
+   * back and the indexes hold what it returned.
+   * @returns {void}
+   */
+  #markAnswerable() {
+    this.#answerable = true;
+
+    if (this.#onAnswerable) this.#onAnswerable();
+  }
+
+  /**
+   * Releases anything waiting to be able to answer. Called when the manager
+   * stops, where no fetch is coming and a waiter would never return.
+   * @returns {void}
+   */
+  #releaseWaiters() {
+    if (this.#onStartComplete) this.#onStartComplete();
+
+    this.#markAnswerable();
+  }
+
   get nodeCount() {
     return this.#state.length;
   }
@@ -264,45 +328,96 @@ class NetworkStateManager extends EventEmitter {
   }
 
   /**
-   * Gets a random node from the network state. Ensures that the connection is
-   * not to this node. When we build the indexes, we could also store the node
-   * keys in an array, however, that is another array we have to keep in memory.
-   * It may pay to do that though, as this is O(n), vs O(1) for array index. CPU
-   * tradeoff for memory is probably good though.
-   * @param {string} localSocketAddress The ip:port of this node
+   * Walks the socketAddress index from a random offset and answers with the
+   * first node the rule accepts, or null when none does.
+   *
+   * One walk, because the two questions callers ask differ only in what they
+   * exclude: "another node", and "a node that can see me from outside". When we
+   * build the indexes we could also store the keys in an array, but that is
+   * another array to keep in memory - O(n) here against O(1) for an array index
+   * is probably the right trade.
+   *
+   * It answers null rather than reaching for a neighbouring entry when nothing
+   * qualifies. The previous form took "the one before, or else the next" without
+   * checking either existed, so a single-node fleet threw where it should have
+   * said absent - and absent is a case every caller already handles, because an
+   * empty index has always returned it.
+   *
+   * @param {(socketAddress: string) => boolean} acceptable
    * @returns {Promise<string | null>} A random socketAddress from the map
    */
-  async getRandomSocketAddress(localSocketAddress) {
-    await this.waitIndexesReady;
+  async #randomSocketAddressWhere(acceptable) {
+    await this.#waitAnswerable();
 
     const indexSize = this.#socketAddressIndex.size;
 
     if (!indexSize) return null;
 
-    let stepsRemaining = Math.floor(Math.random() * indexSize);
-    const iterator = this.#socketAddressIndex.values();
+    const offset = Math.floor(Math.random() * indexSize);
 
-    let previous = null;
+    let position = 0;
+    let firstAcceptable = null;
 
     // eslint-disable-next-line no-restricted-syntax
-    for (const node of iterator) {
+    for (const node of this.#socketAddressIndex.values()) {
       const { ip: socketAddress } = node;
 
-      if (!stepsRemaining) {
-        const match = localSocketAddress === socketAddress;
-        // if we've been unlucky (or lucky however you look at it) enough to hit
-        // this node, we just take the value before, or if it's the initial index,
-        // the next value from the iterator
-        if (match) return previous || iterator.next().value.ip;
-        return socketAddress;
+      if (acceptable(socketAddress)) {
+        if (position >= offset) return socketAddress;
+        if (firstAcceptable === null) firstAcceptable = socketAddress;
       }
 
-      previous = socketAddress;
-      stepsRemaining -= 1;
+      position += 1;
     }
 
-    // this should never happen, should probably log it
-    return this.socketAddressIndex.values().next().value.ip;
+    // Everything acceptable sat before the offset, so wrap to the first of them.
+    return firstAcceptable;
+  }
+
+  /**
+   * A random node that is not this one.
+   *
+   * For talking to a peer or fetching from one, where a Flux node behind our own
+   * router is a perfectly good answer.
+   *
+   * @param {string} localSocketAddress The ip:port of this node
+   * @returns {Promise<string | null>} A random socketAddress from the map
+   */
+  async getRandomSocketAddress(localSocketAddress) {
+    return this.#randomSocketAddressWhere(
+      (socketAddress) => socketAddress !== localSocketAddress,
+    );
+  }
+
+  /**
+   * A random node that can observe this one from OUTSIDE its address.
+   *
+   * For asking a peer what our address looks like from where it stands. A node
+   * sharing our public address is not outside it - its packets never leave the
+   * router - so whatever it can or cannot reach says nothing about what the
+   * internet can reach, which is the only question being asked. That holds
+   * however the router behaves; it is not a claim about hairpinning.
+   * Excluded here rather than at each caller, because the callers that need it
+   * are not the only ones drawing a peer and one of them already had to write
+   * the check by hand.
+   *
+   * Answers null when every other node shares our address, which is the honest
+   * answer: there is nobody who could tell us. The caller decides what that
+   * means; for the port test it means nothing was learned.
+   *
+   * `exclude` is how a caller asks for ANOTHER observer rather than another
+   * draw: a redraw that can return the peer just asked is not a second opinion,
+   * and a caller counting distinct witnesses would never reach two.
+   *
+   * @param {string} localSocketAddress The ip:port of this node
+   * @param {{exclude?: Array<string>}} [options] Addresses already asked
+   * @returns {Promise<string | null>} A random socketAddress from the map
+   */
+  async getRandomExternalObserver(localSocketAddress, { exclude = [] } = {}) {
+    return this.#randomSocketAddressWhere(
+      (socketAddress) => !ipsMatch(socketAddress, localSocketAddress)
+        && !exclude.some((asked) => ipsMatch(socketAddress, asked)),
+    );
   }
 
   /**
@@ -331,6 +446,19 @@ class NetworkStateManager extends EventEmitter {
     this.#pubkeyIndex = new Map();
     this.#socketAddressIndex = new Map();
     this.#state = [];
+    // Back to un-started, which is the whole point of this method: the indexes
+    // above are empty again, so the manager must not go on saying it can answer
+    // from them. stop() releases anyone already waiting before it gets here, so
+    // rewinding cannot strand them - it only means the next start() has to
+    // fetch before anyone is answered, exactly as a freshly built one does.
+    this.#answerable = false;
+    this.#answerableWait = new Promise((resolve) => {
+      this.#onAnswerable = () => {
+        resolve();
+        this.#onAnswerable = () => {};
+      };
+    });
+    this.#started = false;
   }
 
   /**
@@ -376,8 +504,14 @@ class NetworkStateManager extends EventEmitter {
       const blockMsg = blockHeight ? `. Block height: ${blockHeight}` : '';
       log.info(elapsedMsg + blockMsg);
 
-      // eslint-disable-next-line no-await-in-loop
-      if (!state.length) await this.#controller.sleep(15_000);
+      if (!state.length) {
+        // An empty list is an answer, so lookups stop waiting here even though
+        // the loop keeps asking - it retries for a fleet, not for the ability
+        // to say there isn't one.
+        this.#markAnswerable();
+        // eslint-disable-next-line no-await-in-loop
+        await this.#controller.sleep(15_000);
+      }
     } while (!populated && !state.length);
 
     if (state.length) {
@@ -402,6 +536,10 @@ class NetworkStateManager extends EventEmitter {
       log.info(
         `pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`,
       );
+
+      // after the build, never before it: between the fetch returning and the
+      // indexes being swapped in, the index a waiter would read is still empty
+      this.#markAnswerable();
 
       if (!populated) {
         this.emit('populated');
@@ -469,6 +607,14 @@ class NetworkStateManager extends EventEmitter {
     await this.fetchNetworkState();
     await this.waitStarted;
 
+    // Only a manager that got its list runs a loop to keep it fresh. A stop
+    // landing during that first fetch breaks the loop without populating and
+    // then releases everything waiting - this included - so without this the
+    // updater is armed on a manager that has just been torn down. The abort
+    // flag cannot be read for it: abort() installs a fresh AbortController on
+    // its way out, so by here it may already say it was never aborted.
+    if (!this.#started) return;
+
     const updater = this.#stateEmitter && this.stateEvent
       ? this.#startEventEmitter
       : this.#startPolling;
@@ -478,6 +624,8 @@ class NetworkStateManager extends EventEmitter {
 
   async stop() {
     await this.#controller.abort();
+
+    this.#releaseWaiters();
 
     if (this.#stateEmitter && this.#boundEventHandler) {
       this.#stateEmitter.removeListener(this.stateEvent, this.#boundEventHandler);
@@ -504,9 +652,7 @@ class NetworkStateManager extends EventEmitter {
 
     if (!Object.keys(this.#indexes).includes(type)) return null;
 
-    // if we are mid stroke indexing, may as well wait the ~10ms and get the
-    // latest block
-    await this.waitIndexesReady;
+    await this.#waitAnswerable();
 
     const key = type === 'socketAddress' ? normalizeSocketAddress(filter) : filter;
     const cached = this.#indexes[type].get(key);
@@ -526,9 +672,7 @@ class NetworkStateManager extends EventEmitter {
     if (!filter) return false;
     if (!Object.keys(this.#indexes).includes(type)) return false;
 
-    // if we are mid stroke indexing, may as well wait the 10ms (max) and get the
-    // latest block
-    await this.waitIndexesReady;
+    await this.#waitAnswerable();
 
     const key = type === 'socketAddress' ? normalizeSocketAddress(filter) : filter;
     const found = this.#indexes[type].has(key);

@@ -2,6 +2,7 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const sinon = require('sinon');
+const { globalState } = require('./fixtures/globalState');
 const { expect } = require('chai');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -31,12 +32,9 @@ const serviceHelperStub = {
   delay: sinon.stub().resolves(),
 };
 
-const globalStateStub = {
-  removalInProgress: false,
-  installationInProgress: false,
-  softRedeployInProgress: false,
-  hardRedeployInProgress: false,
-};
+// The real module. tests/init.js resets it before every test, so the isolation a
+// hand-written object was buying is already there without the divergence.
+const globalStateStub = globalState;
 
 const logStub = {
   info: sinon.stub(),
@@ -92,7 +90,7 @@ describe('imageUpdateService tests', () => {
     appQueryServiceStub.installedApps.reset();
     appQueryServiceStub.decryptEnterpriseApps.reset();
     // Configure decryptEnterpriseApps to pass through apps unchanged by default
-    appQueryServiceStub.decryptEnterpriseApps.callsFake(async (apps) => apps);
+    appQueryServiceStub.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps }));
 
     advancedWorkflowsStub.softRedeploy.reset();
 

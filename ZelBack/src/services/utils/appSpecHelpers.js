@@ -352,7 +352,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       if (myLongCache.has('appPrices')) {
         appPrices.push(myLongCache.get('appPrices'));
       } else {
-        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
+        let response = await axios.get(`${config.stats.baseUrl}/apps/getappspecsusdprice`, axiosConfig).catch((error) => log.error(error));
         if (response && response.data && response.data.status === 'success') {
           myLongCache.set('appPrices', response.data.data);
           appPrices.push(response.data.data);
@@ -441,7 +441,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       if (gSyncthgApp) {
         actualPriceToPay *= 0.8;
       }
-      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
+      const marketplaceResponse = await axios.get(`${config.stats.baseUrl}/marketplace/listapps`).catch((error) => log.error(error));
       let marketPlaceApps = [];
       if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
         marketPlaceApps = marketplaceResponse.data.data;
@@ -490,7 +490,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       if (myShortCache.has('fluxRates')) {
         fluxUSDRate = myShortCache.get('fluxRates');
       } else {
-        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
+        fiatRates = await axios.get(`${config.pricing.fluxRatesBaseUrl}/rates`, axiosConfig).catch((error) => log.error(error));
         if (fiatRates && fiatRates.data) {
           const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
           if (!rateObj) {
@@ -503,7 +503,7 @@ async function getAppFiatAndFluxPrice(req, res) {
           fluxUSDRate = rateObj.rate * btcRateforFlux;
           myShortCache.set('fluxRates', fluxUSDRate);
         } else {
-          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
+          fiatRates = await axios.get(`${config.pricing.coingeckoBaseUrl}/api/v3/simple/price?vs_currencies=usd&ids=zelcash`, axiosConfig);
           if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
             fluxUSDRate = fiatRates.data.zelcash.usd;
             myShortCache.set('fluxRates', fluxUSDRate);

@@ -203,24 +203,6 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', []);
-    });
-
     it('should trigger rpc, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -241,7 +223,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', []);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -252,14 +234,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
+      await daemonServiceFluxnodeRpcs.listFluxNodes(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', [req.params.filter]);
     });
 
-    it('should trigger rpc, data passed in query, no response passed', async () => {
+    it('should trigger rpc, data passed in query, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -270,10 +253,11 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
+      await daemonServiceFluxnodeRpcs.listFluxNodes(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', [req.query.filter]);
     });
   });
@@ -381,7 +365,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -396,30 +380,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.listFluxNodeConf(req);
+      await daemonServiceFluxnodeRpcs.listFluxNodeConf(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          filter: 'testfilter',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceFluxnodeRpcs.listFluxNodeConf(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodeconf', [req.params.filter]);
-    });
-
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -431,10 +400,11 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.listFluxNodeConf(req);
+      await daemonServiceFluxnodeRpcs.listFluxNodeConf(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodeconf', [req.query.filter]);
     });
 
@@ -451,10 +421,11 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.listFluxNodeConf(req);
+      await daemonServiceFluxnodeRpcs.listFluxNodeConf(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodeconf', []);
     });
 
@@ -607,7 +578,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -623,14 +594,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in params as strings, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -640,14 +612,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', false]);
     });
 
-    it('should trigger rpc, no lockwallet param, no response passed', async () => {
+    it('should trigger rpc, no lockwallet param, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -659,14 +632,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', false]);
     });
 
-    it('should trigger rpc, no alias param, no response passed', async () => {
+    it('should trigger rpc, no alias param, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -678,14 +652,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', [undefined, true]);
     });
 
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -698,10 +673,11 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', true]);
     });
 
@@ -718,10 +694,11 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startDeterministicFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', [undefined, false]);
     });
 
@@ -758,7 +735,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should throw error if user is unauthorized, no response passed', async () => {
+    it('should throw error if user is unauthorized, response passed', async () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
@@ -775,32 +752,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
         status: 'error',
       };
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
 
-    it('should trigger rpc, all parameters passed in params, no response passed', async () => {
-      verifyPrivilegeStub.returns(true);
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          lockwallet: false,
-          alias: 'alias1',
-          set: 'set1',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceFluxnodeRpcs.startFluxNode(req);
-
-      expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
-    });
-
-    it('should trigger rpc, no lockwallet param, no response passed', async () => {
+    it('should trigger rpc, no lockwallet param, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -813,14 +773,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', undefined, 'alias1']);
     });
 
-    it('should trigger rpc, no set param, no response passed', async () => {
+    it('should trigger rpc, no set param, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -833,14 +794,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', [undefined, false, 'alias1']);
     });
 
-    it('should trigger rpc, no alias param, no response passed', async () => {
+    it('should trigger rpc, no alias param, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -853,14 +815,15 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', 'true']);
     });
 
-    it('should trigger rpc, all parameters passed in query, no response passed', async () => {
+    it('should trigger rpc, all parameters passed in query, response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -874,10 +837,11 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
     });
 
@@ -894,10 +858,11 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const res = generateResponse();
 
-      const result = await daemonServiceFluxnodeRpcs.startFluxNode(req);
+      await daemonServiceFluxnodeRpcs.startFluxNode(req, res);
 
-      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', [undefined, undefined]);
     });
 

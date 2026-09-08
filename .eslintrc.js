@@ -15,7 +15,7 @@ module.exports = {
   extends: [
     'eslint:recommended',
   ],
-  plugins: [],
+  plugins: ['import'],
   rules: {
     'max-len': [
       'error',
@@ -25,6 +25,9 @@ module.exports = {
         ignoreTrailingComments: true,
       },
     ],
+    // Two spaces, and enforced: the repo carried no indent rule at all, so a
+    // mis-indented block read as intentional to every reader and to CI alike.
+    indent: ['error', 2, { SwitchCase: 1 }],
     'no-console': 'off',
     'linebreak-style': [
       'error',

@@ -130,4 +130,29 @@ describe('messageHelper tests', () => {
       expect(data.message).to.equal(message);
     });
   });
+
+  describe('dataOrThrow tests', () => {
+    it('returns the data of a success message', () => {
+      const response = messageHelper.createDataMessage([{ id: 'folder1' }]);
+
+      expect(messageHelper.dataOrThrow(response)).to.deep.equal([{ id: 'folder1' }]);
+    });
+
+    it('throws the error of an error message, carrying message, name and code', () => {
+      const response = messageHelper.createErrorMessage('connect ECONNREFUSED', 'Error', 'ECONNREFUSED');
+
+      try {
+        messageHelper.dataOrThrow(response);
+        throw new Error('expected dataOrThrow to throw');
+      } catch (error) {
+        expect(error.message).to.equal('connect ECONNREFUSED');
+        expect(error.code).to.equal('ECONNREFUSED');
+      }
+    });
+
+    it('throws on a missing or shapeless response rather than returning undefined', () => {
+      expect(() => messageHelper.dataOrThrow(undefined)).to.throw('service request failed');
+      expect(() => messageHelper.dataOrThrow({})).to.throw('service request failed');
+    });
+  });
 });

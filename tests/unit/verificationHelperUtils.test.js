@@ -65,7 +65,62 @@ const insertApp = {
 describe('verificationHelperUtils tests', () => {
   before(requireMongo);
 
-  describe('verifyAdminSession tests', () => {
+  describe('nodeOperatorZelid tests', () => {
+    let savedConfig;
+
+    beforeEach(() => { savedConfig = globalThis.userconfig; });
+    afterEach(() => { globalThis.userconfig = savedConfig; });
+
+    it('answers null rather than throwing when the node holds no configuration', () => {
+      // The state a node is in before anything has read userconfig, and the state a
+      // failed read leaves it in. Reading it off globalThis threw here, which reached
+      // the caller as a server error on an ordinary restart.
+      delete globalThis.userconfig;
+
+      expect(verificationHelperUtils.nodeOperatorZelid()).to.equal(null);
+    });
+
+    it('answers null when the configuration carries no identity', () => {
+      // What a failed load actually installs: defaults, with no zelid.
+      globalThis.userconfig = { initial: { zelid: null } };
+
+      expect(verificationHelperUtils.nodeOperatorZelid()).to.equal(null);
+    });
+
+    it('denies an admin session rather than throwing when the identity is unknown', async () => {
+      // Denial is the only safe answer to "are you the operator?" asked of a node
+      // that cannot say. It must not throw, and it must not pass.
+      delete globalThis.userconfig;
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
+        },
+      };
+
+      expect(await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth)).to.be.false;
+    });
+
+    it('leaves the flux team path working when the node identity is unknown', async () => {
+      // The team IDs come from the static config, not from userconfig, so an
+      // unreadable node identity must not take them down with it.
+      delete globalThis.userconfig;
+      const headers = {
+        zelidauth: {
+          zelid: config.fluxTeamFluxID,
+          loginPhrase: 'nonexistent',
+          signature: 'nonexistent',
+        },
+      };
+
+      // reaches the session lookup rather than being refused on identity - the
+      // lookup then fails on the absent login, which is a different answer
+      expect(await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth)).to.be.false;
+    });
+  });
+
+  describe('verifyNodeOperatorSession tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       const db = dbHelper.databaseConnection();
@@ -90,7 +145,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+      const isAdmin = await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth);
 
       expect(isAdmin).to.be.true;
     });
@@ -104,7 +159,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+      const isAdmin = await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth);
 
       expect(isAdmin).to.be.false;
     });
@@ -117,7 +172,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+      const isAdmin = await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth);
 
       expect(isAdmin).to.be.false;
     });
@@ -131,7 +186,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+      const isAdmin = await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth);
       expect(isAdmin).to.be.false;
     });
 
@@ -144,7 +199,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+      const isAdmin = await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth);
 
       expect(isAdmin).to.be.false;
     });
@@ -152,7 +207,7 @@ describe('verificationHelperUtils tests', () => {
     it('should return false if header is empty', async () => {
       const headers = {};
 
-      const isAdmin = await verificationHelperUtils.verifyAdminSession(headers);
+      const isAdmin = await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth);
 
       expect(isAdmin).to.be.false;
     });
@@ -183,7 +238,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
 
       expect(isLoggedUser).to.be.true;
     });
@@ -197,7 +252,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
 
       expect(isLoggedUser).to.be.false;
     });
@@ -211,7 +266,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
 
       expect(isLoggedUser).to.be.false;
     });
@@ -230,7 +285,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
 
       expect(isLoggedUser).to.be.false;
     });
@@ -250,7 +305,7 @@ describe('verificationHelperUtils tests', () => {
       const rndSignature = signMessage(headers.zelidauth.loginPhrase, rndPrivKey);
       headers.zelidauth.signature = rndSignature;
 
-      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
 
       expect(isLoggedUser).to.be.true;
     });
@@ -264,7 +319,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
 
       expect(isLoggedUser).to.be.false;
     });
@@ -295,7 +350,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers);
+      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers.zelidauth);
 
       expect(isFluxTeamSession).to.be.true;
     });
@@ -309,7 +364,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers);
+      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers.zelidauth);
 
       expect(isFluxTeamSession).to.be.false;
     });
@@ -323,7 +378,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers);
+      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers.zelidauth);
 
       expect(isFluxTeamSession).to.be.false;
     });
@@ -337,7 +392,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers);
+      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers.zelidauth);
 
       expect(isFluxTeamSession).to.be.false;
     });
@@ -351,7 +406,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers);
+      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers.zelidauth);
 
       expect(isFluxTeamSession).to.be.false;
     });
@@ -365,7 +420,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers);
+      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers.zelidauth);
 
       expect(isFluxTeamSession).to.be.false;
     });
@@ -373,7 +428,7 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when header is empty', async () => {
       const headers = {};
 
-      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers);
+      const isFluxTeamSession = await verificationHelperUtils.verifyFluxTeamSession(headers.zelidauth);
 
       expect(isFluxTeamSession).to.be.false;
     });
@@ -385,7 +440,7 @@ describe('verificationHelperUtils tests', () => {
     });
   });
 
-  describe('verifyAdminAndFluxTeamSession tests', () => {
+  describe('verifyNodeOperatorOrFluxTeamSession tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       const db = dbHelper.databaseConnection();
@@ -410,7 +465,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.true;
     });
@@ -424,7 +479,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.true;
     });
@@ -438,7 +493,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.false;
     });
@@ -452,7 +507,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.false;
     });
@@ -466,7 +521,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.false;
     });
@@ -480,7 +535,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.false;
     });
@@ -494,7 +549,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.false;
     });
@@ -502,13 +557,13 @@ describe('verificationHelperUtils tests', () => {
     it('should return false when header is empty', async () => {
       const headers = {};
 
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers);
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession(headers.zelidauth);
 
       expect(isAdminOrFluxTeam).to.be.false;
     });
 
     it('should return false when no header is passed', async () => {
-      const isAdminOrFluxTeam = await verificationHelperUtils.verifyAdminAndFluxTeamSession();
+      const isAdminOrFluxTeam = await verificationHelperUtils.verifyNodeOperatorOrFluxTeamSession();
 
       expect(isAdminOrFluxTeam).to.be.false;
     });
@@ -549,7 +604,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
       const appName = 'PolkadotNode';
-      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers, appName);
+      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers.zelidauth, appName);
 
       expect(isOwnerSession).to.be.true;
     });
@@ -563,7 +618,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
       const appName = 'PolkadotNode';
-      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers, appName);
+      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers.zelidauth, appName);
 
       expect(isOwnerSession).to.be.false;
     });
@@ -577,7 +632,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
       const appName = 'PolkadotNode';
-      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers, appName);
+      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers.zelidauth, appName);
 
       expect(isOwnerSession).to.be.false;
     });
@@ -591,7 +646,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
       const appName = 'PolkadotNode';
-      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers, appName);
+      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers.zelidauth, appName);
 
       expect(isOwnerSession).to.be.false;
     });
@@ -600,7 +655,7 @@ describe('verificationHelperUtils tests', () => {
       const headers = {};
 
       const appName = 'PolkadotNode';
-      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers, appName);
+      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers.zelidauth, appName);
 
       expect(isOwnerSession).to.be.false;
     });
@@ -614,13 +669,13 @@ describe('verificationHelperUtils tests', () => {
         },
       };
       const appName = '';
-      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers, appName);
+      const isOwnerSession = await verificationHelperUtils.verifyAppOwnerSession(headers.zelidauth, appName);
 
       expect(isOwnerSession).to.be.false;
     });
   });
 
-  describe('verifyAppOwnerSessionOrHigher tests', () => {
+  describe('verifyAppOwnerOrFluxTeamSession tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       const db = dbHelper.databaseConnection();
@@ -646,7 +701,9 @@ describe('verificationHelperUtils tests', () => {
       await dbHelper.insertOneToDatabase(databaseGlobal, collectionApps, insertApp);
     });
 
-    it('should return true when requested by the app owner or higher', async () => {
+    // Shares this block's fixtures deliberately: the same identities, run through
+    // the narrower check, so the one that changes verdict is visible.
+    it('verifyAppOwnerOrFluxTeamSession: true for the app owner', async () => {
       const headers = {
         zelidauth: {
           zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
@@ -654,27 +711,10 @@ describe('verificationHelperUtils tests', () => {
           signature: 'H7xcWjpSt8jiAaPbkUsfY3ZutJJmI35MWkGsgWBj/fJHfk7ZKRoggzigdaESLGMDMb2MHlxAapr1sMYDbJkL/H4=',
         },
       };
-      const appName = 'PolkadotNode';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
-
-      expect(isOwnerOrHigherSession).to.be.true;
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers.zelidauth, 'PolkadotNode')).to.be.true;
     });
 
-    it('should return true when requested by the admin', async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
-          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
-        },
-      };
-      const appName = 'PolkadotNode';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
-
-      expect(isOwnerOrHigherSession).to.be.true;
-    });
-
-    it('should return true when requested by the flux team', async () => {
+    it('verifyAppOwnerOrFluxTeamSession: true for the flux team', async () => {
       const headers = {
         zelidauth: {
           zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
@@ -682,13 +722,29 @@ describe('verificationHelperUtils tests', () => {
           signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
         },
       };
-      const appName = 'PolkadotNode';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
-
-      expect(isOwnerOrHigherSession).to.be.true;
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers.zelidauth, 'PolkadotNode')).to.be.true;
     });
 
-    it('should return false when requested by a regular user', async () => {
+    // The whole reason the narrower check exists. verifyNodeOperatorSession is what makes
+    // an identity the node operator, so admitting there and being refused here is
+    // the policy stated in one place. Paired deliberately: a refusal on its own
+    // would also be produced by a signature that simply does not verify.
+    it('verifyAppOwnerOrFluxTeamSession: FALSE for the node operator, whom verifyNodeOperatorSession admits', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
+        },
+      };
+      expect(
+        await verificationHelperUtils.verifyNodeOperatorSession(headers.zelidauth),
+        'this identity must really be the node operator, or the refusal below proves nothing',
+      ).to.be.true;
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers.zelidauth, 'PolkadotNode')).to.be.false;
+    });
+
+    it('verifyAppOwnerOrFluxTeamSession: false for a regular user', async () => {
       const headers = {
         zelidauth: {
           zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR',
@@ -696,61 +752,41 @@ describe('verificationHelperUtils tests', () => {
           signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
         },
       };
-      const appName = 'PolkadotNode';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
-
-      expect(isOwnerOrHigherSession).to.be.false;
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers.zelidauth, 'PolkadotNode')).to.be.false;
     });
 
-    it('should return false when requested by the owner with a wrong signature', async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
-          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
-          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
-        },
-      };
-      const appName = 'PolkadotNode';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
+  });
 
-      expect(isOwnerOrHigherSession).to.be.false;
+  describe('fluxSupportTeamZelids tests', () => {
+    // The config value is a list so support can be granted to a second identity
+    // without a release. It has to keep reading the single string it used to be:
+    // a node with an older local override would otherwise match no one and lock
+    // support out of itself entirely.
+    const withSupportConfig = (value) => proxyquire(
+      '../../ZelBack/src/services/verificationHelperUtils',
+      { config: { ...config, fluxSupportTeamFluxID: value } },
+    );
+
+    it('should read a list of ids', () => {
+      const utils = withSupportConfig(['1aaa', '1bbb']);
+      expect(utils.fluxSupportTeamZelids()).to.deep.equal(['1aaa', '1bbb']);
+      expect(utils.isFluxSupportTeamZelid('1aaa')).to.be.true;
+      expect(utils.isFluxSupportTeamZelid('1bbb')).to.be.true;
+      expect(utils.isFluxSupportTeamZelid('1ccc')).to.be.false;
     });
 
-    it('should return false when requested with empty header data', async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '',
-          loginPhrase: '',
-          signature: '',
-        },
-      };
-      const appName = 'PolkadotNode';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
-
-      expect(isOwnerOrHigherSession).to.be.false;
+    it('should read a bare string as a one entry list', () => {
+      const utils = withSupportConfig('1aaa');
+      expect(utils.fluxSupportTeamZelids()).to.deep.equal(['1aaa']);
+      expect(utils.isFluxSupportTeamZelid('1aaa')).to.be.true;
     });
 
-    it('should return false when requested with empty header ', async () => {
-      const headers = {};
-
-      const appName = 'PolkadotNode';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
-
-      expect(isOwnerOrHigherSession).to.be.false;
-    });
-
-    it('should return true when requested with an empty app name', async () => {
-      const headers = {
-        zelidauth: {
-          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
-          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
-          signature: 'H4bL1HhNXiYiHywCnUeptHtLQY/YiGmLt14N+BBNXRIKd6BkP+kFr9CvaGLELQxN1A31OXoy3SMBoHj2/OqiK6c=',
-        },
-      };
-      const appName = '';
-      const isOwnerOrHigherSession = await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, appName);
-
-      expect(isOwnerOrHigherSession).to.be.false;
+    it('should grant no one when unset, empty, or asked about a falsy id', () => {
+      expect(withSupportConfig(undefined).fluxSupportTeamZelids()).to.deep.equal([]);
+      expect(withSupportConfig([]).fluxSupportTeamZelids()).to.deep.equal([]);
+      expect(withSupportConfig(['1aaa', '', null]).fluxSupportTeamZelids()).to.deep.equal(['1aaa']);
+      expect(withSupportConfig(['1aaa']).isFluxSupportTeamZelid(undefined)).to.be.false;
+      expect(withSupportConfig([]).isFluxSupportTeamZelid('')).to.be.false;
     });
   });
 });

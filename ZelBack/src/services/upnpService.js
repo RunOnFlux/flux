@@ -8,13 +8,14 @@ const nodecmd = require('node-cmd');
 const util = require('util');
 
 const log = require('../lib/log');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const client = new natUpnp.Client();
 
 if (config.upnp.gatewayUrl) {
   // eslint-disable-next-line global-require
   const { Device } = require('@runonflux/nat-upnp/build/src/nat-upnp/device');
-  const gatewayUrl = config.upnp.gatewayUrl;
+  const { gatewayUrl } = config.upnp;
   const nodeIp = config.upnp.nodeIp || '127.0.0.1';
   client.getGateway = async () => ({
     gateway: new Device(gatewayUrl),
@@ -310,7 +311,7 @@ async function removeMapUpnpPort(port) {
  */
 async function mapPortApi(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
       let { port } = req.params;
       port = port || req.query.port;
@@ -357,7 +358,7 @@ async function mapPortApi(req, res) {
  */
 async function removeMapPortApi(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
       let { port } = req.params;
       port = port || req.query.port;
@@ -397,7 +398,7 @@ async function removeMapPortApi(req, res) {
  */
 async function getMapApi(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
       const map = await client.getMappings();
       const message = messageHelper.createDataMessage(map);
@@ -424,7 +425,7 @@ async function getMapApi(req, res) {
  */
 async function getIpApi(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
       const ip = await client.getPublicIp();
       const message = messageHelper.createDataMessage(ip);
@@ -451,7 +452,7 @@ async function getIpApi(req, res) {
  */
 async function getGatewayApi(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
       const gateway = await client.getGateway();
       const message = messageHelper.createDataMessage(gateway);

@@ -4,13 +4,14 @@
 // syncthing folder id FluxOS assigns to the component (== the reconciler
 // identifier); read it from getSyncthingState() if unsure.
 import { getSubnetConfig } from './subnet-config.js';
+import { controlFetch } from './control-fetch.js';
 
 const CONTROL = process.env.SYNCTHING_CONTROL || `http://${getSubnetConfig().syncthing}:8385`;
 
 const GLOBAL_BYTES = 100000;
 
 async function post(path, body) {
-  const res = await fetch(`${CONTROL}${path}`, {
+  const res = await controlFetch(`${CONTROL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body != null ? JSON.stringify(body) : undefined,
@@ -19,12 +20,35 @@ async function post(path, body) {
 }
 
 async function get(path) {
-  const res = await fetch(`${CONTROL}${path}`);
+  const res = await controlFetch(`${CONTROL}${path}`);
   return res.json();
 }
 
 export async function getSyncthingState() {
   return get('/state');
+}
+
+// Folder config is stored as current state, so a change and the change that
+// undoes it cancel out: a folder paused for an operation and resumed afterwards
+// reads identically to one nothing touched. These expose the ordered write
+// history instead, which is what answers "what did this operation do, and to
+// WHICH folder" - the question a composed app turns on, since its folders are
+// per component and the app name names none of them.
+export async function resetFolderWrites(ip = '*') {
+  return post('/folder-writes-reset', { ip });
+}
+
+export async function getFolderWrites(ip) {
+  const state = await getSyncthingState();
+  const node = state.nodes.find((n) => n.ip === ip);
+  return node ? node.folderWrites : [];
+}
+
+// The paused/resumed pairs this operation applied, in order, as folder ids.
+export async function getPauseWrites(ip) {
+  return (await getFolderWrites(ip))
+    .filter((w) => w.method === 'patch' && w.body && typeof w.body.paused === 'boolean')
+    .map((w) => ({ id: w.id, paused: w.body.paused }));
 }
 
 // Raw setter for /rest/db/status.
@@ -100,9 +124,13 @@ export async function setPeerCompletion({
   });
 }
 
-// No peer holds the full data (every peer < 100%).
+// No peer holds the full data (every peer < 100%). Explicitly not connection
+// testimony: without the remoteState, the stub's read-back default stamps the
+// bare completion 'valid', and "nobody has the data" quietly becomes "every
+// device you ask about is a connected peer at 0%" - a phantom witness that
+// outranks device-specific evidence from the viewer's own wildcard key.
 export async function setNoPeerData({ ip = '*', folder }) {
-  return setPeerCompletion({ ip, folder, completion: 0 });
+  return setPeerCompletion({ ip, folder, completion: 0, remoteState: 'unknown' });
 }
 
 // A peer holds the full data (100%) and is CONNECTED (trusted source).
@@ -117,6 +145,28 @@ export async function setPeerHasData({ ip = '*', folder }) {
 export async function setPeerDisconnected({ ip = '*', folder }) {
   return setPeerCompletion({
     ip, folder, completion: 100, remoteState: 'unknown',
+  });
+}
+
+// A declared source that has been cut off - a partition or a dead machine, as
+// the viewer's syncthing sees it within its ReceiveTimeout (which the harness
+// compresses to zero, as it does every timing). setSynced writes its testimony
+// against the source's own device id, which outranks the wildcard forms above,
+// so severing overwrites that same key: resolve the device, mark it
+// disconnected. A suite that cuts a declared source off from the fleet
+// declares this consequence too, or the fleet keeps trusting a connection
+// that no longer exists.
+export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
+  const bare = deviceIp.split(':')[0];
+  const device = ((await getSyncthingState()).nodes || []).find((n) => n.ip.split(':')[0] === bare)?.deviceId;
+  if (!device) {
+    // Without the device id this would fall back to a wildcard write, which
+    // loses to the source's device-specific testimony - a sever that silently
+    // severs nothing. A fixture that cannot do what it claims fails loudly.
+    throw new Error(`severPeerSync: the stub has no device for ${deviceIp} (folder ${folder})`);
+  }
+  return setPeerCompletion({
+    ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], folder, device, completion: 0, remoteState: 'unknown',
   });
 }
 
@@ -145,6 +195,24 @@ export async function setEventsOutage({ ip = '*', enabled = true }) {
   return post('/events-outage', { ip, enabled });
 }
 
+// Take a node's /rest/config/devices down/up while /rest/config/folders keeps
+// answering. Those are two reads on one monitor pass, and which folders a node
+// holds writable is answered by the folder half alone - so this is how a suite
+// proves a device read it could not complete does not withhold a folder list the
+// node already has.
+export async function setDeviceConfigOutage({ ip = '*', enabled = true }) {
+  return post('/device-config-outage', { ip, enabled });
+}
+
+// How many device reads the stub has actually turned away for this node. An
+// outage that silently failed to apply reads exactly like the behaviour under
+// test working, and this is observable where the node's log is not: a suite that
+// restarts a node loses that container's log stream.
+export async function getDeviceConfigRefusals(ip) {
+  const answer = await get(`/device-config-refusals${ip ? `?ip=${ip}` : ''}`);
+  return answer?.refusals ?? 0;
+}
+
 // The folder status endpoint errors for this folder - the node can verify
 // NOTHING (post-redesign contract: never remove without evidence; wait).
 export async function setStatusUnreadable({ ip = '*', folder }) {
@@ -159,4 +227,11 @@ export async function clearStatusUnreadable({ ip = '*', folder }) {
 
 export async function resetSyncState() {
   return post('/sync-reset');
+}
+
+// Hold a node's folder PATCH calls open, stretching the window in which a
+// masterSlave primary has committed to a component but has not started its
+// container. ms=0 clears.
+export async function setFolderPatchDelay({ ip = '*', ms = 0 }) {
+  return post('/folder-patch-delay', { ip, ms });
 }

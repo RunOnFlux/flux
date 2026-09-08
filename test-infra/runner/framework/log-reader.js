@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -34,10 +35,12 @@ export async function hasLogLine(containerId, pattern, opts = {}) {
 export async function waitForLog(containerId, pattern, { timeout = 60000, interval = 2000 } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
+    // an infra death voids the run - don't spend the budget proving it
+    throwIfInfraDead();
     if (await hasLogLine(containerId, pattern, { since: `${Math.floor(timeout / 1000) + 10}s` })) {
       return true;
     }
-    await new Promise((r) => setTimeout(r, interval));
+    await sleepUnlessInfraDead(interval);
   }
   throw new Error(`Timeout waiting for log pattern "${pattern}" on container ${containerId}`);
 }

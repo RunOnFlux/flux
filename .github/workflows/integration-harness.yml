@@ -64,10 +64,10 @@ jobs:
           echo "leftover harness containers: $(docker ps -aq --filter label=flux-e2e-run | wc -l)"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
 
@@ -77,6 +77,12 @@ jobs:
 
       - name: Build harness images
         run: |
+          # The fixtures' app binary. It is gitignored and checkout runs
+          # git clean, so it is NEVER present here - eight suites push it, and
+          # suite 63 needs it built from THIS branch's test-app.c (a cached one
+          # has no BURN_CPU, so the container idles and 63's throttle wait dies
+          # at 150s looking like a broken throttler rather than a missing file).
+          bash test-infra/test-app/build.sh
           docker compose -f test-infra/docker-compose.yml -p flux-e2e build \
             fluxos-01 daemon-stub syncthing-stub fdm-stub peer-stub external-http-stub
           docker pull mongo:8
@@ -113,7 +119,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-logs
           path: ${{ runner.temp }}/e2e-logs

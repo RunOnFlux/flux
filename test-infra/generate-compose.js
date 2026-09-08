@@ -60,10 +60,20 @@ w('    networks:');
 w('      flux-test-net:');
 w(`        ipv4_address: ${DAEMON_IP}`);
 w('    environment:');
+w('      FLUX_TEST_HARNESS: "true"');
 w('      FLUXD_PORT: "16124"');
 w('      BENCHD_PORT: "16224"');
 w('      CONTROL_PORT: "18232"');
 w('      TICKER_AUTOSTART: "false"');
+// Required at launch, never defaulted here: the chain start has one home
+// (runner/framework/chain-start.cjs), and a number frozen into the generated
+// file goes stale between generation and use - the stub refuses to boot on
+// exactly that kind of copy.
+w('      # Required, no default: the chain start has one home');
+w('      # (runner/framework/chain-start.cjs) and a defaulted copy here goes stale');
+w('      # and silently runs every suite pre-fork. Launch with:');
+w('      #   INITIAL_HEIGHT=$(node -p "require(\'./runner/framework/chain-start.cjs\').DEFAULT_INITIAL_HEIGHT") docker compose up');
+w('      INITIAL_HEIGHT: "${INITIAL_HEIGHT:?set from runner/framework/chain-start.cjs - see the comment above this line}"');
 w('    volumes:');
 w('      - ./fixtures:/fixtures');
 w('    healthcheck:');

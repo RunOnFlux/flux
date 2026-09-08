@@ -4,11 +4,11 @@ import { createTestEnv } from '../framework/test-env.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
-  waitForPeerThreshold, waitForPeersBelowThreshold, waitForBootSettled,
-  waitForBootSettledAndLogged, waitForDosChanged, waitFor,
+  waitForPeerThreshold, waitForPeersBelowThreshold,
+  waitForBootSettledAndLogged, waitForDosChanged,
 } from '../framework/wait.js';
 import {
-  advanceBlock, advanceBlocks, startTicker, stopTicker,
+  advanceBlock, advanceBlocks, startTicker, stopTicker, getState,
 } from '../framework/daemon-control.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
@@ -40,7 +40,12 @@ describe('Boundary: peer thresholds', function () {
   });
 
   it('should NOT fire peers:belowThreshold at exactly degraded threshold (1 peer)', async function () {
-    this.timeout(60000);
+    // Covers the whole test, not just the READY wait below: the block wait and
+    // the ping-detection sleep account for 25s of it on their own. Reaching
+    // READY is setup here - the assertion is about the alarm - so the budget is
+    // deliberately clear of it, and a slow boot fails on the assertion rather
+    // than partway through the setup with the disconnect never run.
+    this.timeout(180000);
     await waitForExplorerReady(env.clients[0]);
     await waitForOrchestratorStarted(env.clients[0]);
     await advanceBlock();
@@ -115,7 +120,19 @@ describe('Boundary: block timer', function () {
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ hookCtx: this, nodes: 2, tickerAutostart: false });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 2,
+      tickerAutostart: false,
+      // THE PRODUCTION BUDGET, declared because this suite is the one testing
+      // it. The shared config runs a short fallback so that an ordinary fleet -
+      // where every node boots at once and none can answer another's state sync
+      // yet - is not held on a road no suite is asking about. The 249/250 below
+      // are that budget's own arithmetic, 125 minutes at 2 blocks a minute, so
+      // the number has to be set here or the boundary being measured is the
+      // harness's and not the product's.
+      configOverrides: { fluxapps: { appSyncFallbackMinutes: 125 } },
+    });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);
@@ -132,8 +149,15 @@ describe('Boundary: block timer', function () {
   it('should NOT transition to READY at 249 blocks (just under threshold)', async function () {
     this.timeout(120000);
     // before hook advanced 1 block to enter SYNCING — that block counts toward the threshold
+    //
+    // The target is read off the chain, not written down. A literal encodes both
+    // the chain start AND how many blocks the before hook advanced; when the
+    // start moved it became a height the node was already past, so this wait
+    // returned on the FIRST processed block and the assertion below passed
+    // without the 248 blocks having been processed at all.
+    const tipBefore = (await getState()).currentHeight;
     await advanceBlocks(248);
-    await waitForBlockProcessed(env.clients[0], (d) => d.height >= 2100249, 30000);
+    await waitForBlockProcessed(env.clients[0], (d) => d.height >= tipBefore + 248, 30000);
     const stateEvents = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged' && e.data.to === 'READY');
     expect(stateEvents.length, 'should not be READY at 249 blocks').to.equal(0);
@@ -154,11 +178,19 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
 
   before(async function () {
     this.timeout(120000);
-    // 300s ago with sigterm — within 420s SIGTERM_EXPIRY_MS
+    // 1s pinned, which the node reads as ~17s - within the harness's 30s
+    // sigtermExpiryS.
+    //
+    // The pin is not what the node measures. lastAlive is seeded just before
+    // the container starts and the downtime is computed when the node reads it
+    // at boot, so ONE BOOT lands inside the measurement: a 300s pin was read as
+    // 316s on cindy under a full gate. That 16s is why this window cannot be
+    // compressed at production's ratio - 420s at 120x is 3.5s, smaller than the
+    // drift, and nothing could ever land inside it. See coupled-knobs.js.
     env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
-      bootContext: { lastAlive: Date.now() - 300000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
+      bootContext: { lastAliveAgoMs: 1000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
     });
     await waitForDaemonReady(env.clients[0]);
   });
@@ -184,11 +216,19 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
 
   before(async function () {
     this.timeout(120000);
-    // 500s ago with sigterm — exceeds 420s SIGTERM_EXPIRY_MS
+    // 25s pinned, read as ~41s: past the 30s sigtermExpiryS, and deliberately
+    // still UNDER locationTtlS at 63s.
+    //
+    // That second bound is the one that matters. locationsExpired is
+    // `(cleanShutdown && downtime > sigterm) || downtime > running`, so a
+    // downtime past the running expiry expires on the second clause and this
+    // test passes without the sigterm window being involved at all. The old
+    // 500s pin did exactly that once locationTtlS became live - green, and
+    // proving nothing about the thing in its name.
     env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
-      bootContext: { lastAlive: Date.now() - 500000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
+      bootContext: { lastAliveAgoMs: 25000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
     });
   });
 

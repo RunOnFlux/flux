@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { startTicker, advanceBlock, setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForPeersRemoved, waitFor,
+  waitForPeersRemoved,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -18,7 +18,7 @@ async function bootAndPeer(env) {
   ));
   await advanceBlock();
   for (const client of env.clients) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
   await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
@@ -49,13 +49,21 @@ describe('Peers disconnect on confirmation loss (4019)', function () {
     const peersBefore = await client.getPeers();
     expect(peersBefore.data.length).to.be.greaterThan(0);
 
+    // The peer routes are cached for 30 seconds (apicache, routes.js) and the
+    // read above populates that entry, so a peer count fetched over HTTP
+    // describes the fleet as it stood before this test touched it. The peer
+    // manager publishes each change as it happens, uncached, and is the only
+    // source that can witness a transition. The anchor confines the wait to
+    // changes after this point - the event buffer holds every one since boot.
+    const beforeLoss = client.getLastEventId();
+
     await setNodeStatus(nodeIp, 'EXPIRED');
     await waitForNodeStatus(client, (d) => d.confirmed === false, 30000);
 
-    await waitFor(async () => {
-      const res = await client.getPeers();
-      return res.data.length === 0;
-    }, { timeout: 30000, interval: 1000, label: 'all peers disconnected after confirmation loss' });
+    // Tight on purpose. Losing confirmation evicts each peer, so the count reaches zero
+    // in the same turn as the decision rather than as each remote answers its close
+    // frame. A window the length of ws's own 30s close timeout would pass either way.
+    await waitForPeersRemoved(client, (d) => d.total === 0, 10000, { afterId: beforeLoss });
   });
 });
 
@@ -77,7 +85,7 @@ describe('Inbound connections rejected when unconfirmed', function () {
     ));
     await advanceBlock();
     for (const client of env.clients) {
-      await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+      await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
     }
 
     const indices = Array.from({ length: 9 }, (_, i) => i + 1);
@@ -121,29 +129,33 @@ describe('Full confirmation loss and regain lifecycle', function () {
   it('should disconnect peers on loss and reconnect on regain', async function () {
     this.timeout(180000);
     const client = env.clients[0];
-    const observer = env.clients[1];
     const nodeIp = subnet.nodeIp(1);
 
     const peersBefore = await client.getPeers();
     expect(peersBefore.data.length).to.be.greaterThan(0);
 
+    // Both transitions are witnessed through the peer manager's events, which
+    // carry the counts as they change and sit behind no cache. The peer routes
+    // are cached for 30 seconds (apicache, routes.js) and the read above
+    // populates that entry, so an HTTP peer count here describes the fleet as it
+    // stood before the status changed. Each wait is anchored on the event id
+    // taken before its own trigger, because the buffer holds every peer change
+    // since boot and an unanchored wait can be satisfied by one of those.
+    const beforeLoss = client.getLastEventId();
+
     await setNodeStatus(nodeIp, 'EXPIRED');
     await waitForNodeStatus(client, (d) => d.confirmed === false, 30000);
 
-    await waitFor(async () => {
-      const res = await client.getPeers();
-      return res.data.length === 0;
-    }, { timeout: 30000, interval: 1000, label: 'peers disconnected' });
+    await waitForPeersRemoved(client, (d) => d.total === 0, 30000, { afterId: beforeLoss });
+
+    const beforeRegain = client.getLastEventId();
 
     await clearNodeStatus(nodeIp);
     await waitForNodeStatus(client, (d) => d.confirmed === true, 30000);
 
-    await waitFor(async () => {
-      const res = await client.getPeers();
-      return res.data.length >= 4;
-    }, { timeout: 120000, interval: 2000, label: 'peers reconnected after confirmation regained' });
-
-    const peersAfter = await client.getPeers();
-    expect(peersAfter.data.length).to.be.greaterThan(0);
+    // outbound is the count /flux/connectedpeers reports, and 4 is the peering
+    // target the fleet boots to - so this is the node back to full strength,
+    // not merely holding one peer again.
+    await client.waitForEvent('peers:added', (d) => d.outbound >= 4, 120000, { afterId: beforeRegain });
   });
 });

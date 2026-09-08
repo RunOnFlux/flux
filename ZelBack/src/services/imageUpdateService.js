@@ -185,7 +185,7 @@ async function getRemoteManifestDigest(repotag, repoauth, specVersion, appName) 
     const digest = await verifier.fetchManifestDigestOnly();
 
     if (verifier.error) {
-      const errorMeta = verifier.errorMeta;
+      const { errorMeta } = verifier;
       if (errorMeta && errorMeta.errorType === 'rate_limit') {
         log.warn(`Rate limited while checking ${repotag}`);
         return { error: 'rate_limited', digest: null };
@@ -364,7 +364,12 @@ async function checkForImageUpdates() {
     }
 
     // Decrypt enterprise apps (version 8 with encrypted content)
-    const apps = await appQueryService.decryptEnterpriseApps(installedAppsResponse.data, { formatSpecs: false });
+    const { readable: apps, unreadable } = await appQueryService.decryptEnterpriseApps(installedAppsResponse.data, { formatSpecs: false });
+    if (unreadable.length) {
+      // their images are inside the blob - checking them would find none and
+      // read as up to date
+      log.warn(`Skipping image update checks for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
+    }
     log.info(`Checking ${apps.length} installed apps for image updates`);
 
     let updatesTriggered = 0;

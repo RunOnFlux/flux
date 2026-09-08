@@ -13,10 +13,12 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
-  waitForReconcileActuated,
+  waitForReconcileActuated, waitForBootSettled,
 } from './wait.js';
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
-import { setSynced } from './syncthing-control.js';
+import { dialerCount, expectedPeerTotal } from './peer-topology.js';
+import { setSynced, setSyncState, setNoPeerData } from './syncthing-control.js';
 import { execInContainer } from './container.js';
 
 // A folder the suite pins "synced" (setSynced reports a non-zero global index)
@@ -38,12 +40,52 @@ export async function seedSyncScopedData(env, name, index) {
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
 // can resolve it).
+// A seeded app must still be alive on the chain the fleet is about to run. This
+// is the funnel every global seed passes through, and it is the only place that
+// holds BOTH the app and the env, so it is where the two are checked against
+// each other rather than trusted to have been built consistently.
+//
+// Getting this wrong is silent and expensive: the spawner drops an expired app
+// from every candidate list (so spawner suites spin their whole budget and time
+// out rather than failing), and expireGlobalApplications deletes it outright on
+// any node that restarts. That is a harness fault that presents as a product
+// one, in the most expensive possible shape.
+function assertAliveOnThisChain(env, app) {
+  const seededAt = app.permanentMessage.height;
+  const expiresAt = seededAt + (app.spec.expire ?? 22000);
+  if (expiresAt <= env.initialHeight) {
+    throw new Error(
+      `seeded app ${app.spec.name} expires at block ${expiresAt}, at or below this suite's `
+      + `chain start (${env.initialHeight}) - it is already expired before the fleet processes `
+      + 'its first block. Seed relative to the chain rather than to a literal: '
+      + 'buildSeedableApp({ env, ... }).',
+    );
+  }
+}
+
 async function seedGlobalSpec(env, app, indices) {
+  assertAliveOnThisChain(env, app);
   await Promise.all(indices.map(async (i) => {
     const dc = dbClient(i + 1);
     await dc.seedGlobalAppSpec(app.spec);
     await dc.seedPermanentMessage(app.permanentMessage);
     await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
+  }));
+}
+
+// The chain now carries a newer specification for an app these nodes already
+// hold. Written the way hash sync writes it: the app's row REPLACED, the new
+// permanent message and hash appended beside the old ones. The periodic reinstall
+// pass compares the two hashes and acts.
+//
+// A suite that seeds the row without the message and hash gets a node that sees
+// the change and cannot verify it.
+export async function seedSpecUpdate(env, updated, indices) {
+  await Promise.all(indices.map(async (i) => {
+    const dc = dbClient(i + 1);
+    await dc.replaceGlobalAppSpec(updated.spec);
+    await dc.seedPermanentMessage(updated.permanentMessage);
+    await dc.seedAppHash(updated.hash, updated.permanentMessage.height, true);
   }));
 }
 
@@ -57,6 +99,12 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
   const teamKey = fluxTeamKey();
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];
+    // The install endpoint refuses with a 503 until boot reconciliation has
+    // decided which apps this node is keeping. Waiting for the node to say it
+    // has settled, rather than for its API to answer: the API is up long before
+    // that decision, and an app installed in between has no location record for
+    // reconciliation to keep it by, so it is removed as one that moved away.
+    await waitForBootSettled(client);
     const auth = await authenticate(client.url, teamKey);
     // installapplocally streams progress then a final status; surface a failure
     // in that body instead of silently waiting out the app:installed timeout.
@@ -69,33 +117,215 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
   return indices;
 }
 
-export async function bootAndPeer(env) {
-  for (const client of env.clients) await waitForDaemonReady(client);
-  await Promise.all(env.clients.map(
+// The election's own comparator (masterSlaveApps): runningSince ascending, holders
+// carrying none first, ip as the final tiebreak. Exported so a suite can assert the
+// order it arranged rather than assume it.
+export function electionOrder(locations) {
+  return [...locations].sort((a, b) => {
+    if (!a.runningSince && b.runningSince) return -1;
+    if (a.runningSince && !b.runningSince) return 1;
+    if (a.runningSince < b.runningSince) return -1;
+    if (a.runningSince > b.runningSince) return 1;
+    if (a.ip < b.ip) return -1;
+    if (a.ip > b.ip) return 1;
+    return 0;
+  });
+}
+
+// Place a g: app on holders ONE AT A TIME so their runningSince values are distinct
+// and follow `placementOrder`. Two orderings decide who runs a g: app: the syncthing
+// seed is the LOWEST IP among the holders, while the masterSlave election index is
+// runningSince ascending — and runningSince is broadcast on placement, so it records
+// the order the holders were placed. Installing them in parallel (installOnNodes over
+// several indices) collapses that distinction: every holder's placement lands in the
+// same instant, the sort falls through to its ip tiebreak, and the lowest-IP seed is
+// always ALSO index 0. Every rule reading `index > 0` is dead under that fixture.
+//
+// Pass a placementOrder that puts the seed in the MIDDLE to get the divergent shape:
+// the seed sits at index > 0 with a peer ABOVE it. `coldStart` pins every holder to a
+// true cold start first (empty global, no connected peer holding the data), which must
+// happen BEFORE install so the first election evaluation sees it.
+export async function placeGAppInOrder(env, app, {
+  placementOrder, folder, identifier, coldStart = true, gapMs = 3000,
+}) {
+  if (coldStart) {
+    await Promise.all(placementOrder.map((i) => Promise.all([
+      setSyncState({
+        ip: getSubnetConfig().nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+      }),
+      setNoPeerData({ ip: getSubnetConfig().nodeIp(i + 1), folder }),
+    ])));
+  }
+
+  // EVERY HOLDER IS READY BEFORE THE FIRST PLACEMENT, because the stamp this
+  // loop orders on is written when a container starts and a node still syncing
+  // defers that start until its own sync completes. The masterSlave primary is
+  // the most SENIOR holder - the one placed first - so the deferred start lands
+  // after the later placements and re-stamps it as the NEWEST, handing "the
+  // newest copy" to whoever the caller deliberately placed there. Waited for
+  // rather than slept past: it is read from the event buffer, so a node that
+  // reached READY during bootAndPeer satisfies it at once.
+  await Promise.all(placementOrder.map((i) => waitFor(
+    () => env.clients[i].getEventBuffer().some(
+      (e) => e.event === 'orchestrator:stateChanged' && e.data?.to === 'READY',
+    ),
+    {
+      timeout: 300000,
+      interval: 1000,
+      label: `holder ${i} reached READY before any placement`,
+    },
+  )));
+
+  for (const i of placementOrder) {
+    const installAfter = env.clients[i].getLastEventId();
+    // eslint-disable-next-line no-await-in-loop
+    await installOnNodes(env, app, [i]);
+    // Wait out the sync layer's first-run reset before writing disk data, or the
+    // reset deletes it - a folder pinned synced later must hold what its index claims.
+    // eslint-disable-next-line no-await-in-loop
+    await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfter });
+    // eslint-disable-next-line no-await-in-loop
+    await seedSyncScopedData(env, app.spec.name, i);
+
+    // WAITED FOR, not slept past. The ordering these placements exist to create
+    // is the runningSince stamps, and a fixed gap produces it only while every
+    // install finishes inside the gap. Under a parallel gate they do not: suite
+    // 96 lost a run to a holder that registered after the next one had already
+    // been placed, so "the newest copy" named a different node than the fixture
+    // had arranged and the suite refused on its own precondition.
+    //
+    // THE STAMP is the fact the order is ranked on, not the record carrying it.
+    // A location present without a runningSince sorts as the MOST SENIOR holder
+    // - electionOrder puts holders carrying none first - so a holder waited for
+    // on presence alone can be placed last and still rank oldest, handing "the
+    // newest copy" to whoever was placed before it. Observed exactly that: the
+    // three containers started 11:32:55, 11:33:44, 11:34:39 in the order asked
+    // for, and the suite still refused on its own precondition because the last
+    // one's record had arrived without its stamp.
+    //
+    // Waiting for the stamp makes the order what the caller asked for at any
+    // speed. The gap below stays: it separates two stamps that would otherwise
+    // land in the same millisecond and fall through to the ip tiebreak.
+    // eslint-disable-next-line no-await-in-loop
+    await waitFor(async () => {
+      const res = await env.clients[i].getAppLocations(app.spec.name);
+      if (res?.status !== 'success' || !Array.isArray(res.data)) return false;
+      const mine = getSubnetConfig().nodeIp(i + 1);
+      return res.data.some(
+        (location) => location.ip.split(':')[0] === mine && location.runningSince,
+      );
+    }, {
+      timeout: 120000,
+      interval: 1000,
+      label: `holder ${i} registered WITH a runningSince before the next is placed`,
+    });
+
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(gapMs);
+  }
+  return placementOrder;
+}
+
+// Resolve a holder's position in the election order, from the location list the
+// election itself reads. Returns -1 when the holder has not been broadcast yet.
+export async function electionIndexOf(env, appName, holderIndex, { timeout = 90000 } = {}) {
+  const targetIp = getSubnetConfig().nodeIp(holderIndex + 1);
+  let position = -1;
+  await waitFor(async () => {
+    const res = await env.clients[holderIndex].getAppLocations(appName);
+    if (res.status !== 'success' || !res.data?.length) return false;
+    position = electionOrder(res.data).findIndex((entry) => entry.ip.split(':')[0] === targetIp);
+    return position > -1;
+  }, { timeout, interval: 3000, label: `node ${holderIndex} present in ${appName}'s election order` });
+  return position;
+}
+
+export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
+  // A stub peer holds an index with no client behind it. It is something for the
+  // fleet to talk to, never a node this boots, confirms or reads a height from -
+  // so the waits run over the real nodes while the peering ceiling below still
+  // counts every index, because a stub IS a peer.
+  const nodes = env.clients.filter(Boolean);
+  for (const client of nodes) await waitForDaemonReady(client);
+  await Promise.all(nodes.map(
     (c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000),
   ));
   await advanceBlock();
-  for (const client of env.clients) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+  for (const client of nodes) {
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
-  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+  // Peering is a property of the fleet, not a literal. The ring's two halves are
+  // disjoint only when dialers >= 2k+1 (peer-topology.js), and the fleet's own
+  // config is derived to satisfy that, so outbound and inbound both settle at k.
+  // A suite may still ask for its own numbers; they are capped by what a fleet of
+  // this size can hold rather than waiting out a timeout on an impossible one.
+  // Stubs are excluded: a stub holds a ring slot but supplies no connection. So
+  // does a DEFERRED node that has not been started - it is in the deterministic
+  // list, the ring routes through its index, and it neither dials nor answers an
+  // addoutgoingpeer request. Counting it as a dialer asks each node for a peer
+  // that cannot exist, and the wait then times out on arithmetic rather than on
+  // anything the fleet did. env.clients carries a hole for both, which is what
+  // the filter above removes, so the difference IS the absent count.
+  const absent = env.clients.length - nodes.length;
+  const dialers = dialerCount(env.clients.length, absent);
+  const ceiling = Math.max(dialers - 1, 1);
+  const outboundTarget = minOutbound ?? Math.min(4, ceiling);
+  const inboundTarget = minInbound ?? Math.min(2, ceiling);
+  // Waited as a TOTAL. With the arcs disjoint the split is the ring's to decide,
+  // but a suite that overrides the arc into an overlapping shape hands the split
+  // to whichever half reaches the shared peer first - a race. The sum survives
+  // both, and is the same demand either way.
+  const totalTarget = expectedPeerTotal(outboundTarget, inboundTarget, dialers, absent);
+  // Every real node, not nodes[0]. One node's counts are not the fleet's, and
+  // node 0 is the least representative of them: it is the index every other
+  // node's backward arc wraps onto, so it is where an overlapping ring strands
+  // its connections first.
+  //
+  // Polled, not awaited on a peers:added event. That event is edge-triggered:
+  // a small fleet finishes peering in a handful of events, so if the counts are
+  // already satisfied when the listener attaches, nothing further is ever
+  // published and the wait burns its full timeout on a condition that is
+  // already true. The REST counts are the state itself.
+  await waitFor(
+    async () => {
+      const totals = await Promise.all(nodes.map(async (n) => {
+        const [outgoing, incoming] = await Promise.all([n.getPeers(), n.getIncomingPeers()]);
+        return (outgoing.data?.length ?? 0) + (incoming.data?.length ?? 0);
+      }));
+      return totals.every((t) => t >= totalTarget);
+    },
+    { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
+  );
   await startTicker();
+}
+
+// The location table never gates boot: the fetch starts at DB-ready and a
+// real-scale artifact takes seconds to ingest and swap, so a request racing
+// the boot lands on the designed degrade posture (/16 domains, geo answers
+// 503). A suite that asserts table-backed answers waits for the swap to land
+// first. domains: the organisation count the published artifact splits the
+// fleet into - reaching it proves every node resolved (an unresolved node
+// falls to its /16 rung and inflates the count).
+export async function waitForLocationTable(node, { domains, timeout = 90000 } = {}) {
+  await waitFor(async () => {
+    // the placement geography, which is what this is actually waiting for -
+    // asking the advice endpoint would be putting a question to a node to find
+    // out whether its data has loaded, and that endpoint wants a Flux ID
+    const response = await node.get('/apps/placementlocations');
+    return response.status === 'success'
+      && response.data.tableAvailable === true
+      && (domains === undefined || response.data.total.domains === domains);
+  }, { timeout, interval: 2000, label: `location table live${domains === undefined ? '' : ` with ${domains} domains`}` });
 }
 
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
 // node's DB and wait until it installs on some node; resolves that node index.
 export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedGlobalAppSpec(app.spec);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedPermanentMessage(app.permanentMessage);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  // Through the guarded funnel, never inlined: seedGlobalSpec is the one place
+  // that checks the app is alive on this suite's chain, and a seed that skips
+  // it fails twenty minutes later as a spawner timeout instead of now.
+  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
   return Promise.any(env.clients.map(async (c, i) => {
     await waitForAppInstalled(c, app.spec.name, timeout);
     return i;
@@ -106,15 +336,8 @@ export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
 // install it; resolves the sorted list of those node indices. Used by the
 // multi-node gates (g: election needs >= 2 holders).
 export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 } = {}) {
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedGlobalAppSpec(app.spec);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedPermanentMessage(app.permanentMessage);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  // Through the guarded funnel, never inlined - same contract as seedAndInstall.
+  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
   const installed = [];
   await Promise.all(env.clients.map(async (c, i) => {
     try {
@@ -152,11 +375,48 @@ export async function installedInstanceIndices(env, appName) {
   return idx.sort((a, b) => a - b);
 }
 
+// What each node believes about who is installing an app, as an array indexed by
+// node. A claim only matters where OTHER nodes can see it - it is their view
+// that decides whether they stand down - so a suite asserting a claim was
+// retracted has to ask every node, not the one that sent it.
+// A node that cannot answer contributes null rather than an empty list, so
+// "unreachable" is never mistaken for "holds no claims".
+export async function installingClaimIpsByNode(env, appName) {
+  return Promise.all(env.clients.map(async (client) => {
+    try {
+      const res = await client.get('/apps/installinglocations');
+      if (res?.status !== 'success') return null;
+      return res.data.filter((entry) => entry.name === appName).map((entry) => entry.ip);
+    } catch {
+      return null;
+    }
+  }));
+}
+
+// The installing ERRORS each node holds for an app, indexed by node. An error
+// means an install was attempted and failed; nothing else may appear here.
+export async function installingErrorsByNode(env, appName) {
+  return Promise.all(env.clients.map(async (client) => {
+    try {
+      const res = await client.get('/apps/installingerrorslocations');
+      if (res?.status !== 'success') return null;
+      return res.data.filter((entry) => entry.name === appName);
+    } catch {
+      return null;
+    }
+  }));
+}
+
 // Wait until exactly `target` nodes have the app installed, then confirm the count
 // HOLDS at exactly `target` for `stableMs` (so a late overshoot is caught, not
 // missed by checking once). Returns the final sorted node indices.
+// exact:false holds the window against `>= target` instead of `=== target`, for
+// the callers whose subject is that the count is REACHED. Enforcing the ceiling
+// as well only belongs to a caller whose subject is the ceiling - otherwise a
+// suite proving one thing fails for the other, and the failure reads as the
+// thing it was written to prove.
 export async function waitForInstanceCount(env, appName, target, {
-  timeout = 120000, stableMs = 12000, interval = 3000,
+  timeout = 120000, stableMs = 12000, interval = 3000, exact = true,
 } = {}) {
   await waitFor(
     async () => (await installedInstanceIndices(env, appName)).length >= target,
@@ -166,14 +426,17 @@ export async function waitForInstanceCount(env, appName, target, {
   let last = await installedInstanceIndices(env, appName);
   while (Date.now() < deadline) {
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((r) => { setTimeout(r, interval); });
+    await sleepUnlessInfraDead(interval);
     // eslint-disable-next-line no-await-in-loop
     const now = await installedInstanceIndices(env, appName);
-    if (now.length !== target) {
-      throw new Error(`${appName} instance count = ${now.length} [${now.join(',')}], expected exactly ${target}`);
+    if (exact ? now.length !== target : now.length < target) {
+      throw new Error(`${appName} instance count = ${now.length} [${now.join(',')}], expected ${exact ? 'exactly' : 'at least'} ${target}`);
     }
     last = now;
   }
+  // A count that "held" over an env that died during the window must not read
+  // as a pass - nodes keep answering from memory over a dead env.
+  throwIfInfraDead();
   return last;
 }
 
@@ -253,7 +516,7 @@ export async function seedTestApp(env, { name, exitCode = 0, exitAfterS = null }
   return { app, index, identifier: `${name}_${name}` };
 }
 
-export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
+export async function seedSimpleApp(env, appName) {
   await pushImage(appName, 'v1');
   const app = await buildSeedableApp({
     name: appName,
@@ -261,7 +524,7 @@ export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
       name: appName,
       description: 'test container',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],

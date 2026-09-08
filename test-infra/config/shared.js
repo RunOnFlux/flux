@@ -4,7 +4,15 @@ module.exports = {
   fluxTeamFluxID: '19J4Ef396goaQhrqgNLTFvtCXYqjFAx2Js',
   daemon: { host: '198.18.0.3' },
   benchmark: { host: '198.18.0.3' },
-  upnp: { gatewayUrl: '', nodeIp: '' },
+  // upnpService builds its client at module load, and with no gateway URL the client
+  // discovers one by SSDP - every node multicasting to 239.255.255.250:1900 for the life of
+  // the run. Naming a gateway replaces discovery with a fixed device, which is the point of
+  // the hook. The stub serves a device description with no WAN connection service, so
+  // support verification fails exactly as it does today and no node believes it has UPnP -
+  // the behaviour is unchanged, only the searching stops.
+  // nodeIp stays empty as in production: it is the node's own address for a port mapping,
+  // it cannot be a shared constant, and no mapping is ever made because verification fails.
+  upnp: { gatewayUrl: 'http://198.18.0.6:3000/upnp/device.xml', nodeIp: '' },
   // Empty disables analytics. The app default is the live cloudaudit endpoint and
   // the fleet network has egress, so without this a run reports suite activity -
   // generated app names, fixture identities, 198.18.x addresses - as real traffic.
@@ -21,6 +29,10 @@ module.exports = {
     stallNudgeMaxIntervalMs: 12000,
     stallRemoveMinWindowMs: 30000,
     stallRemoveMinNudges: 2,
+    // The repository a legacy node installs syncthing from, served by the external
+    // stub out of the node image rather than by apt.syncthing.net.
+    aptSourceUrl: 'http://198.18.0.6:3000/apt/',
+    releaseKeyUrl: 'http://198.18.0.6:3000/apt/keyring.gpg',
   },
   system: {
     bootIdPath: '/tmp/flux-boot-config/boot-id',
@@ -47,7 +59,21 @@ module.exports = {
   },
   geolocation: {
     ipApiBaseUrl: 'http://198.18.0.6:3000',
-    statsApiBaseUrl: 'http://198.18.0.6:3000',
+  },
+  stats: { baseUrl: 'http://198.18.0.6:3000' },
+  pricing: {
+    fluxRatesBaseUrl: 'http://198.18.0.6:3000',
+    coingeckoBaseUrl: 'http://198.18.0.6:3000',
+  },
+  mongodb: { signingKeyBaseUrl: 'http://198.18.0.6:3000' },
+  // the stub serves iplocation.bin.gz, so harness nodes exercise the real
+  // table reader rather than skipping it. Its default artifact puts the whole
+  // harness range in ONE organisation, which is the single-fault-domain
+  // posture the tableless fallback produced - suites written against that keep
+  // their meaning. POST /iplocation {domains:n} to the stub's control port
+  // splits the fleet n ways. Nothing here ever calls out to github.
+  policy: {
+    baseUrl: 'http://198.18.0.6:3000',
   },
   fluxapps: {
     minOutgoing: 4,
@@ -64,9 +90,24 @@ module.exports = {
     defaultSwap: 0,
     appSyncPeerThreshold: 2,
     appSyncDegradedThreshold: 1,
-    appSyncMinPeerUptime: 0,
     appSyncMinCompletions: 1,
+    appSyncMinPeerUptime: 0,
     syncTimeoutMs: 30000,
+    // 10 blocks at the stub's 5s tick, so 50s, against production's 250 blocks.
+    // A fleet where every node boots at once has nobody who can answer a state
+    // sync yet, so the fallback is the road every node takes and 250 blocks is
+    // 21 minutes of it.
+    //
+    // Not lower. Suites that stop the ticker drive a handful of blocks in their
+    // own setup and several of them require a node to STAY in SYNCING - at 2
+    // blocks suite 13's peer-drop case cleared its premise by a single block,
+    // which is a window rather than a margin. 10 leaves room for a setup to
+    // drive blocks without deciding the test.
+    //
+    // A suite that wants a peer able to answer from the start asks for
+    // syncedNodes; a suite measuring this budget itself declares the production
+    // value, as suite 19 does.
+    appSyncFallbackMinutes: 5,
     hashSyncMaxRetries: 2,
     hashSyncRetryMs: 10000,
     hashSyncSettleMs: 2000,
@@ -87,13 +128,53 @@ module.exports = {
     bootDelayMultiplier: 0.01,
     spawnDelayMs: 10000,
     removalSpacingMs: 1000,
-    locationTtlS: 300,
-    installingTtlS: 60,
-    installErrorTtlS: 300,
+    // Per-document expiry for the ephemeral app collections, in seconds. These
+    // three also serve as GOSSIP ACCEPTANCE WINDOWS - messageStore drops an
+    // incoming broadcast whose broadcastedAt is older than the window - so a
+    // value below what the fleet takes to produce and deliver a message does
+    // not make a suite faster, it makes peers refuse each other.
+    //
+    // They read as 300/60/300 from the day the harness was first stood up until
+    // 2026-08-20 and none of them ever took effect: the config keys were wired
+    // to collection-level TTL indexes that were dropped when expiry moved
+    // per-document, so every suite ran on the production durations while this
+    // file claimed otherwise. The numbers below are derived; the old ones were
+    // round guesses that nothing could contradict.
+    //
+    // A running-app location record, and with it the announce interval:
+    // appConstants derives that from this number, so compressing this one
+    // compresses both and the ratio between them - how many announcements a
+    // node may miss before its apps look gone - is structural rather than a
+    // pairing this file has to hold. 63s gives a 30s announce, the value this
+    // file used to carry by hand.
+    locationTtlS: 63,
+    // NOT the announce ratio, deliberately. What locationTtlS is coupled to is
+    // a compressed clock; what this is measured across is a NODE BOOT, and the
+    // harness does not compress boots. Measured on cindy under a MAXN=6 gate: a
+    // fixture pinning 300s of downtime was read by the node as 316s, so a boot
+    // costs 16s of drift. At production's 120x this key would be 3.5s - smaller
+    // than the drift - and the within-the-window test could never pass.
+    //
+    // So it is bounded by what it must outlive, like installingTtlS below:
+    // comfortably above the 16s drift, comfortably below locationTtlS's 63s so
+    // the ordering holds and a clean shutdown still gets a grace the running
+    // expiry does not pre-empt. coupled-knobs.js asserts both ends.
+    sigtermExpiryS: 30,
+    // NOT compressed, and not compressible by a ratio. What this must outlive is
+    // an install, and the harness does not compress installs - they are real
+    // image pulls and real container starts. The suites' own budgets say so:
+    // waitForAppInstalled is given 120s routinely and 300s at the top end. At
+    // the old 60s the marker expired mid-install and peers rejected any
+    // installing claim older than a minute; suite 78 reads exactly that claim.
+    installingTtlS: 900,
+    // NOT compressed, for the same reason: the errors it accumulates come from
+    // real failed installs, and suite 27 waits for five of them to reach the
+    // network-wide threshold. No knob paces that, so there is no ratio to hold.
+    installErrorTtlS: 86400,
     tempMsgTtlS: 300,
     hashSyncIntervalMs: 30000,
-    peerNotifyIntervalMs: 30000,
     cpuCheckIntervalMs: 30000,
+    statsSampleIntervalMs: 2000,
     portRestoreIntervalMs: 30000,
     imageComplianceIntervalMs: 60000,
     forceRemovalIntervalMs: 120000,
@@ -122,6 +203,29 @@ module.exports = {
     },
     spawnDelayMultiplier: 0.002,
     daemonInfoIntervalMs: 5000,
+    // The poll is NOT how often the chain is asked - pollForNewBlocks reads a
+    // height cached by daemonServiceMiscRpcs and refreshed on its own
+    // daemonInfoIntervalMs timer. It is the rate at which the node works
+    // through blocks once it knows it is behind, and its share of the
+    // tip-refresh window is what decides whether a block is still the tip when
+    // it is processed - which is what gates every maintenance pass hung off
+    // block processing.
+    //
+    // Both clocks are already 1:1 with block time at either scale - 30s/30s in
+    // production, 5s/5s here - so one block arrives per window either way. What
+    // has to hold is the poll's share of that window:
+    //
+    //   production   5000 / 30000  =  16.7%
+    //   here          833 /  5000  =  16.7%
+    //
+    // 250ms was three times MORE forgiving than production, which is the wrong
+    // direction: a node too slow to clear a window's block, so blocks bunch and
+    // maintenance is skipped, is a production failure the harness would never
+    // show. Suite 55 hit that failure twice and it was read as a harness
+    // artefact; making the harness faster until it stops happening is the same
+    // move one layer down. Measured at 4.8s a block at the old hardcoded 5000,
+    // which was poll-dominated - a block sat unnoticed for a whole window.
+    explorerPollIntervalMs: 833,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,
     imageUpdateCheckIntervalMs: 5000,
@@ -133,6 +237,11 @@ module.exports = {
     masterSlaveIntervalMs: 3000, // compressed g: FDM election cycle (prod 30s)
     installation: { probability: 100, delay: 5 },
     removal: { probability: 25, delay: 5 },
-    redeploy: { probability: 2, delay: 1, composedDelay: 1 },
+    // 1 = every pass. `Math.floor(Math.random() * probability) === 0` gates the
+    // reinstall of an app whose on-chain spec has changed; production spreads
+    // that over the fleet at 50% so a spec change does not restart every
+    // instance at once. A suite has one app and a bounded wait, and nothing here
+    // has an obsolete spec unless a suite deliberately made one.
+    redeploy: { probability: 1, delay: 1, composedDelay: 1 },
   },
 };

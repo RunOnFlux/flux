@@ -212,6 +212,17 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // content must NOT buy a pass: the folder is demoted and the container
     // stopped by the mount-safety hold (no help from the test this time)
     await waitFor(async () => (await folderType(ip0, leakFolder)) === 'receiveonly', { timeout: 60000, interval: 3000, label: 'leaked folder demoted to receiveonly' });
+
+    // the demotion is an outcome that has to hold, not a moment: the monitor
+    // keeps passing over the folder while the mount stays unsafe, and the
+    // component it belongs to goes unprocessed on every one of those passes.
+    // A null here means the folder is gone entirely - the demotion undone by a
+    // sweep, which is a worse failure than never demoting
+    await new Promise((resolve) => { setTimeout(resolve, 4000); });
+    expect(await folderType(ip0, leakFolder), 'demoted folder must survive the next monitor pass').to.equal('receiveonly');
+    await new Promise((resolve) => { setTimeout(resolve, 4000); });
+    expect(await folderType(ip0, leakFolder), 'demoted folder must survive repeated monitor passes').to.equal('receiveonly');
+
     await waitForReconcilerDesiredChanged(client, leakIdentifier, 'stopped', 60000, { afterId });
     await waitFor(async () => !(await isUp(client, leakName)), { timeout: 60000, interval: 2000, label: 'leak app container held (stopped)' });
     await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === leakIdentifier && d.action === 'started', 15000);

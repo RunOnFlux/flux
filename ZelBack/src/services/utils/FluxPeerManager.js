@@ -28,6 +28,10 @@ const CLOSE_CODE_NAMES = Object.freeze(
   Object.fromEntries(Object.entries(CLOSE_CODES).map(([name, code]) => [code, name])),
 );
 
+// Only for peers whose build cannot refuse a sync request. Deleted with the
+// last of them, along with the branch in getEligibleSyncPeers.
+const LEGACY_MIN_PEER_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
+
 class FluxPeerManager extends EventEmitter {
   static CONNECTION_BACKOFF_MS = config.fluxapps.connectionBackoffMs ?? [2 * 60000, 5 * 60000, 10 * 60000, 15 * 60000];
 
@@ -68,7 +72,20 @@ class FluxPeerManager extends EventEmitter {
   /** @type {Set<string>} peers removed since last peerUpdate broadcast */
   #pendingRemoves = new Set();
 
-  #syncRequestedPeers = new Set();
+  /**
+   * Whether an arriving app-state sync response is still wanted, asked of
+   * whoever owns the outstanding requests.
+   *
+   * A function rather than a set of keys kept here. The orchestrator issues
+   * the requests and holds their deadlines, so it is the only thing that knows
+   * whether one is still open; a copy of that here would be a second record of
+   * the same fact, maintained by different code and cleared by a different
+   * rule. Registered by serviceManager once the orchestrator exists.
+   * @type {((peerSocket: FluxPeerSocket) => boolean)|null}
+   */
+  syncResponseWanted = null;
+
+  #ownSocketAddress = null;
   /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
   #peerUpdateTimer = null;
   /** @type {Array<object>} Circular buffer of peer lifecycle events */
@@ -137,11 +154,15 @@ class FluxPeerManager extends EventEmitter {
     if (existing) {
       log.warn(`Replacing existing ${existing.direction} peer ${key}`);
       // Detach old handlers so its onclose doesn't remove the new peer
-      existing.ws.onclose = null;
-      existing.ws.onerror = null;
-      existing.ws.onmessage = null;
+      existing.detachHandlers();
       try { existing.ws.close(CLOSE_CODES.DUPLICATE_PEER, 'replaced'); } catch (_e) { /* noop */ }
       this.#removeTracking(existing);
+      // A CONNECTION ENDED HERE, and it used to end in silence. The address
+      // stays in the map and the count does not move, so nothing that watches
+      // membership can see it - but a request written into that socket is as
+      // dead as one whose peer went away, and the only thing that told anyone
+      // was a sweep looking for connection ids that had changed underneath it.
+      this.emit('peerDisconnected', existing.key, existing.connectionId);
     }
     const peer = new FluxPeerSocket(ws, ip, String(port), this);
     peer.source = options.source || PEER_SOURCE.INBOUND;
@@ -198,6 +219,18 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peerThresholdReached', this.#peers.size);
       fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
     }
+    // Every connection, not just the one that crosses the threshold. The
+    // threshold is a latched edge and is cleared only below the DEGRADED level,
+    // so once it has fired it says nothing further about a pool that has since
+    // lost a member. A listener that has to top a pool of peers back up needs
+    // to hear about the peer that could fill it.
+    //
+    // Named for what it is. This fires for every connection established,
+    // including one replacing a dead socket at an address already held - where
+    // no peer was added and the count did not move. Its counterpart is
+    // peerDisconnected, and both name the connection rather than the address,
+    // because a request lives in a connection.
+    this.emit('peerConnected', peer.key, peer.connectionId);
     return peer;
   }
 
@@ -211,7 +244,6 @@ class FluxPeerManager extends EventEmitter {
     const peer = this.#peers.get(key);
     if (!peer) return null;
 
-    this.#syncRequestedPeers.delete(key);
     this.#removeTracking(peer);
 
     // Clean up peer exchange topology and notify others
@@ -257,6 +289,10 @@ class FluxPeerManager extends EventEmitter {
       this.emit('peersBelowThreshold', this.#peers.size);
       fluxEventBus.publish('peers:belowThreshold', { count: this.#peers.size, threshold: this.#syncDegradedThreshold });
     }
+    // The counterpart of peerConnected. A listener waiting on this peer for an
+    // answer now knows the answer is never coming, which is a fact rather than
+    // something to be inferred from a deadline passing.
+    this.emit('peerDisconnected', key, peer.connectionId);
     return peer;
   }
 
@@ -282,11 +318,41 @@ class FluxPeerManager extends EventEmitter {
     else this.#uniqueIps.set(ipKey, ipCount);
   }
 
+  /**
+   * Retire a peer this node has decided to drop.
+   *
+   * Membership of the peer map is this node's own account of who it peers with, so a
+   * decision to drop a peer takes effect here rather than when the remote gets round to
+   * answering. The close frame still goes out first, because the code it carries is what
+   * tells the remote whether to reconnect; the socket then finishes closing, or not, on
+   * its own time with nothing depending on it.
+   *
+   * The alternative - waiting for onclose - makes the count that drives the degraded
+   * threshold a function of the remote's cooperation. A peer that never answers stays
+   * counted until ws destroys the socket 30 seconds later, and neither route out of the
+   * map can reach it in the meantime: onclose has not fired, and ping() skips a socket
+   * that is not OPEN, so the missed-pong path cannot fire either.
+   *
+   * @param {string} key
+   * @param {number} [closeCode]
+   * @param {string} [reason]
+   * @returns {FluxPeerSocket|null} the peer removed, or null if it was not held
+   */
+  evict(key, closeCode, reason) {
+    const peer = this.#peers.get(key);
+    if (!peer) return null;
+    try { peer.close(closeCode, reason); } catch (_e) { /* noop */ }
+    // After this the socket can neither deliver a frame nor call remove() a second time.
+    peer.detachHandlers();
+    return this.remove(key, closeCode);
+  }
+
   disconnectAll() {
     this.acceptingConnections = false;
     const count = this.#peers.size;
-    for (const peer of this.#peers.values()) {
-      try { peer.close(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed'); } catch (_e) { /* noop */ }
+    // Snapshot the keys: evict() deletes from the map being walked.
+    for (const key of [...this.#peers.keys()]) {
+      this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
     }
     log.info(`Disconnected all ${count} peers, no longer accepting connections`);
   }
@@ -443,19 +509,77 @@ class FluxPeerManager extends EventEmitter {
     return this.#peers.size;
   }
 
+  /**
+   * This node's own socket address, so it can be told apart from a peer.
+   *
+   * Set rather than derived here: this class is deliberately free of the
+   * network helpers, and the address is known by the time peering starts.
+   */
+  setOwnSocketAddress(socketAddress) {
+    this.#ownSocketAddress = socketAddress;
+  }
+
+  /**
+   * This node's own socket address, as last learned.
+   *
+   * Answered from here rather than fetched, because this is where the fact
+   * already lives: fluxNetworkHelper pushes every refresh in through
+   * setOwnSocketAddress, from the one place the node learns what it is. The
+   * alternative - asking benchmark - is an RPC with no cache behind it, and the
+   * dial path needs this on every attempt.
+   *
+   * @returns {string|null} ip:port, or null while the node has not been told
+   */
+  getOwnSocketAddress() {
+    return this.#ownSocketAddress;
+  }
+
   getPeerFluxUptime(key) {
     const peer = this.#peers.get(key);
     if (!peer || peer.remoteFluxUptime === null) return null;
     return peer.remoteFluxUptime + (Date.now() - peer.connectedAt) / 1000;
   }
 
-  getEligibleSyncPeers(minUptimeSeconds, count) {
+  /**
+   * Peers worth asking for app state.
+   *
+   * A peer that can refuse is asked whatever its uptime, because it answers the
+   * question the uptime was standing in for. The bar was 7500 seconds and the
+   * block fallback is 125 minutes, which is the same 7500 seconds, so it only
+   * ever admitted peers that had already become authoritative by the slow road
+   * - and it was self-reported, read from a header the peer sets on its own
+   * upgrade response, so it excluded honest young nodes and no dishonest one.
+   *
+   * A peer that CANNOT refuse still has the bar, and this is the whole reason
+   * the capability exists rather than the bar simply being deleted. An older
+   * build answers a request it cannot serve with an empty batch, which is
+   * indistinguishable from a complete survey of an empty network - so dropping
+   * the bar for those would put the original defect back during exactly the
+   * window that makes it likely, a rolling upgrade with many young nodes.
+   *
+   * The branch retires with the last build that cannot refuse, and the bar and
+   * getPeerFluxUptime go with it.
+   * @param {number} [count] Cap on how many to return.
+   * @returns {Array} peers, shuffled.
+   */
+  getEligibleSyncPeers(count) {
     const eligible = [];
+    const ownKey = this.#ownSocketAddress;
     for (const peer of this.#peers.values()) {
+      // Never ourselves. A node that syncs from itself learns nothing it does
+      // not already hold, and this asks for a fixed small number of peers - so
+      // drawing self spends one of very few attempts on a guaranteed
+      // non-answer, and on a small fleet that is the difference between the
+      // spawner starting and never starting at all. Observed doing exactly
+      // that: a node asked its own address, timed out at zero completions, and
+      // never published SPAWNER_READY.
+      if (ownKey && peer.key === ownKey) continue;
       if (peer.missedPongs !== 0) continue;
       if (!peer.remoteCapabilities.has('appStateSync')) continue;
-      const uptime = this.getPeerFluxUptime(peer.key);
-      if (uptime === null || uptime < minUptimeSeconds) continue;
+      if (!peer.remoteCapabilities.has('appStateSyncRefusal')) {
+        const uptime = this.getPeerFluxUptime(peer.key);
+        if (uptime === null || uptime < LEGACY_MIN_PEER_UPTIME_SECONDS) continue;
+      }
       eligible.push(peer);
     }
     for (let i = eligible.length - 1; i > 0; i -= 1) {
@@ -465,13 +589,23 @@ class FluxPeerManager extends EventEmitter {
     return count ? eligible.slice(0, count) : eligible;
   }
 
-  markSyncRequested(key) { this.#syncRequestedPeers.add(key); }
-
-  isSyncRequested(key) { return this.#syncRequestedPeers.has(key); }
-
-  completeSyncRequest(key) { this.#syncRequestedPeers.delete(key); }
-
-  clearSyncRequested() { this.#syncRequestedPeers.clear(); }
+  /**
+   * Whether a sync response arriving on this connection is still wanted.
+   *
+   * Asked with the socket rather than the address because the two are not the
+   * same thing: a peer that reconnects keeps its `ip:port` while becoming a
+   * different connection, and nothing arriving on the new one is an answer to
+   * a request written into the old one.
+   *
+   * Closed by default. An unsolicited sync response is dropped, which is what
+   * happens before anything registers an answer here.
+   * @param {FluxPeerSocket} peerSocket
+   * @returns {boolean}
+   */
+  isSyncResponseWanted(peerSocket) {
+    if (!this.syncResponseWanted) return false;
+    return this.syncResponseWanted(peerSocket);
+  }
 
   // --- Liveness ---
 
@@ -582,6 +716,13 @@ class FluxPeerManager extends EventEmitter {
     if (closeCode === CLOSE_CODES.DEAD_CONNECTION) return true;
     // Max connections: remote is full, try again next cycle
     if (closeCode === CLOSE_CODES.MAX_CONNECTIONS) return true;
+    // Node unconfirmed: the remote is still booting and has not opened its
+    // application gate yet - a statement about when, not about us. It is the
+    // one refusal that is certain to stop applying, and on the fleet the same
+    // node dialled back 150ms later. A build that refuses the upgrade never
+    // gets this far, but the network is mixed and older nodes still close with
+    // it after the handshake.
+    if (closeCode === CLOSE_CODES.NODE_UNCONFIRMED) return true;
     // Everything else: policy violation, auth failure, admin close, duplicate — don't retry
     return false;
   }
@@ -680,9 +821,17 @@ class FluxPeerManager extends EventEmitter {
    * @private
    */
   async #broadcastToGroup(data, direction, exclude, delayMs) {
-    const iter = direction === DIRECTION.INBOUND ? this.inboundValues() : this.outboundValues();
-    for (const peer of iter) {
-      if (exclude && peer.key === exclude) continue;
+    // The keys are taken once, and each is looked up again at the moment it is
+    // sent to. This loop awaits between sends, so the peer map is free to change
+    // under it - a peer dropped by the monitor, a peer this loop evicts itself -
+    // and a live iterator would make the result depend on when that happened.
+    // Looking the key up again keeps the one behaviour that matters: a peer that
+    // has gone while we were delaying is skipped rather than sent to.
+    const keys = direction === DIRECTION.INBOUND ? [...this.#inboundKeys] : [...this.#outboundKeys];
+    for (const key of keys) {
+      if (exclude && key === exclude) continue;
+      const peer = this.#peers.get(key);
+      if (!peer) continue;
       try {
         await serviceHelper.delay(delayMs);
         if (!peer.send(data)) {
@@ -691,7 +840,14 @@ class FluxPeerManager extends EventEmitter {
       } catch (e) {
         try {
           const code = direction === DIRECTION.OUTBOUND ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
-          peer.close(code, 'send failure');
+          // Evicted, not closed. send() returns false only when the socket is
+          // already not open, so this path is reached exactly when close() can
+          // achieve nothing: no frame goes out, onclose has been and gone or
+          // will never come, and ping() skips a non-open socket so the missed
+          // pong that would eventually terminate it is never counted. The peer
+          // would sit in the map holding a place no reconnect is dialled for
+          // and offering itself as a sync source, until ws times the close out.
+          this.evict(peer.key, code, 'send failure');
         } catch (err) {
           log.error(err);
         }

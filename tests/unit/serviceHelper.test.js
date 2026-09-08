@@ -4,7 +4,9 @@ const sinon = require('sinon');
 const config = require('config');
 const { ObjectId } = require('mongodb');
 const proxyquire = require('proxyquire');
+const chaiAsPromised = require('chai-as-promised');
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 
 const log = require('../../ZelBack/src/lib/log');
@@ -573,6 +575,173 @@ describe('serviceHelper tests', () => {
     });
   });
 
+  describe('runStreamingCommand idle kill tests', () => {
+    // eslint-disable-next-line global-require
+    const { EventEmitter } = require('node:events');
+    let clock;
+
+    function fakeChild(pid) {
+      const child = new EventEmitter();
+      child.pid = pid;
+      child.stdout = new EventEmitter();
+      child.stdout.setEncoding = sinon.stub();
+      child.stderr = new EventEmitter();
+      child.stderr.setEncoding = sinon.stub();
+      child.kill = sinon.stub().returns(true);
+      return child;
+    }
+
+    function loadWithSpawn(spawnStub) {
+      return proxyquire('../../ZelBack/src/services/serviceHelper', {
+        '../../../config/userconfig': adminConfig,
+        'node:util': utilFake,
+        'node:child_process': { spawn: spawnStub },
+      });
+    }
+
+    // The kill for a root child goes through runCommand (which prefixes sudo
+    // and wraps execFile in a catch), so it reaches the shared execFile stub
+    // rather than spawn - a naked spawn here could emit an unhandled 'error'
+    // and take the process down under the very fork pressure that triggers it.
+    const killCalls = () => runCmdStub.getCalls().filter(
+      (c) => c.args[0] === 'sudo' && Array.isArray(c.args[1]) && c.args[1][0] === 'kill',
+    );
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers();
+      runCmdStub.resetHistory();
+      runCmdStub.resolves({ stdout: '', stderr: '' });
+    });
+
+    afterEach(() => {
+      clock.restore();
+      sinon.restore();
+    });
+
+    it('kills a stalled root command through the wrapped command runner, not a naked spawn', async () => {
+      // The child IS root, and on a legacy node FluxOS is not - the kernel
+      // refuses the plain signal, the "was stopped" verdict becomes a lie and
+      // the root tar runs on as an orphan. The kill is delivered as root via
+      // runCommand, whose spawn failures cannot escape as an unhandled event.
+      const child = fakeChild(4242);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', { runAsRoot: true, params: ['-tzf', '/x'], idleTimeout: 5000 });
+      clock.tick(5001);
+
+      const calls = killCalls();
+      expect(calls.length).to.equal(1);
+      expect(calls[0].args[1]).to.deep.equal(['kill', '-TERM', '4242']);
+      sinon.assert.notCalled(child.kill);
+      // spawn ran once, for the child itself; the kill is not a second spawn
+      sinon.assert.calledOnce(spawnStub);
+
+      child.emit('close', 143);
+      const res = await pending;
+      expect(res.error.message).to.include('no output');
+      expect(res.idleKilled).to.equal(true);
+    });
+
+    it('a kill that cannot even spawn does not take the run down', async () => {
+      // EAGAIN/ENOMEM under fork pressure is exactly the state that made the
+      // command idle out. runCommand resolves an error rather than throwing an
+      // unhandled 'error' event, so the run still settles on the child's close.
+      const child = fakeChild(4246);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+      runCmdStub.rejects(new Error('spawn EAGAIN'));
+
+      const pending = helper.runStreamingCommand('tar', { runAsRoot: true, params: ['-tzf', '/x'], idleTimeout: 5000 });
+      clock.tick(5001);
+
+      child.emit('close', 143);
+      const res = await pending;
+      expect(res.error.message).to.include('no output');
+    });
+
+    it('kills a stalled unprivileged command directly', async () => {
+      const child = fakeChild(4243);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('du', { params: ['/x'], idleTimeout: 5000 });
+      clock.tick(5001);
+
+      sinon.assert.calledOnce(child.kill);
+      expect(killCalls().length).to.equal(0);
+
+      child.emit('close', 143);
+      await pending;
+    });
+
+    it('a throwing line-consumer fails the run loudly instead of hanging it', async () => {
+      // Unhandled, the throw erupts inside the stream machinery, finish()
+      // never runs, and the operation awaiting this promise waits forever.
+      const child = fakeChild(4245);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', {
+        runAsRoot: true,
+        params: ['-tzf', '/x'],
+        idleTimeout: 5000,
+        logError: false,
+        onLine: () => { throw new Error('consumer exploded'); },
+      });
+      child.stdout.emit('data', 'entry-one\n');
+
+      const res = await pending;
+      expect(res.error.message).to.include('consumer exploded');
+      expect(res.idleKilled).to.equal(false);
+      expect(killCalls().length).to.equal(1);
+    });
+
+    it('a real error arriving after the idle kill is reported, with the kill carried as a flag', async () => {
+      // Two facts, one run: the timer fired AND the consumer blew up on data
+      // that flushed after the kill. One error slot let the bland idle message
+      // overwrite the real cause; the error field now carries the truth and
+      // res.idleKilled carries the kill.
+      const child = fakeChild(4247);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', {
+        runAsRoot: true,
+        params: ['-tzf', '/x'],
+        idleTimeout: 5000,
+        logError: false,
+        onLine: () => { throw new Error('consumer exploded'); },
+      });
+      clock.tick(5001); // idle timer fires, the kill goes out
+      child.stdout.emit('data', 'late-flush\n'); // buffered data lands after the kill
+
+      const res = await pending;
+      expect(res.error.message).to.include('consumer exploded');
+      expect(res.idleKilled).to.equal(true);
+    });
+
+    it('does not re-arm the timer once it has killed', async () => {
+      // An orphan that keeps producing output must not schedule a fresh kill
+      // every idle window for as long as it survives.
+      const child = fakeChild(4244);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', { runAsRoot: true, params: ['-tzf', '/x'], idleTimeout: 5000 });
+      clock.tick(5001);
+      child.stdout.emit('data', 'still going\n');
+      clock.tick(5001);
+
+      const calls = killCalls();
+      expect(calls.length).to.equal(1);
+      expect(calls[0].args[1]).to.deep.equal(['kill', '-TERM', '4244']);
+
+      child.emit('close', 143);
+      await pending;
+    });
+  });
+
   describe('minVersionSatisfy tests', () => {
     const minimalVersion = '3.4.12';
     const majorMinorOnly = '3.4';
@@ -879,6 +1048,67 @@ describe('serviceHelper tests', () => {
       expect(serviceHelper.isNonRoutableAddress('')).to.equal(false);
       expect(serviceHelper.isNonRoutableAddress('256.1.1.1')).to.equal(false);
       expect(serviceHelper.isNonRoutableAddress('1.1.1')).to.equal(false);
+    });
+  });
+  describe('processInSlices tests', () => {
+    it('should hand the handler bounded slices covering every item in order', async () => {
+      const items = Array.from({ length: 1000 }, (_, i) => i);
+      const slices = [];
+
+      await serviceHelper.processInSlices(items, 250, async (slice) => { slices.push(slice); });
+
+      expect(slices.length).to.equal(4);
+      slices.forEach((slice) => expect(slice.length).to.be.at.most(250));
+      expect(slices.flat()).to.deep.equal(items);
+    });
+
+    it('should handle a final partial slice', async () => {
+      const slices = [];
+
+      await serviceHelper.processInSlices([1, 2, 3, 4, 5], 2, async (slice) => { slices.push(slice); });
+
+      expect(slices).to.deep.equal([[1, 2], [3, 4], [5]]);
+    });
+
+    it('should run slices one at a time, never concurrently', async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+
+      await serviceHelper.processInSlices(Array.from({ length: 20 }, (_, i) => i), 5, async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => { setTimeout(resolve, 1); });
+        inFlight -= 1;
+      });
+
+      expect(maxInFlight).to.equal(1);
+    });
+
+    it('should do nothing for an empty or non-array input', async () => {
+      const handler = sinon.stub();
+
+      await serviceHelper.processInSlices([], 10, handler);
+      await serviceHelper.processInSlices(undefined, 10, handler);
+
+      sinon.assert.notCalled(handler);
+    });
+
+    it('should reject a slice size that cannot bound anything', async () => {
+      const handler = sinon.stub();
+
+      await expect(serviceHelper.processInSlices([1, 2], 0, handler)).to.be.rejectedWith(/positive integer/);
+      sinon.assert.notCalled(handler);
+    });
+
+    it('should propagate a handler failure and stop processing', async () => {
+      const seen = [];
+      const handler = async (slice) => {
+        seen.push(slice[0]);
+        if (seen.length === 2) throw new Error('store failed');
+      };
+
+      await expect(serviceHelper.processInSlices([1, 2, 3, 4, 5, 6], 2, handler)).to.be.rejectedWith('store failed');
+      expect(seen).to.deep.equal([1, 3]);
     });
   });
 });

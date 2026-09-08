@@ -296,13 +296,13 @@ describe('imageManager tests', () => {
     });
 
     it('should classify permanent errors with 7 day TTL', async () => {
-      const permanentError = new Error('Repository is not whitelisted');
+      const permanentError = new Error('Image size exceeds allowed maximum');
 
       ImageVerifierStub.returns({
         verifyImage: sinon.stub().resolves(),
         throwIfError: sinon.stub().throws(permanentError),
         errorMeta: {
-          errorType: 'not_whitelisted',
+          errorType: 'size_limit',
           errorCode: null,
           httpStatus: null,
         },
@@ -345,7 +345,7 @@ describe('imageManager tests', () => {
       expect(result).to.deep.equal(blockedRepos);
       sinon.assert.calledWith(
         serviceHelper.axiosGet,
-        'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json',
+        'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main/blockedrepositories.json',
       );
     });
 

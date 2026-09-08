@@ -36,6 +36,24 @@ const globalAppsInstallingErrorsBroadcasts = config.database.appsglobal.collecti
 const APP_NAME_REGEX = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
 const APP_NAME_REGEX_LEGACY = /^[a-zA-Z0-9]+$/;
 
+// Mount options for an app's FLUXFSVOL. An app volume holds data its owner
+// writes, so nothing stored there should be able to confer privilege on
+// whatever reads it back.
+//
+// `nosuid` makes any setuid/setgid bit on the volume inert. It does NOT prevent
+// execution - an app that downloads and runs a binary from its own volume is
+// unaffected - it only stops that binary switching to another user. Legitimate
+// setuid binaries live in the container image, not in appdata.
+//
+// `nodev` stops a device node on the volume being honoured; an app that needs
+// device access gets it from docker's device mapping.
+//
+// This belongs at the mount rather than in any one caller because there is more
+// than one way for such a file to arrive: unpacking a user-supplied archive is
+// the obvious one, but a copy preserves the bits too. A bind mount inherits its
+// source's options, so a volume handed to a container carries them as well.
+const APP_VOLUME_MOUNT_OPTIONS = 'loop,nosuid,nodev';
+
 // Supported architectures
 const supportedArchitectures = ['amd64', 'arm64'];
 
@@ -58,33 +76,61 @@ const defaultNodeSpecs = {
   ssdStorage: 0,
 };
 
-// Apps monitored structure template
-const appsMonitoredTemplate = {
-  // component1_appname2: { // >= 4 or name for <= 3
-  //   oneMinuteInterval: null, // interval
-  //   fifteenMinInterval: null, // interval
-  //   oneMinuteStatsStore: [ // stores last hour of stats of app measured every minute
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  //   fifteenMinStatsStore: [ // stores last 24 hours of stats of app measured every 15 minutes
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  // },
-};
-
-// Expiry / TTL constants (milliseconds)
+// Expiry / TTL constants (milliseconds).
+//
+// The three stamped onto records live in config as seconds, so the harness can
+// compress them the way it compresses every other cadence; the literal after
+// `??` is the production default and is what a node runs when the key is absent.
+// They lived here as bare literals from the day expiry moved per-document: the
+// config keys were wired to the collection-level TTL indexes that scheme
+// replaced, so when those indexes were dropped the keys were left reading
+// nothing, and a later unused-variable sweep removed the last binding to them.
+// Reading config here cannot reintroduce the cycle those literals were moved to
+// break - that was messageVerifier -> registryManager -> messageStore ->
+// messageVerifier, entirely between services, and `config` is a leaf this file
+// already requires for the collection names above.
 const GOSSIP_VALIDITY_MS = 5 * 60 * 1000;
-const RUNNING_EXPIRY_MS = 125 * 60 * 1000;
-const INSTALLING_EXPIRY_MS = 15 * 60 * 1000;
-const INSTALLING_ERRORS_EXPIRY_MS = 24 * 60 * 60 * 1000;
-const SIGTERM_EXPIRY_MS = 420 * 1000;
+const RUNNING_EXPIRY_MS = (config.fluxapps.locationTtlS ?? 7500) * 1000;
+const INSTALLING_EXPIRY_MS = (config.fluxapps.installingTtlS ?? 900) * 1000;
+const INSTALLING_ERRORS_EXPIRY_MS = (config.fluxapps.installErrorTtlS ?? 86400) * 1000;
+// The grace a node gets after announcing its own shutdown, before peers treat
+// its locations as gone. Config-driven like the three above, and for the same
+// reason they are: a harness that compresses RUNNING_EXPIRY_MS and cannot
+// compress this one inverts the pair. The `||` in appStartupManager's
+// locationsExpired then fires on the running expiry first and this window
+// becomes unreachable - a clean shutdown gets no grace at all, which is the
+// opposite of what it is for.
+//
+// NOT compressible by the same ratio as RUNNING_EXPIRY_MS, though. What that
+// one is coupled to is the announce interval, which is a compressed clock; what
+// THIS one is measured across is a node boot, and a boot is real work the
+// harness does not compress - see installingTtlS above for the same argument.
+// Bound it by what it must outlive, not by a factor.
+const SIGTERM_EXPIRY_MS = (config.fluxapps.sigtermExpiryS ?? 420) * 1000;
 const EVICTED_EXPIRY_MS = RUNNING_EXPIRY_MS;
+
+/**
+ * How often a node announces the apps it is running.
+ *
+ * Derived, not configured. A node writes its OWN location row when it
+ * announces, and that row expires RUNNING_EXPIRY_MS after the announcement that
+ * carried it - so the interval and the expiry are one decision and the pair
+ * cannot be allowed to drift. Two numbers here were a pairing an edit could set
+ * wrong in either file, with a node's presence on the network as the thing that
+ * silently degraded.
+ *
+ * TWO announcements inside one lifetime, because a node must be able to miss
+ * one and still be refreshed before the row lapses. The 4% is the slack that
+ * miss needs: without it the refresh lands exactly as the row expires.
+ *
+ * Production 7500s -> 3600s, and the harness's 63s -> 30s: the values both
+ * configurations were carrying by hand.
+ */
+const ANNOUNCES_PER_EXPIRY = 2;
+const ANNOUNCE_SLACK = 0.04;
+const ANNOUNCE_INTERVAL_MS = Math.floor(
+  (RUNNING_EXPIRY_MS * (1 - ANNOUNCE_SLACK)) / ANNOUNCES_PER_EXPIRY / 1000,
+) * 1000;
 
 // Hash sync constants (blocks, at 30s per block)
 const HASH_EXPIRY_BLOCKS = 1051200; // ~1 year — permanently flag unresolvable hashes
@@ -115,17 +161,20 @@ module.exports = {
   APP_NAME_REGEX,
   APP_NAME_REGEX_LEGACY,
 
+  // Volumes
+  APP_VOLUME_MOUNT_OPTIONS,
+
   // Configuration
   supportedArchitectures,
   enterpriseRequiredArchitectures,
   isArcane,
   appsThatMightBeUsingOldGatewayIpAssignment,
   defaultNodeSpecs,
-  appsMonitoredTemplate,
 
   // Expiry / TTL
   GOSSIP_VALIDITY_MS,
   RUNNING_EXPIRY_MS,
+  ANNOUNCE_INTERVAL_MS,
   INSTALLING_EXPIRY_MS,
   INSTALLING_ERRORS_EXPIRY_MS,
   SIGTERM_EXPIRY_MS,

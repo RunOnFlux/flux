@@ -16,7 +16,10 @@ module.exports = {
             "geolocation": "geolocation",
             "benchmark": "benchmark",
             "appTamperingEvents": "apptamperingevents",
-            "nodeStartupTracker": "nodestartuptracker"
+            "nodeStartupTracker": "nodestartuptracker",
+            "policyDocuments": "policydocuments",
+            "ipRanges": "ipranges",
+            "nodeLocations": "nodelocations"
         }
     },
     "daemon": {

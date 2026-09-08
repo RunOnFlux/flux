@@ -35,6 +35,7 @@ module.exports = {
         activePaymentRequests: 'activepaymentrequests',
         completedPayments: 'completedpayments',
         geolocation: 'geolocation',
+        policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
       },
     },
@@ -110,11 +111,14 @@ module.exports = {
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+  fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    restartBurstCount: 5,
+    restartBurstWindowMs: 300000,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.
@@ -238,8 +242,9 @@ module.exports = {
     minUpTime: 1800, // 30 mins
     appSyncPeerThreshold: 12,
     appSyncDegradedThreshold: 4,
-    appSyncMinPeerUptime: 60,
     appSyncMinCompletions: 3,
+    appSyncMinPeerUptime: 7500,
+    appSyncFallbackMinutes: 125,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
@@ -281,11 +286,11 @@ module.exports = {
     removalSpacingMs: 60000,
     locationTtlS: 7500,
     installingTtlS: 900,
-    installErrorTtlS: 3600,
+    installErrorTtlS: 86400,
     tempMsgTtlS: 3600,
     hashSyncIntervalMs: 1800000,
-    peerNotifyIntervalMs: 3600000,
     cpuCheckIntervalMs: 900000,
+    statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,
     imageComplianceIntervalMs: 3600000,
     forceRemovalIntervalMs: 7200000,
@@ -294,6 +299,11 @@ module.exports = {
     portTestPropagationDelayMs: 10000,
     portTestPeerTimeoutMs: 30000,
     portTestMaxAttempts: 5,
+    siblingPortsTimeoutMs: 5000,
+    // How long a signed sibling ask stays good for. The exchange itself is
+    // bounded by siblingPortsTimeoutMs; the rest is allowance for two nodes
+    // that were never required to agree on the time.
+    siblingAskValidityMs: 60000,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
@@ -314,6 +324,7 @@ module.exports = {
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
+    explorerPollIntervalMs: 5000,
     explorerSyncRetryMs: 120000,
     explorerDeepRestoreBlocks: 100,
     syncTimeoutMs: 120000,
@@ -330,6 +341,11 @@ module.exports = {
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,
     nodeMonitorRemovalDelayMs: 60000,
+    residentialCheckIntervalMs: 21600000,
+    residentialSettleMs: 86400000,
+    residentialEvacuationIntervalMs: 21600000,
+    residentialQueueBaseMs: 1800000,
+    residentialQueueStepMs: 2400000, // 40m - must exceed the 22m give-up pass, see ZelBack/config/default.js
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
@@ -341,6 +357,11 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000,
+    // Deliberately NOT the production 180000. The code falls back to 3 minutes
+    // when the key is missing, so a config value equal to the fallback cannot
+    // tell "read from config" from "key misspelled and silently defaulted" -
+    // which is exactly how statsSampleIntervalMs came to read undefined.
+    masterSlaveStaggerMs: 30000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -381,6 +402,8 @@ module.exports = {
     stallNudgeMaxIntervalMs: 900000,
     stallRemoveMinWindowMs: 1200000,
     stallRemoveMinNudges: 3,
+    aptSourceUrl: 'https://apt.syncthing.net/',
+    releaseKeyUrl: 'https://syncthing.net/release-key.gpg',
   },
   cpuBurst: {
     enabled: true,
@@ -394,8 +417,20 @@ module.exports = {
     rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
     apiBaseUrl: 'https://api.github.com',
   },
+  policy: {
+    baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
+  },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
-    statsApiBaseUrl: 'https://stats.runonflux.io',
+  },
+  stats: {
+    baseUrl: 'https://stats.runonflux.io',
+  },
+  pricing: {
+    fluxRatesBaseUrl: 'https://viprates.runonflux.io',
+    coingeckoBaseUrl: 'https://api.coingecko.com',
+  },
+  mongodb: {
+    signingKeyBaseUrl: 'https://pgp.mongodb.com',
   },
 };

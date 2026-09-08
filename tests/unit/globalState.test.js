@@ -77,6 +77,47 @@ describe('globalState tests', () => {
     });
   });
 
+  describe('operationHolding tests', () => {
+    afterEach(() => {
+      globalState.removalInProgress = false;
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+      globalState.reinstallationOfOldAppsInProgress = false;
+    });
+
+    it('names nothing when the node is free', () => {
+      expect(globalState.operationHolding()).to.equal(null);
+    });
+
+    // The flag no guard used to read. A caller asking the question at all is the
+    // fix; answering it with four of the five would leave the same hole.
+    it('names the periodic reinstall pass, which is a holder like any other', () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      expect(globalState.operationHolding()).to.equal('reinstallation');
+    });
+
+    // A guard excludes the operation it belongs to and no others: the reinstall
+    // pass sets its own flag before the loop, so asking without the exclusion
+    // would make it skip every app on its own account.
+    it('excludes only the caller its own operation, and still sees the others', () => {
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      expect(globalState.operationHolding('reinstallation')).to.equal(null);
+
+      globalState.removalInProgress = true;
+      expect(globalState.operationHolding('reinstallation')).to.equal('removal');
+    });
+
+    it('answers in the order the guards asked in, so the message does not change', () => {
+      globalState.hardRedeployInProgress = true;
+      globalState.installationInProgress = true;
+
+      expect(globalState.operationHolding()).to.equal('installation');
+    });
+  });
+
   describe('state flags tests', () => {
     it('should have default values for state flags', () => {
       expect(globalState.removalInProgress).to.equal(false);
@@ -100,6 +141,54 @@ describe('globalState tests', () => {
 
       globalState.installationInProgressReset();
       expect(globalState.installationInProgress).to.equal(false);
+    });
+  });
+
+  // The restore claim. Two restores of one app run the same archive into the same
+  // appdata, so this pair is what makes an app's restore exclusive - and the
+  // boolean is the whole of it: the caller learns from the return value alone
+  // whether the claim is theirs, since a second claim leaves the list looking
+  // exactly as it did after the first.
+  describe('restore claim tests', () => {
+    it('grants the claim to the first caller', () => {
+      expect(globalState.tryStartRestore('app1')).to.equal(true);
+      expect(globalState.restoreInProgress).to.include('app1');
+    });
+
+    it('refuses a second claim on an app already being restored', () => {
+      globalState.tryStartRestore('app1');
+
+      expect(globalState.tryStartRestore('app1')).to.equal(false);
+    });
+
+    it('does not enter the app twice when the second claim is refused', () => {
+      globalState.tryStartRestore('app1');
+      globalState.tryStartRestore('app1');
+
+      const held = globalState.restoreInProgress.filter((app) => app === 'app1');
+      expect(held).to.have.lengthOf(1);
+    });
+
+    it('leaves a claim on a different app alone', () => {
+      globalState.tryStartRestore('app1');
+
+      expect(globalState.tryStartRestore('app2')).to.equal(true);
+      expect(globalState.restoreInProgress).to.include('app1');
+    });
+
+    it('releases the claim so the app can be restored again', () => {
+      globalState.tryStartRestore('app1');
+      globalState.finishRestore('app1');
+
+      expect(globalState.restoreInProgress).to.not.include('app1');
+      expect(globalState.tryStartRestore('app1')).to.equal(true);
+    });
+
+    it('ignores a release for an app that holds no claim', () => {
+      globalState.tryStartRestore('app1');
+      globalState.finishRestore('app2');
+
+      expect(globalState.restoreInProgress).to.include('app1');
     });
   });
 

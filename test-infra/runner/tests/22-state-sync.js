@@ -22,7 +22,7 @@ async function bootAndPeer(env, nodeIndices) {
   ));
   await advanceBlock();
   for (const client of clients) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery(nodeIndices);
   await clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
@@ -49,7 +49,7 @@ describe('State sync: app running state (0x21)', function () {
         name: appName,
         description: 'sync test',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31111],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],
@@ -120,7 +120,7 @@ describe('State sync: hash resolution', function () {
         name: appName,
         description: 'hash sync test',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31112],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],
@@ -193,7 +193,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
         name: appName,
         description: '3-peer sync test',
         repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [31113],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],
@@ -251,15 +251,20 @@ describe('State sync: 3-peer ephemeral sync', function () {
     expect(reqEvent.data.peerCount).to.be.gte(3);
   });
 
-  it('should complete apprunning sync from 3 peers', async function () {
-    this.timeout(120000);
-    const client = env.clients[10];
-    const event = await client.waitForEvent(
-      'ephemeralSync:peerComplete',
-      (d) => d.syncType === 'apprunning' && d.completions >= 3,
-      90000,
-    );
-    expect(event.data.completions).to.be.gte(3);
+  // Every stream a request asks for is counted, so a peer is credited once all
+  // four have ended. Asserted per stream: a tally that quietly dropped one would
+  // still satisfy an assertion written only about the whole.
+  ['apprunning', 'appinstalling', 'apperrors', 'apptemp'].forEach((syncType) => {
+    it(`should complete ${syncType} sync from 3 peers`, async function () {
+      this.timeout(120000);
+      const client = env.clients[10];
+      const event = await client.waitForEvent(
+        'ephemeralSync:peerComplete',
+        (d) => d.syncType === syncType && d.completions >= 3,
+        90000,
+      );
+      expect(event.data.completions).to.be.gte(3);
+    });
   });
 
   it('should complete all ephemeral syncs', async function () {
@@ -273,6 +278,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
     expect(event.data.apprunning).to.be.gte(3);
     expect(event.data.appinstalling).to.be.gte(3);
     expect(event.data.apperrors).to.be.gte(3);
+    expect(event.data.apptemp, 'the pending-registration stream was not counted').to.be.gte(3);
   });
 
   it('should have verified chunks via worker threads', async function () {

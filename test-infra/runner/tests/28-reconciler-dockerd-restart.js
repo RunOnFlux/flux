@@ -25,7 +25,7 @@ async function bootAndPeer(env) {
   ));
   await advanceBlock();
   for (const client of env.clients) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
   await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
@@ -41,7 +41,7 @@ async function seedAndWaitForInstall(env, appName) {
       name: appName,
       description: 'test container',
       repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [31111],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],

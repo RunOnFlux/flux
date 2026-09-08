@@ -2,6 +2,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+
 describe('appUninstaller tests', () => {
   let appUninstaller;
   let verificationHelperStub;
@@ -31,6 +33,9 @@ describe('appUninstaller tests', () => {
           database: 'globalapps',
         },
       },
+      // appConstants reads the record-expiry durations from here as well as the
+      // collection names; absent keys fall back to the production defaults.
+      fluxapps: {},
     };
 
     verificationHelperStub = {
@@ -69,16 +74,11 @@ describe('appUninstaller tests', () => {
       '../dockerService': {
         appDockerStop: sinon.stub().resolves(),
         appDockerRemove: sinon.stub().resolves(),
+        clearFluxRemovedContainers: sinon.stub(),
         appDockerImageRemove: sinon.stub().resolves(),
         getAppIdentifier: sinon.stub().returns('testapp'),
       },
       '../../lib/log': logStub,
-      '../utils/globalState': {
-        removalInProgress: false,
-        setRemovalInProgress: sinon.stub(),
-        resetRemovalInProgress: sinon.stub(),
-        getRemovalInProgress: sinon.stub().returns(false),
-      },
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -136,6 +136,30 @@ describe('appUninstaller tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(verificationHelperStub.verifyPrivilege.called).to.be.true;
+    });
+
+    // The gate IS the policy: hosting an app is not owning it, so ending one is
+    // the owner's call or the team's on their behalf. appownerorfluxteam admits
+    // the app's owner and the flux team and refuses the node operator, so the
+    // string asked for is the whole of what keeps them out, and asserting merely
+    // that a privilege was checked leaves that free to change. What the privilege
+    // admits is pinned in verificationHelperUtils.test.js ("FALSE for the node
+    // operator, whom verifyAdminSession admits"); this pins the hop between them.
+    it('gates an uninstall on the privilege that refuses the node operator', async () => {
+      const req = {
+        params: { appname: 'testapp' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+      };
+
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error' });
+
+      await appUninstaller.removeAppLocallyApi(req, res);
+
+      sinon.assert.calledOnceWithExactly(verificationHelperStub.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'testapp' });
     });
 
     it('should handle missing appname parameter', async () => {
@@ -264,16 +288,11 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -353,12 +372,10 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -443,6 +460,7 @@ describe('appUninstaller tests', () => {
           appDockerKill: sinon.stub().resolves(),
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerForceRemove: sinon.stub().resolves(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().callsFake((id) => `flux${id}`),
@@ -451,10 +469,6 @@ describe('appUninstaller tests', () => {
           forceRemoveFluxAppDockerNetwork: sinon.stub().resolves(),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          runningAppsCache: new Map(),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -633,16 +647,11 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),
@@ -733,16 +742,11 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns(100),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': {
-          removalInProgress: false,
-          setRemovalInProgress: sinon.stub(),
-          resetRemovalInProgress: sinon.stub(),
-          getRemovalInProgress: sinon.stub().returns(false),
-        },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
           config: configStub,
         }),

@@ -1,14 +1,103 @@
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
+
 export async function execInContainer(container, command) {
   const args = Array.isArray(command) ? command : ['sh', '-c', command];
   const result = await container.exec(args);
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, output: result.output };
 }
 
+// Move a node to a different address on the fleet network: the new one goes on,
+// the old one comes off.
+//
+// This is what an address change IS, and doing it for real is what makes the rest
+// of the fixture honest. Its peers then find it unreachable at the old address
+// because it genuinely is not there - no packet filter simulating it, and nothing
+// hidden from the node list, so they still recognise it as the sender of the
+// fluxipchanged broadcast that follows.
+//
+// The timing matters and is measured. A probe to an address that is gone fails
+// with EHOSTUNREACH at ~3.1s (ARP gives up), NOT a hang - so a peer's own probe
+// budget of 5s sees a failure rather than a timeout, and it answers the asking
+// node inside that node's 7s budget. Those margins are why this works where
+// dropping packets did not: a dropped probe burns the full 5s, and the answer
+// then arrives after the asker has already given up, which reads as "I could not
+// ask" rather than "you are unreachable" - a different branch entirely, and one
+// that never consults benchmark.
+//
+// @param {object} container The node's container.
+// @param {string} to Bare address to move to, inside the fleet's own /24.
+// @param {string} from Bare address to give up.
+export async function moveNodeAddress(container, to, from, { prefix = 24, iface = 'eth0' } = {}) {
+  const add = await execInContainer(container, `ip addr add ${to}/${prefix} dev ${iface}`);
+  if (add.exitCode !== 0 && !/File exists/i.test(add.output || '')) {
+    throw new Error(`moveNodeAddress: could not add ${to}/${prefix} to ${iface}: ${add.output}`);
+  }
+  const del = await execInContainer(container, `ip addr del ${from}/${prefix} dev ${iface}`);
+  if (del.exitCode !== 0 && !/Cannot assign|not exist/i.test(del.output || '')) {
+    throw new Error(`moveNodeAddress: could not remove ${from}/${prefix} from ${iface}: ${del.output}`);
+  }
+  return to;
+}
+
+// Make a node unreachable to the named peers, without taking it off the network.
+//
+// The node keeps its address, its list entry and its outbound connections; what
+// stops is inbound traffic to its API port FROM those peers. That is what a node
+// whose address has moved looks like from the outside - still listed where it was,
+// no longer answering there - and it is the state that makes a peer's availability
+// probe fail, which is what a node needs before it will ask benchmark whether its
+// address changed.
+//
+// REJECT rather than DROP, and the difference decides whether this works at all.
+// A peer asked whether it can reach this node probes it and answers within the
+// asker's own timeout budget. Dropped packets blackhole, so that probe burns its
+// full timeout and the peer answers too late - the asker times out on the PEER and
+// reads "I could not ask" instead of "I am unreachable", which retries without ever
+// consulting benchmark. Refusing fails the probe instantly, so the answer arrives
+// in time and says what it is meant to say.
+//
+// Named peers rather than the subnet: the runner reaches the node from the docker
+// gateway on that same /24, so a blanket rule would cut off the very client doing
+// the asserting.
+//
+// @param {object} container The node's container.
+// @param {string[]} peerIps Bare addresses whose traffic to drop.
+// @param {number} apiPort The node's API port.
+export async function blockPeerAccess(container, peerIps, apiPort) {
+  for (const peerIp of peerIps) {
+    // eslint-disable-next-line no-await-in-loop
+    const r = await execInContainer(container, `iptables -I INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
+    if (r.exitCode !== 0) {
+      throw new Error(`blockPeerAccess: could not drop ${peerIp} -> :${apiPort}: ${r.output}`);
+    }
+  }
+  return peerIps;
+}
+
+// Undo blockPeerAccess. Tolerates a rule that is already gone so teardown after a
+// failed test cannot fail in its own right.
+export async function unblockPeerAccess(container, peerIps, apiPort) {
+  for (const peerIp of peerIps) {
+    // eslint-disable-next-line no-await-in-loop
+    await execInContainer(container, `iptables -D INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
+  }
+}
+
+// THE READ CAN FAIL, AND SAYS SO. `2>/dev/null || echo ""` gave a broken docker
+// exec the same answer as a node with no containers on it - an empty list - so
+// every caller read "the app is not running" and every wait built on one spent
+// its whole budget and ended reporting only that the condition never held. A
+// failed read is not an observation, and the callers that poll are built to
+// retry a throw; the ones that assert have no business ruling on a look they
+// never took.
 export async function listAppContainers(container, { all = false } = {}) {
   const flag = all ? ' -a' : '';
-  const { stdout } = await execInContainer(container,
-    `docker ps${flag} --format "{{.Names}}\t{{.Status}}\t{{.Image}}" 2>/dev/null || echo ""`,
+  const { stdout, stderr, exitCode } = await execInContainer(container,
+    `docker ps${flag} --format "{{.Names}}\t{{.Status}}\t{{.Image}}"`,
   );
+  if (exitCode !== 0) {
+    throw new Error(`docker ps in the node container failed (exit ${exitCode}): ${(stderr || stdout || '').trim()}`);
+  }
   return stdout.trim().split('\n')
     .filter((line) => line && !line.includes('NAMES'))
     .map((line) => {
@@ -50,6 +139,18 @@ export async function crashAppContainer(container, appName, componentName) {
   return execInContainer(container, `docker kill ${appContainerName(appName, componentName)}`);
 }
 
+// The container's docker id, which is what distinguishes a container that was
+// REPLACED from one that was merely restarted: a redeploy removes and recreates,
+// so the id changes, while a restart keeps it. Status and image name are equal
+// either way, so neither can tell the two apart. null if the container is absent.
+export async function getAppContainerId(container, appName, componentName) {
+  const { stdout } = await execInContainer(container,
+    `docker inspect --format '{{.Id}}' ${appContainerName(appName, componentName)} 2>/dev/null || echo ""`,
+  );
+  const id = stdout.trim();
+  return id === '' ? null : id;
+}
+
 // the actual exit code the reconciler reads from Docker (null if container absent)
 export async function getAppContainerExitCode(container, appName, componentName) {
   const { stdout } = await execInContainer(container,
@@ -71,13 +172,15 @@ export async function restartDockerd(container, { readyTimeoutMs = 40000, interv
   const start = Date.now();
   let sawDown = false;
   while (Date.now() - start < readyTimeoutMs) {
+    // an infra death voids the run - don't spend the budget proving it
+    throwIfInfraDead();
     // eslint-disable-next-line no-await-in-loop
     const r = await execInContainer(container, 'docker info > /dev/null 2>&1');
     const up = r.exitCode === 0;
     if (!up) sawDown = true;
     if (sawDown && up) return;
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((res) => setTimeout(res, interval));
+    await sleepUnlessInfraDead(interval);
   }
   throw new Error(`restartDockerd: dockerd did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
@@ -99,13 +202,15 @@ export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs
   const start = Date.now();
   let sawDown = false;
   while (Date.now() - start < readyTimeoutMs) {
+    // an infra death voids the run - don't spend the budget proving it
+    throwIfInfraDead();
     // eslint-disable-next-line no-await-in-loop
     const r = await execInContainer(container, probe);
     const up = r.exitCode === 0;
     if (!up) sawDown = true;
     if (sawDown && up) return;
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((res) => setTimeout(res, interval));
+    await sleepUnlessInfraDead(interval);
   }
   throw new Error(`restartFluxos: FluxOS did not cycle down and back up within ${readyTimeoutMs}ms`);
 }

@@ -5,6 +5,22 @@ const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 const { FluxEventBus } = fluxEventBus;
 
+// Drives sseHandler as express would: a resuming consumer sending Last-Event-ID,
+// and a close that clears the keepalive the handler starts.
+function openStream(bus, lastEventId) {
+  const written = [];
+  let onClose = () => {};
+  const req = {
+    headers: { 'last-event-id': String(lastEventId) },
+    on(event, cb) { if (event === 'close') onClose = cb; },
+  };
+  const res = {
+    writeHead() {}, flushHeaders() {}, write(chunk) { written.push(chunk); },
+  };
+  bus.sseHandler(req, res);
+  return { written, close: () => onClose() };
+}
+
 describe('FluxEventBus tests', () => {
   describe('event id continuity across a restart', () => {
     it('mints ids above anything the previous process served', () => {
@@ -62,6 +78,24 @@ describe('FluxEventBus tests', () => {
         json(body) { jsonBody = body; },
       };
       fluxEventBus.sseHandler({}, res);
+      expect(statusCode).to.equal(404);
+      expect(jsonBody.status).to.equal('error');
+    });
+
+    it('should not record counters', () => {
+      fluxEventBus.count('masterSlave:cycles');
+      fluxEventBus.count('masterSlave:decision', 'anApp', 'operatorStopped');
+      expect(fluxEventBus.counters()).to.deep.equal({});
+    });
+
+    it('should return 404 from countersHandler', () => {
+      let statusCode = null;
+      let jsonBody = null;
+      const res = {
+        status(code) { statusCode = code; return res; },
+        json(body) { jsonBody = body; },
+      };
+      fluxEventBus.countersHandler({}, res);
       expect(statusCode).to.equal(404);
       expect(jsonBody.status).to.equal('error');
     });
@@ -142,6 +176,79 @@ describe('FluxEventBus tests', () => {
       expect(events).to.have.length(1024);
       expect(events[0].data.i).to.equal(76);
       expect(events[events.length - 1].data.i).to.equal(1099);
+    });
+
+    // Cadence, not facts - the rule at the top of fluxEventBus.js. These are the
+    // properties a suite waiting on "the loop ran N more times" rests on.
+    it('should count a bare name as a running total', () => {
+      bus.count('masterSlave:cycles');
+      bus.count('masterSlave:cycles');
+      bus.count('masterSlave:cycles');
+      expect(bus.counters()['masterSlave:cycles']).to.equal(3);
+    });
+
+    it('should count each path separately under one name', () => {
+      bus.count('masterSlave:decision', 'appA', 'operatorStopped');
+      bus.count('masterSlave:decision', 'appA', 'operatorStopped');
+      bus.count('masterSlave:decision', 'appA', 'heldOnPeer');
+      bus.count('masterSlave:decision', 'appB', 'operatorStopped');
+      expect(bus.counters()['masterSlave:decision']).to.deep.equal({
+        appA: { operatorStopped: 2, heldOnPeer: 1 },
+        appB: { operatorStopped: 1 },
+      });
+    });
+
+    it('should serve counters as data, not as Maps', () => {
+      bus.count('masterSlave:decision', 'appA', 'started');
+      let jsonBody = null;
+      const res = { status() { return res; }, json(body) { jsonBody = body; } };
+      bus.countersHandler({}, res);
+      expect(jsonBody.status).to.equal('success');
+      // JSON.stringify turns a Map into {}, so a counter that survives this
+      // round trip is one a harness client can actually read.
+      expect(JSON.parse(JSON.stringify(jsonBody.data))).to.deep.equal({
+        'masterSlave:decision': { appA: { started: 1 } },
+      });
+    });
+
+    // A consumer that fell behind the ring must be TOLD, or it waits out its
+    // whole budget for an event that already came and went and reports the
+    // timeout as a product bug.
+    it('should report nothing dropped while the ring has never wrapped', () => {
+      bus.publish('a', {});
+      bus.publish('b', {});
+      expect(bus.oldestRetainedId()).to.equal(0);
+    });
+
+    it('should report the oldest surviving id once the ring has wrapped', () => {
+      for (let i = 0; i < 1100; i++) bus.publish('fill', { i });
+      const survivors = bus.since(0);
+      expect(bus.oldestRetainedId()).to.equal(survivors[0].id);
+    });
+
+    it('should announce the gap to a consumer that fell behind the ring', () => {
+      bus.publish('first', {});
+      const staleId = bus.since(0)[0].id;
+      for (let i = 0; i < 1100; i++) bus.publish('fill', { i });
+
+      const { written, close } = openStream(bus, staleId);
+      close();
+      const gap = written.find((c) => c.includes('event: stream:gap'));
+      expect(gap, 'a consumer resuming into a wrapped ring was told nothing').to.be.a('string');
+      const payload = JSON.parse(gap.match(/data: (.*)\n/)[1]);
+      expect(payload.dropped).to.equal(bus.oldestRetainedId() - staleId - 1);
+      expect(payload.dropped).to.be.greaterThan(0);
+    });
+
+    it('should not announce a gap to a consumer that is merely behind', () => {
+      bus.publish('a', {});
+      bus.publish('b', {});
+      const lastId = bus.since(0)[0].id;
+
+      const { written, close } = openStream(bus, lastId);
+      close();
+      expect(written.some((c) => c.includes('event: stream:gap'))).to.equal(false);
+      expect(written.some((c) => c.includes('event: b'))).to.equal(true);
     });
 
     it('should not throw when a listener errors', () => {

@@ -5,6 +5,7 @@ import { authenticate, signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { buildEnterpriseBlob } from './enterprise-helper.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
+import { assignPorts } from './port-allocator.js';
 import * as daemon from './daemon-control.js';
 import { waitFor } from './wait.js';
 
@@ -25,7 +26,7 @@ const defaultSpec = {
       // suites 07/08/09 in the 2026-07-02 gate). The env registry is seeded
       // with this image at bootstrap (test-env.js).
       repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-      ports: [31111],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -59,14 +60,31 @@ export function assertHermeticRepotags(spec, allowExternalRepotag) {
   }
 }
 
-export function buildAppSpec({ enterprise = false, allowExternalRepotag = false, ...overrides } = {}) {
+export function buildAppSpec({
+  enterprise = false, allowExternalRepotag = false, allowPortReuse = false, ...overrides
+} = {}) {
   const ownerKey = appOwnerKey();
   const spec = { ...defaultSpec, owner: ownerKey.zelid, ...overrides };
   assertHermeticRepotags(spec, allowExternalRepotag);
 
-  if (overrides.compose) {
-    spec.compose = overrides.compose;
-  }
+  // Copied, never referenced. `{ ...defaultSpec }` is shallow, so spec.compose IS
+  // defaultSpec.compose - and assignPorts writes the allocated port into the
+  // component it is given. Without this the first build in a process stamps a port
+  // into the module-level default, and the second reads it back as a hand-picked
+  // port inside the allocator's own range and throws. A caller's array is copied
+  // for the same reason: nothing reads a port back out of what it passed in, and a
+  // builder that writes into its caller's input is the same defect waiting for the
+  // first suite that reuses one.
+  spec.compose = (overrides.compose ?? defaultSpec.compose).map((c) => ({ ...c }));
+
+  // Registered rather than seeded, but a port is a port: an app here and a
+  // seeded app in the same suite would otherwise be drawing from two spaces
+  // that nothing keeps apart. Before the blob, because an enterprise spec's
+  // compose is emptied into it - and before registerApp signs, which is the
+  // next thing that happens to this object. The allocation is stable per app
+  // name, so a suite that builds the same app twice to update it does not
+  // hand itself a port change it never asked for.
+  if (spec.compose?.length) assignPorts(spec.compose, spec.name, { allowPortReuse });
 
   if (enterprise) {
     spec.enterprise = buildEnterpriseBlob(spec.compose, spec.contacts);
@@ -95,11 +113,20 @@ export async function signAppSpec(spec, type = 'fluxappregister') {
   return { type, version, appSpecification: spec, timestamp, signature };
 }
 
+// The endpoint follows the message type, because they are two different
+// handlers: appregister refuses a name that already exists, appupdate refuses
+// one that does not. Sending an update to appregister is answered with "Flux App
+// already registered", which reads like a harness fault rather than the wrong
+// door.
+function endpointForType(type) {
+  return type === 'fluxappupdate' || type === 'zelappupdate' ? 'appupdate' : 'appregister';
+}
+
 export async function registerApp(nodeUrl, adminKeypair, spec, type = 'fluxappregister') {
   const auth = await authenticate(nodeUrl, adminKeypair);
   const signed = await signAppSpec(spec, type);
 
-  const res = await fetch(`${nodeUrl}/apps/appregister`, {
+  const res = await fetch(`${nodeUrl}/apps/${endpointForType(type)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', zelidauth: auth.zelidauth },
     body: JSON.stringify(signed),
@@ -149,6 +176,18 @@ export async function registerAndConfirm(nodeUrl, adminKeypair, spec, nodes, {
     tempPropagation: { count: tempCount, total: nodes.length },
     targetHeight,
   };
+}
+
+// A spec change, confirmed on chain the same way a registration is. The node
+// compares the hash it holds against the one the chain now carries, which is
+// what the periodic reinstall pass acts on - so this is the only way to reach
+// every path that answers an owner changing a running app.
+//
+// The spec must differ from the installed one somewhere, or the hash matches and
+// nothing happens: the update is accepted and the node correctly does nothing
+// with it.
+export async function updateAndConfirm(nodeUrl, adminKeypair, spec, nodes, options = {}) {
+  return registerAndConfirm(nodeUrl, adminKeypair, spec, nodes, { ...options, type: 'fluxappupdate' });
 }
 
 export async function checkPermanentSpec(nodes, appName) {

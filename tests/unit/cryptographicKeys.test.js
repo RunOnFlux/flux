@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const { EventEmitter } = require('events');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
@@ -341,7 +342,7 @@ describe('cryptographicKeys tests', () => {
 
       await callGetPublicKey(req, res, appSpec);
 
-      sinon.assert.calledWith(verifyStub, 'user', req);
+      sinon.assert.calledWith(verifyStub, Privilege.USER, authOf(req));
     });
 
     it('should use daemon height when calling getAppPublicKey', async () => {

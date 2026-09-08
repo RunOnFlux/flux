@@ -61,7 +61,7 @@ async function isUp(client, appName) {
 }
 
 // targeted install of a plain (non-sync) app on one node
-async function installPlainApp(env, name, index, port) {
+async function installPlainApp(env, name, index) {
   await pushImage(name, 'v1');
   const app = await buildSeedableApp({
     name,
@@ -69,7 +69,7 @@ async function installPlainApp(env, name, index, port) {
       name,
       description: 'test container',
       repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
-      ports: [port],
+      ports: [],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -113,9 +113,9 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await seedSyncScopedData(env, syncName, 0);
     // pin the folder synced so the leader promotes and the app runs steadily
     await setSynced({ ip: subnet.nodeIp(1), folder: appId(syncName) });
-    await installPlainApp(env, rebootName, 1, 31201);
-    await installPlainApp(env, inertName, 2, 31301);
-    await installPlainApp(env, rmName, 3, 31401);
+    await installPlainApp(env, rebootName, 1);
+    await installPlainApp(env, inertName, 2);
+    await installPlainApp(env, rmName, 3);
 
     await pushImage(entName, 'v1');
     const entApp = await buildSeedableEnterpriseApp({
@@ -124,7 +124,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
         name: entName,
         description: 'test container',
         repotag: `${REGISTRY_REPO_HOST}/${entName}:v1`,
-        ports: [31501],
+        ports: [],
         domains: [''],
         environmentParameters: [],
         commands: [],
@@ -159,15 +159,44 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     this.timeout(120000);
     const client = env.clients[0];
     const dir = appDir(syncName);
+    const vol = volFile(syncName);
 
-    // stop the container (releases the bind), unmount, then immediately probe a
-    // write on the bare dir - all in ONE shell so the monitor's 3s repair cycle
-    // cannot remount in between. The immutable mountpoint must refuse the write.
+    // THE PROBE RUNS IN A PRIVATE MOUNT NAMESPACE, so FluxOS never sees the
+    // volume go away and there is nothing to outrun.
+    //
+    // It used to unmount for real and race the repair, on the stated grounds
+    // that "the monitor's 3s repair cycle cannot remount in between". The cycle
+    // is not what answers: the mount test remounts in ~144ms - "Volume not
+    // mounted. Continuing. Most likely false positive." followed by "Volume
+    // mounted." a seventh of a second later - and the probe then writes to a
+    // live volume and succeeds. Observed on a sequential run; a probe that has
+    // to be faster than the system is a probe that fails whenever the box is
+    // busy enough to slow the probe and not the system.
+    //
+    // `unshare -m` gives this shell its own mount table. The unmount is invisible
+    // outside it, so nothing repairs; the directory's immutable attribute lives
+    // on the filesystem and is visible from every namespace, so the write is
+    // refused for exactly the reason this test exists. No container stop either:
+    // the app's bind is in its own namespace and is not what is being probed.
+    //
+    // MOUNTED is echoed from INSIDE the namespace. The assertion below is the
+    // one that says the probe met a bare directory, and a probe that never
+    // prints it satisfies that assertion by producing no match at all.
     const r = await execInContainer(client.container,
-      `docker stop ${appId(syncName)} >/dev/null 2>&1; umount ${dir} || exit 9; touch ${dir}/leak-probe 2>/dev/null; echo TOUCH_EXIT:$?`);
+      `unshare -m sh -c 'umount ${dir} || exit 9; mountpoint -q ${dir}; echo MOUNTED:$?; touch ${dir}/leak-probe 2>/dev/null; echo TOUCH_EXIT:$?'`);
     expect(r.exitCode, `umount failed: ${r.output}`).to.not.equal(9);
+    // The probe only means anything against a bare dir. Asserted rather than
+    // assumed, so a remount that beat us is reported as such instead of being
+    // read as a leak.
+    expect(r.output.match(/MOUNTED:(\d+)/)?.[1], `still mounted at probe time: ${r.output}`).to.not.equal('0');
     const touchExit = r.output.match(/TOUCH_EXIT:(\d+)/)?.[1];
     expect(touchExit, `expected the bare-dir write to fail, got: ${r.output}`).to.not.equal('0');
+
+    // The namespace probe broke nothing, so the self-heal needs a real unmount of
+    // its own. Raced by nobody: the assertion is that the repair HAPPENS, which is
+    // the repair being fast working for the test rather than against it.
+    await execInContainer(client.container,
+      `docker stop ${appId(syncName)} >/dev/null 2>&1; umount ${dir} || true`);
 
     // FluxOS remounts the volume (reconciler / monitor repair) and restarts the app
     await waitFor(() => isMountpoint(client.container, dir), { timeout: 60000, interval: 2000, label: 'volume remounted (self-heal)' });

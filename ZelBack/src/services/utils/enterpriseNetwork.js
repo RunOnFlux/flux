@@ -43,7 +43,9 @@ function isEnterpriseAppOwner(owner) {
 async function isEnterpriseNode() {
   if (cachedNodePubKey === null) {
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
-    // getFluxNodePublicKey swallows errors and returns the Error object on failure.
+    // Kept even though the accessor now answers null rather than the Error it
+    // used to. What arrives here has to be a key to be usable, and checking
+    // that is this function's business whatever its source promises.
     if (!pubKey || typeof pubKey !== 'string') {
       throw new Error('enterpriseNetwork: unable to resolve fluxnode public key (daemon/benchmark unavailable)');
     }

@@ -23,24 +23,6 @@ describe('daemonServiceControlRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should trigger rpc, no parameters, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceControlRpcs.help(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'help', ['']);
-    });
-
     it('should trigger rpc, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -61,7 +43,7 @@ describe('daemonServiceControlRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'help', ['']);
     });
 
-    it('should trigger rpc, data passed in params, no response passed', async () => {
+    it('should trigger rpc, data passed in params, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -71,11 +53,12 @@ describe('daemonServiceControlRpcs tests', () => {
           test2: 'test2',
         },
       };
+      const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceControlRpcs.help(req);
+      await daemonServiceControlRpcs.help(req, res);
 
-      expect(result).to.equal(expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'help', [req.params.command]);
     });
   });

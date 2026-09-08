@@ -29,7 +29,7 @@ function loadModule(overrides = {}) {
     || { axiosGet: sinon.stub().rejects(new Error('no network')) };
 
   const configStub = overrides.config || {
-    github: { rawBaseUrl: 'https://raw.example/RunOnFlux/flux/master' },
+    policy: { baseUrl: 'https://raw.example/RunOnFlux/fluxos-network-policy/main' },
   };
 
   const stubs = {

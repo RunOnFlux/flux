@@ -19,7 +19,7 @@ const {
   globalAppStateEvents,
   appsHashesCollection,
 } = require('../utils/appConstants');
-const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInstallingBroadcasts;
+const { appsInstallingBroadcasts } = config.database.appsglobal.collections;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 
@@ -30,6 +30,11 @@ const {
   INSTALLING_ERRORS_EXPIRY_MS,
   EVICTED_EXPIRY_MS,
 } = require('../utils/appConstants');
+
+// Cap on how many location operations are handed to one bulk write. The driver
+// encodes the whole batch before sending it, and that encoding is what a large
+// sync response leaves behind in memory.
+const LOCATION_OPS_PER_WRITE = 500;
 
 const APP_STATE_EVENT_TYPES = Object.freeze({
   APPRUNNING: 'apprunning',
@@ -383,7 +388,22 @@ async function storeAppRunningMessage(message) {
 }
 
 /**
- * Store app installing message
+ * Store app installing message, or apply a version 2 withdrawal of one.
+ *
+ * A node claims an app before it knows whether it is needed - the claim is what
+ * lets every contender see the contention - so losing that race is ordinary and
+ * has to be retractable. Version 2 is that retraction: it carries
+ * `withdrawn: true` and removes the sender's claim instead of recording one.
+ *
+ * A claim stays at version 1 on purpose. Moving claims to 2 would have nodes
+ * that do not know the version reject them, and they would stop seeing
+ * contention at all - so the retraction is what carries the new version, and a
+ * node that rejects it simply lets the claim expire as it does today.
+ *
+ * Never an installing ERROR. That message means an install was attempted and
+ * failed, it is counted as such, and a node standing aside has attempted
+ * nothing - counting it would turn the apps most in demand, whose races have
+ * the most losers, into the apps that look most broken.
  * @param {object} message - Message to store
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
@@ -394,14 +414,21 @@ async function storeAppInstallingMessage(message) {
   * @param broadcastedAt number
   * @param name string
   * @param ip string
+  * @param withdrawn boolean - version 2 only, always true
   */
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
     || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
     return new Error('Invalid Flux App Installing message for storing');
   }
 
-  if (message.version !== 1) {
+  if (message.version !== 1 && message.version !== 2) {
     return new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
+  }
+
+  // version 2 exists only to withdraw; anything else at that version is not
+  // something this protocol emits
+  if (message.version === 2 && message.withdrawn !== true) {
+    return new Error('Invalid Flux App Installing message for storing version 2 must be a withdrawal');
   }
 
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
@@ -428,6 +455,30 @@ async function storeAppInstallingMessage(message) {
   if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingMessage.broadcastedAt) {
     // found a message that was already stored/probably from duplicated message processsed
     return false;
+  }
+
+  if (message.version === 2) {
+    // The comparison above is what makes a withdrawal safe to apply late: a node
+    // may claim, stand aside, and claim again on a later pass, and a withdrawal
+    // that arrives after the newer claim must not erase it. Reaching here means
+    // the stored claim is older than this withdrawal, so it is the one being
+    // retracted. Nothing is recorded in its place - the sender holds no claim.
+    // Carried on both deletes rather than rested on the read above. The read
+    // proves the stored claim was older a moment ago; the guard proves it at the
+    // moment of deletion, which is what the batch path does and what closes the
+    // window where a newer claim lands in between. The broadcast row needs it in
+    // its own right too - it is a separate collection written by a separate path,
+    // so a claim newer than this withdrawal can exist there while the location
+    // the read consulted is still the old one.
+    const olderThanWithdrawal = { broadcastedAt: { $lt: newAppInstallingMessage.broadcastedAt } };
+    await dbHelper.removeDocumentsFromCollection(
+      database, globalAppsInstallingLocations, { ...queryFind, ...olderThanWithdrawal },
+    );
+    await dbHelper.removeDocumentsFromCollection(
+      database, appsInstallingBroadcasts,
+      { 'data.name': message.name, 'data.ip': message.ip, ...olderThanWithdrawal },
+    );
+    return true;
   }
 
   const queryUpdate = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
@@ -600,14 +651,28 @@ async function storeIPChangedMessage(message) {
 }
 
 async function storeBatchAppRunningMessages(verifiedBroadcasts) {
-  if (verifiedBroadcasts.length === 0) return { stored: 0 };
+  if (verifiedBroadcasts.length === 0) return { stored: 0, writeFailed: false };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const { stored } = await storeBatchAppRunningEvents(verifiedBroadcasts);
 
+  // One operation is built per app per broadcast and each carries a merge
+  // pipeline, so a sync response of a few thousand broadcasts expands into tens
+  // of thousands of them. Writing in bounded batches keeps both this array and
+  // the driver's encoding of it small; the operations are independent of one
+  // another, which is what makes the unordered write safe to split.
   const locationOps = [];
-  const v2AppsByIp = new Map();
+  let writeFailed = false;
+  const flushLocationOps = async () => {
+    if (!locationOps.length) return;
+    const batch = locationOps.splice(0, locationOps.length);
+    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
+      .catch((err) => {
+        writeFailed = true;
+        log.error(`storeBatchAppRunningMessages locations: ${err.message}`);
+      });
+  };
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
@@ -615,12 +680,6 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     if (validTill < Date.now()) continue;
 
     const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
-    if (data.version === 2 && apps.length > 0) {
-      const existing = v2AppsByIp.get(data.ip);
-      if (!existing || data.broadcastedAt > existing.broadcastedAt) {
-        v2AppsByIp.set(data.ip, { names: apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
-      }
-    }
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
@@ -645,24 +704,61 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
           upsert: true,
         },
       });
+
+      if (locationOps.length >= LOCATION_OPS_PER_WRITE) {
+        // eslint-disable-next-line no-await-in-loop
+        await flushLocationOps();
+      }
     }
   }
 
-  for (const [ip, { names, broadcastedAt }] of v2AppsByIp) {
-    const cutoff = new Date(broadcastedAt);
-    locationOps.push({
+  await flushLocationOps();
+
+  // Upserts only. Removing the rows a node no longer reports belongs to
+  // pruneAppRunningLocations, which is driven from the newest broadcast per node
+  // rather than from whatever happened to arrive in this batch.
+  return { stored, writeFailed };
+}
+
+/**
+ * Drop location rows a node no longer reports.
+ *
+ * Only the newest broadcast from a node says which apps it still runs, so this
+ * cannot be done from part of a sync response - a slice holding an older
+ * broadcast would prune against a stale app list, and one holding a newer
+ * broadcast would leave rows an earlier slice had already written. The caller
+ * passes the newest broadcast seen per node across the whole response.
+ *
+ * @param {Map<string, {names: Array<string>, broadcastedAt: number}>} newestByIp Newest broadcast per node.
+ * @returns {Promise<void>}
+ */
+async function pruneAppRunningLocations(newestByIp) {
+  if (!newestByIp || newestByIp.size === 0) return;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const ops = [];
+
+  const flush = async () => {
+    if (!ops.length) return;
+    const batch = ops.splice(0, ops.length);
+    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
+      .catch((err) => log.error(`pruneAppRunningLocations: ${err.message}`));
+  };
+
+  for (const [ip, { names, broadcastedAt }] of newestByIp) {
+    ops.push({
       deleteMany: {
-        filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: cutoff } },
+        filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: new Date(broadcastedAt) } },
       },
     });
+    if (ops.length >= LOCATION_OPS_PER_WRITE) {
+      // eslint-disable-next-line no-await-in-loop
+      await flush();
+    }
   }
 
-  if (locationOps.length > 0) {
-    await database.collection(globalAppsLocations).bulkWrite(locationOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
-  }
-
-  return { stored };
+  await flush();
 }
 
 // --- Event Log Functions ---
@@ -858,10 +954,29 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
   const signedOps = [];
   const locationOps = [];
 
+  const withdrawalOps = [];
+
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
     const validTill = data.broadcastedAt + INSTALLING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
+
+    // A version 2 message withdraws its sender's claim. Reaching the claim path
+    // with one would store the very claim it retracts, so it is deleted here
+    // instead - and only where the stored claim is older, so a withdrawal that
+    // arrives after the sender has claimed again cannot erase the newer claim.
+    if (data.version === 2) {
+      // version 2 exists only to withdraw; anything else at that version is
+      // not something this protocol emits. The single-message path refuses
+      // it, and this path must not read it as a withdrawal.
+      if (data.withdrawn !== true) continue;
+      withdrawalOps.push({
+        deleteOne: {
+          filter: { name: data.name, ip: data.ip, broadcastedAt: { $lt: new Date(data.broadcastedAt) } },
+        },
+      });
+      continue;
+    }
 
     signedOps.push({
       updateOne: {
@@ -907,7 +1022,29 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
     await database.collection(globalAppsInstallingLocations).bulkWrite(locationOps, { ordered: false })
       .catch((err) => log.error(`storeBatchAppInstallingMessages locations: ${err.message}`));
   }
-  return { stored: signedOps.length };
+  // after the claims, so a claim and its withdrawal arriving in one batch settle
+  // in the order they were sent rather than the order they were read
+  if (withdrawalOps.length > 0) {
+    await database.collection(globalAppsInstallingLocations).bulkWrite(withdrawalOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppInstallingMessages withdrawals: ${err.message}`));
+    await database.collection(appsInstallingBroadcasts).bulkWrite(
+      // The location's own guard, carried over rather than restated: the
+      // broadcast is what proves the location, so deleting one without the
+      // other leaves a claim nothing can serve during sync. Same object, so
+      // the two cannot come apart.
+      withdrawalOps.map((op) => ({
+        deleteOne: {
+          filter: {
+            'data.name': op.deleteOne.filter.name,
+            'data.ip': op.deleteOne.filter.ip,
+            broadcastedAt: op.deleteOne.filter.broadcastedAt,
+          },
+        },
+      })),
+      { ordered: false },
+    ).catch((err) => log.error(`storeBatchAppInstallingMessages withdrawal broadcasts: ${err.message}`));
+  }
+  return { stored: signedOps.length + withdrawalOps.length };
 }
 
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
@@ -1002,6 +1139,7 @@ module.exports = {
   storeAppPermanentMessage,
   storeAppRunningMessage,
   storeBatchAppRunningMessages,
+  pruneAppRunningLocations,
   storeAppStateEvent,
   storeBatchAppRunningEvents,
   APP_STATE_EVENT_TYPES,

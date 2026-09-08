@@ -2,7 +2,71 @@ name: Node CI
 
 on: [push]
 
+# Cross-repo pushes and dispatches use per-run GitHub App tokens minted below; the run's own token
+# needs read only.
+permissions:
+  contents: read
+
 jobs:
+  # Publication is a request, not a write: the fluxhashes signer fetches this commit itself,
+  # derives the tree hash from the bytes it fetched, and publishes list, signed document and
+  # provenance in one commit. The credential can start, cancel and re-run workflows on fluxhashes
+  # and delete their logs; it cannot write to the repository, and it sends pointers rather than hash
+  # values. That bounds what the credential does, but it does not make the list unreachable through
+  # it: a fork network shares one object store, so a dispatched commit may be any commit ever pushed
+  # to this repository or to a public fork of it, and the signer derives what it is pointed at. The
+  # credential is held by whoever can land a workflow change on any branch here, who can already get
+  # a hash listed by pushing -- the same trust boundary, not a defence against it.
+  # NEW_HASH rides along as a tripwire the signer checks against its own computation -- a mismatch
+  # is a red signing run, never a listed value. Forks publish nothing.
+  #
+  # Its own job, deliberately: the hash describes a checkout nothing else has touched, and a
+  # publication failure (fluxhashes unavailable, token expired) stays a red publish job instead of
+  # blocking the test suite.
+  publish:
+    runs-on: ubuntu-22.04
+    if: github.repository == 'RunOnFlux/flux'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check Hash
+        run: |
+          set -eo pipefail
+          newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+          # d41d8... is the md5 of an empty stream, which the pipeline yields whenever nothing was
+          # hashed: ZelBack absent (pipefail catches that) or present holding no regular files
+          # (find exits 0 and emits nothing, which pipefail cannot see). It is a well-formed hash
+          # meaning "a node whose ZelBack holds no files is genuine FluxOS". The signer refuses to
+          # list it, but a claim it cannot match aborts the signing run rather than this one --
+          # so fail here, in the repository that produced it.
+          if [ "$newhash" = d41d8cd98f00b204e9800998ecf8427e ]; then
+            echo 'nothing was hashed -- this checkout has no ZelBack files'
+            exit 1
+          fi
+          echo $newhash
+          echo NEW_HASH=$newhash >> $GITHUB_ENV
+      # The credential is a GitHub App scoped to fluxhashes with Actions permission only: the
+      # workflow mints a short-lived installation token per run, so there is no long-lived token
+      # anywhere and nothing to renew.
+      - name: Mint the dispatch token
+        id: dispatch-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.FLUXHASHES_APP_ID }}
+          private-key: ${{ secrets.FLUXHASHES_APP_KEY }}
+          owner: RunOnFlux
+          repositories: fluxhashes
+      - name: Request hash publication
+        env:
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token }}
+        run: |
+          gh api -X POST repos/RunOnFlux/fluxhashes/actions/workflows/sign-hashlist.yml/dispatches \
+            -f ref=master \
+            -f "inputs[commit]=${GITHUB_SHA}" \
+            -f "inputs[ref]=${GITHUB_REF_NAME}" \
+            -f "inputs[ref_type]=${GITHUB_REF_TYPE}" \
+            -f "inputs[claimed_hash]=${NEW_HASH}"
+
   build:
     runs-on: ${{ matrix.os }}
 
@@ -19,44 +83,11 @@ jobs:
           - 27017:27017
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Check Hash
-        run: |
-          newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
-          echo $newhash
-          echo NEW_HASH=$newhash >> $GITHUB_ENV
-      - name: Get current hashes
-        run: |
-          mkdir hashes
-          wget 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js' -P hashes
-          hashfile=`cat hashes/hashes.js | sed "s/return/_/gi" | sed "s/\n/_/gi"`
-          echo HASH_FILE=$hashfile >> $GITHUB_ENV
-      - name: Show hashes
-        run: |
-          echo $HASH_FILE
-          echo $NEW_HASH
-      - name: Patch hashes
-        if: ${{ !contains(env.HASH_FILE, env.NEW_HASH) }}
-        run: |
-          newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
-          sed -i "s/  ];/    '$newhash',\n  ];/gi" hashes/hashes.js
-          tail -n 200 hashes/hashes.js
-      - name: Push hashes to fluxhashes
-        if: ${{ !contains(env.HASH_FILE, env.NEW_HASH) }}
-        uses: cpina/github-action-push-to-another-repository@main
-        env:
-          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
-        with:
-          source-directory: "hashes"
-          destination-github-username: "RunOnFlux"
-          destination-repository-name: "fluxhashes"
-          user-email: runonfluxbot@gmail.com
-          target-branch: master
-          target-directory: src/hashes/
       - name: install flux and flux benchmark daemons
         run: |
           echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee /etc/apt/sources.list.d/flux.list
@@ -93,14 +124,43 @@ jobs:
           CI: true
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
-      - name: Push docs to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
-        uses: cpina/github-action-push-to-another-repository@main
-        env:
-          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+      # Only development publishes the docs. Without the ref condition every branch build races for
+      # fluxjsdocs master, so the published JSDocs are whichever branch happened to build last --
+      # an unmerged feature branch as often as not.
+      - name: Mint the docs token
+        if: github.repository == 'RunOnFlux/flux' && github.ref == 'refs/heads/development'
+        id: docs-token
+        uses: actions/create-github-app-token@v3
         with:
-          source-directory: "ZelBack/src/services"
-          destination-github-username: "RunOnFlux"
-          destination-repository-name: "fluxjsdocs"
-          user-email: runonfluxbot@gmail.com
-          target-branch: master
-          target-directory: services/
+          app-id: ${{ secrets.FLUXJSDOCS_APP_ID }}
+          private-key: ${{ secrets.FLUXJSDOCS_APP_KEY }}
+          owner: RunOnFlux
+          repositories: fluxjsdocs
+      # Git directly, rather than a third-party action. The action this replaces was referenced by
+      # a personal repository's default branch, so every build ran whatever happened to be on it at
+      # that moment -- and was handed a token that can write to fluxjsdocs. Nothing outside Flux
+      # touches the credential now. fluxjsdocs is public, so the clone is anonymous and the token
+      # authenticates only the push, which also keeps it out of the clone's stored config.
+      - name: Push docs to fluxjsdocs # Publishes ZelBack/src/services so JSDocs builds separately.
+        if: github.repository == 'RunOnFlux/flux' && github.ref == 'refs/heads/development'
+        env:
+          GH_TOKEN: ${{ steps.docs-token.outputs.token }}
+        run: |
+          set -eo pipefail
+          CLONE=$(mktemp -d)
+          git clone --quiet --depth 1 --single-branch --branch master \
+            https://github.com/RunOnFlux/fluxjsdocs.git "$CLONE"
+          # Replace rather than merge, so a file deleted here disappears there too.
+          rm -rf "$CLONE/services"
+          mkdir -p "$CLONE/services"
+          cp -a ZelBack/src/services/. "$CLONE/services/"
+          git -C "$CLONE" config user.email runonfluxbot@gmail.com
+          git -C "$CLONE" config user.name runonfluxbot
+          git -C "$CLONE" add -A services
+          if git -C "$CLONE" diff --cached --quiet; then
+            echo 'docs unchanged, nothing to push'
+            exit 0
+          fi
+          git -C "$CLONE" commit --quiet -m "Update from https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          git -C "$CLONE" push --quiet \
+            "https://x-access-token:${GH_TOKEN}@github.com/RunOnFlux/fluxjsdocs.git" master

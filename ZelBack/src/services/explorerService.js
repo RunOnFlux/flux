@@ -22,6 +22,7 @@ const { extractIp } = require('./utils/socketAddressUtils');
 const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
+const { Privilege, authOf } = require('./utils/privileges');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -626,7 +627,20 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const options = {
       upsert: true,
     };
-    // this should run only when node is synced
+    // True when this block was still the chain tip at the moment it was fetched,
+    // which is NOT the same as "the node is synced". The tip is read from a
+    // cache refreshed every daemonInfoIntervalMs, and the branch at the end of
+    // this function chains straight into the next block whenever it is behind -
+    // so a burst of blocks arriving between two refreshes is processed back to
+    // back and only the LAST of them qualifies. Everything gated below is
+    // skipped for the others, and skipped silently: expiring global app
+    // records, trimming surplus instances, reinstalling outdated apps.
+    //
+    // Post-PON that is a 30s block against a 30s refresh, and the refresh
+    // reschedules only after awaiting its RPC, so it drifts behind the chain and
+    // the bursts recur. v9 removes the race rather than tuning it - fluxd pushes
+    // hashblockheight to chainTipSource, which drives both the cached tip and
+    // this scan, so a block is processed while it is still the tip.
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
       blockEmitter.emit('blocksProcessed', scannedHeight);
@@ -1104,12 +1118,22 @@ async function checkAndHandleReorgs(database, scannedBlockHeight) {
   return height;
 }
 
+// How long the explorer waits before asking again whether the chain has moved.
+//
+// This is the floor on how fast a node can process blocks: a block is not looked
+// at until the next poll, so nothing downstream of block processing - expiring
+// app records, trimming surplus instances, the give-up pass - can run more often
+// than this however fast blocks are produced. Production wants 5s against a 30s
+// block; a harness driving its own chain wants it far shorter, and had no way to
+// say so.
+const POLL_INTERVAL_MS = config.fluxapps.explorerPollIntervalMs ?? 5000;
+
 async function pollForNewBlocks() {
   if (!blockProccessingCanContinue) return;
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
-      pollTimeout = setTimeout(pollForNewBlocks, 5000);
+      pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
       return;
     }
 
@@ -1131,10 +1155,10 @@ async function pollForNewBlocks() {
       return;
     }
 
-    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   } catch (error) {
     log.error(`Explorer poll error: ${error.message}`);
-    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   }
 }
 
@@ -1725,7 +1749,7 @@ async function checkBlockProcessingStopped(i, callback) {
  * @param {object} res Response.
  */
 async function stopBlockProcessing(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async (response) => {
@@ -1744,7 +1768,7 @@ async function stopBlockProcessing(req, res) {
  * @param {object} res Response.
  */
 async function restartBlockProcessing(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized === true) {
     const i = 0;
     checkBlockProcessingStopped(i, async () => {
@@ -1764,7 +1788,7 @@ async function restartBlockProcessing(req, res) {
  * @param {object} res Response.
  */
 async function reindexExplorer(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized === true) {
     // stop block processing
     const i = 0;
@@ -1806,53 +1830,6 @@ async function reindexExplorer(req, res) {
   }
 }
 
-async function fixExplorer(height = 1670000, rescanApps = true) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const blockheight = serviceHelper.ensureNumber(height);
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const projection = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-    if (!currentHeight) {
-      throw new Error('No scanned height found');
-    }
-    if (currentHeight.generalScannedHeight <= blockheight) {
-      throw new Error('Block height shall be lower than currently scanned');
-    }
-    if (blockheight < 0) {
-      throw new Error('BlockHeight lower than 0');
-    }
-    const rescanapps = serviceHelper.ensureBoolean(rescanApps);
-    if (blockheight === 0) {
-      await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-        if (error.message !== 'ns not found') {
-          log.error(error);
-        }
-      });
-    } else {
-      // stop block processing
-      const update = { $set: { generalScannedHeight: blockheight } };
-      const options = {
-        upsert: true,
-      };
-      // update scanned Height in scannedBlockHeightCollection
-      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-    }
-    initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
-    const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
-    log.info(message);
-  } catch (error) {
-    log.warn(error);
-    initiateBlockProcessor(true, true);
-  }
-}
-
 /**
  * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
  * @param {object} req Request.
@@ -1860,7 +1837,7 @@ async function fixExplorer(height = 1670000, rescanApps = true) {
  */
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized === true) {
       // since what blockheight
       let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo

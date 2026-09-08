@@ -11,4 +11,30 @@ const socketHandlers = {
   '/ws/payment/:paymentid': paymentService.wsRespondPayment,
 };
 
-module.exports = socketHandlers;
+const FLUX_PEER_ROUTE = /^\/ws\/flux(\/|$)/;
+
+/**
+ * Whether a websocket upgrade may complete, decided before the handshake does.
+ *
+ * A node that is not yet accepting peer connections refuses here rather than
+ * after the 101. Its HTTP server answers well before its application gate
+ * opens, and its capabilities ride in the upgrade response headers, so a
+ * completed handshake is enough for the dialling node to construct a peer,
+ * count it toward its thresholds and write to it - a boot's state-sync requests
+ * go into that socket and are lost when this side closes it. The dial fails
+ * cleanly instead - no peer is constructed, so nothing is queued for reconnect
+ * and nothing counts it as a lost peer; the next discovery pass dials again.
+ *
+ * Only the peer routes. Browsers reach /ws/id, /ws/sign and /ws/payment, and
+ * those have nothing to do with whether this node has peers yet.
+ * @param {import('node:http').IncomingMessage} request
+ * @returns {{status: number, message: string, reason: string}|null} null to admit.
+ */
+function admitUpgrade(request) {
+  if (!FLUX_PEER_ROUTE.test(request?.url ?? '')) return null;
+  if (peerManager.acceptingConnections) return null;
+
+  return { status: 503, message: 'Service Unavailable', reason: 'node-not-accepting-connections' };
+}
+
+module.exports = { socketHandlers, admitUpgrade };

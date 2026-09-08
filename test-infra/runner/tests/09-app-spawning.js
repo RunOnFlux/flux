@@ -20,7 +20,7 @@ describe('App spawning', function () {
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await advanceBlock();
     for (const client of env.clients) {
-      await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+      await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
     }
     await env.startDiscovery();
     await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);

@@ -1,6 +1,5 @@
 const fs = require('node:fs/promises');
 const os = require('node:os');
-const path = require('node:path');
 
 const chai = require('chai');
 const sinon = require('sinon');
@@ -14,16 +13,14 @@ const log = require('../../ZelBack/src/lib/log');
 describe('watchdogService tests', () => {
   let watchdogService;
   let runCommandStub;
-  let homedirStub;
   let logInfoStub;
-  let logWarnStub;
   let logErrorStub;
 
   beforeEach(() => {
     runCommandStub = sinon.stub(serviceHelper, 'runCommand');
-    homedirStub = sinon.stub(os, 'homedir').returns('/home/testuser');
+    sinon.stub(os, 'homedir').returns('/home/testuser');
     logInfoStub = sinon.stub(log, 'info');
-    logWarnStub = sinon.stub(log, 'warn');
+    sinon.stub(log, 'warn');
     logErrorStub = sinon.stub(log, 'error');
   });
 
@@ -410,7 +407,7 @@ describe('watchdogService tests', () => {
         // createDefaultConfig - config doesn't exist
         statStub.withArgs('/home/testuser/watchdog/config.js').rejects(new Error('ENOENT'));
 
-        const writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+        sinon.stub(fs, 'writeFile').resolves();
         runCommandStub.resolves({ error: null, stdout: '[]' });
 
         await watchdogService.ensureWatchdogRunning();

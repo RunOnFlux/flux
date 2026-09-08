@@ -22,3 +22,17 @@ globalThis.userconfig = {
     blockedRepositories: [],
   },
 };
+
+// Every suite gets a globalState in its default state. It is a singleton shared
+// by the whole process, and a suite that sets a flag or fills a cache used to
+// leave it for whichever suite ran next - which is how a reconciler test came to
+// depend on a redeploy test's leftovers, and why one added test could turn four
+// unrelated ones red.
+// eslint-disable-next-line global-require
+const { resetGlobalState } = require('./unit/fixtures/globalState');
+
+exports.mochaHooks = {
+  beforeEach() {
+    resetGlobalState();
+  },
+};

@@ -14,6 +14,8 @@ const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -43,6 +45,19 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     afterEach(() => {
       sinon.restore();
+    });
+
+    // A message with null where the key and signature go is refused by every
+    // peer without a word. Nothing goes on the wire, and the caller is told so
+    // by the answer rather than by silence at the far end.
+    it('broadcastMessageToAll relays nothing and answers null when this node cannot sign', async () => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(null);
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, { source: PEER_SOURCE.RANDOM });
+
+      const answer = await fluxCommunicationMessagesSender.broadcastMessageToAll({ type: 'fluxapprunning' });
+
+      expect(answer).to.equal(null);
+      sinon.assert.notCalled(ws1.send);
     });
 
     it('should send data to all peers (both directions)', async () => {
@@ -81,6 +96,18 @@ describe('fluxCommunicationMessagesSender tests', () => {
   });
 
   describe('serialiseAndSignFluxBroadcast tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('answers nothing when this node cannot sign as itself', async () => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(null);
+
+      const signedData = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast({ title: 'message' });
+
+      expect(signedData).to.equal(null);
+    });
+
     it('should return serialised and signed message', async () => {
       const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const data = {
@@ -153,13 +180,13 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
     });
 
-    it('Should return an error if private key is invalid', async () => {
+    it('Should answer nothing if private key is invalid', async () => {
       const privateKey = 'asdf';
       const message = 'testing1234';
 
       const result = await fluxCommunicationMessagesSender.getFluxMessageSignature(message, privateKey);
 
-      expect(result).to.be.an('Error');
+      expect(result).to.equal(null);
     });
   });
 
@@ -178,6 +205,15 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     afterEach(() => {
       sinon.restore();
+    });
+
+    it('sends nothing when this node cannot sign as itself', async () => {
+      fluxNetworkHelperPublicKeyStub.returns(null);
+      const websocket = generateWebsocket();
+
+      await fluxCommunicationMessagesSender.sendSignedMessage({ title: 'message' }, websocket);
+
+      sinon.assert.notCalled(websocket.send);
     });
 
     it('should send a message to the given websocket if keys are accessible through config', async () => {
@@ -229,6 +265,75 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.calledOnce(websocket.send);
       sinon.assert.notCalled(websocket.sendAsync);
+    });
+  });
+
+  // An empty response and a complete one are the same three fields, so a
+  // booting node's nothing counted as one of the three surveys the asker needs.
+  // A node that does not know yet says so instead, decided at the moment of
+  // asking so there is nothing cached to go stale.
+  describe('a node that is not authoritative declines a sync request', () => {
+    let wasAuthoritative;
+    let peer;
+    let findStub;
+
+    const sent = () => peer.sendAsync.getCalls().map((c) => JSON.parse(c.args[0]).data);
+
+    beforeEach(() => {
+      wasAuthoritative = globalState.appStateAuthoritative;
+      peer = { key: '198.51.100.9:16127', sendAsync: sinon.stub().resolves(), send: sinon.stub(), remoteClockOffsetMs: 0 };
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      findStub = sinon.stub().returns({ sort: () => [] });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({ find: findStub }) }) });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.appStateAuthoritative = wasAuthoritative;
+    });
+
+    // The temp stream is in this list for the same reason the other three are:
+    // a node that cannot say what the network holds cannot say what it is
+    // PENDING either, and a short set of registrations is as misleading as a
+    // short list of running apps.
+    // The temp stream carries a payload `version` on the wire and the other
+    // three do not, so each responder brings the rest of its own envelope. The
+    // assertions below stay exact rather than loosening to accommodate it.
+    const responders = [
+      ['respondWithAppRunningMessages', 'fluxapprunningsync', {}],
+      ['respondWithAppInstallingMessages', 'fluxappinstallingsync', {}],
+      ['respondWithAppInstallingErrorsMessages', 'fluxappinstallingerrorssync', {}],
+      ['respondWithTempMessages', 'fluxapptempsync', { version: 1 }],
+    ];
+
+    responders.forEach(([fn, wireType, envelope]) => {
+      it(`${fn} refuses and reads nothing from the store`, async () => {
+        globalState.appStateAuthoritative = false;
+
+        await fluxCommunicationMessagesSender[fn](peer, 0);
+
+        expect(sent()).to.deep.equal([{
+          type: wireType, ...envelope, messages: [], done: true, refused: true,
+        }]);
+        expect(findStub.called, 'a refusing node still queried its own store').to.equal(false);
+      });
+
+      // THE TRAP. A network with nothing running legitimately answers with an
+      // empty list, and if that reads as a refusal such a fleet never syncs at
+      // all. Absent is not false here - the field must not be sent.
+      it(`${fn} answers an empty store without refusing`, async () => {
+        globalState.appStateAuthoritative = true;
+
+        await fluxCommunicationMessagesSender[fn](peer, 0);
+
+        const messages = sent();
+        expect(messages).to.have.lengthOf(1);
+        expect(messages[0]).to.deep.equal({
+          type: wireType, ...envelope, messages: [], done: true,
+        });
+        expect(messages[0]).to.not.have.property('refused');
+      });
     });
   });
 

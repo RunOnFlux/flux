@@ -61,6 +61,20 @@ describe('appQueryService tests', () => {
 
     dockerServiceStub = {
       dockerListContainers: sinon.stub(),
+      // Mirrors the real predicate rather than returning a constant: these
+      // tests assert which containers survive the filter, so a stub that
+      // waved everything through would stop testing anything. The real one
+      // is pinned by its own cases in dockerService.test.js.
+      isAppContainer: (container) => {
+        const role = container.Labels && container.Labels['runonflux.role'];
+        if (role) return role === 'app';
+        const [name = ''] = container.Names || [];
+        return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
+      },
+      // Namespacing, for the same reason: heldComponents is compared against a
+      // docker name by the peer that reads it, so an identity stub would hide a
+      // missing prefix and pass on an answer no caller could match.
+      getAppIdentifier: (appName) => (appName.startsWith('zel') || appName.startsWith('flux') ? appName : `flux${appName}`),
     };
 
     registryManagerStub = {
@@ -120,30 +134,53 @@ describe('appQueryService tests', () => {
     it('returns non-enterprise apps unchanged without decrypting', async () => {
       const apps = [{ name: 'plain', version: 4 }];
       const result = await appQueryService.decryptEnterpriseApps(apps, { formatSpecs: false });
-      expect(result).to.deep.equal(apps);
+      expect(result.readable).to.deep.equal(apps);
+      expect(result.unreadable).to.deep.equal([]);
       expect(enterpriseHelperStub.checkAndDecryptAppSpecs.called).to.be.false;
     });
 
-    it('swallows a decryption failure and returns the encrypted spec by default (lenient)', async () => {
+    // A spec that did not decrypt has no components, and an app with no
+    // components is not a valid app. Reporting it separately is what stops a
+    // caller reading "owns no folders" / "has no images" and acting on it.
+    it('reports a spec it could not decrypt instead of returning it as an app', async () => {
       // resetBehavior first: a stub's returnsArg(0) (set in beforeEach) otherwise wins over rejects()
       enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
       enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
+
       const result = await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
-      // display/listing callers keep the whole list; the failed one stays encrypted
-      expect(result).to.deep.equal([enterpriseApp]);
+
+      expect(result.readable).to.deep.equal([]);
+      expect(result.unreadable).to.deep.equal([enterpriseApp]);
     });
 
-    it('rethrows a decryption failure when throwOnError is set', async () => {
+    it('keeps the readable apps when one of several cannot be decrypted', async () => {
+      const plain = { name: 'plain', version: 4 };
       enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
       enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
-      let threw = false;
-      try {
-        await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false, throwOnError: true });
-      } catch (err) {
-        threw = true;
-        expect(err.message).to.match(/enterpriseKey is mandatory/);
-      }
-      expect(threw, 'should propagate the decrypt error so the caller can defer, not act on ciphertext').to.be.true;
+
+      const result = await appQueryService.decryptEnterpriseApps([plain, enterpriseApp], { formatSpecs: false });
+
+      expect(result.readable).to.deep.equal([plain]);
+      expect(result.unreadable).to.deep.equal([enterpriseApp]);
+    });
+
+    // listing callers want the app to still appear, in the position it was in
+    it('puts an undecryptable spec back in place for listing', async () => {
+      const first = { name: 'first', version: 4 };
+      const last = { name: 'last', version: 4 };
+      enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
+      enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
+
+      const { inPlace, readable, unreadable } = await appQueryService.decryptEnterpriseApps(
+        [first, enterpriseApp, last], { formatSpecs: false },
+      );
+
+      // inPlace keeps the caller's order with the unreadable spec where it was;
+      // readable is the same list minus it, so an acting caller cannot be handed
+      // a spec whose components are still inside the blob
+      expect(inPlace).to.deep.equal([first, enterpriseApp, last]);
+      expect(readable).to.deep.equal([first, last]);
+      expect(unreadable).to.deep.equal([enterpriseApp]);
     });
 
     // Call-volume contract: with many components in defer loops, benchd must
@@ -169,8 +206,8 @@ describe('appQueryService tests', () => {
         const [r1, r2] = await Promise.all([p1, p2]);
 
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'concurrent callers must share one benchd attempt').to.equal(1);
-        expect(r1[0].compose).to.have.lengthOf(1);
-        expect(r2[0].compose).to.have.lengthOf(1);
+        expect(r1.readable[0].compose).to.have.lengthOf(1);
+        expect(r2.readable[0].compose).to.have.lengthOf(1);
       });
 
       it('remembers a decryption failure briefly - retries inside the window skip benchd', async () => {
@@ -190,19 +227,14 @@ describe('appQueryService tests', () => {
         }
       });
 
-      it('a remembered failure still rejects strict callers without another benchd call', async () => {
+      it('a remembered failure answers the next caller without another benchd call', async () => {
         enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
         enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('benchd unavailable'));
 
         await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false }); // seeds the failure window
-        let threw = false;
-        try {
-          await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false, throwOnError: true });
-        } catch (err) {
-          threw = true;
-          expect(err.message).to.match(/benchd unavailable/);
-        }
-        expect(threw, 'strict caller must still get the failure (reconcile defers on it)').to.be.true;
+        const again = await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+
+        expect(again.unreadable, 'the spec is still reported unreadable').to.deep.equal([enterpriseApp]);
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'the cached failure answers without re-hitting benchd').to.equal(1);
       });
     });
@@ -389,7 +421,7 @@ describe('appQueryService tests', () => {
       // does not intercept it - manipulate the real singleton and clean up.
       // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.backupInProgress.push('App'); // bare main-app name (production format)
+      globalState.tryStartBackup('App'); // bare main-app name (production format)
       try {
         const stoppedContainer = {
           Names: ['/fluxwww_App'], State: 'exited', HostConfig: {}, NetworkSettings: {}, Mounts: [],
@@ -404,33 +436,264 @@ describe('appQueryService tests', () => {
         const names = result.data.map((app) => app.Names[0]);
         expect(names, 'backed-up app must still be reported as running').to.include('/fluxwww_App');
       } finally {
-        globalState.backupInProgress.length = 0;
+        globalState.finishBackup('App');
       }
     });
 
-    it('should return running apps with response passed', async () => {
-      const mockContainers = [
-        {
-          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
-        },
-        {
-          Names: ['/zel_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
-        },
-      ];
-      const expectedApps = [
-        { Names: ['/flux_app1'] },
-        { Names: ['/zel_app2'] },
-      ];
-      const res = {
-        json: sinon.stub(),
-      };
+  });
 
-      dockerServiceStub.dockerListContainers.resolves(mockContainers);
-      messageHelperStub.createDataMessage.returns({ status: 'success', data: expectedApps });
+  // A container docker reports in full, so every assertion below is about what
+  // reaches the caller rather than about what the stub was told to return.
+  const dockerContainer = {
+    Id: '9f2c1b0e4d3a',
+    Names: ['/fluxwww_App'],
+    Image: 'someregistry.example/private:1.2.3',
+    ImageID: 'sha256:0123456789abcdef',
+    Command: '/entrypoint.sh --serve',
+    Created: 1700000000,
+    Ports: [{ PrivatePort: 8080, PublicPort: 31000, Type: 'tcp' }],
+    Labels: { 'org.opencontainers.image.revision': 'a1b2c3d4' },
+    State: 'running',
+    Status: 'Up 2 hours',
+    HostConfig: {},
+    NetworkSettings: {},
+    Mounts: [],
+  };
 
-      await appQueryService.listRunningApps(undefined, res);
+  describe('publicContainerView', () => {
+    // The whole key set, not a list of fields that must be absent: a view built
+    // from three names cannot grow a fourth, and this is the assertion that says
+    // so. A field docker adds in a future version fails here rather than being
+    // published until someone reads a listing and notices.
+    it('carries three fields and nothing else', () => {
+      const [view] = appQueryService.publicContainerView([dockerContainer]);
 
-      expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
+      expect(Object.keys(view).sort()).to.deep.equal(['Names', 'State', 'Status']);
+    });
+
+    it('reports nothing of the image, its entrypoint, its ports or its build', () => {
+      const [view] = appQueryService.publicContainerView([dockerContainer]);
+
+      ['Id', 'Image', 'ImageID', 'Command', 'Ports', 'Labels', 'Created'].forEach((field) => {
+        expect(view, field).to.not.have.property(field);
+      });
+    });
+
+    // FDM builds /flux{component}_{app} and matches Names[0] exactly, failing
+    // closed when it does not - a bare name, or one with the prefix stripped,
+    // takes every g: app out of routing.
+    it("keeps Names as docker's array, verbatim", () => {
+      const [view] = appQueryService.publicContainerView([dockerContainer]);
+
+      expect(view.Names).to.deep.equal(['/fluxwww_App']);
+      expect(view.State).to.equal('running');
+      expect(view.Status).to.equal('Up 2 hours');
+    });
+
+    it('leaves the container it was given untouched', () => {
+      const container = { ...dockerContainer };
+
+      appQueryService.publicContainerView([container]);
+
+      expect(container).to.deep.equal(dockerContainer);
+    });
+
+    it('answers an empty listing with an empty view', () => {
+      expect(appQueryService.publicContainerView([])).to.deep.equal([]);
+    });
+  });
+
+  describe('listRunningAppsApi', () => {
+    it('answers with the public view rather than the container object', async () => {
+      dockerServiceStub.dockerListContainers.resolves([dockerContainer]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      const res = { json: sinon.stub() };
+
+      await appQueryService.listRunningAppsApi({}, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0]).to.deep.equal({
+        status: 'success',
+        data: [{ Names: ['/fluxwww_App'], State: 'running', Status: 'Up 2 hours' }],
+      });
+    });
+
+    // The route is cached, and apicache keys on the request URL alone, so an
+    // answer given to one caller is the answer every later caller gets. Two
+    // different callers therefore have to be handed the same thing.
+    it('answers the same whoever is asking', async () => {
+      dockerServiceStub.dockerListContainers.resolves([dockerContainer]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      const anonymous = { json: sinon.stub() };
+      const authenticated = { json: sinon.stub() };
+
+      await appQueryService.listRunningAppsApi({ headers: {} }, anonymous);
+      await appQueryService.listRunningAppsApi({ headers: { zelidauth: 'zelid=x&signature=y' } }, authenticated);
+
+      expect(authenticated.json.firstCall.args[0]).to.deep.equal(anonymous.json.firstCall.args[0]);
+    });
+
+    it('hands an error envelope back as it is', async () => {
+      dockerServiceStub.dockerListContainers.rejects(new Error('Docker error'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Docker error' } });
+      const res = { json: sinon.stub() };
+
+      await appQueryService.listRunningAppsApi({}, res);
+
+      expect(res.json.calledOnceWith({ status: 'error', data: { message: 'Docker error' } })).to.be.true;
+    });
+  });
+
+  describe('heldComponents', () => {
+    // What a peer mid-election is told this node owns. Answering short here is not
+    // a stale reading - it is a second container started on a volume this node is
+    // already writing, which corrupts it.
+    // eslint-disable-next-line global-require
+    const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+    // eslint-disable-next-line global-require
+    const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+
+    // The three sources, each independently switchable, because the point of every
+    // case below is which one carried the answer.
+    const held = async ({ running = [], committed = [], stopped = [] } = {}) => {
+      dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
+      sinon.stub(appReconciler, 'committedIdentifiers').returns(committed);
+      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves(stopped);
+      messageHelperStub.createDataMessage.returnsArg(0);
+      return appQueryService.heldComponents();
+    };
+
+    it('reports a component the operator stopped, with no container and nothing committed', async () => {
+      // The regression. `appstop` is durable and node-local: the election skips
+      // this node and the reconciler leaves the container down. Before this, none
+      // of that reached a peer - it saw no container, no commitment, and elected a
+      // new primary over an owner who had stopped theirs to work on it.
+      const result = await held({ stopped: ['www_App'] });
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('namespaces a stopped identifier the way the caller asks about it', async () => {
+      // The lock store is keyed on the bare identifier and the election compares
+      // against the docker name, so an unprefixed entry would never match and the
+      // hold would silently do nothing.
+      const result = await held({ stopped: ['www_App', 'zelKadena'] });
+
+      expect(result).to.deep.equal(['fluxwww_App', 'zelKadena']);
+    });
+
+    it('unions the three sources and reports each component once', async () => {
+      const result = await held({
+        running: ['fluxwww_App'],
+        committed: ['www_App'],
+        stopped: ['www_App'],
+      });
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    // Each source is the SOLE carrier of one name. Feeding all three the same
+    // identifier pins the dedup but says nothing about the sources themselves:
+    // a dropped source loses nothing there, and the pre-start window committed
+    // exists for - installed, not yet running, invisible to a peer - would be
+    // lost with no test able to see it.
+    it('reports a component that only one source carries, for each source', async () => {
+      const result = await held({
+        running: ['fluxa_App'],
+        committed: ['b_App'],
+        stopped: ['c_App'],
+      });
+
+      expect(result).to.deep.equal(['fluxa_App', 'fluxb_App', 'fluxc_App']);
+    });
+
+    it('still reports a running container that carries no lock and no commitment', async () => {
+      const result = await held({ running: ['fluxapi_App'] });
+
+      expect(result).to.deep.equal(['fluxapi_App']);
+    });
+
+    it('holds nothing when the node holds nothing', async () => {
+      expect(await held()).to.deep.equal([]);
+    });
+
+    it('fails the request when the lock store cannot be read, rather than answering short', async () => {
+      // A peer reads a short answer as "free". Both failure directions have to land
+      // in the error path so the caller sees a node that could not answer, not a
+      // node that answered nothing.
+      dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
+      sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').rejects(new Error('no primary available'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      const result = await appQueryService.heldComponents();
+
+      expect(result).to.deep.equal({ status: 'error' });
+      expect(messageHelperStub.createDataMessage.called, 'answered with a list built from a failed read').to.be.false;
+    });
+  });
+
+  describe('promotedFolders', () => {
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+    afterEach(() => {
+      globalState.promotedFolderIds = new Set();
+    });
+
+    it('reports the folders this node holds writable, from the monitor set', async () => {
+      globalState.promotedFolderIds = new Set(['fluxa_a', 'fluxb_b']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a', 'fluxb_b'] });
+    });
+
+    it('answers not-ready before the monitor has ever read the folder config', async () => {
+      // The state that made this necessary: holding nothing and not having looked
+      // are the same empty set but opposite answers, and a booting node that IS
+      // holding a folder would otherwise read as free and be promoted alongside.
+      globalState.promotedFolderIds = null;
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result).to.deep.equal({ ready: false, folders: [] });
+    });
+
+    it('distinguishes holding nothing from not having looked', async () => {
+      globalState.promotedFolderIds = new Set();
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result.folders).to.deep.equal([]);
+      expect(result.ready, 'an empty set after a real read is a genuine answer').to.equal(true);
+    });
+
+    it('touches no backend, so an anonymous caller cannot amplify into syncthing', async () => {
+      // The route is unauthenticated and the API has no rate limiting, so this
+      // must answer from memory rather than reading syncthing per request.
+      globalState.promotedFolderIds = new Set(['fluxa_a']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      await appQueryService.promotedFolders();
+
+      expect(dockerServiceStub.dockerListContainers.called).to.be.false;
+    });
+
+    it('drops a folder that is no longer promoted', async () => {
+      // The monitor replaces the set wholesale from the folder config each pass, so
+      // a demotion or an uninstall leaves by simply not being rebuilt - there is no
+      // separate removal path that could be missed.
+      globalState.promotedFolderIds = new Set(['fluxa_a', 'fluxb_b']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      globalState.promotedFolderIds = new Set(['fluxa_a']); // b demoted to receiveonly
+      const result = await appQueryService.promotedFolders();
+
+      expect(result.folders).to.deep.equal(['fluxa_a']);
     });
   });
 
@@ -470,44 +733,36 @@ describe('appQueryService tests', () => {
       expect(logStub.error.calledWith(error)).to.be.true;
     });
 
-    it('should return error if dockerService throws, response passed', async () => {
-      const res = {
-        json: sinon.stub(),
-      };
+  });
+
+  describe('listAllAppsApi', () => {
+    it('answers with the public view rather than the container object', async () => {
+      dockerServiceStub.dockerListContainers.resolves([
+        { ...dockerContainer, State: 'exited', Status: 'Exited (0) 5 minutes ago' },
+      ]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      const res = { json: sinon.stub() };
+
+      await appQueryService.listAllAppsApi({}, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0]).to.deep.equal({
+        status: 'success',
+        data: [{ Names: ['/fluxwww_App'], State: 'exited', Status: 'Exited (0) 5 minutes ago' }],
+      });
+    });
+
+    it('hands an error envelope back as it is', async () => {
       const error = new Error('Docker error');
 
       dockerServiceStub.dockerListContainers.rejects(error);
       messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Docker error' } });
+      const res = { json: sinon.stub() };
 
-      await appQueryService.listAllApps(undefined, res);
+      await appQueryService.listAllAppsApi({}, res);
 
-      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.calledOnceWith({ status: 'error', data: { message: 'Docker error' } })).to.be.true;
       expect(logStub.error.calledWith(error)).to.be.true;
-    });
-
-    it('should return all apps with response passed', async () => {
-      const mockContainers = [
-        {
-          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'running',
-        },
-        {
-          Names: ['/flux_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'exited',
-        },
-      ];
-      const expectedApps = [
-        { Names: ['/flux_app1'], State: 'running' },
-        { Names: ['/flux_app2'], State: 'exited' },
-      ];
-      const res = {
-        json: sinon.stub(),
-      };
-
-      dockerServiceStub.dockerListContainers.resolves(mockContainers);
-      messageHelperStub.createDataMessage.returns({ status: 'success', data: expectedApps });
-
-      await appQueryService.listAllApps(undefined, res);
-
-      expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
     });
   });
 

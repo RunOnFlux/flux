@@ -9,20 +9,64 @@ const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = require('../utils/instanceOrdering');
 
 // Import modular services
 const appQueryService = require('../appQuery/appQueryService');
+
+// What this node last concluded about each app: the stage that removed it from
+// the candidate list, or 'candidate' when it survived to the draw.
+//
+// Kept so the verdict can be published on CHANGE ONLY. "This pass passed over
+// that app" is true every pass for every app the fleet already covers - it is a
+// fact about the clock, and fluxEventBus says plainly that a cadence is a
+// counter, not an event. What actually happens, rarely, is a verdict FLIPPING:
+// an app this node was excluded from becoming one it may take again, which is
+// the thing a caller wants to know and the thing no log line makes assertable.
+const lastCandidacy = new Map();
+
+/**
+ * Which stage removed each app, from the survivor snapshots taken through the
+ * filter chain, and publish only the ones whose answer changed since last pass.
+ *
+ * @param {Array<[string, Set<string>]>} stages Ordered [stageName, names still in].
+ */
+function publishCandidacyChanges(stages) {
+  if (!stages.length) return;
+  const [, initial] = stages[0];
+  const verdicts = new Map();
+  for (const name of initial) {
+    let stage = 'candidate';
+    for (let i = 1; i < stages.length; i += 1) {
+      if (!stages[i][1].has(name)) { stage = stages[i][0]; break; }
+    }
+    verdicts.set(name, stage);
+  }
+  for (const [name, stage] of verdicts) {
+    if (lastCandidacy.get(name) === stage) continue;
+    lastCandidacy.set(name, stage);
+    fluxEventBus.publish('spawner:candidacy', { name, stage, candidate: stage === 'candidate' });
+  }
+  for (const name of [...lastCandidacy.keys()]) {
+    if (!verdicts.has(name)) lastCandidacy.delete(name);
+  }
+}
+const resourceQueryService = require('../appQuery/resourceQueryService');
+const messageStore = require('../appMessaging/messageStore');
 const registryManager = require('../appDatabase/registryManager');
 const imageManager = require('../appSecurity/imageManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const portManager = require('../appNetwork/portManager');
 const appUtilities = require('../utils/appUtilities');
 const mountParser = require('../utils/mountParser');
+const ipLocationStore = require('../appPlacement/ipLocationStore');
+const placementFeasibility = require('../appPlacement/placementFeasibility');
 const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
 const enterpriseNetwork = require('../utils/enterpriseNetwork');
 const { FluxCacheManager } = require('../utils/cacheManager');
 const appInstaller = require('./appInstaller');
+const { InstallOutcome } = require('../utils/installOutcome');
 const appUninstaller = require('./appUninstaller');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -30,7 +74,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 let appsCountAvailableToInstallOnMyNode = 0;
 
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
-const spawnReconfirmDelayMs = config.fluxapps.spawnReconfirmDelayMs;
+const { spawnReconfirmDelayMs } = config.fluxapps;
 const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
 
 let spawnLoopRunning = false;
@@ -104,6 +148,12 @@ async function trySpawningGlobalApplication() {
       return installDelay;
     }
 
+    if (fluxNetworkHelper.isPlacementHeld()) {
+      log.info(`Node held back from new placements (${fluxNetworkHelper.getPlacementHold()}). Global applications will not be installed`);
+      fluxEventBus.publish('spawner:blocked', { reason: 'placement_hold' });
+      return installDelay;
+    }
+
     let isNodeConfirmed = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
@@ -140,6 +190,11 @@ async function trySpawningGlobalApplication() {
       throw new Error('Unable to detect Flux IP address');
     }
 
+    // Our address without the port, derived once. It was being recomputed in
+    // four places under three different names, so nothing told a reader they
+    // were the same value.
+    const localIp = extractIp(localSocketAddr);
+
     const runningApps = await appQueryService.listRunningApps();
     if (runningApps.status !== 'success') {
       throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
@@ -155,7 +210,7 @@ async function trySpawningGlobalApplication() {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const currentHeight = syncStatus.data.height;
     const ponFork = config.fluxapps.daemonPONFork;
-    const blocksLasting = config.fluxapps.blocksLasting;
+    const { blocksLasting } = config.fluxapps;
     const minBlocksAllowance = config.fluxapps.newMinBlocksAllowance;
     const pipeline = [
       // Filter out apps that are expired or expiring within minBlocksAllowance (100) blocks
@@ -279,11 +334,24 @@ async function trySpawningGlobalApplication() {
     } else {
       const myNodeLocation = await systemIntegration.nodeFullGeolocation();
 
+      // Where the candidates went. Every filter below removes apps for a
+      // different and entirely reasonable reason, and none of them says so - the
+      // pass ends with "No app currently to be processed" whether one filter
+      // dropped everything or five each took a share. From outside the process
+      // that is indistinguishable from an app nobody wanted, which is how a port
+      // collision looked like a placement failure for a whole day.
+      const survivors = { found: globalAppNamesLocation.length };
+      const nameSet = () => new Set(globalAppNamesLocation.map((app) => app.name));
+      const stages = [['found', nameSet()]];
+
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
         && !globalState.spawnErrorsLongerAppCache.has(app.hash)
         && !globalState.trySpawningGlobalAppCache.has(app.hash)
         && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
+      survivors.afterAlreadyHeldOrTried = globalAppNamesLocation.length;
+      stages.push(['afterAlreadyHeldOrTried', nameSet()]);
+
       // filter apps that are non enterprise or are marked to install on my node.
       // Enterprise-owned apps that target specific node IPs are strict: only a node
       // whose IP is listed may install them, regardless of version (the version>=8
@@ -294,26 +362,93 @@ async function trySpawningGlobalApplication() {
         }
         return app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8;
       });
-      // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
-      // filter apps that dont have geolocation or have and match my node geolocation
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('ac')).length === 0 || app.geolocation.find((loc) => loc.startsWith('ac') && `ac${myNodeLocation}`.startsWith(loc))));
+      // Selection uses the SAME eligibility implementation as candidate counting
+      // and the install gate, over the SAME source for where this node is - the
+      // published table, which is the only thing the count can read for the
+      // thousands of nodes it cannot ask. Taking continent and country from the
+      // node's ip-api self-report instead put this one reader on a different
+      // source from the other two: measured across the fleet, the two disagree on
+      // country for about one node in thirteen, and where they disagree the table
+      // is right roughly eighteen times out of nineteen. A node the count credits
+      // to the table's country would then never volunteer for an app pinned there,
+      // and the app sits below its instance count with candidates that look
+      // available.
+      //
+      // The self-report is the fallback, for a node the table cannot place at all
+      // - the same fallback, in the same direction, as the install gate. The old
+      // string-prefix filters here hid every table-vocabulary region pin from
+      // spawning and stripped _NONE, which turned a no-op deny into a whole-country
+      // selection ban.
+      const [selfContinentCode, selfCountryCode] = (myNodeLocation ?? '').split('_');
+      let myContinentCode = selfContinentCode ?? null;
+      let myCountryCode = selfCountryCode ?? null;
+      let myTableRegion = null;
+      try {
+        const localHit = await ipLocationStore.lookup(localIp);
+        // Both or neither: a hit carrying one without the other cannot place the
+        // node any better than its own report can.
+        if (localHit?.continentCode && localHit?.countryCode) {
+          myContinentCode = localHit.continentCode;
+          myCountryCode = localHit.countryCode;
+        }
+        myTableRegion = localHit?.region ?? null;
+      } catch (error) {
+        // store unreadable = the table cannot place this node, so its self-report
+        // stands and the region is unknown; selection over-includes and the
+        // installer arbitrates
+      }
+      const myLocation = { continentCode: myContinentCode, countryCode: myCountryCode, region: myTableRegion };
+      survivors.afterNodePin = globalAppNamesLocation.length;
+      stages.push(['afterNodePin', nameSet()]);
+      globalAppNamesLocation = globalAppNamesLocation.filter(
+        (app) => placementFeasibility.nodeLocationMatchesGeolocation(myLocation, app.geolocation),
+      );
+      survivors.afterGeolocation = globalAppNamesLocation.length;
+      stages.push(['afterGeolocation', nameSet()]);
       globalAppNamesLocation = enterpriseNetwork.filterAppsByOwnership(globalAppNamesLocation, isEnterprise);
+      survivors.afterOwnership = globalAppNamesLocation.length;
+      stages.push(['afterOwnership', nameSet()]);
+
+      // Drop candidates whose remaining slots are already claimed, before one is
+      // picked at random. The pool counts running instances only, so an app that
+      // other nodes are already installing still reads as short - and selection
+      // is a lottery, so such a candidate does not merely waste its own cycle:
+      // it can win the draw ahead of one this node could have installed, and the
+      // node then spawns nothing for a whole pass. Counting every candidate's
+      // claims costs one grouped read of a collection that holds only live
+      // claims. The re-read before claiming still runs and is the authority;
+      // this only spares the draw candidates it would have turned away.
+      const claimsByApp = await registryManager.installingCountsByApp();
+      globalAppNamesLocation = globalAppNamesLocation.filter(
+        (app) => app.actual + (claimsByApp.get(app.name.toLowerCase()) ?? 0) < app.required,
+      );
 
       appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;
       ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, appsCountAvailableToInstallOnMyNode));
 
+      survivors.afterClaims = globalAppNamesLocation.length;
+      stages.push(['afterClaims', nameSet()]);
+
+      publishCandidacyChanges(stages);
+
       if (globalAppNamesLocation.length === 0) {
-        log.info('trySpawningGlobalApplication - No app currently to be processed');
+        log.info(`trySpawningGlobalApplication - No app currently to be processed (${JSON.stringify(survivors)})`);
+        // A TALLY, not a stream. This is true on every pass of a fleet whose apps
+        // are all at their instance count - roughly every 240ms per node under
+        // the harness multiplier - and as an event it spent a ring every other
+        // consumer shares, which is why nothing could afford to subscribe to it.
+        // The breakdown stays in the log line above, and what CHANGED went out as
+        // spawner:candidacy.
+        fluxEventBus.count('spawner:noCandidates');
         return delayTime;
       }
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       let random = Math.floor(Math.random() * globalAppNamesLocation.length);
       appToRunAux = globalAppNamesLocation[random];
-      const filterAppsWithNyNodeIP = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
-      if (filterAppsWithNyNodeIP.length > 0) {
-        random = Math.floor(Math.random() * filterAppsWithNyNodeIP.length);
-        appToRunAux = filterAppsWithNyNodeIP[random];
+      const appsNamingThisNode = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
+      if (appsNamingThisNode.length > 0) {
+        random = Math.floor(Math.random() * appsNamingThisNode.length);
+        appToRunAux = appsNamingThisNode[random];
       }
 
       appToRun = appToRunAux.name;
@@ -323,7 +458,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
       runningAppList = await registryManager.appLocation(appToRun);
       installingAppList = await registryManager.appInstallingLocation(appToRun);
-      if (runningAppList.length + installingAppList.length > minInstances) {
+      if (runningAppList.length + installingAppList.length >= minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
         return shortDelayTime;
       }
@@ -348,13 +483,12 @@ async function trySpawningGlobalApplication() {
 
     runningAppList = await registryManager.appLocation(appToRun);
 
-    const adjustedIP = extractIp(localSocketAddr); // just IP address
     // check if app not running on this device
-    if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
+    if (runningAppList.find((document) => document.ip.includes(localIp))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already running on this Flux IP`);
       return delayTime;
     }
-    if (installingAppList.find((document) => document.ip.includes(adjustedIP))) {
+    if (installingAppList.find((document) => document.ip.includes(localIp))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already being installed on this Flux IP`);
       return delayTime;
     }
@@ -417,6 +551,20 @@ async function trySpawningGlobalApplication() {
       throw error;
     });
 
+    // Refused before taking on new work, and only here. An application this node
+    // cannot read contributes nothing to the totals the check below subtracts
+    // from its capacity, so the space it believes is free includes space already
+    // spoken for and this node would over-commit. The same refusal on the
+    // maintenance paths would be wrong: a redeploy of an app already counted adds
+    // nothing, and one unreadable application would freeze every other one on the
+    // node. Named, because a node that quietly stops accepting work is a long
+    // afternoon for whoever has to find out why.
+    const unaccounted = resourceQueryService.unaccountedApps(await resourceQueryService.appsResources());
+    if (unaccounted.length) {
+      log.error(`trySpawningGlobalApplication - cannot account for what this node has committed: ${unaccounted.join(', ')} could not be read. Not taking on more.`);
+      return shortDelayTime;
+    }
+
     // verify requirements
     await hwRequirements.checkAppRequirements(appSpecifications);
     // enterprise network nodes: reserve >4 vCores of burst headroom (automatic CPU burst)
@@ -426,24 +574,88 @@ async function trySpawningGlobalApplication() {
 
     // ensure ports unused
     // Get apps running specifically on this IP
-    const localSocketAddrAddress = extractIp(localSocketAddr); // just IP address without port
-    const runningAppsOnThisIP = await registryManager.getRunningAppIpList(localSocketAddrAddress);
-    const runningAppsNames = runningAppsOnThisIP.map((app) => app.name);
+    const appsRunningAtOurIp = await registryManager.getRunningAppIpList(localIp);
+    const runningAppsNames = appsRunningAtOurIp.map((app) => app.name);
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
+    // The check above reads a sibling's ports from the specifications the
+    // network broadcasts, so it sees only what has been reported as RUNNING. A
+    // sibling that has installed an application and not started it, or is still
+    // installing it, appears nowhere in that list and holds the router's forward
+    // regardless. Ask the other Flux nodes at this address directly, here rather
+    // than during the port test, so a refusal costs no firewall rule and no port
+    // mapping to unwind.
+    //
+    // Not because an enterprise application hides its ports. It seals them, and
+    // a node running ArcaneOS opens them - assignedPortsGlobalApps decrypts. On
+    // a node that is not running ArcaneOS it cannot, and there this ask is the
+    // only thing that sees a sealed neighbour's ports at all.
+    //
+    // Answered rather than raised, and handled exactly as an unreachable port is
+    // below: this node cannot host this app, which is an ordinary answer and not
+    // a fault. What separates the two is how it is told, not what it costs the
+    // app: raised, this is an error with a stack trace and no event; answered,
+    // it is one line and a deferral the fleet can observe. The app holds the
+    // entry every selection takes in the spawn cache either way - it was filed
+    // at selection, and the catch below adds nothing for a hash already there -
+    // so this node stops considering it until that expires, which is right,
+    // because nothing changes here until the sibling gives the port up.
+    const sibling = await portManager.siblingHoldingPort(appPorts, localSocketAddr);
+    if (sibling) {
+      log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
+      // A deferral, published as one: this stands the node down and returns
+      // shortDelayTime exactly as the seven reasons below it do, so it belongs
+      // in that vocabulary rather than in an event of its own.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'sibling_holds_port',
+        delayMs: shortDelayTime,
+        port: sibling.port,
+        address: sibling.address,
+      });
+      return shortDelayTime;
+    }
+
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
-    const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);
-    if (portsPubliclyAvailable === false) {
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts);
+    if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
+      // The cause lives in portManager, which says which port and which peers;
+      // this says the spawner deferred, and on which of its verdicts.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'ports_not_available',
+        portVerdict: portVerdict.reason,
+        delayMs: shortDelayTime,
+      });
       return shortDelayTime;
     }
 
     // double check if app is installed on the number of instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
-    if (runningAppList.length + installingAppList.length > minInstances) {
+    if (runningAppList.length + installingAppList.length >= minInstances) {
+      // KEPT when the running copies alone meet the count, CLEARED when the
+      // claims were needed to reach it.
+      //
+      // A running copy is a durable fact and caching it is the point of the
+      // cache - the app is covered, and re-deciding that every pass is waste.
+      // A claim is not: it is withdrawn as soon as its node finds the share
+      // already filled, seconds later and by design, because the share is
+      // checked after the claim goes out. Cached on a count that needed those
+      // claims, this node remembers "covered" for the cache's twelve hours and
+      // never reconsiders, so an app that falls back below its instance count
+      // waits out the day on every node that glanced inside that window.
+      //
+      // Clearing unconditionally is the other way to be wrong: an app whose
+      // count is genuinely met would re-enter the candidate pool on every pass
+      // and be declined again forever, never cached because it was never
+      // installed.
+      if (runningAppList.length < minInstances) {
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+      }
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
     }
@@ -458,22 +670,58 @@ async function trySpawningGlobalApplication() {
       syncthingApp = appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
     }
 
-    const localIp = extractIp(localSocketAddr);
-    const lastIndex = localIp.lastIndexOf('.');
-    const secondLastIndex = localIp.substring(0, lastIndex).lastIndexOf('.');
-    const ipPrefix = localIp.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
+    // An owner who names exactly as many nodes as instances has assigned the
+    // placement, and the diversity share does not second-guess it. A longer
+    // list is a candidate pool - `nodes` may carry up to 120 entries against
+    // an instance count as low as one - so the share still governs, computed
+    // over that pool (placementFeasibility restricts its candidate set to it).
+    // The bypass applies only when THIS node is named: a v8+ app spawning on
+    // an off-list node is subject to the share either way.
+    let ownerNamedThisNode = false;
+    if (syncthingApp) {
+      const pinList = appSpecifications.nodes ?? [];
+      ownerNamedThisNode = pinList.length > 0 && pinList.length <= minInstances
+        && await placementFeasibility.specNamesThisNode(appSpecifications, localSocketAddr);
+    }
+
+    // A synced app may only be refused when a better-placed candidate provably
+    // exists: this domain is refused once it holds its share of the instances,
+    // computed over the app's eligible candidate set - never refused outright.
+    let placementShare = null;
+    let placementDomainOf = null;
+    let myDomain = null;
+    if (syncthingApp && !ownerNamedThisNode) {
+      // placementComputation refuses a geo-restricted question while the location
+      // table is still loading, because answering it over the whole network would
+      // advise on numbers that mean nothing. That refusal is addressed to the HTTP
+      // caller; reaching the catch below instead would read as a pre-install error
+      // and park this app for six hours over a table that is seconds from ready.
+      let computation;
+      try {
+        computation = await placementFeasibility.placementComputation(appSpecifications, minInstances);
+      } catch (error) {
+        if (error.statusCode !== 503) throw error;
+        log.info(`trySpawningGlobalApplication - ${appSpecifications.name} deferred: ${error.message}`);
+        return shortDelayTime;
+      }
+      placementShare = computation.feasibility;
+      placementDomainOf = computation.domainOf;
+      myDomain = placementDomainOf(localIp);
+      // No `placeable` gate here, deliberately. This node reached the placement
+      // check having passed its own geolocation filter, so it is itself an
+      // eligible candidate - a table that resolves zero candidates network-wide
+      // is contradicting the node's own location rather than proving the app
+      // unplaceable, and refusing on that would strand the app everywhere.
+      // Install-time geolocation checks remain authoritative.
+      const heldInMine = await placementFeasibility.countHeldInDomain(runningAppList, myDomain, placementDomainOf)
+        + await placementFeasibility.countHeldInDomain(installingAppList, myDomain, placementDomainOf);
+      if (heldInMine >= placementShare.maxPerDomain) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains)`);
+        return shortDelayTime;
+      }
+    }
 
     if (syncthingApp) {
-      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
-        return shortDelayTime;
-      }
-      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
-        return shortDelayTime;
-      }
       if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater && runningAppList.length < 6) {
         // check if there are connectivity to all nodes
         // eslint-disable-next-line no-restricted-syntax
@@ -637,7 +885,7 @@ async function trySpawningGlobalApplication() {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const componentToInstall of compositedSpecification) {
-      // check image is whitelisted and repotag is available for download
+      // check repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await imageManager.verifyRepository(componentToInstall.repotag, {
         repoauth: componentToInstall.repoauth,
@@ -657,10 +905,71 @@ async function trySpawningGlobalApplication() {
     // triple check if app is installed on the number of instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
-    if (runningAppList.length + installingAppList.length > minInstances) {
+    if (runningAppList.length + installingAppList.length >= minInstances) {
+      // KEPT when the running copies alone meet the count, CLEARED when the
+      // claims were needed to reach it.
+      //
+      // A running copy is a durable fact and caching it is the point of the
+      // cache - the app is covered, and re-deciding that every pass is waste.
+      // A claim is not: it is withdrawn as soon as its node finds the share
+      // already filled, seconds later and by design, because the share is
+      // checked after the claim goes out. Cached on a count that needed those
+      // claims, this node remembers "covered" for the cache's twelve hours and
+      // never reconsiders, so an app that falls back below its instance count
+      // waits out the day on every node that glanced inside that window.
+      //
+      // Clearing unconditionally is the other way to be wrong: an app whose
+      // count is genuinely met would re-enter the candidate pool on every pass
+      // and be declined again forever, never cached because it was never
+      // installed.
+      if (runningAppList.length < minInstances) {
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+      }
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
     }
+
+    // Retract this node's installing claim, network-wide. A silent back-out
+    // leaves the fluxappinstalling broadcast alive for its full TTL, and that
+    // ghost keeps counting against instance totals and domain shares - and can
+    // even win the cold-start seed election - for up to 15 minutes. On a small
+    // eligible pool (a pinned org or region) one collision round of ghosts
+    // stalls the whole domain for that window, so every withdrawal must say so.
+    //
+    // The retraction is a version 2 fluxappinstalling: the claim's own message,
+    // withdrawing the claim. NOT an installing error - that means an install was
+    // attempted and failed, it is counted and acted on as such, and a node
+    // standing aside has attempted nothing. Counting these would make the apps
+    // most in demand, whose races have the most losers, look the most broken.
+    //
+    // A node that does not know version 2 rejects the message whole, so it
+    // neither acts on it nor refreshes the claim's clock: the claim expires on
+    // its own, exactly as it did before any of this existed.
+    // Standing aside costs no eligibility. A node that reconsiders this app while
+    // the winner is still installing is turned away by the guards above - they
+    // count claims as well as running instances - so it never re-claims and
+    // nothing loops. And when the app IS short again because a holder died, a
+    // node that once lost the race is exactly the one that should take it.
+    const withdrawInstallingClaim = async (reason) => {
+      log.info(`trySpawningGlobalApplication - withdrawing installing claim for ${appToRun}: ${reason}`);
+      try {
+        const withdrawal = {
+          type: 'fluxappinstalling',
+          version: 2,
+          name: appSpecifications.name,
+          ip: localSocketAddr,
+          broadcastedAt: Date.now(),
+          withdrawn: true,
+        };
+        await messageStore.storeAppInstallingMessage(withdrawal);
+        // eslint-disable-next-line global-require
+        const fluxCommMessagesSenderLib = require('../fluxCommunicationMessagesSender');
+        await fluxCommMessagesSenderLib.broadcastMessageToAll(withdrawal);
+      } catch (error) {
+        // best effort - the installing TTL remains the backstop
+        log.warn(`trySpawningGlobalApplication - could not retract installing claim for ${appToRun}: ${error.message}`);
+      }
+    };
 
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // lets broadcast to the network the app is going to be installed on this node, so we don't get lot's of intances installed when it's not needed
@@ -686,59 +995,85 @@ async function trySpawningGlobalApplication() {
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
-      installingAppList.sort((a, b) => {
-        if (a.broadcastedAt < b.broadcastedAt) {
-          return -1;
-        }
-        if (a.broadcastedAt > b.broadcastedAt) {
-          return 1;
-        }
-        return 0;
-      });
+      installingAppList.sort(compareInstallingClaims);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} contended: ${runningAppList.length} running, claims after wait: ${describeRanking(installingAppList, 'broadcastedAt')}`);
       broadcastedAt = Date.now();
       const index = installingAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
+        await withdrawInstallingClaim('instance count filled by earlier claimants');
+        globalState.trySpawningGlobalAppCache.delete(appHash);
         return shortDelayTime;
       }
     }
 
-    if (syncthingApp) {
-      const sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+    if (syncthingApp && !ownerNamedThisNode && placementShare) {
+      // Re-check the domain share against the propagated lists, keyed by the
+      // same computation that produced the share - a fresher view of the
+      // network would move nodes between domains the share was never computed
+      // for. Running instances consume the share outright; among simultaneous
+      // installing claimants the earliest broadcasts win the remainder - the
+      // generalisation of the old oldest-wins resolver to shares above one.
+      const runningInMine = await placementFeasibility.countHeldInDomain(runningAppList, myDomain, placementDomainOf);
+      const remainingShare = placementShare.maxPerDomain - runningInMine;
+      if (remainingShare <= 0) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already runs ${runningInMine} of its ${placementShare.maxPerDomain}-instance share`);
+        await withdrawInstallingClaim('domain share held by running instances');
+        globalState.trySpawningGlobalAppCache.delete(appHash);
         return shortDelayTime;
       }
-      const sameIpRangeInstallingNodes = installingAppList.filter((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeInstallingNodes.length > 0) {
-        // Find the node with the oldest broadcastedAt (first to start installing)
-        const oldestNode = sameIpRangeInstallingNodes.reduce((oldest, current) => {
-          if (!oldest.broadcastedAt) return current;
-          if (!current.broadcastedAt) return oldest;
-          return current.broadcastedAt < oldest.broadcastedAt ? current : oldest;
-        });
-        // If our node is not the oldest one, skip - let the first node continue
-        if (!socketAddressesMatch(oldestNode.ip, localSocketAddr)) {
-          log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
-          return shortDelayTime;
-        }
-        // Our node is the oldest - we were first, continue with installation
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing, we are the first node in ip range to start installing, continuing`);
+      const claimantsInMine = installingAppList
+        .filter((location) => placementDomainOf(location.ip) === myDomain)
+        .sort(compareInstallingClaims);
+      const myIndex = claimantsInMine.findIndex((location) => socketAddressesMatch(location.ip, localSocketAddr));
+      const claimantsAhead = myIndex === -1 ? claimantsInMine.length : myIndex;
+      if (claimantsAhead >= remainingShare) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and ${claimantsAhead} earlier claimants in fault domain ${myDomain} fill its remaining share of ${remainingShare} (claims: ${describeRanking(claimantsInMine, 'broadcastedAt')})`);
+        await withdrawInstallingClaim('domain share filled by earlier claimants');
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+        return shortDelayTime;
       }
+      if (claimantsInMine.length > 1) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing, this node is claim ${claimantsAhead + 1} of ${remainingShare} remaining in fault domain ${myDomain}, continuing (claims: ${describeRanking(claimantsInMine, 'broadcastedAt')})`);
+      }
+    }
+
+    // The node is already doing something to an app, and the spawner is the one
+    // that gives way: the periodic reinstall pass holds this flag across its own
+    // teardown-and-rebuild, and an install started inside that window is refused
+    // when the pass comes back for its node - leaving the app it tore down with
+    // nothing to rebuild it. The claim is withdrawn rather than held, so another
+    // node can take the placement now instead of waiting this one out.
+    const heldBy = globalState.operationHolding();
+    if (heldBy) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} not installed, this node is undergoing ${heldBy}`);
+      await withdrawInstallingClaim(`node is undergoing ${heldBy}`);
+      globalState.trySpawningGlobalAppCache.delete(appHash);
+      return shortDelayTime;
     }
 
     // install the app
     let registerOk = false;
+    // The installer still signals some failures by throwing, and only the reason
+    // it throws with says WHICH check refused - a port already held by another
+    // app is raised that way, and reporting the failure without it leaves a suite
+    // unable to tell a refusal from an app that was simply never selected. What
+    // it no longer does is collapse "I touched nothing" and "I tore the app down"
+    // into one false: the outcome says which.
+    let installError = null;
     try {
-      registerOk = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw
+      registerOk = outcome === InstallOutcome.INSTALLED;
+      if (!registerOk) installError = `installer ${outcome}`;
     } catch (error) {
       log.error(error);
+      installError = error.message ?? String(error);
       registerOk = false;
     }
     if (!registerOk) {
       log.info(`trySpawningGlobalApplication - Install failed for ${appToRun}, adding to local error cache`);
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
-      fluxEventBus.publish('spawner:installFailed', { appName: appToRun, hash: appHash });
+      fluxEventBus.publish('spawner:installFailed', { appName: appToRun, hash: appHash, error: installError });
       return shortDelayTime;
     }
 
@@ -746,23 +1081,9 @@ async function trySpawningGlobalApplication() {
     // double check if app is installed in more of the instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     if (runningAppList.length > minInstances) {
-      runningAppList.sort((a, b) => {
-        if (!a.runningSince && b.runningSince) {
-          return -1;
-        }
-        if (a.runningSince && !b.runningSince) {
-          return 1;
-        }
-        if (a.runningSince < b.runningSince) {
-          return -1;
-        }
-        if (a.runningSince > b.runningSince) {
-          return 1;
-        }
-        return 0;
-      });
+      runningAppList.sort(compareInstanceSeniority);
       const index = runningAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
-      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1} (instances: ${describeRanking(runningAppList, 'runningSince')})`);
       if (index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);
         log.warn(`REMOVAL REASON: Exceeded required instances - ${appSpecifications.name} already has sufficient instances, removing local installation (appSpawner)`);

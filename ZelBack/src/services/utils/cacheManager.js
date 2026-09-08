@@ -111,6 +111,14 @@ class FluxCacheManager {
       max: 60,
       ttl: 3 * FluxCacheManager.oneHour,
     },
+    // One answer per node - this asks what ports THIS node holds, so there is
+    // nothing to key on and exactly one entry. It changes only when this node
+    // installs or removes an app, and it is read by every sibling asking before
+    // it installs.
+    portsInUseCache: {
+      max: 1,
+      ttl: 30 * FluxCacheManager.oneSecond,
+    },
     appPriceBlockedRepoCache: {
       max: 50,
       ttl: 3 * FluxCacheManager.oneHour,
@@ -182,6 +190,12 @@ class FluxCacheManager {
     pendingAppUpdatesCache: {
       max: 200,
       ttl: 30 * FluxCacheManager.oneMinute,
+    },
+    // appUtilities - disk usage moves slowly, while the monitoring UI polls app stats
+    // every few seconds. Sample it once a minute however many callers ask.
+    containerStorageCache: {
+      max: 100,
+      ttl: FluxCacheManager.oneMinute,
     },
   };
 

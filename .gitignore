@@ -381,6 +381,20 @@ CloudUI/
 
 # compiled test-app fixture binary (built via test-infra/test-app/build.sh)
 test-infra/test-app/test-app
+# and the source hash it is keyed on, so a rebuild is skipped only when the
+# binary really was built from the test-app.c currently checked out
+test-infra/test-app/test-app.sha256
 
 # per-node logs written by the integration harness on test failure
 test-infra/runner/test-logs/
+
+# published image blobs mirrored into the harness registry (registry-helper
+# mirrorImage). Content-addressed and re-fetchable, so only the first suite of
+# a gate pays for the download.
+test-infra/runner/.image-cache/
+
+# node-config loads this last, over everything in the pinned directory, so a
+# committed one would redirect a production node's endpoints. The harness writes
+# it inside the container at boot; it never belongs in the repo.
+ZelBack/config/local.js
+ZelBack/config/local-*.js

@@ -1,7 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 
-const whitelistRepos = require('./data/whitelistRepos');
 const registryResponses = require('./data/registryResponses');
 
 // stub out axiosGet, axiosInstance
@@ -12,302 +11,6 @@ const { ImageVerifier } = require('../../ZelBack/src/services/utils/imageVerifie
 describe('imageVerifier tests', () => {
   afterEach(() => {
     sinon.restore();
-  });
-
-  describe('isWhitelisted tests', () => {
-    let axiosStub;
-
-    beforeEach(() => {
-      axiosStub = sinon.stub(serviceHelper, 'axiosGet').resolves(whitelistRepos);
-      ImageVerifier.resetWhitelist();
-    });
-
-    it('should fetch whitelist immediately if no whitelist exists', async () => {
-      const whitelistLength = whitelistRepos.data.length;
-
-      const repotag = 'namespace/image:tag';
-
-      const verifier = new ImageVerifier(repotag);
-
-      expect(ImageVerifier.whitelistedImages.length).to.equal(0);
-      sinon.assert.notCalled(axiosStub);
-      await verifier.isWhitelisted();
-      sinon.assert.calledOnce(axiosStub);
-      expect(ImageVerifier.whitelistedImages.length).to.equal(whitelistLength);
-    });
-
-    it('should not fetch whitelist if it exists and fetched within 10 minutes', async () => {
-      const clock = sinon.useFakeTimers();
-
-      const repotag = 'namespace/image:tag';
-
-      const verifier = new ImageVerifier(repotag);
-
-      ImageVerifier.whitelistedImages = whitelistRepos.data;
-
-      // 20s short of limit
-      await clock.tickAsync(580_000);
-
-      await verifier.isWhitelisted();
-      sinon.assert.notCalled(axiosStub);
-    });
-
-    it('should fetch whitelist if it exists and is older than 10 minutes', async () => {
-      const clock = sinon.useFakeTimers();
-
-      const repotag = 'namespace/image:tag';
-
-      const verifier = new ImageVerifier(repotag);
-
-      ImageVerifier.whitelistedImages = whitelistRepos.data;
-
-      // 20s over limit
-      await clock.tickAsync(620_000);
-
-      await verifier.isWhitelisted();
-      sinon.assert.calledOnce(axiosStub);
-    });
-
-    it('should wait if fetching in progress and then return', async () => {
-      const clock = sinon.useFakeTimers();
-
-      axiosStub.callsFake(async () => {
-        await new Promise((r) => { setTimeout(r, 3_000); });
-        return whitelistRepos;
-      });
-
-      const repotag = 'namespace/image:tag';
-
-      const verifier1 = new ImageVerifier(repotag);
-      const verifier2 = new ImageVerifier(repotag);
-
-      const promise1 = verifier1.isWhitelisted();
-      const promise2 = verifier2.isWhitelisted();
-
-      // verifier1 is simulated waiting for the axios call, verifier2
-      // is waiting for the lock to free.
-      await clock.tickAsync(1_000);
-      sinon.assert.calledOnce(axiosStub);
-      expect(ImageVerifier.whitelistedImages.length).to.equal(0);
-
-      // verifier1 has finished and updated the time, verifier2 bails out as it
-      // sees that the lastupdatetime has been updated.
-      await clock.tickAsync(2_000);
-
-      await promise1;
-      await promise2;
-
-      expect(ImageVerifier.whitelistedImages.length).to.equal(whitelistRepos.data.length);
-      sinon.assert.calledOnce(axiosStub);
-    });
-
-    it('should throw error if repotag is not a string', async () => {
-      const repotag = 1234;
-
-      const verifier = new ImageVerifier(repotag);
-      await verifier.isWhitelisted();
-
-      expect(
-        () => verifier.throwIfError(),
-      ).to.throw('Invalid Docker Image Tag');
-    });
-
-    it('should throw error if axios throws', async () => {
-      axiosStub.rejects();
-
-      const repotag = 'testing/12343:latest';
-
-      const verifier = new ImageVerifier(repotag);
-      await verifier.isWhitelisted();
-
-      expect(
-        () => verifier.throwIfError(),
-      ).to.throw('Unable to fetch whitelisted repositories. Try again later.');
-    });
-
-    it('should throw error if ImageTag is not a full tag', async () => {
-      const badImageTags = ['improperformat', 'improper/format'];
-
-      const promises = [];
-      const verifiers = [];
-
-      badImageTags.forEach((imageTag) => {
-        const verifier = new ImageVerifier(imageTag);
-        verifiers.push(verifier);
-        promises.push(verifier.isWhitelisted());
-      });
-
-      await Promise.all(promises);
-
-      verifiers.forEach((v, index) => {
-        expect(
-          () => v.throwIfError(),
-        ).to.throw(`Image Tag: ${badImageTags[index]} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY:TAG`);
-      });
-    });
-
-    it('should throw error if repo is not whitelisted', async () => {
-      const repotag = 'doesnotexist/inthewhitelist:nope';
-
-      const verifier = new ImageVerifier(repotag);
-      await verifier.isWhitelisted();
-
-      expect(
-        () => verifier.throwIfError(),
-      ).to.throw('Repository is not whitelisted. Please contact Flux Team.');
-    });
-
-    it('should throw error if only tag is whitelisted and not namespace', async () => {
-      const repotag = 'public.ecr.aws/docker/library/hello-world:notlisted';
-
-      const verifier = new ImageVerifier(repotag);
-      await verifier.isWhitelisted();
-
-      expect(
-        () => verifier.throwIfError(),
-      ).to.throw('Repository is not whitelisted. Please contact Flux Team.');
-    });
-
-    it('should throw error if only sibling image is whitelisted', async () => {
-      const repotag = 'ghcr.io/handshake-org/london:latest';
-
-      const verifier = new ImageVerifier(repotag);
-      await verifier.isWhitelisted();
-
-      expect(
-        () => verifier.throwIfError(),
-      ).to.throw('Repository is not whitelisted. Please contact Flux Team.');
-    });
-
-    it('should return true if namespace is whitelisted', async () => {
-      const goodImageTags = ['yurinnick/folding-at-home:latest', 'wirewrex/uptimekuma:latest'];
-
-      const promises = [];
-      const verifiers = [];
-
-      goodImageTags.forEach((imageTag) => {
-        const verifier = new ImageVerifier(imageTag);
-        verifiers.push(verifier);
-        promises.push(verifier.isWhitelisted());
-      });
-
-      const results = await Promise.all(promises);
-
-      verifiers.forEach((v, index) => {
-        expect(results[index]).to.equal(true);
-        expect(
-          () => v.throwIfError(),
-        ).to.not.throw();
-      });
-    });
-
-    it('should return true if image is whitelisted', async () => {
-      const repotag = 'justfortesting/imagetime:latest';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should return true if registry namespace is whitelisted', async () => {
-      const repotag = 'download.lootlink.xyz/wirewrex/kappa:delta';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should return true if registry namespace has 2 slashes and is whitelisted', async () => {
-      const repotag = 'us-central1-docker.pkg.dev/example-project-12345/test-repo/testimage:blahblah';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should return true if registry namespace and image has 2 slashes and namespace is whitelisted', async () => {
-      const repotag = 'us-docker.pkg.dev/google-samples/containers/gke/hello-app:2.0';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should return true if registry namespace and image has 2 slashes and image is whitelisted', async () => {
-      const repotag = 'us-docker.pkg.dev/google-samples/containers/madeup/image:sausages';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should return true if registry image is whitelisted', async () => {
-      const repotag = 'gcr.io/google-samples/node-hello:latest';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should return true if registry tag is whitelisted', async () => {
-      const repotag = 'public.ecr.aws/docker/library/hello-world:linux';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should return true if dockerhub library tag is whitelisted', async () => {
-      const repotag = 'mysql:latest';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(true);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.not.throw();
-    });
-
-    it('should be rejected if namespace not whitelisted', async () => {
-      const repotag = 'runonfluxb/website:latest';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(false);
-      expect(
-        () => verifier.throwIfError(),
-      ).to.throw('Repository is not whitelisted. Please contact Flux Team.');
-    });
   });
 
   describe('parse repoTag tests', () => {
@@ -423,6 +126,40 @@ describe('imageVerifier tests', () => {
         expect(verifier.repository).to.eql(null);
         expect(verifier.tag).to.eql(null);
       });
+    });
+
+    // The cost of a parse must not grow with the length of the name.
+    //
+    // The namespace separator used to accept an EMPTY run of hyphens, which made
+    // "letters and digits separated by nothing" a legal reading - so every way of
+    // cutting a plain word apart became a distinct reading to try, 2^(n-1) of them
+    // for an n-character name, and all of them are explored before a non-match can
+    // be reported. Measured on the pattern as it was: 0.7ms at 16 characters,
+    // 148.9ms at 24, 2455.5ms at 28, 9804.3ms at 30. The same 30-character name
+    // now parses in under 2ms.
+    //
+    // 250ms: thirty-nine times below the 9804ms the old pattern spent on this exact
+    // input and a hundred times above what it costs now, so it cannot fail on a
+    // slow box and cannot pass if the empty alternative comes back. Kept to 30
+    // characters deliberately - the growth is exponential, so each further
+    // character doubles what a reintroduction costs this suite before it fails,
+    // and a synchronous regex ignores mocha's timeout so it would hang rather
+    // than stop.
+    it('parses a long image name in time that does not grow with its length', () => {
+      const name = 'a'.repeat(30);
+      const repotag = `registry.example.com:5000/${name}:v1`;
+
+      const startedAt = process.hrtime.bigint();
+      const verifier = new ImageVerifier(repotag);
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+      expect(verifier.provider).to.eql('registry.example.com:5000');
+      expect(verifier.repository).to.eql(name);
+      expect(verifier.tag).to.eql('v1');
+      expect(
+        elapsedMs,
+        `parsing a ${name.length}-character image name took ${elapsedMs.toFixed(1)}ms`,
+      ).to.be.below(250);
     });
   });
 
@@ -895,9 +632,8 @@ describe('imageVerifier tests', () => {
     let axiosGetStub;
 
     beforeEach(() => {
-      axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').resolves(whitelistRepos);
+      axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: [] });
       axiosInstanceStub = sinon.stub(serviceHelper, 'axiosInstance');
-      ImageVerifier.resetWhitelist();
     });
 
     it('should return null errorMeta when no error occurs', async () => {
@@ -971,17 +707,6 @@ describe('imageVerifier tests', () => {
       expect(verifier.errorMeta).to.not.be.null;
       expect(verifier.errorMeta.errorType).to.equal('server_error');
       expect(verifier.errorMeta.httpStatus).to.equal(503);
-    });
-
-    it('should populate errorMeta with not_whitelisted error type', async () => {
-      const repotag = 'notwhitelisted/image:tag';
-
-      const verifier = new ImageVerifier(repotag);
-      const result = await verifier.isWhitelisted();
-
-      expect(result).to.equal(false);
-      expect(verifier.errorMeta).to.not.be.null;
-      expect(verifier.errorMeta.errorType).to.equal('not_whitelisted');
     });
 
     it('should populate errorMeta with size_limit error type', async () => {

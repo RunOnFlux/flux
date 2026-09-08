@@ -13,6 +13,19 @@ const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '16131', 10);
 // which mirrors the real FDM returning an empty ips array (the node waits).
 const elected = new Map();
 
+// Whether FDM is answering at all. Electing and clearing are both FDM giving a
+// verdict, so neither reaches the node's third state — "FDM did not answer" —
+// which is the one the election stands down on. That state needs the service to
+// stop producing verdicts:
+//   'refuse'      the listening socket is closed, so the node gets ECONNREFUSED.
+//                 This is the production outage signature: the error carries no
+//                 response at all.
+//   'unavailable' 503, FDM reachable but declining to answer because it reports
+//                 itself as still starting up.
+// null => answering normally.
+let outageMode = null;
+let server = null;
+
 // --- FDM API (what the FluxOS node polls) ---
 
 const app = express();
@@ -22,16 +35,31 @@ app.use(express.json());
 // then data.ips[0] (passed through extractIp, which splits on ':' — bare IP is fine).
 // An empty ips array is the "no primary set" path: the node keeps waiting.
 app.get('/appips/:app', (req, res) => {
+  if (outageMode === 'unavailable') {
+    res.status(503).json({ status: 'error', data: 'FDM starting up' });
+    return;
+  }
   const ip = elected.get(req.params.app);
   res.json({ status: 'success', data: { ips: ip ? [ip] : [] } });
 });
 
 app.all('*', (req, res) => {
   console.log(`Unhandled FDM request: ${req.method} ${req.path}`);
+  if (outageMode === 'unavailable') {
+    res.status(503).json({ status: 'error', data: 'FDM starting up' });
+    return;
+  }
   res.json({ status: 'success', data: { ips: [] } });
 });
 
-app.listen(PORT, () => console.log(`FDM stub listening on port ${PORT}`));
+function listen(done) {
+  server = app.listen(PORT, () => {
+    console.log(`FDM stub listening on port ${PORT}`);
+    if (done) done();
+  });
+}
+
+listen();
 
 // --- Test harness control API ---
 
@@ -43,7 +71,7 @@ control.get('/health', (req, res) => {
 });
 
 control.get('/state', (req, res) => {
-  res.json({ elected: Object.fromEntries(elected) });
+  res.json({ elected: Object.fromEntries(elected), outage: outageMode });
 });
 
 // elect (or fail over) the primary for an app
@@ -60,9 +88,51 @@ control.post('/clear/:app', (req, res) => {
   res.json({ ok: true });
 });
 
+// Stop answering. The control API is a second server on its own port, so it
+// stays reachable to end the outage again.
+function beginOutage(mode, done) {
+  outageMode = mode;
+  if (mode !== 'refuse' || !server) {
+    done();
+    return;
+  }
+  // close() only stops new connections being accepted; a keep-alive socket the
+  // node already holds would go on being answered, so the poll has to lose the
+  // connection it has rather than read a stale success off it.
+  if (server.closeAllConnections) server.closeAllConnections();
+  server.close(() => {
+    server = null;
+    done();
+  });
+}
+
+function endOutage(done) {
+  const wasRefusing = outageMode === 'refuse';
+  outageMode = null;
+  if (!wasRefusing || server) {
+    done();
+    return;
+  }
+  listen(done);
+}
+
+control.post('/outage', (req, res) => {
+  const mode = (req.body && req.body.mode) || 'refuse';
+  if (mode !== 'refuse' && mode !== 'unavailable') {
+    return res.status(400).json({ error: "mode must be 'refuse' or 'unavailable'" });
+  }
+  return beginOutage(mode, () => res.json({ ok: true, outage: mode }));
+});
+
+control.post('/recover', (req, res) => {
+  endOutage(() => res.json({ ok: true, outage: null }));
+});
+
+// Suites reset in both setup and teardown, so this has to put every piece of
+// stub state back - an outage left behind would answer for the next suite.
 control.post('/reset', (req, res) => {
   elected.clear();
-  res.json({ ok: true });
+  endOutage(() => res.json({ ok: true }));
 });
 
 control.listen(CONTROL_PORT, () => console.log(`FDM stub control API on port ${CONTROL_PORT}`));

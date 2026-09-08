@@ -108,6 +108,42 @@ describe('appConstants tests', () => {
     });
   });
 
+  describe('the announce interval derived from the location expiry', () => {
+    // proxyquire rather than the loaded config, so the derivation is exercised
+    // against the numbers the fleet and the harness actually run rather than
+    // against one of them.
+    const derive = (locationTtlS) => {
+      // eslint-disable-next-line global-require
+      const proxyquire = require('proxyquire');
+      const real = require('config');
+
+      return proxyquire('../../ZelBack/src/services/utils/appConstants', {
+        config: { ...real, fluxapps: { ...real.fluxapps, locationTtlS } },
+      }).ANNOUNCE_INTERVAL_MS;
+    };
+
+    it('reproduces what production and the harness carried by hand', () => {
+      expect(derive(7500), 'production announced hourly against a 125 minute row').to.equal(3600000);
+      expect(derive(63), 'the harness announced every 30s against a 63s row').to.equal(30000);
+    });
+
+    it('fits two announcements inside one row lifetime, with slack', () => {
+      [7500, 63, 300, 86400].forEach((ttl) => {
+        const expiry = ttl * 1000;
+        const interval = derive(ttl);
+
+        expect(interval * 2, `two announcements do not fit inside a ${ttl}s row`).to.be.below(expiry);
+        // A node that misses one announcement is refreshed by the next with
+        // time to spare, rather than exactly as the row lapses.
+        expect(expiry - interval * 2, `a ${ttl}s row leaves a missed announcement no slack`).to.be.at.least(expiry * 0.03);
+      });
+    });
+
+    it('moves with the expiry, so the pair cannot drift', () => {
+      expect(derive(126)).to.equal(derive(63) * 2);
+    });
+  });
+
   describe('database collections tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
@@ -265,21 +301,6 @@ describe('appConstants tests', () => {
     });
   });
 
-  describe('appsMonitoredTemplate tests', () => {
-    beforeEach(() => {
-      process.env.HOME = '/home/user';
-      // eslint-disable-next-line global-require
-      appConstants = require('../../ZelBack/src/services/utils/appConstants');
-    });
-
-    it('should be an object', () => {
-      expect(appConstants.appsMonitoredTemplate).to.be.an('object');
-    });
-
-    it('should be an empty template object', () => {
-      expect(Object.keys(appConstants.appsMonitoredTemplate)).to.have.lengthOf(0);
-    });
-  });
 
   describe('module exports tests', () => {
     beforeEach(() => {
@@ -317,7 +338,6 @@ describe('appConstants tests', () => {
       expect(appConstants).to.have.property('isArcane');
       expect(appConstants).to.have.property('appsThatMightBeUsingOldGatewayIpAssignment');
       expect(appConstants).to.have.property('defaultNodeSpecs');
-      expect(appConstants).to.have.property('appsMonitoredTemplate');
     });
   });
 
@@ -360,6 +380,37 @@ describe('appConstants tests', () => {
       expect(appConstants.appsFolderPath).to.equal('/opt/arcane/ZelApps');
       expect(appConstants.appsFolder).to.equal('/opt/arcane/ZelApps/');
       expect(appConstants.isArcane).to.be.true;
+    });
+  });
+
+  describe('record expiry is what production runs', () => {
+    // These three stamp expireAt onto ephemeral records and are read from
+    // config so the harness can compress them. Production's durations are
+    // asserted here because config is the only thing standing between an edit
+    // and every node keeping records for a different length of time - and
+    // because these keys spent three months wired to nothing after the
+    // collection-level TTL indexes they used to drive were dropped, at which
+    // point installErrorTtlS still held the retired mechanism's 1 hour against
+    // the 24 hours the code had been running.
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      appConstants = require('../../ZelBack/src/services/utils/appConstants');
+    });
+
+    it('keeps a running-app location record for 125 minutes', () => {
+      expect(appConstants.RUNNING_EXPIRY_MS).to.equal(125 * 60 * 1000);
+    });
+
+    it('keeps an in-progress install record for 15 minutes', () => {
+      expect(appConstants.INSTALLING_EXPIRY_MS).to.equal(15 * 60 * 1000);
+    });
+
+    it('keeps an install-error record for 24 hours', () => {
+      expect(appConstants.INSTALLING_ERRORS_EXPIRY_MS).to.equal(24 * 60 * 60 * 1000);
+    });
+
+    it('expires an evicted record with the location record that named it', () => {
+      expect(appConstants.EVICTED_EXPIRY_MS).to.equal(appConstants.RUNNING_EXPIRY_MS);
     });
   });
 });

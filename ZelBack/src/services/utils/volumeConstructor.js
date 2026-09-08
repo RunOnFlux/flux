@@ -8,7 +8,6 @@
 const log = require('../../lib/log');
 const { MountType } = require('./mountParser');
 const { appsFolder } = require('./appConstants');
-const config = require('../../../config/default');
 
 /**
  * Get app identifier with proper flux prefix

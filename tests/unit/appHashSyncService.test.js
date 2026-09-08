@@ -1,6 +1,8 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+
+const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { Readable } = require('stream');
 const config = require('config');
 
@@ -166,7 +168,7 @@ describe('appHashSyncService tests', () => {
       await appHashSyncService.triggerAppHashesCheckAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith('adminandfluxteam', req)).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req))).to.be.true;
     });
 
     it('should deny unauthorized access', async () => {
@@ -314,7 +316,7 @@ describe('appHashSyncService tests', () => {
 
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      const result = await appHashSyncService.syncMissingHashes();
+      await appHashSyncService.syncMissingHashes();
 
       // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
       expect(serviceHelperStub.axiosGet.called).to.be.true;
@@ -458,6 +460,21 @@ describe('appHashSyncService tests', () => {
       const peers = peerManagerStub.allValues();
       const calledPeers = peers.filter((p) => p.send.called);
       expect(calledPeers.length).to.equal(3);
+    });
+
+    it('sends no request when this node cannot sign it', async () => {
+      fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.resolves(null);
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+      ];
+      dbHelperStub.findInDatabase.onFirstCall().resolves(missing);
+      dbHelperStub.findInDatabase.resolves([]);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      const peers = peerManagerStub.allValues();
+      expect(peers.filter((p) => p.send.called)).to.have.length(0);
     });
 
     it('should not reuse peers across rounds', async () => {
@@ -638,7 +655,7 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.resolves(missing);
       // getMissingHashes adds $or filter for nextRetryHeight, but since we stub findInDatabase
       // the filter is applied by the DB. For this test, verify the query includes the filter.
-      const result = await appHashSyncService.getMissingHashes();
+      await appHashSyncService.getMissingHashes();
       // All 3 returned because findInDatabase stub ignores the query — but verify the query was correct
       const query = dbHelperStub.findInDatabase.firstCall.args[2];
       expect(query.message).to.equal(false);

@@ -1,0 +1,161 @@
+name: release-gate
+
+# Required status check on release PRs (development -> master). Verifies, before a release can
+# merge, that what master will become is already approved: the version moves forward, the tree's
+# hash is in the signed document central serves, and the old-fluxbench fallback list carries it.
+#
+# This check is the gate the human sees; release-tag.yml re-verifies the merged tree before
+# cutting the tag and GitHub Release. Enforcement comes from branch protection listing this check
+# as required -- the workflow itself has no power to block a merge.
+#
+# Deliberately strict: central not serving a validly signed document is a red run, not a skip. A
+# gate that passes when its source is missing is not a gate.
+#
+# Read-only: no secrets, no pushes.
+#
+# Tests: tests/ci/release-workflows.sh -- runs offline, no secrets. It extracts steps from this
+# file verbatim, so renaming one breaks it loudly rather than silently skipping it.
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    steps:
+      # The default pull_request checkout is the merge preview -- the tree master will actually
+      # hold after the merge -- which is the thing worth judging, not the PR head alone.
+      - uses: actions/checkout@v7
+
+      - name: Version moves forward
+        run: |
+          git fetch --quiet --depth 1 origin master
+          BASE=$(git show origin/master:package.json | jq -r .version)
+          CANDIDATE=$(jq -r .version package.json)
+          echo "master: ${BASE}  candidate: ${CANDIDATE}"
+          # Strictly newer, compared numerically per part. String inequality would call 8.17.10
+          # older than 8.17.9.
+          #
+          # The shape is checked before anything is compared. Splitting on dots and comparing
+          # whatever falls out lets a version the parser cannot read be judged by whichever part
+          # happens to differ: "8.18" has no third part and passes, "8.18.0-rc1" passes on its
+          # minor while "8.17.2-rc1" is refused on a NaN. Refuse what cannot be read instead.
+          node -e '
+            const parse = (label, value) => {
+              const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+              if (!parts) {
+                throw new Error(`the ${label} version is not three numeric parts: ${value}`);
+              }
+              return parts.slice(1).map(Number);
+            };
+            const base = parse("master", process.argv[1]);
+            const head = parse("candidate", process.argv[2]);
+            const delta = head[0] - base[0] || head[1] - base[1] || head[2] - base[2];
+            if (!(delta > 0)) {
+              throw new Error("the candidate version does not move past master -- bump package.json in the release PR");
+            }
+          ' "$BASE" "$CANDIDATE"
+
+      # The tree judged below is the merge preview, which is a ref nowhere. Its hash is in the
+      # signed document only because some branch tip already holds the same ZelBack subtree --
+      # normally this PR's head, because master carries no code of its own: every commit landing
+      # directly on master has been version metadata or operational data under helpers/, outside
+      # the hashed tree.
+      #
+      # When master DOES carry ZelBack changes the head lacks, the merged tree exists on no branch,
+      # no signing run can ever cover it, and the check below fails telling the reader to wait for
+      # a signing run that will never come. Refuse here instead, and name the thing that fixes it.
+      #
+      # Deliberately compares the ZelBack subtree, not the whole tree: master diverging under
+      # helpers/ is routine and cannot change the hash.
+      - name: The merged ZelBack is a tree the signer can have seen
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eo pipefail
+          git fetch --quiet --depth 1 origin "refs/pull/${PR_NUMBER}/head"
+          PREVIEW=$(git rev-parse 'HEAD:ZelBack')
+          HEAD_TREE=$(git rev-parse 'FETCH_HEAD:ZelBack')
+          if [ "$PREVIEW" != "$HEAD_TREE" ]; then
+            echo "the merge preview's ZelBack is ${PREVIEW}, this PR head's is ${HEAD_TREE}."
+            echo "master carries ZelBack changes that are not on ${GITHUB_HEAD_REF}, so the merged"
+            echo "tree exists on no branch and no signing run can ever cover it."
+            echo "fix: merge master into ${GITHUB_HEAD_REF} and re-run -- its tip will then carry the"
+            echo "merged tree and the signer will pick it up. Waiting will not help."
+            exit 1
+          fi
+          echo "the merged ZelBack is this PR head's ZelBack (${PREVIEW})"
+
+      - name: Tree hash is in the signed document central serves
+        run: |
+          set -eo pipefail
+          NEW_HASH=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+          # d41d8... is the md5 of an empty stream, produced whenever nothing was hashed: ZelBack
+          # absent (pipefail catches that) or present holding no regular files (find exits 0 and
+          # emits nothing, which pipefail cannot see). The signer refuses to list that value, so
+          # the membership check below would fail anyway -- but it would fail as "not in the signed
+          # document", sending the reader to the signing chain instead of the missing directory.
+          if [ "$NEW_HASH" = d41d8cd98f00b204e9800998ecf8427e ]; then
+            echo 'nothing was hashed -- this checkout has no ZelBack files'
+            exit 1
+          fi
+          echo "tree hash: ${NEW_HASH}"
+          # exported for the node script below; GITHUB_ENV only reaches subsequent steps
+          export NEW_HASH
+          echo "NEW_HASH=${NEW_HASH}" >> "$GITHUB_ENV"
+
+          curl -sS -m 30 -o hashlist-signed.json https://hashes.runonflux.io/hashlist
+
+          # Verify the signature the way a consumer does, against the published public keys
+          # (RunOnFlux/fluxhashes SIGNING.md), so a stale deploy answering every path with the
+          # unsigned array -- or anything else that is not the signed document -- is a red run.
+          #
+          # Single-quoted, with the hash read from the environment: inside a double-quoted shell
+          # string the ${...} below would be the shell's, not node's.
+          node -e '
+            const crypto = require("crypto");
+            const fs = require("fs");
+            const PINNED_PUBLIC_KEYS = [
+              "14837066068b258bfbd0749702056f7065361af44aed48761834744391cbbaaa",
+              "fee7b0ccf2323954af68a249eaa61f957239eb222329e08a5b6a50ced649bae8",
+            ];
+            const SPKI_ED25519_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+            const document = JSON.parse(fs.readFileSync("hashlist-signed.json", "utf8"));
+            const payload = Buffer.from(document.payload_b64, "base64");
+            const signature = Buffer.from(document.sig_b64, "base64");
+            const verified = PINNED_PUBLIC_KEYS.some((hex) => crypto.verify(
+              null,
+              payload,
+              crypto.createPublicKey({
+                key: Buffer.concat([SPKI_ED25519_PREFIX, Buffer.from(hex, "hex")]),
+                format: "der",
+                type: "spki",
+              }),
+              signature,
+            ));
+            if (!verified) {
+              throw new Error("central is not serving a validly signed hash list");
+            }
+            const { seq, hashes } = JSON.parse(payload.toString("utf8"));
+            if (!hashes.includes(process.env.NEW_HASH)) {
+              throw new Error(`the tree hash is not in the signed document (seq ${seq}) -- wait for the signing run to cover the release candidate`);
+            }
+            console.log(`signed document seq ${seq} carries the tree hash`);
+          '
+
+      # Old fluxbench falls back to helpers/hashes.json via GitHub raw when central is unreachable.
+      # The entry rides the release PR instead of a commit straight to master. This step retires
+      # with old fluxbench.
+      - name: Fallback list carries the hash
+        run: |
+          jq -e --arg h "$NEW_HASH" 'index($h) != null' helpers/hashes.json > /dev/null \
+            || { echo "helpers/hashes.json does not contain ${NEW_HASH} -- add it in the release PR"; exit 1; }
+          echo "helpers/hashes.json carries the tree hash"

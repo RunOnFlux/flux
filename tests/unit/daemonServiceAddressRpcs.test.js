@@ -340,7 +340,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should execute RPC if parameters are passed in params, no response passed', async () => {
+    it('should execute RPC if parameters are passed in params, response passed', async () => {
       const req = {
         params: {
           address: '12QSasdfggYy4sditOpQzsee',
@@ -357,9 +357,10 @@ describe('daemonServiceAddressRpcs tests', () => {
         chainInfo: req.params.chaininfo,
       };
 
-      const result = await daemonServiceAddressRpcs.getSingleAddressDeltas(req);
+      const res = generateResponse();
+      await daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
 
-      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [expectedParams]);
     });
 
@@ -606,7 +607,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should execute RPC if parameters are passed in params, no response passed', async () => {
+    it('should execute RPC if parameters are passed in params, response passed', async () => {
       const req = {
         params: {
           address: '12QSasdfggYy4sditOpQzsee',
@@ -617,9 +618,10 @@ describe('daemonServiceAddressRpcs tests', () => {
         addresses: [req.params.address],
       };
 
-      const result = await daemonServiceAddressRpcs.getSingleAddressMempool(req);
+      const res = generateResponse();
+      await daemonServiceAddressRpcs.getSingleAddressMempool(req, res);
 
-      expect(result).to.eql('success');
+      sinon.assert.calledOnceWithExactly(res.json, 'success');
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressmempool', [expectedParams]);
     });
 

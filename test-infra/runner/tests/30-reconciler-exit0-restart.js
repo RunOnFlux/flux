@@ -50,6 +50,17 @@ describe('reconciler restarts a cleanly-exited (exit 0) container by default', f
     const evt = await waitForReconcileActuated(client, identifier, 'started', 90000, { afterId });
     expect(evt.data.exitCode).to.equal(0); // genuinely restarted from a clean exit 0
 
+    // and it went back WITHOUT being paced. The crash ladder answers a container
+    // that cannot stay up; an operator stopping their own app is not that, and
+    // pacing it is what turns a deliberate restart into a customer-visible outage.
+    // A container whose image discards its payload's exit status still gets caught,
+    // but by the burst window rather than by this code - see suite 54.
+    const paced = client.getEventBuffer().filter((e) => e.event === 'reconciler:actuated'
+      && e.id > afterId && e.id <= evt.id
+      && e.data.identifier === identifier
+      && e.data.action === 'backoff');
+    expect(paced, 'a single clean exit carries no evidence of a fault').to.have.lengthOf(0);
+
     await waitFor(async () => {
       const status = await getAppContainerStatus(client.container, appName);
       return status && status.status.startsWith('Up');

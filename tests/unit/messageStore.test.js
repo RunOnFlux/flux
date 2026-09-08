@@ -252,9 +252,6 @@ describe('messageStore tests', () => {
         '../utils/enterpriseHelper': {
           checkAndDecryptAppSpecs: sinon.stub().resolves({}),
         },
-        '../utils/globalState': {
-          queuePendingUpdate: sinon.stub(),
-        },
         '../utils/appConstants': {
           globalAppsMessages: 'appsMessages',
           globalAppsTempMessages: 'appsTempMessages',
@@ -433,7 +430,7 @@ describe('messageStore tests', () => {
     it('should return error for unsupported version', async () => {
       const message = {
         type: 'fluxappinstalling',
-        version: 2,
+        version: 3,
         name: 'testapp',
         broadcastedAt: Date.now(),
         ip: '192.168.1.1',
@@ -442,7 +439,7 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppInstallingMessage(message);
 
       expect(result).to.be.instanceOf(Error);
-      expect(result.message).to.include('version 2 not supported');
+      expect(result.message).to.include('version 3 not supported');
     });
 
     it('should store valid installing message', async () => {
@@ -463,6 +460,179 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
+    });
+  });
+
+  // A node claims an app before it knows whether it is needed, so losing the
+  // race is ordinary and the claim has to be retractable. Version 2 is that
+  // retraction - and it must never be an installing ERROR, which means an
+  // install was attempted and failed, and is counted and acted on as such.
+  describe('storeAppInstallingMessage - version 2 withdrawal', () => {
+    const withdrawal = (overrides = {}) => ({
+      type: 'fluxappinstalling',
+      version: 2,
+      name: 'testapp',
+      ip: '192.168.1.1',
+      broadcastedAt: Date.now(),
+      withdrawn: true,
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.removeDocumentsFromCollection.resolves();
+    });
+
+    it('removes the sender\'s claim and rebroadcasts', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now() - 60000) });
+
+      const result = await messageStore.storeAppInstallingMessage(withdrawal());
+
+      expect(result).to.be.true;
+      const targets = dbHelperStub.removeDocumentsFromCollection.getCalls().map((c) => c.args[1]);
+      expect(targets).to.have.lengthOf(2); // the claim, and its signed broadcast
+      expect(dbHelperStub.updateOneInDatabase.called, 'a withdrawal records nothing').to.be.false;
+    });
+
+    it('carries the freshness guard onto both deletes, not just the read', async () => {
+      // The read proves the stored claim was older a moment ago. Both deletes are
+      // filtered on it too, so a claim that lands between the read and the delete
+      // survives - and the broadcast row needs the guard in its own right, being a
+      // separate collection written by a separate path.
+      const sent = Date.now();
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(sent - 60000) });
+
+      await messageStore.storeAppInstallingMessage(withdrawal({ broadcastedAt: sent }));
+
+      const filters = dbHelperStub.removeDocumentsFromCollection.getCalls().map((c) => c.args[2]);
+      expect(filters).to.have.lengthOf(2);
+      filters.forEach((filter) => {
+        expect(filter.broadcastedAt, 'delete ran unguarded').to.deep.equal({ $lt: new Date(sent) });
+      });
+    });
+
+    it('never touches the installing errors collection', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now() - 60000) });
+
+      await messageStore.storeAppInstallingMessage(withdrawal());
+
+      const touched = dbHelperStub.removeDocumentsFromCollection.getCalls()
+        .concat(dbHelperStub.updateOneInDatabase.getCalls())
+        .map((c) => c.args[1]);
+      expect(touched.some((col) => String(col).includes('errors'))).to.be.false;
+    });
+
+    // a node may claim, stand aside, and claim again - a withdrawal that arrives
+    // after the newer claim must not erase it
+    it('does not erase a claim broadcast after it', async () => {
+      const sent = Date.now() - 60000;
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now()) });
+
+      const result = await messageStore.storeAppInstallingMessage(withdrawal({ broadcastedAt: sent }));
+
+      expect(result).to.be.false;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
+    });
+
+    it('applies when no claim is stored, so a withdrawal is never lost to ordering', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      const result = await messageStore.storeAppInstallingMessage(withdrawal());
+
+      expect(result).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.true;
+    });
+
+    it('refuses a version 2 message that is not a withdrawal', async () => {
+      const result = await messageStore.storeAppInstallingMessage(withdrawal({ withdrawn: undefined }));
+
+      expect(result).to.be.instanceOf(Error);
+      expect(result.message).to.include('must be a withdrawal');
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
+    });
+
+    it('refuses a stale withdrawal', async () => {
+      const result = await messageStore.storeAppInstallingMessage(
+        withdrawal({ broadcastedAt: Date.now() - (48 * 60 * 60 * 1000) }),
+      );
+
+      expect(result).to.be.false;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
+    });
+  });
+
+  describe('storeBatchAppInstallingMessages - version 2 withdrawal', () => {
+    // The batch path carries the same withdrawal rule as the single-message one
+    // and had no coverage of its own, which is where the two came apart: the
+    // location delete kept its "only if older" guard and the delete of the
+    // broadcast backing it did not.
+    let writes;
+
+    const withdrawal = (broadcastedAt) => ({
+      version: 2,
+      timestamp: broadcastedAt,
+      pubKey: 'pk',
+      signature: 'sig',
+      receivedAt: broadcastedAt,
+      data: {
+        version: 2, name: 'testapp', ip: '1.2.3.4:16127', withdrawn: true, broadcastedAt,
+      },
+    });
+
+    beforeEach(() => {
+      writes = [];
+      const collection = (name) => ({
+        bulkWrite: async (ops, options) => { writes.push({ name, ops, options }); return {}; },
+      });
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns({ collection }) });
+    });
+
+    const guardOf = (collectionName) => {
+      const write = writes.find((w) => w.name === collectionName);
+      expect(write, `nothing was written to ${collectionName}`).to.not.equal(undefined);
+      return write.ops[0].deleteOne.filter.broadcastedAt;
+    };
+
+    it('guards the broadcast delete exactly as it guards the location delete', async () => {
+      // A withdrawal that arrives after its sender has claimed again must erase
+      // neither. Guarding only the location leaves the newer claim standing with
+      // the signed message behind it gone, and nothing can serve it during sync.
+      const sent = Date.now() - 60000;
+
+      const result = await messageStore.storeBatchAppInstallingMessages([withdrawal(sent)]);
+
+      expect(result.stored).to.equal(1);
+      const locationGuard = guardOf('appsInstallingLocations');
+      const broadcastGuard = guardOf('appsInstallingBroadcasts');
+      expect(locationGuard).to.deep.equal({ $lt: new Date(sent) });
+      expect(broadcastGuard).to.deep.equal(locationGuard);
+    });
+
+    it('addresses the broadcast by its nested name and ip', async () => {
+      // The two collections shape their documents differently - the broadcast
+      // carries the message under `data` - so the guard has to travel without
+      // the rest of the filter travelling with it.
+      const sent = Date.now() - 60000;
+
+      await messageStore.storeBatchAppInstallingMessages([withdrawal(sent)]);
+
+      const write = writes.find((w) => w.name === 'appsInstallingBroadcasts');
+      expect(write.ops[0].deleteOne.filter['data.name']).to.equal('testapp');
+      expect(write.ops[0].deleteOne.filter['data.ip']).to.equal('1.2.3.4:16127');
+    });
+
+    it('does not read a version 2 message without withdrawn as a withdrawal', async () => {
+      // The single-message path refuses version 2 unless it is a withdrawal.
+      // Reading the version alone here would let a message the protocol never
+      // emits delete its sender's claim - the same one-rule-two-paths
+      // divergence as the guard above, in the other field.
+      const msg = withdrawal(Date.now() - 60000);
+      delete msg.data.withdrawn;
+
+      const result = await messageStore.storeBatchAppInstallingMessages([msg]);
+
+      expect(result.stored).to.equal(0);
+      expect(writes).to.have.length(0);
     });
   });
 
@@ -719,6 +889,141 @@ describe('messageStore tests', () => {
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
       expect(collectionStub.updateOne.called).to.be.false;
+    });
+  });
+  describe('storeBatchAppRunningMessages batching', () => {
+    function buildBroadcasts(nodeCount, appsPerNode) {
+      const broadcastedAt = Date.now();
+      return Array.from({ length: nodeCount }, (_, n) => ({
+        version: 1,
+        timestamp: broadcastedAt,
+        pubKey: 'pub',
+        signature: 'sig',
+        data: {
+          type: 'fluxapprunning',
+          version: 2,
+          ip: `10.0.0.${n}:16127`,
+          broadcastedAt,
+          osUptime: 1000,
+          staticIp: false,
+          apps: Array.from({ length: appsPerNode }, (_, a) => ({
+            name: `app${a}`,
+            hash: `hash${n}-${a}`,
+            runningSince: new Date(broadcastedAt).toISOString(),
+          })),
+        },
+      }));
+    }
+
+    it('should write app locations in bounded batches rather than one giant bulk write', async () => {
+      const locationBatches = [];
+      const database = {
+        collection: (name) => ({
+          bulkWrite: (ops) => {
+            if (name === 'appsLocations') locationBatches.push(ops);
+            return Promise.resolve({});
+          },
+          updateOne: sinon.stub().resolves({}),
+        }),
+      };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(database) });
+
+      // 30 apps per node does not divide the 500 cap - a per-broadcast check
+      // would overrun it
+      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(40, 30));
+
+      expect(locationBatches.length).to.be.above(1);
+      locationBatches.forEach((batch) => {
+        expect(batch.length).to.be.at.most(500);
+      });
+    });
+
+    it('should still write every location operation across the batches', async () => {
+      const locationBatches = [];
+      const database = {
+        collection: (name) => ({
+          bulkWrite: (ops) => {
+            if (name === 'appsLocations') locationBatches.push(ops);
+            return Promise.resolve({});
+          },
+          updateOne: sinon.stub().resolves({}),
+        }),
+      };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(database) });
+
+      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(60, 20));
+
+      const upserts = locationBatches.flat().filter((op) => op.updateOne);
+      expect(upserts.length).to.equal(1200);
+    });
+  });
+
+  describe('the expiry windows refuse gossip older than themselves', () => {
+    // Each of these constants does double duty: it stamps expireAt onto the
+    // stored record AND bounds how stale an incoming broadcast may be. A window
+    // shorter than the fleet takes to produce and deliver a message does not
+    // make anything faster, it makes peers silently refuse each other - which
+    // is why the harness cannot compress them freely. The apprunning half is
+    // covered above; these two paths had no coverage at all.
+    beforeEach(() => {
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.updateOneInDatabase.resolves({});
+    });
+
+    function installingBroadcast(ageMs) {
+      return {
+        version: 1,
+        timestamp: Date.now(),
+        pubKey: 'pk',
+        signature: 'sig',
+        data: {
+          ip: '1.2.3.4:16127', name: 'someapp', hash: 'h', broadcastedAt: Date.now() - ageMs,
+        },
+      };
+    }
+
+    it('stores an installing claim broadcast inside the window', () => {
+      messageStore.storeSignedAppInstallingBroadcast(installingBroadcast(60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.equal(true);
+    });
+
+    it('refuses an installing claim broadcast older than the window', () => {
+      // INSTALLING_EXPIRY_MS is stubbed at 15 minutes above.
+      messageStore.storeSignedAppInstallingBroadcast(installingBroadcast(16 * 60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.called).to.equal(false);
+    });
+
+    it('stores an install-error broadcast inside the window', () => {
+      messageStore.storeSignedAppInstallingErrorBroadcast(installingBroadcast(60 * 60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.equal(true);
+    });
+
+    it('refuses an install-error broadcast older than the window', () => {
+      // INSTALLING_ERRORS_EXPIRY_MS is stubbed at 24 hours above.
+      messageStore.storeSignedAppInstallingErrorBroadcast(installingBroadcast(25 * 60 * 60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.called).to.equal(false);
+    });
+
+    it('expires the stored record at the sender\'s clock, not the receiver\'s', () => {
+      // The record must die a fixed time after it was BROADCAST, so a message
+      // that took a while to arrive does not get a fresh lease on delivery.
+      const broadcastedAt = Date.now() - (5 * 60 * 1000);
+      messageStore.storeSignedAppInstallingBroadcast({
+        version: 1,
+        timestamp: Date.now(),
+        pubKey: 'pk',
+        signature: 'sig',
+        data: {
+          ip: '1.2.3.4:16127', name: 'someapp', hash: 'h', broadcastedAt,
+        },
+      });
+
+      const { $set } = dbHelperStub.updateOneInDatabase.firstCall.args[3];
+      expect($set.expireAt.getTime()).to.equal(broadcastedAt + (15 * 60 * 1000));
     });
   });
 });
