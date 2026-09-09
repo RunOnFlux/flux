@@ -933,21 +933,6 @@ async function getConfigFolders(id) {
 }
 
 /**
- * Returns the folder for the given ID.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigFoldersApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await getConfigFolders(req.params.id || req.query.id)));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
  * The configured devices, or the one device with the given id.
  * @param {string} [id] Device ID. Omitted, every device.
  * @returns {Promise<Array|object>} The device configuration.
@@ -1529,54 +1514,7 @@ async function getFolderIdErrors(folderid) {
 }
 
 /**
- * Returns the list of errors encountered during scanning or pulling. Takes one mandatory parameter {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getFolderErrors(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    if (!folder) {
-      throw new Error('folder parameter is mandatory');
-    }
-    const response = await getFolderIdErrors(folder);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
-/**
- * Returns the list of archived files that could be recovered. Takes one mandatory parameter {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getFolderVersions(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let apiPath = '/rest/folder/versions';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
-      throw new Error('folder parameter is mandatory');
-    }
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
-/**
- * To restore archived versions of a given set of files. Expects an object with attributes named after the relative file paths, with timestamps as values matching valid versionTime entries in the corresponding getFolderVersions() response object. Takes one mandatory parameter {folder}
+ * To restore archived versions of a given set of files. Expects an object with attributes named after the relative file paths, with timestamps as values matching valid versionTime entries in syncthing's /rest/folder/versions response for the folder. Takes one mandatory parameter {folder}
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message
@@ -1613,40 +1551,6 @@ async function postFolderVersions(req, res) {
 }
 
 // === DATABASE ENDPOINTS ===
-
-/**
- * Returns the directory tree of the global model. takes one mandatory {folder} parameter and two optional parameters {levels} and {prefix}.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbBrowse(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let { levels } = req.params;
-    levels = levels || req.query.levels;
-    let { prefix } = req.params;
-    prefix = prefix || req.query.prefix;
-    let apiPath = '/rest/db/browse';
-    if (!folder) {
-      throw new Error('folder parameter is mandatory');
-    }
-    const qq = {
-      folder,
-      levels,
-      prefix,
-    };
-    const qqStr = qs.stringify(qq);
-    apiPath += `?${qqStr}`;
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
 
 /**
  * How complete a folder is, optionally as one device sees it.
@@ -1686,56 +1590,6 @@ async function getDbCompletionApi(req, res) {
 }
 
 /**
- * Returns most data available about a given file, including version and availability. Takes {folder} and {file} parameters.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbFile(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let { file } = req.params;
-    file = file || req.query.file;
-    let apiPath = '/rest/db/file';
-    if (folder || file) apiPath += '?';
-    const qq = {
-      folder,
-      file,
-    };
-    const qqStr = qs.stringify(qq);
-    apiPath += `${qqStr}`;
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
-/**
- * Returns the content of the .stignore as the ignore field. Takes one parameter, {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbIgnores(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let apiPath = '/rest/db/ignores';
-    if (folder) apiPath += `?folder=${folder}`;
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
-/**
  * Read a folder's ignore patterns, for internal callers. Returns the standard
  * message shape - { status, data: { ignore, expanded } } on success - and never
  * throws, so the caller checks status rather than catching.
@@ -1758,88 +1612,6 @@ async function getFolderIgnores(folderId) {
  */
 async function setFolderIgnores(folderId, lines) {
   return performRequest('post', `/rest/db/ignores?folder=${encodeURIComponent(folderId)}`, { ignore: lines });
-}
-
-/**
- * Returns the list of files which were changed locally in a receive-only folder. Takes one mandatory parameter, {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbLocalchanged(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let apiPath = '/rest/db/localchanged';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
-      throw new Error('folder parameter is mandatory');
-    }
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
-/**
- * Returns lists of files which are needed by this device in order for it to become in sync. Takes one mandatory parameter, {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbNeed(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let apiPath = '/rest/db/need';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
-      throw new Error('folder parameter is mandatory');
-    }
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
-/**
- * Returns the list of files which are needed by that remote device in order for it to become in sync with the shared folder. Takes the mandatory parameters {folder} and {device}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbRemoteNeed(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let { device } = req.params;
-    device = device || req.query.device;
-    let apiPath = '/rest/db/remoteneed';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
-      throw new Error('folder parameter is mandatory');
-    }
-    if (device) {
-      apiPath += `&device=${device}`;
-    } else {
-      throw new Error('device parameter is mandatory');
-    }
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
 }
 
 /**
@@ -3535,7 +3307,6 @@ module.exports = {
   postConfig,
   getConfigRestartRequired,
   getConfigFolders,
-  getConfigFoldersApi,
   getConfigDevices,
   getConfigDevicesApi,
   postConfigFolders,
@@ -3562,20 +3333,12 @@ module.exports = {
   postClusterPendigFolders,
   // Folder
   getFolderIdErrors,
-  getFolderErrors,
-  getFolderVersions,
   postFolderVersions,
   // DATABASE ENDPOINTS
-  getDbBrowse,
   getDbCompletion,
   getDbCompletionApi,
-  getDbFile,
-  getDbIgnores,
   getFolderIgnores,
   setFolderIgnores,
-  getDbLocalchanged,
-  getDbNeed,
-  getDbRemoteNeed,
   getDbStatus,
   getDbStatusApi,
   postDbIgnores,
