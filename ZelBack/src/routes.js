@@ -307,6 +307,9 @@ module.exports = (app) => {
   app.get('/flux/dosstate', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxNetworkHelper.getDOSState(req, res);
   }));
+  app.get('/flux/health', cache('30 seconds'), asyncRoute((req, res) => {
+    return idService.nodeHealth(req, res);
+  }));
   app.post('/flux/dosstate', asyncRoute((req, res) => {
     return fluxNetworkHelper.setDOSStateApi(req, res);
   }));
