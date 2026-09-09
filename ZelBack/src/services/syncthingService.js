@@ -311,29 +311,6 @@ async function getHealth() {
 // === SYSTEM ENDPOINTS ===
 
 /**
- * To get list of directories matching the path given by the optional parameter current
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} List of directories in json array format.
- */
-async function systemBrowse(req, res) {
-  let { current } = req.params;
-  current = current || req.query.current;
-  let apiPath = '/rest/system/browse';
-  if (current) {
-    apiPath += `?current=${current}`;
-  }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', apiPath);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
  * To get the set of debug facilities and which of them are currently enabled.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -414,30 +391,6 @@ async function systemErrorClear(req, res) {
 }
 
 /**
- * Returns the list of recent errors. Post with an error message in the body (plain text) to register a new error.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemError(req, res) {
-  let method = 'get';
-  let { message } = req.params;
-  message = message || req.query.message;
-  const apiPath = '/rest/system/error';
-  if (message) {
-    method = 'post';
-  }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest(method, apiPath, message);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
  * Post with an error message in the body (plain text) to register a new error.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -465,69 +418,6 @@ async function postSystemError(req, res) {
       return res.json(errorResponse);
     }
   });
-}
-
-/**
- * To get the list of recent log entries. The optional {since} parameter limits the results to message newer than the given timestamp in RFC 3339 format.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemLog(req, res) {
-  let { since } = req.params;
-  since = since || req.query.since;
-  let apiPath = '/rest/system/log';
-  if (since) {
-    apiPath += `?since=${since}`;
-  }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', apiPath);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * To get the list of recent log entries formatted as a text log instead of a JSON object. The optional {since} parameter limits the results to message newer than the given timestamp in RFC 3339 format.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemLogTxt(req, res) {
-  let { since } = req.params;
-  since = since || req.query.since;
-  let apiPath = '/rest/system/log.txt';
-  if (since) {
-    apiPath += `?since=${since}`;
-  }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', apiPath);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * To get the path locations used internally for storing configuration, database, and others.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemPaths(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', '/rest/system/paths');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
 }
 
 /**
@@ -747,26 +637,6 @@ async function systemVersion() {
  */
 async function getConfig() {
   return request('get', '/rest/config');
-}
-
-/**
- * Returns the entire config.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigApi(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-    if (authorized !== true) {
-      res.json(messageHelper.errUnauthorizedMessage());
-      return;
-    }
-    res.json(messageHelper.createDataMessage(await getConfig()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
 }
 
 /**
@@ -1073,26 +943,6 @@ async function getConfigOptions() {
  */
 async function getConfigGui() {
   return request('get', '/rest/config/gui');
-}
-
-/**
- * To show the GUI configuration. Flux team only.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {Promise<void>}
- */
-async function getConfigGuiApi(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
-  if (authorized !== true) {
-    res.json(messageHelper.errUnauthorizedMessage());
-    return;
-  }
-  try {
-    res.json(messageHelper.createDataMessage(await getConfigGui()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
 }
 
 /**
@@ -1620,57 +1470,6 @@ async function postDbScan(req, res) {
 
 // === DEBUG ===
 
-/**
- * Summarizes the completion precentage for each remote device.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function debugPeerCompletion(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/peerCompletion');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * Returns statistics about each served REST API endpoint, to diagnose how much time was spent generating the responses.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function debugHttpmetrics(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/httpmetrics');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * To Collect information about the running instance for troubleshooting purposes.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function debugSupport(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/support', undefined, 60000);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
 // === EVENT ENDPOINTS ===
 
 /**
@@ -1705,101 +1504,7 @@ async function getEvents({
   return request('get', apiPath, undefined, config);
 }
 
-/**
- * To receive Syncthing events. takes {events}, {since}, {limit} and {timeout} parameters to filter the result.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getEventsApi(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-    if (authorized !== true) {
-      res.json(messageHelper.errUnauthorizedMessage());
-      return;
-    }
-    const data = await getEvents({
-      events: req.params.events || req.query.events,
-      since: req.params.since || req.query.since,
-      limit: req.params.limit || req.query.limit,
-      timeout: req.params.timeout || req.query.timeout,
-    });
-    res.json(messageHelper.createDataMessage(data));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
- * To receive LocalChangeDetected and RemoteChangeDetected event types. takes {since}, {limit} and {timeout} parameters to filter the result.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getEventsDisk(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  if (authorized !== true) {
-    const response = messageHelper.errUnauthorizedMessage();
-    return res.json(response);
-  }
-  try {
-    let { since } = req.params;
-    since = since || req.query.since;
-    let { limit } = req.params;
-    limit = limit || req.query.limit;
-    let { timeout } = req.params;
-    timeout = timeout || req.query.timeout;
-    let apiPath = '/rest/events/disk';
-    if (since || limit || timeout) apiPath += '?';
-    const qq = {
-      since,
-      limit,
-      timeout,
-    };
-    const qqStr = qs.stringify(qq);
-    apiPath += `${qqStr}`;
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
 // === MISC SERVICES ENDPOINTS ===
-
-/**
- * Returns a strong random generated string (alphanumeric) of the specified length. Takes the {length} parameter.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getSvcRandomString(req, res) {
-  let { length } = req.params;
-  length = length || req.query.length;
-  let apiPath = '/rest/svc/random/string';
-  try {
-    if (length) {
-      const parsedLength = Number(length);
-      if (!Number.isFinite(parsedLength) || parsedLength < 0 || parsedLength > 10000) {
-        const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-        if (authorized !== true) {
-          const response = messageHelper.errUnauthorizedMessage();
-          return res.json(response);
-        }
-      }
-      apiPath += `?length=${length}`;
-    }
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
 
 // === CUSTOM ===
 
@@ -2977,15 +2682,10 @@ module.exports = {
   getDeviceIdApi,
   getMeta,
   getHealth,
-  systemBrowse,
   systemDiscovery,
   systemDebug,
   systemErrorClear,
-  systemError,
   postSystemError,
-  systemLog,
-  systemLogTxt,
-  systemPaths,
   systemPause,
   systemPauseApi,
   systemReset,
@@ -3002,7 +2702,6 @@ module.exports = {
   syncthingController,
   // CONFIG
   getConfig,
-  getConfigApi,
   postConfig,
   getConfigFolders,
   getConfigDevices,
@@ -3014,7 +2713,6 @@ module.exports = {
   postConfigDefaultsIgnores,
   getConfigOptions,
   getConfigGui,
-  getConfigGuiApi,
   postConfigOptions,
   postConfigGui,
   postConfigLdap,
@@ -3037,14 +2735,8 @@ module.exports = {
   postDbScan,
   // EVENTS
   getEvents,
-  getEventsApi,
-  getEventsDisk,
   // MISC
-  getSvcRandomString,
   // DEBUG
-  debugHttpmetrics,
-  debugPeerCompletion,
-  debugSupport,
   // helpers
   adjustConfigFolders,
   adjustConfigDevices,

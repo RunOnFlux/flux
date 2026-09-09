@@ -600,9 +600,6 @@ module.exports = (app) => {
   app.get('/syncthing/deviceid', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getDeviceIdApi(req, res);
   }));
-  app.get('/syncthing/system/browse/:current?', asyncRoute((req, res) => {
-    return syncthingService.systemBrowse(req, res);
-  }));
   app.get('/syncthing/system/debug/:enable?/:disable?', asyncRoute((req, res) => {
     return syncthingService.systemDebug(req, res);
   }));
@@ -611,18 +608,6 @@ module.exports = (app) => {
   }));
   app.get('/syncthing/system/error/clear', asyncRoute((req, res) => {
     return syncthingService.systemErrorClear(req, res);
-  }));
-  app.get('/syncthing/system/error/:message?', asyncRoute((req, res) => {
-    return syncthingService.systemError(req, res);
-  }));
-  app.get('/syncthing/system/log/:since?', asyncRoute((req, res) => {
-    return syncthingService.systemLog(req, res);
-  }));
-  app.get('/syncthing/system/logtxt/:since?', asyncRoute((req, res) => {
-    return syncthingService.systemLogTxt(req, res);
-  }));
-  app.get('/syncthing/system/paths', asyncRoute((req, res) => {
-    return syncthingService.systemPaths(req, res);
   }));
   app.get('/syncthing/system/pause/:device?', asyncRoute((req, res) => {
     return syncthingService.systemPauseApi(req, res);
@@ -641,30 +626,6 @@ module.exports = (app) => {
   }));
   app.get('/syncthing/system/upgrade', asyncRoute((req, res) => {
     return syncthingService.systemUpgrade(req, res);
-  }));
-  app.get('/syncthing/config', asyncRoute((req, res) => {
-    return syncthingService.getConfigApi(req, res);
-  }));
-  app.get('/syncthing/config/gui', asyncRoute((req, res) => {
-    return syncthingService.getConfigGuiApi(req, res);
-  }));
-  app.get('/syncthing/events/disk', asyncRoute((req, res) => {
-    return syncthingService.getEventsDisk(req, res);
-  }));
-  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', asyncRoute((req, res) => {
-    return syncthingService.getEventsApi(req, res);
-  }));
-  app.get('/syncthing/svc/random/string/:length?', asyncRoute((req, res) => {
-    return syncthingService.getSvcRandomString(req, res);
-  }));
-  app.get('/syncthing/debug/peercompletion', asyncRoute((req, res) => {
-    return syncthingService.debugPeerCompletion(req, res);
-  }));
-  app.get('/syncthing/debug/httpmetrics', asyncRoute((req, res) => {
-    return syncthingService.debugHttpmetrics(req, res);
-  }));
-  app.get('/syncthing/debug/support', asyncRoute((req, res) => {
-    return syncthingService.debugSupport(req, res);
   }));
   // BACKUP & RESTORE
 
