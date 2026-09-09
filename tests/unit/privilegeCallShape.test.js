@@ -64,8 +64,10 @@ describe('privilege call shape', () => {
   const sites = callSites();
 
   it('finds every call site, and there are as many as the tree has', () => {
-    // A number, so this fails loudly if the sweep silently stops finding them.
-    expect(sites.length).to.be.greaterThan(250);
+    // A floor, so this fails loudly if the sweep silently stops finding them -
+    // set well below the real count (238 after the syncthing passthrough routes
+    // were removed) rather than at it, so it catches a broken sweep, not churn.
+    expect(sites.length).to.be.greaterThan(200);
   });
 
   it('names a privilege by its member, never by the string behind it', () => {
