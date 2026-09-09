@@ -666,9 +666,6 @@ module.exports = (app) => {
   app.get('/syncthing/config/restart-required', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getConfigRestartRequired(req, res);
   }));
-  app.get('/syncthing/config/folders/:id?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigFoldersApi(req, res);
-  }));
   app.get('/syncthing/config/devices/:id?', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getConfigDevicesApi(req, res);
   }));
@@ -702,32 +699,8 @@ module.exports = (app) => {
   app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getClusterPendigFolders(req, res);
   }));
-  app.get('/syncthing/folder/errors/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getFolderErrors(req, res);
-  }));
-  app.get('/syncthing/folder/versions/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getFolderVersions(req, res);
-  }));
-  app.get('/syncthing/db/browse/:folder?/:levels?/:prefix?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbBrowse(req, res);
-  }));
   app.get('/syncthing/db/completion/:folder?/:device?', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getDbCompletionApi(req, res);
-  }));
-  app.get('/syncthing/db/file/:folder?/:file?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbFile(req, res);
-  }));
-  app.get('/syncthing/db/ignores/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbIgnores(req, res);
-  }));
-  app.get('/syncthing/db/localchanged/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbLocalchanged(req, res);
-  }));
-  app.get('/syncthing/db/need/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbNeed(req, res);
-  }));
-  app.get('/syncthing/db/remoteneed/:folder?/:device?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbRemoteNeed(req, res);
   }));
   app.get('/syncthing/db/status/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getDbStatusApi(req, res);
