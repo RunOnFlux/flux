@@ -274,20 +274,6 @@ async function request(method, urlpath, data, config) {
 }
 
 /**
- * The error envelope for a handler whose work threw.
- *
- * A SyncthingError carries the status its request failed with, which has always
- * been on the wire for these endpoints; a validation error raised before any
- * request went out has no status and never carried the key.
- * @param {Error} error The thrown error.
- * @returns {object} Message
- */
-function errorEnvelope(error) {
-  const response = messageHelper.createErrorMessage(error.message, error.name, error.code);
-  if (error instanceof SyncthingError) response.data.httpStatus = error.httpStatus;
-  return response;
-}
-/**
  * To get meta
  * @param {object} req Request.
  * @param {object} res Response.
@@ -309,86 +295,6 @@ async function getHealth() {
 // === STATISTICS ENDPOINTS ===
 
 // === SYSTEM ENDPOINTS ===
-
-/**
- * To get the set of debug facilities and which of them are currently enabled.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} List of debug facilities and which of them are currently enabled.
- */
-async function systemDebug(req, res) {
-  let method = 'get';
-  let { disable } = req.params;
-  disable = disable || req.query.disable;
-  let { enable } = req.params;
-  enable = enable || req.query.enable;
-  let apiPath = '/rest/system/debug';
-  if (enable || disable) {
-    method = 'post';
-  }
-  if (enable && disable) {
-    apiPath += `?enable=${enable}&disable=${disable}`;
-  } else if (enable) {
-    apiPath += `?enable=${enable}`;
-  } else if (disable) {
-    apiPath += `?disable=${disable}`;
-  }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest(method, apiPath);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * To get the contents of the local discovery cache
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Contents of the local discovery cache
- */
-async function systemDiscovery(req, res) {
-  let method = 'get';
-  let { device } = req.params;
-  device = device || req.query.device;
-  let { addr } = req.params;
-  addr = addr || req.query.addr;
-  let apiPath = '/rest/system/discovery';
-  if (device || addr) {
-    method = 'post';
-  }
-  if (device && addr) { // both must be defined otherwise get
-    method = 'post';
-    apiPath += `?device=${device}&addr=${addr}`;
-  }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest(method, apiPath);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * Post with empty body to remove all recent errors.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemErrorClear(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('post', '/rest/system/error/clear');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
 
 /**
  * Post with an error message in the body (plain text) to register a new error.
@@ -435,26 +341,6 @@ async function systemPause(device) {
 }
 
 /**
- * To pause the given device or all devices. Takes the optional parameter {device} (device ID). When omitted, pauses all devices.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemPauseApi(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-    if (authorized !== true) {
-      res.json(messageHelper.errUnauthorizedMessage());
-      return;
-    }
-    res.json(messageHelper.createDataMessage(await systemPause(req.params.device || req.query.device)));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
  * Returns a {"ping": "pong"} object.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -462,30 +348,6 @@ async function systemPauseApi(req, res) {
  */
 async function systemPing() {
   return request('get', '/rest/system/ping'); // can also be 'post', same
-}
-
-/**
- * To erase the current index database and restart Syncthing. With no query parameters, the entire database is erased from disk. By specifying the {folder} parameter with a valid folder ID, only information for that folder will be erased.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemReset(req, res) {
-  // note: scary call
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let apiPath = '/rest/system/reset';
-  if (folder) {
-    apiPath += `?folder=${folder}`;
-  }
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('post', apiPath);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
 }
 
 /**
@@ -518,26 +380,6 @@ async function systemRestart() {
 }
 
 /**
- * To immediately restart Syncthing
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemRestartApi(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-    if (authorized !== true) {
-      res.json(messageHelper.errUnauthorizedMessage());
-      return;
-    }
-    res.json(messageHelper.createDataMessage(await systemRestart()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
  * Resume a device, or every device when none is named.
  * @param {string} [device] Device ID.
  * @returns {Promise<*>} Syncthing's answer.
@@ -548,60 +390,6 @@ async function systemResume(device) {
     apiPath += `?device=${device}`;
   }
   return request('post', apiPath);
-}
-
-/**
- * To resume the given device or all devices. Takes the optional parameter {device} (device ID). When omitted, resumes all devices
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemResumeApi(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-    if (authorized !== true) {
-      res.json(messageHelper.errUnauthorizedMessage());
-      return;
-    }
-    res.json(messageHelper.createDataMessage(await systemResume(req.params.device || req.query.device)));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
- * To cause Syncthing to exit and not restart.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemShutdown(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('post', '/rest/system/shutdown');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * To Check for a possible upgrade, returns an object describing the newest version and upgrade possibility.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemUpgrade(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', '/rest/system/upgrade');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
 }
 
 /**
@@ -2682,20 +2470,11 @@ module.exports = {
   getDeviceIdApi,
   getMeta,
   getHealth,
-  systemDiscovery,
-  systemDebug,
-  systemErrorClear,
   postSystemError,
   systemPause,
-  systemPauseApi,
-  systemReset,
   systemResetFolderId,
   systemRestart,
-  systemRestartApi,
   systemResume,
-  systemResumeApi,
-  systemShutdown,
-  systemUpgrade,
   postSystemUpgrade,
   systemVersion,
   systemPing,

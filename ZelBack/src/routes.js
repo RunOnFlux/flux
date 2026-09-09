@@ -600,33 +600,6 @@ module.exports = (app) => {
   app.get('/syncthing/deviceid', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getDeviceIdApi(req, res);
   }));
-  app.get('/syncthing/system/debug/:enable?/:disable?', asyncRoute((req, res) => {
-    return syncthingService.systemDebug(req, res);
-  }));
-  app.get('/syncthing/system/discovery/:device?/:addr?', asyncRoute((req, res) => {
-    return syncthingService.systemDiscovery(req, res);
-  }));
-  app.get('/syncthing/system/error/clear', asyncRoute((req, res) => {
-    return syncthingService.systemErrorClear(req, res);
-  }));
-  app.get('/syncthing/system/pause/:device?', asyncRoute((req, res) => {
-    return syncthingService.systemPauseApi(req, res);
-  }));
-  app.get('/syncthing/system/reset/:folder?', asyncRoute((req, res) => {
-    return syncthingService.systemReset(req, res);
-  }));
-  app.get('/syncthing/system/restart', asyncRoute((req, res) => {
-    return syncthingService.systemRestartApi(req, res);
-  }));
-  app.get('/syncthing/system/resume/:device?', asyncRoute((req, res) => {
-    return syncthingService.systemResumeApi(req, res);
-  }));
-  app.get('/syncthing/system/shutdown', asyncRoute((req, res) => {
-    return syncthingService.systemShutdown(req, res);
-  }));
-  app.get('/syncthing/system/upgrade', asyncRoute((req, res) => {
-    return syncthingService.systemUpgrade(req, res);
-  }));
   // BACKUP & RESTORE
 
   app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', asyncRoute((req, res) => {
