@@ -44,7 +44,6 @@ async function deleteLoginPhrase(phrase) {
   }
 }
 
-let syncthingWorking = false;
 
 /**
  * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
@@ -121,91 +120,122 @@ async function confirmNodeTierHardware() {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-let firstLoginPhraseExecution = true;
-async function loginPhrase(req, res) {
+/**
+ * Assess node fitness: the checks that decide whether this node can serve the
+ * network. Shared by loginPhrase and the health endpoint so both gate
+ * identically. Returns the first failing check; never throws.
+ * @returns {Promise<{ok: boolean, error: (object|null), checks: object}>}
+ */
+async function checkNodeFitness() {
+  const checks = {};
+
+  // db: a fast read proves the local database answers
   try {
-    // check db
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
-    const query = { loginPhrase: 'TestLoginPhraseForDBTest' };
-    const projection = {};
-    await dbHelper.findOneInDatabase(database, collection, query, projection); // fast find call for db test
+    await dbHelper.findOneInDatabase(database, collection, { loginPhrase: 'TestLoginPhraseForDBTest' }, {});
+    checks.db = 'ok';
+  } catch (error) {
+    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+  }
 
-    // check synthing availability
-    if (!syncthingService.isRunning() && !firstLoginPhraseExecution) {
-      if (syncthingWorking) {
-        syncthingWorking = false;
-      } else {
-        throw new Error('Syncthing is not running properly');
-      }
-    } else {
-      syncthingWorking = true;
-    }
-    firstLoginPhraseExecution = false;
-    // check docker availablility
+  // syncthing: the flag is maintained by the sentinel with debounce, so a single
+  // probe blip cannot land here - only a sustained outage does.
+  if (!syncthingService.isRunning()) {
+    const error = new Error('Syncthing is not running properly');
+    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+  }
+  checks.syncthing = 'ok';
+
+  // docker: listing images proves the daemon answers
+  try {
     await dockerService.dockerListImages();
-    // check Node Hardware Requirements are ok.
-    const hwPassed = await confirmNodeTierHardware();
-    if (hwPassed === false) {
-      throw new Error('Node hardware requirements not met');
+    checks.docker = 'ok';
+  } catch (error) {
+    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+  }
+
+  // hardware: the node must still meet its tier requirements
+  const hwPassed = await confirmNodeTierHardware();
+  if (hwPassed === false) {
+    const error = new Error('Node hardware requirements not met');
+    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+  }
+  checks.hardware = 'ok';
+
+  // DOS state (contains daemon checks)
+  const dosState = fluxNetworkHelper.getDOSState();
+  if (dosState.status === 'error') {
+    return { ok: false, error: { message: 'Unable to check DOS state' }, checks };
+  }
+  if (dosState.status === 'success') {
+    if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
+      let error = { message: dosState.data.dosMessage, name: 'DOS', code: dosState.data.dosState };
+      if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
+        error = { message: dosState.data.dosMessage, name: 'CONNERROR', code: dosState.data.dosState };
+      }
+      if (dosState.data.nodeHardwareSpecsGood === false) {
+        error = { message: 'Minimum hardware required for FluxNode tier not met', name: 'DOS', code: 100 };
+      }
+      return { ok: false, error, checks };
     }
-    // check DOS state (contains daemon checks)
-    const dosState = fluxNetworkHelper.getDOSState();
-    if (dosState.status === 'error') {
-      const errorMessage = 'Unable to check DOS state';
-      const errMessage = messageHelper.createErrorMessage(errorMessage);
-      res.json(errMessage);
+  }
+  checks.dos = 'ok';
+
+  // Apps DOS state
+  const dosAppsState = appInspector.getAppsDOSState();
+  if (dosAppsState.status === 'success' && dosAppsState.data.dosState >= 100) {
+    return { ok: false, error: { message: dosAppsState.data.dosMessage, name: 'DOS', code: dosAppsState.data.dosState }, checks };
+  }
+  checks.appsDos = 'ok';
+
+  return { ok: true, error: null, checks };
+}
+
+/**
+ * Node health endpoint. Reports whether this node is fit to serve the network,
+ * using the same checks loginPhrase gates on. GET /flux/health.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function nodeHealth(_, res) {
+  try {
+    const fitness = await checkNodeFitness();
+    if (!fitness.ok) {
+      res.json(messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code));
       return;
     }
-    if (dosState.status === 'success') {
-      // nodeHardwareSpecsGood is not part of response yet
-      if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
-        let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-        if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
-          errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
-        }
-        if (dosState.data.nodeHardwareSpecsGood === false) {
-          errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
-        }
-        res.json(errMessage);
-        return;
-      }
+    res.json(messageHelper.createDataMessage(fitness.checks));
+  } catch (error) {
+    log.error(error);
+    res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+  }
+}
+
+async function loginPhrase(req, res) {
+  try {
+    const fitness = await checkNodeFitness();
+    if (!fitness.ok) {
+      res.json(messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code));
+      return;
     }
 
-    // check Apps DOS state
-    const dosAppsState = appInspector.getAppsDOSState();
-    if (dosAppsState.status === 'success') {
-      // nodeHardwareSpecsGood is not part of response yet
-      if (dosAppsState.data.dosState >= 100) {
-        const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
-        log.error(errMessage);
-        res.json(errMessage);
-        return;
-      }
-    }
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
 
     const timestamp = Date.now();
     const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
     const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-    /* const activeLoginPhrases = [
-       {
-         loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
-         createdAt: 2019-08-09T13:08:41.335Z,
-         expireAt: 2019-08-09T13:23:41.335Z
-       }
-    ] */
-    // insert to db
     const newLoginPhrase = {
       loginPhrase: phrase,
       createdAt: new Date(timestamp),
       expireAt: new Date(validTill),
     };
-    const value = newLoginPhrase;
-    await dbHelper.insertOneToDatabase(database, collection, value);
+    await dbHelper.insertOneToDatabase(database, collection, newLoginPhrase);
 
-    // all is ok
     const phraseResponse = messageHelper.createDataMessage(phrase);
     res.json(phraseResponse);
   } catch (error) {
@@ -894,6 +924,8 @@ async function checkLoggedUser(req, res) {
 module.exports = {
   PRIVILEGE_RESPONSE,
   loginPhrase,
+  nodeHealth,
+  checkNodeFitness,
   emergencyPhrase,
   verifyLogin,
   provideSign,
