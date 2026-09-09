@@ -171,6 +171,7 @@ describe('syncthingService tests', () => {
 
     afterEach(async () => {
       syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
       await syncthingService.syncthingController().abort();
       sinon.restore();
     });
@@ -210,6 +211,98 @@ describe('syncthingService tests', () => {
 
       const res = await syncthingService.getDeviceId();
       expect(res).to.be.equal(null);
+    });
+  });
+
+  describe('syncthing health robustness', () => {
+    const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;
+    let fakeMeta;
+
+    const wireSyncthing = (metaStub) => {
+      const get = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') return metaStub();
+        if (reqPath === '/rest/noauth/health') return { status: 'success', data: { status: 'OK' } };
+        if (reqPath === '/rest/system/ping') return { status: 'success', data: { ping: 'pong' } };
+        return {};
+      });
+      sinon.stub(axios, 'create').returns({ get });
+    };
+
+    beforeEach(() => {
+      // Start from a clean axios instance and id cache so this block's stub is
+      // the one used, not an instance a prior test left warm in the cache.
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
+      // getConfigFile runs chown/chmod via runCommand to read the api key; stub it
+      // so no real sudo fires and the key is read from the fixture below.
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      fakeMeta = sinon.stub().resolves({ status: 'success', data: metaBody });
+      wireSyncthing(fakeMeta);
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
+      sinon.restore();
+    });
+
+    it('caches the device id - a second read does not re-probe syncthing', async () => {
+      const first = await syncthingService.getDeviceId();
+      const second = await syncthingService.getDeviceId();
+
+      expect(first).to.equal(deviceId);
+      expect(second).to.equal(deviceId);
+      expect(fakeMeta.callCount).to.equal(1);
+    });
+
+    it('getDeviceId does not touch the health flag - peer reads cannot move it', async () => {
+      syncthingService.setSyncthingRunningState(false);
+
+      const id = await syncthingService.getDeviceId();
+
+      expect(id).to.equal(deviceId);
+      expect(syncthingService.isRunning()).to.equal(false);
+    });
+
+    it('refreshSyncthingHealth keeps the flag up through a blip, drops it only after three failures', async () => {
+      syncthingService.setSyncthingRunningState(true);
+      syncthingService.resetDeviceIdCache();
+
+      fakeMeta.throws(new Error('syncthing busy'));
+
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning(), 'one failure must not drop the flag').to.equal(true);
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning(), 'two failures must not drop the flag').to.equal(true);
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning(), 'the third consecutive failure drops it').to.equal(false);
+    });
+
+    it('a single success clears the failure streak and restores the flag', async () => {
+      syncthingService.resetDeviceIdCache();
+      fakeMeta.throws(new Error('syncthing busy'));
+      await syncthingService.refreshSyncthingHealth();
+      await syncthingService.refreshSyncthingHealth();
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning()).to.equal(false);
+
+      fakeMeta.resolves({ status: 'success', data: metaBody });
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning()).to.equal(true);
+    });
+
+    it('stopSyncthing drops the cached id, so the next read re-probes', async () => {
+      await syncthingService.getDeviceId();
+      expect(fakeMeta.callCount).to.equal(1);
+
+      await syncthingService.stopSyncthing();
+      await syncthingService.getDeviceId();
+
+      expect(fakeMeta.callCount).to.equal(2);
     });
   });
 

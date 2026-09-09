@@ -32,6 +32,15 @@ let syncthingBinaryPresent = false;
  * syncthing, it will get set to false on the next iteration.
  */
 let syncthingStatusOk = true;
+// The device id is the SHA-256 of syncthing's cert (protocol.NewDeviceID); it is
+// fixed for the life of the install, so it is read once and served from here.
+// Cleared when syncthing is stopped, the only point a new cert could appear.
+let cachedDeviceId = null;
+// A single failed probe is not an outage - syncthing is briefly unresponsive
+// under load or mid-scan. The health flag only drops after this many consecutive
+// failed probes, so a blip cannot flip the node's benchmark health.
+let syncthingHealthFailures = 0;
+const SYNCTHING_HEALTH_FAILURE_THRESHOLD = 3;
 
 const parserOptions = {
   ignoreAttributes: false,
@@ -1300,8 +1309,14 @@ async function getEvents({
  * Returns device id, also checks that syncthing is installed and running and we have the api key.
  * @returns {Promise<null | string>} Message
  */
-async function getDeviceId() {
-  // not sure why this is necessary. If we only want one at a time, should implement a cache too.
+/**
+ * One health probe of the local syncthing: it is up and configured when the
+ * meta, health and ping endpoints all answer as expected. Reads no shared state
+ * and sets no flag - the caller decides what a single result means.
+ * @returns {Promise<{ok: boolean, deviceId: (string|null)}>}
+ */
+async function probeSyncthing() {
+  // Serialised so concurrent callers do not each open three requests at once.
   await asyncLock.enable();
 
   let meta = null;
@@ -1320,30 +1335,57 @@ async function getDeviceId() {
     asyncLock.disable();
   }
 
-  if (stc.aborted) return null;
+  if (stc.aborted) return { ok: false, deviceId: null };
 
   if (meta && pingResponse?.ping === 'pong' && healthy?.status === 'OK') {
-    syncthingStatusOk = true;
-    const adjustedString = meta.slice(15).slice(0, -2);
-    const deviceObject = JSON.parse(adjustedString);
-    const { deviceID } = deviceObject;
-    return deviceID;
+    const deviceObject = JSON.parse(meta.slice(15).slice(0, -2));
+    return { ok: true, deviceId: deviceObject.deviceID };
   }
 
-  syncthingStatusOk = false;
+  return { ok: false, deviceId: null };
+}
 
-  // const { stdout } = await serviceHelper.runCommand('ps', {
-  //   params: ['-fC', 'syncthing'],
-  //   logError: false,
-  // });
+/**
+ * The node's own syncthing device id. Immutable for the life of the install, so
+ * it is read once and cached; peers asking for it (getDeviceIdApi) then cost a
+ * lookup rather than three requests to syncthing. Does not touch the health flag
+ * - advertising the id and judging syncthing's health are separate concerns.
+ * @returns {Promise<string|null>} The device id, or null if syncthing has not
+ *   yet answered since start.
+ */
+async function getDeviceId() {
+  if (cachedDeviceId) return cachedDeviceId;
 
-  // ToDo: tidy this up
-  log.error('Syncthing is either not running or misconfigured');
-  // log.error(stdout);
-  // log.error(meta);
-  // log.error(healthy);
-  // log.error(pingResponse);
-  return null;
+  const { deviceId } = await probeSyncthing();
+  if (deviceId) cachedDeviceId = deviceId;
+  return cachedDeviceId;
+}
+
+/**
+ * Refresh the shared syncthing health flag from one probe, with debounce. The
+ * sentinel calls this on its loop so the flag reflects a deliberate schedule
+ * rather than whatever incoming peer traffic last happened to trigger. A success
+ * clears the flag immediately; failures must reach the threshold before it drops.
+ * @returns {Promise<boolean>} The probe result (not the debounced flag).
+ */
+async function refreshSyncthingHealth() {
+  const { ok, deviceId } = await probeSyncthing();
+
+  if (ok) {
+    syncthingHealthFailures = 0;
+    syncthingStatusOk = true;
+    if (deviceId) cachedDeviceId = deviceId;
+    return true;
+  }
+
+  syncthingHealthFailures += 1;
+  if (syncthingHealthFailures >= SYNCTHING_HEALTH_FAILURE_THRESHOLD) {
+    if (syncthingStatusOk) {
+      log.error(`Syncthing health probe failed ${syncthingHealthFailures} times in a row; marking syncthing not running`);
+    }
+    syncthingStatusOk = false;
+  }
+  return false;
 }
 
 /**
@@ -1513,6 +1555,9 @@ async function configureDirectories() {
  * @returns {Promise<void>}
  */
 async function stopSyncthing() {
+  // The device id is derived from syncthing's cert; a stop is the only window in
+  // which that cert could be replaced, so the cached id is dropped here.
+  cachedDeviceId = null;
   if (stc.aborted) return;
 
   const { stdout: syncthingRunningA } = await serviceHelper.runCommand('pgrep', {
@@ -1574,7 +1619,7 @@ async function stopSyncthingSentinel() {
  * @returns {Promise<void>}
  */
 async function ensureSyncthingRunning(installed) {
-  if (installed && await getDeviceId()) return;
+  if (installed && (await probeSyncthing()).ok) return;
 
   log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
   await stopSyncthing();
@@ -1645,6 +1690,10 @@ async function runSyncthingSentinel() {
       await ensureSyncthingRunning(installed);
     }
 
+    // The health signal is maintained here, deliberately, on every node type -
+    // not as a side effect of peer deviceid requests, and not skipped on Arcane.
+    await refreshSyncthingHealth();
+
     if (stc.aborted) return 0;
 
     // every 8 minutes call adjustSyncthing to check service folders
@@ -1693,6 +1742,14 @@ async function startSyncthingSentinel() {
  */
 function setSyncthingRunningState(value) {
   syncthingStatusOk = value;
+}
+
+/**
+ * Test helper: clears the cached device id and the health debounce counter.
+ */
+function resetDeviceIdCache() {
+  cachedDeviceId = null;
+  syncthingHealthFailures = 0;
 }
 
 // handy for testing
@@ -2468,6 +2525,8 @@ module.exports = {
   stopSyncthingSentinel,
   getDeviceId,
   getDeviceIdApi,
+  probeSyncthing,
+  refreshSyncthingHealth,
   getMeta,
   getHealth,
   postSystemError,
@@ -2526,6 +2585,7 @@ module.exports = {
   configureDirectories,
   installSyncthingIdempotently,
   setSyncthingRunningState,
+  resetDeviceIdCache,
   adjustSyncthing,
   getConfigFile,
   runSyncthingSentinel,
