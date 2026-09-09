@@ -32,7 +32,6 @@ const syncthingServiceMock = {
   adjustConfigDevices: sinon.stub().resolves(),
   adjustConfigFolders: sinon.stub().resolves(),
   getFolderIdErrors: sinon.stub(),
-  getConfigRestartRequired: sinon.stub(),
   systemRestart: sinon.stub().resolves(),
   getDbStatus: sinon.stub(),
 };
@@ -160,7 +159,6 @@ describe('syncthingMonitor tests', () => {
     syncthingServiceMock.adjustConfigDevices.reset();
     syncthingServiceMock.adjustConfigFolders.reset();
     syncthingServiceMock.getFolderIdErrors.reset();
-    syncthingServiceMock.getConfigRestartRequired.reset();
     syncthingServiceMock.systemRestart.reset();
     fluxNetworkHelperMock.getLocalSocketAddress.reset();
     dockerServiceMock.dockerContainerInspect.reset();
@@ -214,10 +212,6 @@ describe('syncthingMonitor tests', () => {
     fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
     syncthingServiceMock.getConfigFolders.resolves([]);
     syncthingServiceMock.getConfigDevices.resolves([]);
-    syncthingServiceMock.getConfigRestartRequired.resolves({
-      status: 'success',
-      data: { requiresRestart: false },
-    });
     syncthingHealthMonitorMock.monitorFolderHealth.resolves({
       actions: [],
       summary: { healthy: 0, warnings: 0, issues: 0 },

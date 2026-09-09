@@ -299,22 +299,6 @@ async function getMeta() {
 }
 
 /**
- * To get meta
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function getMetaApi(req, res) {
-  // does not require authentication
-  try {
-    res.json(messageHelper.createDataMessage(await getMeta()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
  * Syncthing's own health check. The one syncthing endpoint that needs no api key.
  * @returns {Promise<object>} System health, {"status": "OK"}.
  */
@@ -322,44 +306,7 @@ async function getHealth() {
   return request('get', '/rest/noauth/health');
 }
 
-/**
- * To get Syncthing health
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getHealthApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await getHealth()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
 // === STATISTICS ENDPOINTS ===
-
-/**
- * To get device statistics
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} General statistics about devices.
- */
-async function statsDevice(req, res) {
-  const response = await performRequest('get', '/rest/stats/device');
-  return res ? res.json(response) : response;
-}
-
-/**
- * To get folder statistics
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} General statistics about folders.
- */
-async function statsFolder(req, res) {
-  const response = await performRequest('get', '/rest/stats/folder');
-  return res ? res.json(response) : response;
-}
 
 // === SYSTEM ENDPOINTS ===
 
@@ -384,17 +331,6 @@ async function systemBrowse(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
   return res.json(response);
-}
-
-/**
- * To get the list of configured devices and some metadata associated with them. The list also contains the local device itself as not connected.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} List of configured devices and some metadata in json format.
- */
-async function systemConnections(req, res) {
-  const response = await performRequest('get', '/rest/system/connections');
-  return res ? res.json(response) : response;
 }
 
 /**
@@ -639,21 +575,6 @@ async function systemPing() {
 }
 
 /**
- * Returns a {"ping": "pong"} object.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemPingApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await systemPing()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
  * To erase the current index database and restart Syncthing. With no query parameters, the entire database is erased from disk. By specifying the {folder} parameter with a valid folder ID, only information for that folder will be erased.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -777,17 +698,6 @@ async function systemShutdown(req, res) {
 }
 
 /**
- * Returns information about current system status and resource usage.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemStatus(req, res) {
-  const response = await performRequest('get', '/rest/system/status');
-  return res ? res.json(response) : response;
-}
-
-/**
  * To Check for a possible upgrade, returns an object describing the newest version and upgrade possibility.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -827,21 +737,6 @@ async function postSystemUpgrade(req, res) {
  */
 async function systemVersion() {
   return request('get', '/rest/system/version');
-}
-
-/**
- * Returns the current Syncthing version information.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function systemVersionApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await systemVersion()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
 }
 
 // === CONFIG ENDPOINTS ===
@@ -906,17 +801,6 @@ async function postConfig(req, res) {
 }
 
 /**
- * Returns whether a restart of Syncthing is required for the current config to take effect.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigRestartRequired(req, res) {
-  const response = await performRequest('get', '/rest/config/restart-required');
-  return res ? res.json(response) : response;
-}
-
-/**
  * The configured folders, or the one folder with the given id.
  * @param {string} [id] Folder ID. Omitted, every folder.
  * @returns {Promise<Array|object>} The folder configuration.
@@ -946,21 +830,6 @@ async function getConfigDevices(id) {
     apiPath += `/${id}`;
   }
   return request('get', apiPath);
-}
-
-/**
- * Returns the device for the given ID.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigDevicesApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await getConfigDevices(req.params.id || req.query.id)));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
 }
 
 /**
@@ -1080,32 +949,6 @@ async function getConfigDefaultsFolder() {
 }
 
 /**
- * Returns the default folder config.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigDefaultsFolderApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await getConfigDefaultsFolder()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
- * Returns a template device configuration object with all default values, which only needs a unique ID to be applied
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigDefaultsDevice(req, res) {
-  const response = await performRequest('get', '/rest/config/defaults/device');
-  return res ? res.json(response) : response;
-}
-
-/**
  * To modify config for defult values for folders, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
  * @param {string} method Request method.
  * @param {object} newConfig new config.
@@ -1183,17 +1026,6 @@ async function postConfigDefaultsDevice(req, res) {
 }
 
 /**
- * returns an object listing ignore patterns to be used by default on folders, as an array of single-line strings
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigDefaultsIgnores(req, res) {
-  const response = await performRequest('get', '/rest/config/defaults/ignores');
-  return res ? res.json(response) : response;
-}
-
-/**
  * To replace the default ignore patterns from an object of the same format
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1236,21 +1068,6 @@ async function getConfigOptions() {
 }
 
 /**
- * Returns the options.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigOptionsApi(req, res) {
-  try {
-    res.json(messageHelper.createDataMessage(await getConfigOptions()));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
  * The syncthing GUI's own configuration.
  * @returns {Promise<object>} The gui configuration.
  */
@@ -1276,17 +1093,6 @@ async function getConfigGuiApi(req, res) {
     log.error(error);
     res.json(errorEnvelope(error));
   }
-}
-
-/**
- * Returns the ldap object
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getConfigLdap(req, res) {
-  const response = await performRequest('get', '/rest/config/ldap');
-  return res ? res.json(response) : response;
 }
 
 /**
@@ -1401,17 +1207,6 @@ async function postConfigLdap(req, res) {
 // === CLUSTER ENDPOINTS ===
 
 /**
- * Lists remote devices which have tried to connect, but are not yet configured in the instance.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getClusterPendigDevices(req, res) {
-  const response = await performRequest('get', '/rest/cluster/pending/devices');
-  return res ? res.json(response) : response;
-}
-
-/**
  * To remove records about a pending remote device which tried to connect.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1446,17 +1241,6 @@ async function postClusterPendigDevices(req, res) {
       return res.json(errorResponse);
     }
   });
-}
-
-/**
- * Lists folders which remote devices have offered to us, but are not yet shared from our instance to them. Takes the optional {device} parameter to only return folders offered by a specific remote device.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getClusterPendigFolders(req, res) {
-  const response = await performRequest('get', '/rest/cluster/pending/folders');
-  return res ? res.json(response) : response;
 }
 
 /**
@@ -1571,25 +1355,6 @@ async function getDbCompletion({ folder, device } = {}) {
 }
 
 /**
- * Returns the completion percentage (0 to 100) and byte / item counts. Takes optional {device} and {folder} parameters.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbCompletionApi(req, res) {
-  try {
-    const data = await getDbCompletion({
-      folder: req.params.folder || req.query.folder,
-      device: req.params.device || req.query.device,
-    });
-    res.json(messageHelper.createDataMessage(data));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
-}
-
-/**
  * Read a folder's ignore patterns, for internal callers. Returns the standard
  * message shape - { status, data: { ignore, expanded } } on success - and never
  * throws, so the caller checks status rather than catching.
@@ -1627,22 +1392,6 @@ async function getDbStatus(folder) {
     throw new Error('folder parameter is mandatory');
   }
   return request('get', `/rest/db/status?folder=${folder}`);
-}
-
-/**
- * Returns information about the current status of a folder. Takes the mandatory parameter {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDbStatusApi(req, res) {
-  try {
-    const data = await getDbStatus(req.params.folder || req.query.folder);
-    res.json(messageHelper.createDataMessage(data));
-  } catch (error) {
-    log.error(error);
-    res.json(errorEnvelope(error));
-  }
 }
 
 /**
@@ -2022,31 +1771,6 @@ async function getEventsDisk(req, res) {
 // === MISC SERVICES ENDPOINTS ===
 
 /**
- * Verifies and formats a device ID. Takes one parameter, {id}.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getSvcDeviceID(req, res) {
-  try {
-    let { id } = req.params;
-    id = id || req.query.id;
-    let apiPath = '/rest/svc/deviceid';
-    if (id) {
-      apiPath += `?id=${id}`;
-    } else {
-      throw new Error('id parameter is mandatory');
-    }
-    const response = await performRequest('get', apiPath);
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
-}
-
-/**
  * Returns a strong random generated string (alphanumeric) of the specified length. Takes the {length} parameter.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -2074,23 +1798,6 @@ async function getSvcRandomString(req, res) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     return res.json(errorResponse);
-  }
-}
-
-/**
- * Returns the data sent in the anonymous usage report.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getSvcReport(req, res) {
-  try {
-    const response = await performRequest('get', '/rest/svc/report');
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
@@ -3269,13 +2976,8 @@ module.exports = {
   getDeviceId,
   getDeviceIdApi,
   getMeta,
-  getMetaApi,
   getHealth,
-  getHealthApi,
-  statsDevice,
-  statsFolder,
   systemBrowse,
-  systemConnections,
   systemDiscovery,
   systemDebug,
   systemErrorClear,
@@ -3293,54 +2995,40 @@ module.exports = {
   systemResume,
   systemResumeApi,
   systemShutdown,
-  systemStatus,
   systemUpgrade,
   postSystemUpgrade,
   systemVersion,
-  systemVersionApi,
   systemPing,
-  systemPingApi,
   syncthingController,
   // CONFIG
   getConfig,
   getConfigApi,
   postConfig,
-  getConfigRestartRequired,
   getConfigFolders,
   getConfigDevices,
-  getConfigDevicesApi,
   postConfigFolders,
   postConfigDevices,
   getConfigDefaultsFolder,
-  getConfigDefaultsFolderApi,
-  getConfigDefaultsDevice,
   postConfigDefaultsFolder,
   postConfigDefaultsDevice,
-  getConfigDefaultsIgnores,
   postConfigDefaultsIgnores,
   getConfigOptions,
-  getConfigOptionsApi,
   getConfigGui,
   getConfigGuiApi,
-  getConfigLdap,
   postConfigOptions,
   postConfigGui,
   postConfigLdap,
   // Cluster
-  getClusterPendigDevices,
   postClusterPendigDevices,
-  getClusterPendigFolders,
   postClusterPendigFolders,
   // Folder
   getFolderIdErrors,
   postFolderVersions,
   // DATABASE ENDPOINTS
   getDbCompletion,
-  getDbCompletionApi,
   getFolderIgnores,
   setFolderIgnores,
   getDbStatus,
-  getDbStatusApi,
   postDbIgnores,
   postDbOverride,
   postDbPrio,
@@ -3352,9 +3040,7 @@ module.exports = {
   getEventsApi,
   getEventsDisk,
   // MISC
-  getSvcDeviceID,
   getSvcRandomString,
-  getSvcReport,
   // DEBUG
   debugHttpmetrics,
   debugPeerCompletion,
