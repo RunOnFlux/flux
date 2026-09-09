@@ -2134,66 +2134,6 @@ async function debugHttpmetrics(req, res) {
 }
 
 /**
- * To capture a profile of what Syncthing is doing on the CPU
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function debugCpuprof(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    try {
-      response = await axios.get('/rest/debug/cpuprof', {
-        responseType: 'stream', // Specify response type as stream
-        timeout: 60000,
-      });
-      if ('content-type' in response.data.headers) {
-        res.setHeader('Content-Type', response.data.headers['content-type']);
-      } else {
-        res.setHeader('Content-Type', 'application/octet-stream');
-      }
-      return response.data.pipe(res);
-    } catch (error) {
-      return res.json(error);
-    }
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
- * To capture a profile of what Syncthing is doing with the heap memory.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function debugHeapprof(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    try {
-      response = await axios.get('/rest/debug/heapprof', {
-        responseType: 'stream', // Specify response type as stream
-        timeout: 60000,
-      });
-      if ('content-type' in response.data.headers) {
-        res.setHeader('Content-Type', response.data.headers['content-type']);
-      } else {
-        res.setHeader('Content-Type', 'application/octet-stream');
-      }
-      return response.data.pipe(res);
-    } catch (error) {
-      return res.json(error);
-    }
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
  * To Collect information about the running instance for troubleshooting purposes.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -2208,57 +2148,6 @@ async function debugSupport(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
   return res.json(response);
-}
-
-/**
- * To Show diagnostics about a certain file in a shared folder. Takes the {folder} and {file} parameters.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function debugFile(req, res) {
-  try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let { file } = req.params;
-    file = file || req.query.file;
-    let apiPath = '/rest/debug/file';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
-      throw new Error('folder parameter is mandatory');
-    }
-    if (file) {
-      apiPath += `&file=${file}`;
-    } else {
-      throw new Error('file parameter is mandatory');
-    }
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-    let response = null;
-    if (authorized === true) {
-      try {
-        response = await axios.get(apiPath, {
-          responseType: 'stream', // Specify response type as stream
-          timeout: 60000,
-        });
-        if ('content-type' in response.data.headers) {
-          res.setHeader('Content-Type', response.data.headers['content-type']);
-        } else {
-          res.setHeader('Content-Type', 'application/octet-stream');
-        }
-        return response.data.pipe(res);
-      } catch (error) {
-        return res.json(error);
-      }
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
-    return res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res.json(errorResponse);
-  }
 }
 
 // === EVENT ENDPOINTS ===
@@ -3704,10 +3593,7 @@ module.exports = {
   getSvcRandomString,
   getSvcReport,
   // DEBUG
-  debugCpuprof,
-  debugFile,
   debugHttpmetrics,
-  debugHeapprof,
   debugPeerCompletion,
   debugSupport,
   // helpers
