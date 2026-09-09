@@ -1845,7 +1845,7 @@ async function getNodeTier(req, res) {
  * @param {object} res Response.
  */
 async function restartFluxOS(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
