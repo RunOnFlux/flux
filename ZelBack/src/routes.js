@@ -753,17 +753,8 @@ module.exports = (app) => {
   app.get('/syncthing/debug/httpmetrics', asyncRoute((req, res) => {
     return syncthingService.debugHttpmetrics(req, res);
   }));
-  app.get('/syncthing/debug/cpuprof', asyncRoute((req, res) => {
-    return syncthingService.debugCpuprof(req, res);
-  }));
-  app.get('/syncthing/debug/heapprof', asyncRoute((req, res) => {
-    return syncthingService.debugHeapprof(req, res);
-  }));
   app.get('/syncthing/debug/support', asyncRoute((req, res) => {
     return syncthingService.debugSupport(req, res);
-  }));
-  app.get('/syncthing/debug/file', asyncRoute((req, res) => {
-    return syncthingService.debugFile(req, res);
   }));
   // BACKUP & RESTORE
 
