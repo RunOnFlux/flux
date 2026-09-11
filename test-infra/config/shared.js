@@ -73,6 +73,12 @@ module.exports = {
   // splits the fleet n ways. Nothing here ever calls out to github.
   policy: {
     baseUrl: 'http://198.18.0.6:3000',
+    // The signed bundle. Present here as well as in test-env's per-run override for one
+    // reason: what it falls back to is the real published URL, so a node that somehow
+    // missed the override would fetch the LIVE network policy from github rather than
+    // failing. The pinned keys are not restated here - test-env imports them from the
+    // stub's own signing module, so there is one place they are written down.
+    signedBaseUrl: 'http://198.18.0.6:3000',
   },
   fluxapps: {
     minOutgoing: 4,
