@@ -1190,7 +1190,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
         aptSourceUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/`,
         releaseKeyUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/keyring.gpg`,
       },
-      github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      github: { apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       stats: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       pricing: {

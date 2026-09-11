@@ -357,7 +357,6 @@ const state = {
   blocklist: [],
   blockedRepositories: [],
   vettedRepositories: [],
-  whitelistedRepositories: [],
   tamperingBlocklist: [],
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
@@ -456,29 +455,27 @@ function defaultGeoResponse(ip) {
 const app = express();
 app.use(express.json());
 
-// Policy documents. Served at the repo root (the fluxos-network-policy layout,
-// config.policy.baseUrl) and at the retired /helpers/ paths (the RunOnFlux/flux
-// layout, config.github.rawBaseUrl) so one stub covers nodes from either era.
-// The typed document a node prefers. Left empty by default, which is how a node
-// that asks for it falls through to the flat one below - the same shape as a
-// release published before this document existed.
+// Policy documents, served at the repo root - the fluxos-network-policy layout that
+// config.policy.baseUrl names. The /helpers/ paths went with the version floor: they
+// covered nodes on a release that read RunOnFlux/flux, and the floor is now above every
+// such release, so there is no era left for them to cover.
+//
+// The typed document a node prefers. Left empty by default, which is how a node that asks
+// for it falls through to the flat one below - the same shape as a release published
+// before this document existed.
 app.get('/blocklist.json', (req, res) => {
   res.json(state.blocklist);
 });
 
-app.get(['/blockedrepositories.json', '/helpers/blockedrepositories.json'], (req, res) => {
+app.get('/blockedrepositories.json', (req, res) => {
   res.json(state.blockedRepositories);
 });
 
-app.get(['/vettedrepositories.json', '/helpers/vettedrepositories.json'], (req, res) => {
+app.get('/vettedrepositories.json', (req, res) => {
   res.json(state.vettedRepositories);
 });
 
-app.get('/helpers/repositories.json', (req, res) => {
-  res.json(state.whitelistedRepositories);
-});
-
-app.get(['/tamperingblockednodes.json', '/helpers/tamperingblockednodes.json'], (req, res) => {
+app.get('/tamperingblockednodes.json', (req, res) => {
   res.json(state.tamperingBlocklist);
 });
 
@@ -687,11 +684,6 @@ control.post('/vetted-repos', (req, res) => {
   res.json({ ok: true });
 });
 
-control.post('/whitelisted-repos', (req, res) => {
-  state.whitelistedRepositories = req.body;
-  res.json({ ok: true });
-});
-
 control.post('/tampering-blocklist', (req, res) => {
   state.tamperingBlocklist = req.body;
   res.json({ ok: true });
@@ -768,7 +760,6 @@ control.post('/reset', (req, res) => {
   state.blocklist = [];
   state.blockedRepositories = [];
   state.vettedRepositories = [];
-  state.whitelistedRepositories = [];
   state.tamperingBlocklist = [];
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};

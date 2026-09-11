@@ -119,7 +119,7 @@ module.exports = {
     zmqport: 16123,
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
-  minimumFluxOSAllowedVersion: '8.13.1',
+  minimumFluxOSAllowedVersion: '8.18.0',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
@@ -715,7 +715,9 @@ module.exports = {
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
   github: {
-    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+    // The REST API only. Nothing reads files from github any more: the policy documents
+    // that used to come from RunOnFlux/flux helpers/ are served from config.policy.baseUrl
+    // and the helpers/ copies are gone.
     apiBaseUrl: 'https://api.github.com',
   },
   policy: {

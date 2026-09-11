@@ -1,8 +1,7 @@
 # Application whitelist
 
-- Whitelist is in a place acting as a first defence against malicious people that want to misuse Flux in order to for example mine cryptocurrencies or distribute illegal or copyrighted material. 
-- To whitelist an application for Flux, please adjust helpers/repositories.json file by adding your desired whitelist for a specific docker image organisation (recommended), docker image or target a specific tag of an image:
-- Valid Examples: runonflux, runonflux/website, runonflux/website:latest, public.ecr.aws/docker/library/hello-world:linux, ghcr.io/handshake-org/hsd
+- There is no application whitelist. It was retired: nothing has enforced `helpers/repositories.json` since the method that read it was written without a caller in July 2024, `/apps/whitelistedrepositories` returns an empty list unconditionally, and the file has now been deleted.
+- What the network does enforce is a blocklist, and it does not live here. Images, app owners and app hashes that may not run are listed in `blockedrepositories.json` in [RunOnFlux/fluxos-network-policy](https://github.com/RunOnFlux/fluxos-network-policy), which every node fetches directly - so a change there takes effect without a release, and a pull request on this repository cannot alter it.
 
 # What do you want to Run On Flux?
 
