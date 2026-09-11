@@ -132,6 +132,11 @@ describe('appSpawner tests', () => {
         checkSynced: sinon.stub().resolves(true),
         isNodeStatusConfirmed: sinon.stub().resolves(true),
         nodeTier: sinon.stub().resolves('cumulus'),
+        // A spec's nodes[] entry names this node by socket address OR by collateral
+        // outpoint; the spawner resolves the latter once per pass.
+        obtainNodeCollateralInformation: sinon.stub().resolves(
+          opts.collateral === undefined ? { txhash: 'a'.repeat(64), txindex: 0 } : opts.collateral,
+        ),
       },
       '../benchmarkService': {
         getBenchmarks: sinon.stub().resolves({
@@ -422,6 +427,40 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(infoLogged('No app currently to be processed')).to.be.true;
       expect(infoLogged('selected to try to spawn')).to.be.false;
+    });
+
+    // A nodes[] entry names a node by socket address OR by collateral outpoint, and
+    // the validator sizes its length check for the outpoint. This filter compared
+    // addresses only, so an outpoint-pinned enterprise app matched nowhere - and a
+    // candidate dropped by a filter reports nothing, so it would have looked like the
+    // enterprise feature simply not placing the app.
+    it('keeps a v8 enterprise-owned app pinned by collateral outpoint', async () => {
+      const outpoint = `${'a'.repeat(64)}:0`; // matches the collateral stub
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [outpoint] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('drops a v8 enterprise-owned app pinned to another node\'s collateral', async () => {
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [`${'b'.repeat(64)}:0`] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('falls back to address matching when the collateral cannot be resolved', async () => {
+      buildModule({
+        collateral: null,
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [MY_IP] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
     });
 
     it('keeps a v8 enterprise-owned app whose targeted IP matches this node', async () => {
