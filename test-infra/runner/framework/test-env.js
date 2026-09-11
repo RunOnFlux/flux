@@ -617,7 +617,7 @@ function getBootId(nodeNum) {
   return `test-boot-id-node-${String(nodeNum).padStart(2, '0')}`;
 }
 
-async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true, staticIp = true, initialHeight = DEFAULT_INITIAL_HEIGHT } = {}) {
+async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true, staticIp = true, initialHeight = DEFAULT_INITIAL_HEIGHT, policySeeds = null } = {}) {
   const client = new MongoClient(`mongodb://${mongoIp}:27017`);
   try {
     await client.connect();
@@ -654,6 +654,31 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
         },
         { upsert: true },
       );
+      // A policy bundle already on this node's disk when it boots.
+      //
+      // The state a node is IN is seeded, never manufactured by driving a running fleet
+      // into it. "This node kept its bundle, its neighbours did not" is a starting
+      // condition, and restarting containers to approximate one produces a different
+      // thing that merely resembles it - with the restart's own boot ordering mixed in.
+      //
+      // Signed with the harness's pinned key, so the node verifies it exactly as it
+      // would a real one; written to the row policyArtifactRepository reads at boot.
+      if (policySeeds && policySeeds[i - 1] !== undefined) {
+        const seq = policySeeds[i - 1];
+        const raw = policySigning.signBundle({
+          seq,
+          issued_at: new Date().toISOString(),
+          documents: {
+            blockedrepositories: [], vettedrepositories: [], tamperingblockednodes: [], enterprisenodes: {},
+          },
+          artifacts: {},
+        });
+        await localDb.collection('policydocuments').updateOne(
+          { _id: 'networkPolicy' },
+          { $set: { raw, seq, verifiedAt: Date.now() } },
+          { upsert: true },
+        );
+      }
       if (bootContext === 'running') {
         await localDb.collection('nodestartuptracker').updateOne(
           { _id: 'heartbeat' },
@@ -717,7 +742,7 @@ export async function createTestEnv({
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
-  geolocation = {}, locationTable = null, staticIp = true, policy = null,
+  geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
@@ -927,7 +952,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -956,7 +981,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -993,7 +1018,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
   containers.mongo = mongo;
   watchInfra(env, 'mongo', mongo);
 
-  await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter, staticIp, initialHeight });
+  await seedMongo(MONGO_IP, nodes, bootContext, {
+    dataCenter, staticIp, initialHeight, policySeeds,
+  });
 
   const daemonStub = await new StaticIpContainer(image('flux-e2e-daemon-stub'))
     .withStaticIp(networkName, DAEMON_IP)

@@ -242,6 +242,63 @@ describe('policy reaching a node from its peers', function () {
   });
 });
 
+describe('a node that restored STALE policy catches up before it acts', function () {
+  // The state is SEEDED, not driven into existence by restarting a running fleet. Node 0
+  // boots with an old bundle already in its database; the network has moved on. That is a
+  // node coming back after being away, and it is a starting condition, not a sequence of
+  // events to perform.
+  //
+  // What it proves is the reason restore() no longer opens the gate: disk says the bundle
+  // is real, never that it is still the network's. Node 0 must not act on seq 4 just
+  // because it verified - it has to find out it is behind, and catch up, first.
+  const STALE_SEQ = 4;
+  let env;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      // Well above the seeded bundle, so the node is unambiguously behind.
+      policy: { seq: 40 },
+      policySeeds: { 0: STALE_SEQ },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('catches up to the network rather than acting on what it had', async function () {
+    this.timeout(240000);
+    const published = (await stubState(env)).policySeq;
+    expect(published, 'the network is ahead of the seeded bundle').to.be.greaterThan(STALE_SEQ);
+
+    // It ends level with everyone else. Getting there is the ask: it restored seq 4,
+    // found a peer holding more, and took the newer bundle - verifying it for itself,
+    // because a peer is not trusted, only checked.
+    await waitFor(
+      async () => (await Promise.all([0, 1, 2].map(heldSeq))).every((n) => n === published),
+      { timeout: 150000, label: `all three nodes to reach seq ${published}` },
+    );
+  });
+
+  it('and only then starts considering apps', async function () {
+    this.timeout(180000);
+    // The gate is downstream of that. A node acting on the stale bundle would have got
+    // here while still at seq 4; this one could not, because restoring does not confirm.
+    await waitFor(
+      () => env.nodeLogCount(0, 'Checking for apps that are missing instances') > 0,
+      { timeout: 150000, interval: 3000, label: 'node 0 to get past the policy gate' },
+    );
+    expect(await heldSeq(0), 'and it is current when it does').to.equal((await stubState(env)).policySeq);
+  });
+});
+
 describe('a fleet that has never obtained policy', function () {
   let env;
 
