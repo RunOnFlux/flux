@@ -170,6 +170,86 @@ describe('policyStore', () => {
     });
   });
 
+  describe('holding policy is not the same as acting on it', () => {
+    const restoredRepo = (seq) => ({
+      readBundle: sinon.stub().resolves({ raw: bundle(seq), seq }),
+      writeBundle: sinon.stub().resolves(true),
+    });
+
+    it('restores a bundle but does not open the gate on the strength of disk', async () => {
+      // Disk proves the bundle is real. It cannot prove policy did not move while this
+      // node was down, and the documents inside decide who may host what.
+      const { module, state } = load({ repo: restoredRepo(4) });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      await module.start();
+      module.stop();
+      expect(module.getSeq(), 'it holds the bundle').to.equal(4);
+      expect(state.policyReady, 'but may not act on it yet').to.equal(false);
+    });
+
+    it('a peer at the same sequence confirms it', async () => {
+      const { module, state } = load({ repo: restoredRepo(4) });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      await module.start();
+      expect(state.policyReady).to.equal(false);
+
+      module.notePeerSeq(4); // "I am at 4 too" - so we are not behind
+      expect(state.policyReady, 'a peer that is not ahead of us is the evidence').to.equal(true);
+      module.stop();
+    });
+
+    it('a peer AHEAD of us does not confirm - it means we are behind', async () => {
+      const request = sinon.stub().resolves();
+      const { module, state } = load({ repo: restoredRepo(4) });
+      module.setPeerTransport({ request, announce: sinon.stub().resolves(), count: () => 1 });
+      await module.start();
+
+      module.notePeerSeq(9);
+      expect(state.policyReady, 'still shut: we are the stale one').to.equal(false);
+      expect(request.called, 'and we ask for what they have').to.equal(true);
+      module.stop();
+    });
+
+    it('adopting anything confirms, because it came from outside', async () => {
+      const { module, state } = load({
+        repo: restoredRepo(4),
+        serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(9) }) },
+      });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      await module.start();
+      expect(state.policyReady).to.equal(false);
+
+      expect(module.offerBundle(bundle(9)), 'a peer hands over something newer').to.equal(true);
+      expect(state.policyReady).to.equal(true);
+      module.stop();
+    });
+
+    it('stays shut when there is no peer set to confirm with, and that is correct', async () => {
+      // No fallback timer, deliberately. A node with no peer set is below
+      // appSyncPeerThreshold, and the network already holds that such a node should not
+      // be acquiring apps - appSyncDegradedThreshold pauses the spawner for that exact
+      // reason. Forcing the gate open on a timer would override a decision the fleet
+      // had already made.
+      const { module, state } = load({ repo: restoredRepo(4) });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      await module.start();
+      await new Promise((resolve) => { setTimeout(resolve, 60); });
+      expect(state.policyReady, 'held, unconfirmed, not acting').to.equal(false);
+      expect(module.getSeq(), 'but the bundle is held and servable to peers').to.equal(4);
+      module.stop();
+    });
+
+    it('a node with nothing on disk is unaffected - it has nothing to confirm', async () => {
+      const { module, state } = load({
+        serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(2) }) },
+      });
+      await module.start();
+      module.stop();
+      expect(module.getSeq()).to.equal(2);
+      expect(state.policyReady, 'adopting from the source opens it as before').to.equal(true);
+    });
+  });
+
   describe('what boot costs the published source', () => {
     it('does not fetch when it came back holding a verified bundle', async () => {
       // A release wave restarts the fleet inside a short window. An unconditional boot
@@ -509,8 +589,11 @@ describe('policyStore', () => {
       await m.restore();
 
       expect(m.getSeq()).to.equal(8);
-      expect(state.policyReady).to.equal(true);
-      expect(axiosGet.called).to.equal(false);
+      expect(axiosGet.called, 'disk alone, no network').to.equal(false);
+      // The gate is NOT opened by a restore any more. Disk proves the bundle is real and
+      // says nothing about whether policy moved while this node was down, so acting on it
+      // waits for a peer to agree - see 'holding policy is not the same as acting on it'.
+      expect(state.policyReady, 'held, pending confirmation').to.equal(false);
     });
 
     it('drops a stored bundle that no longer verifies', async () => {
