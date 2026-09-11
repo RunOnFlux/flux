@@ -124,6 +124,66 @@ async function respondWithAppMessage(msgObj, peer) {
 }
 
 /**
+ * Answer a peer asking for network policy newer than the sequence it holds.
+ *
+ * Answered only when this node holds something strictly newer. Silence is the answer for
+ * "nothing newer", because a reply saying so would be a claim the asker cannot check -- and
+ * one a hostile peer would send to keep it where it is. What the asker CAN check is a signed
+ * bundle, so that is the only thing worth sending.
+ *
+ * The bundle is served as the bytes this node verified, not a re-serialisation: the signature
+ * covers those bytes and nothing else.
+ * @param {object} msgObj The request.
+ * @param {object} peer Peer socket to answer on.
+ */
+async function respondWithPolicy(msgObj, peer) {
+  try {
+    // eslint-disable-next-line global-require
+    const policyStore = require('./policyStore');
+    const message = msgObj.data;
+    if (!message || message.version !== 1) return;
+    const askerSeq = Number.isInteger(message.seq) ? message.seq : 0;
+    if (policyStore.getSeq() <= askerSeq) return;
+
+    const raw = await policyStore.getRawBundle();
+    if (!raw) return;
+    await sendSignedMessage({ type: 'fluxpolicy', version: 1, bundle: raw }, peer);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Ask every connected peer for policy newer than what this node holds.
+ *
+ * One hop, no relay: the handler does not pass this on, so the cost is the peer count rather
+ * than the network. Used at boot and by the backstop refresh -- a node catching up asks
+ * rather than waiting to be told.
+ * @param {number} seq The sequence this node holds.
+ */
+async function requestPolicyFromPeers(seq) {
+  await broadcastMessageToAll({ type: 'fluxpolicyrequest', version: 1, seq });
+}
+
+/**
+ * Tell direct peers this node has adopted a sequence.
+ *
+ * Sent ON ADOPTION, never on a timer. That is what keeps it affordable: the traffic is
+ * bounded by how often policy changes -- weekly at most -- rather than by how often nodes
+ * check, and a periodic announcement would be the same volume forever. Each node that adopts
+ * announces to its own peers, so a change spreads outwards in seconds instead of waiting out
+ * a refresh interval on every node independently.
+ *
+ * It carries the sequence only. A peer cannot check a claim about a number, so it is a prompt
+ * to ask rather than something to believe -- and what comes back is a signed bundle, which it
+ * can check. A peer claiming a sequence it cannot produce costs one request and nothing else.
+ * @param {number} seq The sequence just adopted.
+ */
+async function announcePolicySeq(seq) {
+  await broadcastMessageToAll({ type: 'fluxpolicyseq', version: 1, seq });
+}
+
+/**
  * Relay a message to all connected peers (both directions), excluding the sender.
  * @param {string} data Serialised message data.
  * @param {string} [excludeKey] Peer key (ip:port) to exclude (the sender).
@@ -435,6 +495,9 @@ async function respondWithAppInstallingErrorsMessages(peer, sinceTimestamp = 0) 
 
 module.exports = {
   relay,
+  announcePolicySeq,
+  requestPolicyFromPeers,
+  respondWithPolicy,
   sendSignedMessage,
   respondWithAppMessage,
   respondWithTempMessages,

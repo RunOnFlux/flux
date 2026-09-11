@@ -39,7 +39,13 @@ function load(overrides = {}) {
     readBundle: sinon.stub().resolves(null),
     writeBundle: sinon.stub().resolves(true),
   };
-  const serviceHelper = overrides.serviceHelper || { axiosGet: sinon.stub().rejects(new Error('offline')) };
+  const serviceHelper = {
+    axiosGet: sinon.stub().rejects(new Error('offline')),
+    // Real, but instant: the peer window is a bound on waiting, and a test should not sit
+    // through three seconds of it.
+    delay: () => Promise.resolve(),
+    ...(overrides.serviceHelper || {}),
+  };
 
   const module = proxyquire(MODULE_PATH, {
     config: {
@@ -77,7 +83,7 @@ describe('policyStore', () => {
       // The property that makes github a seed rather than a dependency.
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module: m } = load({ serviceHelper: { axiosGet } });
-      m.setPeerFetch(async () => [bundle(5)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(5)); } });
 
       await m.refresh();
 
@@ -88,7 +94,7 @@ describe('policyStore', () => {
     it('falls through to the backstop when no peer answers usefully', async () => {
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module: m } = load({ serviceHelper: { axiosGet } });
-      m.setPeerFetch(async () => []);
+      m.setPeerTransport({ request: async () => {} });
 
       await m.refresh();
 
@@ -101,7 +107,12 @@ describe('policyStore', () => {
       // ladder prefer whatever is nearest without that being a trust decision.
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module: m } = load({ serviceHelper: { axiosGet } });
-      m.setPeerFetch(async () => [bundle(500, undefined, OTHER.privateKey), 'not json']);
+      m.setPeerTransport({
+        request: async () => {
+          m.offerBundle(bundle(500, undefined, OTHER.privateKey));
+          m.offerBundle('not json');
+        },
+      });
 
       await m.refresh();
 
@@ -110,11 +121,11 @@ describe('policyStore', () => {
 
     it('keeps what it holds when every source fails', async () => {
       const { module: m, state } = load();
-      m.setPeerFetch(async () => [bundle(4)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(4)); } });
       await m.refresh();
       expect(m.getSeq()).to.equal(4);
 
-      m.setPeerFetch(async () => { throw new Error('peers gone'); });
+      m.setPeerTransport({ request: async () => { throw new Error('peers gone'); } });
       await m.refresh();
 
       expect(m.getSeq()).to.equal(4);
@@ -122,13 +133,95 @@ describe('policyStore', () => {
     });
   });
 
+  // What makes peers the primary path rather than a fallback. Polling can only ever ask the
+  // source "is there anything newer?", so the source stays primary wherever it sits in the
+  // ladder. Being TOLD inverts that: a change spreads outwards from whichever node reached
+  // the backstop first, and the poll becomes a safety net for nodes that missed it.
+  describe('spreading a change', () => {
+    it('announces a sequence it has adopted', async () => {
+      const announce = sinon.stub().resolves();
+      const { module: m } = load();
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(6)); }, announce });
+
+      await m.refresh();
+
+      expect(announce.calledOnceWithExactly(6)).to.equal(true);
+    });
+
+    it('announces on every adoption, so a change keeps moving outwards', async () => {
+      const announce = sinon.stub().resolves();
+      const { module: m } = load();
+      m.setPeerTransport({ request: async () => {}, announce });
+
+      m.offerBundle(bundle(6));
+      m.offerBundle(bundle(7));
+
+      expect(announce.args.map((a) => a[0])).to.deep.equal([6, 7]);
+    });
+
+    it('does not announce a bundle it refused', async () => {
+      const announce = sinon.stub().resolves();
+      const { module: m } = load();
+      m.setPeerTransport({ request: async () => {}, announce });
+      m.offerBundle(bundle(6));
+      announce.resetHistory();
+
+      m.offerBundle(bundle(2)); // older
+      m.offerBundle(bundle(9, undefined, OTHER.privateKey)); // unsigned by a pinned key
+
+      expect(announce.called).to.equal(false);
+    });
+
+    it('does not let a failed announcement stop the adoption', async () => {
+      // Telling peers is best effort. A node that cannot announce still holds the policy.
+      const announce = sinon.stub().rejects(new Error('peers gone'));
+      const { module: m } = load();
+      m.setPeerTransport({ request: async () => {}, announce });
+
+      m.offerBundle(bundle(6));
+
+      expect(m.getSeq()).to.equal(6);
+    });
+
+    it('asks the network when a peer claims a higher sequence', () => {
+      // The claim itself is not checkable, so it is a prompt to ask. What comes back is a
+      // signed bundle, which is.
+      const request = sinon.stub().resolves();
+      const { module: m } = load();
+      m.setPeerTransport({ request, announce: async () => {} });
+      m.offerBundle(bundle(6));
+      request.resetHistory();
+
+      m.notePeerSeq(11);
+
+      expect(request.calledOnceWithExactly(6)).to.equal(true);
+    });
+
+    it('ignores a claim at or below what it holds, and a malformed one', () => {
+      // A liar claiming 9999 costs one request; a liar claiming a number every second would
+      // cost one per second, so the cheap checks happen before the ask.
+      const request = sinon.stub().resolves();
+      const { module: m } = load();
+      m.setPeerTransport({ request, announce: async () => {} });
+      m.offerBundle(bundle(6));
+      request.resetHistory();
+
+      m.notePeerSeq(6);
+      m.notePeerSeq(2);
+      m.notePeerSeq('11');
+      m.notePeerSeq(null);
+
+      expect(request.called).to.equal(false);
+    });
+  });
+
   describe('sequence', () => {
     it('refuses a bundle older than the one held', async () => {
       const { module: m } = load();
-      m.setPeerFetch(async () => [bundle(10)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(10)); } });
       await m.refresh();
 
-      m.setPeerFetch(async () => [bundle(3)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(3)); } });
       await m.refresh();
 
       expect(m.getSeq()).to.equal(10);
@@ -136,9 +229,9 @@ describe('policyStore', () => {
 
     it('adopts a newer bundle', async () => {
       const { module: m } = load();
-      m.setPeerFetch(async () => [bundle(10)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(10)); } });
       await m.refresh();
-      m.setPeerFetch(async () => [bundle(11)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(11)); } });
       await m.refresh();
 
       expect(m.getSeq()).to.equal(11);
@@ -146,7 +239,7 @@ describe('policyStore', () => {
 
     it('does not re-adopt the sequence it already holds', async () => {
       const { module: m, repo } = load();
-      m.setPeerFetch(async () => [bundle(10)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(10)); } });
       await m.refresh();
       const writes = repo.writeBundle.callCount;
 
@@ -163,7 +256,7 @@ describe('policyStore', () => {
       // point of storing it is to check it again at boot.
       const raw = bundle(12);
       const { module: m, repo } = load();
-      m.setPeerFetch(async () => [raw]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(raw); } });
       await m.refresh();
 
       expect(repo.writeBundle.calledOnce).to.equal(true);
@@ -202,7 +295,7 @@ describe('policyStore', () => {
       // A name the bundle does not carry answers null so a document can be published before
       // the release that reads it.
       const { module: m } = load();
-      m.setPeerFetch(async () => [bundle(1, { blockedrepositories: ['x/y'], enterprisenodes: { pubA: ['ownerA'] } })]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(1, { blockedrepositories: ['x/y'], enterprisenodes: { pubA: ['ownerA'] } })); } });
       await m.refresh();
 
       expect(m.getDocument('blockedrepositories')).to.deep.equal(['x/y']);
@@ -212,7 +305,7 @@ describe('policyStore', () => {
 
     it('answers the artifact the bundle names', async () => {
       const { module: m } = load();
-      m.setPeerFetch(async () => [bundle(3)]);
+      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(3)); } });
       await m.refresh();
 
       expect(m.getArtifact('iplocation.bin.gz').file).to.equal('iplocation-3.bin.gz');
