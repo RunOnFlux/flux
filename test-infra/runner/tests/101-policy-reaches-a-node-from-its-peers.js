@@ -31,9 +31,18 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // to one real node exactly as a real peer would, and the other two can then only have
 // learned from that node.
 //
-// The fleet is four indices, one of them a stub peer wired to node 1 alone
-// (`stubPeeredWith`), so three real nodes dial - the same disjoint-arc ring as before
-// (peer-topology's 2k+1 with k=1), and one unambiguous entry point for a told bundle.
+// THE TOPOLOGY IS A CHAIN, and deliberately so. Five indices with a stub peer at the
+// last one leaves four dialers at arc 1, and a stub supplies no connection in either
+// direction - so the ring does not close and what remains is 0-1-2-3. That is what makes
+// a transitive test possible at all: in a closed ring at arc 2 every node is adjacent to
+// every other, and "it spread" and "everyone heard it directly" are the same observation.
+//
+// The stub is wired to node 1 alone, so a bundle has one way in, and node 3 is TWO HOPS
+// from it - reachable only if node 2 adopts and then announces onward, which is the
+// design's actual claim. Node 0 is a dialer and nothing is asserted of it: with the stub
+// at the last index its backward arc wraps onto an empty slot, so it never reaches the
+// inbound floor (E2E_FLEET_SIZING.md). bootAndPeer expects exactly this - expectedPeerTotal
+// subtracts the stub from the reachable arc and asks for one peer per node.
 
 const stub = (env, path, body) => fetch(`${env.stubControl}${path}`, {
   method: 'POST',
@@ -48,17 +57,16 @@ const heldSeq = async (index) => (await dbClient(index + 1).policyBundle())?.seq
 
 // The stub peer's ring index. Wired to node 1 and to nothing else, so a bundle it hands
 // over has exactly one way into the fleet.
-const STUB_PEER_INDEX = 3;
+const STUB_PEER_INDEX = 4;
 const TOLD_NODE = 1;
-// NOT index 0. A stub holds a ring slot and supplies no connection, and with the stub at
-// the LAST index every real node's backward arc is fine except node 0's, which wraps onto
-// that empty slot - so node 0 is the one node that never reaches the inbound floor,
-// however long it is given (E2E_FLEET_SIZING.md, "Index 0 is the worst node to assert
-// on"). Measured here rather than taken on faith: on the first run node 2 was told and
-// adopted 49ms after node 1, while node 0 was still issuing addoutgoingpeer calls five
-// seconds later and never heard anything. Node 0 stays in the fleet as a dialer; nothing
-// is asserted of it.
-const HEARD_NODES = [2];
+// One hop from the node that was told, and two. Node 3 has exactly one peer - node 2 -
+// so the only way it can hear anything is for node 2 to have adopted and passed it on.
+//
+// Measured rather than taken on faith: on the first run node 2 was told and adopted 49ms
+// after node 1, while node 0 - whose backward arc wraps onto the stub's empty slot - was
+// still issuing addoutgoingpeer calls five seconds later and never heard anything.
+const ONE_HOP = 2;
+const TWO_HOPS = 3;
 
 /**
  * Bring a restarted node back into the mesh.
@@ -93,7 +101,7 @@ describe('policy reaching a node from its peers', function () {
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 4,
+      nodes: 5,
       stubPeers: [STUB_PEER_INDEX],
       // Connected to node 1 only. createTestEnv waits for the link before returning, so a
       // test never has to establish it - and a bundle this stub hands over can only have
@@ -113,8 +121,8 @@ describe('policy reaching a node from its peers', function () {
     this.timeout(120000);
     const { policySeq } = await stubState(env);
     await waitFor(
-      async () => (await Promise.all([0, 1, 2].map(heldSeq))).every((s) => s === policySeq),
-      { timeout: 90000, label: `all three nodes to hold seq ${policySeq}` },
+      async () => (await Promise.all([0, 1, 2, 3].map(heldSeq))).every((s) => s === policySeq),
+      { timeout: 90000, label: `all four nodes to hold seq ${policySeq}` },
     );
   });
 
@@ -143,13 +151,23 @@ describe('policy reaching a node from its peers', function () {
       label: `node ${TOLD_NODE} to adopt seq ${seq} from the peer that told it`,
     });
 
-    // Neither of these is connected to the stub peer, neither was restarted, and neither
-    // can reach the source. The only path left is node 1 announcing the sequence it just
-    // adopted, them asking for it, and node 1 answering with the signed bundle.
-    await waitFor(
-      async () => (await Promise.all(HEARD_NODES.map(heldSeq))).every((s) => s === seq),
-      { timeout: 120000, label: `nodes ${HEARD_NODES.join(' and ')} to be told and catch up` },
-    );
+    // One hop. Node 2 is connected to node 1 and not to the stub, was not restarted, and
+    // cannot reach the source: the only path is node 1 announcing what it just adopted,
+    // node 2 asking, and node 1 answering with the signed bundle.
+    await waitFor(async () => (await heldSeq(ONE_HOP)) === seq, {
+      timeout: 120000,
+      label: `node ${ONE_HOP} to be told by node ${TOLD_NODE} and catch up`,
+    });
+
+    // TWO hops, which is the claim the design actually makes: each adopter announces to
+    // its OWN peers, so a change keeps moving outwards rather than reaching only the
+    // neighbours of whoever fetched it. Node 3's single peer is node 2 - it has no
+    // connection to node 1, none to the stub, and no route to the source - so it can only
+    // have this because node 2 adopted and then passed it on in turn.
+    await waitFor(async () => (await heldSeq(TWO_HOPS)) === seq, {
+      timeout: 120000,
+      label: `node ${TWO_HOPS} to hear it second-hand, two hops from the source`,
+    });
 
     const served = await stubState(env);
     expect(served.policyFetches.ok, 'the source served nothing: this spread peer to peer')

@@ -3,7 +3,9 @@ const dgram = require('dgram');
 const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
-const { PINNED_PUBLIC_HEX, ROGUE_PUBLIC_HEX, signBundle } = require('./policy-signing');
+const {
+  PINNED_PUBLIC_HEX, SECONDARY_PUBLIC_HEX, ROGUE_PUBLIC_HEX, signBundle,
+} = require('./policy-signing');
 
 const PORT = parseInt(process.env.STUB_PORT || '3000', 10);
 const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
@@ -417,8 +419,10 @@ const state = {
   // before it considers a single app. That is not a policy suite failing, it is EVERY app
   // suite failing, so the default here has to be a good bundle.
   policySeq: 1,
-  // 'pinned' is a key the fleet's config trusts; 'rogue' is a valid signature from a signer
-  // it does not. Only the second tells a refusal-to-trust apart from a refusal-to-parse.
+  // Which key signs. 'pinned' and 'secondary' are both in the fleet's config - the second
+  // is what a key rotation moves to, and pinning a key nothing has ever verified against
+  // proves nothing. 'rogue' is a valid signature from a signer the fleet does not trust,
+  // which is the only way to tell a refusal-to-TRUST from a refusal-to-parse.
   policySigner: 'pinned',
   // false serves 503 - the published source is reachable and not answering, which is the
   // shape a node must survive by restoring what it already verified.
@@ -508,7 +512,7 @@ function resignPolicy({ bumpSeq = true } = {}) {
       }
       : {},
   };
-  state.policyBundle = signBundle(payload, state.policySigner === 'rogue');
+  state.policyBundle = signBundle(payload, state.policySigner);
   state.policyFetches = { total: 0, ok: 0, unavailable: 0 };
   return state.policySeq;
 }
@@ -778,7 +782,9 @@ control.get('/state', (req, res) => {
     ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0,
     policyBundle: undefined,
     policyBundleBytes: state.policyBundle?.length ?? 0,
-    policyPublicKeys: { pinned: PINNED_PUBLIC_HEX, rogue: ROGUE_PUBLIC_HEX },
+    policyPublicKeys: {
+      pinned: PINNED_PUBLIC_HEX, secondary: SECONDARY_PUBLIC_HEX, rogue: ROGUE_PUBLIC_HEX,
+    },
   });
 });
 
@@ -879,6 +885,8 @@ control.post('/iplocation', (req, res) => {
  *   { signer: 'rogue' }        a real signature from a signer the fleet does not pin. The
  *                              only way to test an UNTRUSTED bundle - corrupting bytes gives
  *                              an invalid signature, which is a different refusal.
+ *   { signer: 'secondary' }    the fleet's OTHER pinned key: a rotation, which must be
+ *                              adopted exactly as the first one is.
  *   { seq: 1 }                 publish backwards, for a rollback that must be refused.
  *   { available: false }       the source stops answering (503).
  *   { body: 'not json' }       served verbatim, for what is not a bundle at all.
@@ -903,8 +911,8 @@ control.post('/policy', (req, res) => {
     }
   }
   if (body.signer !== undefined) {
-    if (body.signer !== 'pinned' && body.signer !== 'rogue') {
-      return res.status(400).json({ error: "signer must be 'pinned' or 'rogue'" });
+    if (!['pinned', 'secondary', 'rogue'].includes(body.signer)) {
+      return res.status(400).json({ error: "signer must be 'pinned', 'secondary' or 'rogue'" });
     }
     state.policySigner = body.signer;
   }
