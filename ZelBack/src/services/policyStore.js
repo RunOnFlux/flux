@@ -1,4 +1,5 @@
 const config = require('config');
+const crypto = require('crypto');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const globalState = require('./utils/globalState');
@@ -36,16 +37,18 @@ const FETCH_TIMEOUT_MS = config.policy.fetchTimeoutMs;
 let current = null;
 let currentRaw = null;
 let refreshInterval = null;
+// The one-shot that carries the schedule from boot to this node's own slot in the period.
+let phaseTimer = null;
 
 // Broadcasts the ask to connected peers, and tells them what this node has adopted. Wired
 // once peering is up, so this module does not reach into the communication layer and the
 // ladder can be exercised without one.
 let peerRequest = null;
 let peerAnnounce = null;
-// How many peers there are to ask. Without it the peer rung cannot tell "asked and nobody
-// answered" from "asked nobody" -- and the second is what every boot does, because the
-// store is started before discovery.
 let peerCount = null;
+// Whether there is a peer set worth asking, as a LEVEL rather than an edge. Without it the
+// peer rung cannot tell "asked and nobody answered" from "asked nobody" -- and the second
+// is what every boot does, because the store is started before discovery.
 
 // How long a refresh waits for a peer to answer before going to the backstop. Peers are on
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
@@ -199,11 +202,17 @@ function offerBundle(raw) {
  * or unprompted, is still adopted -- it just does not stop this refresh going to the backstop.
  */
 async function refresh() {
-  // The rung is skipped when there is nobody on it. A broadcast to zero peers reaches
+  // The rung is skipped when there is nobody worth asking. A broadcast to no peers reaches
   // nobody by definition, and waiting PEER_WINDOW_MS afterwards waits for an answer that
   // cannot come - which every node used to do on every boot, because this runs before
   // discovery has connected anything. It cost the 3s window plus the 500ms the broadcast
   // itself sleeps between directions, on every boot, to ask nobody anything.
+  //
+  // The count comes from peerManager's LATCHED threshold, not from a raw tally: the
+  // network already defines "enough peers to gossip with" hysteretically, at
+  // appSyncPeerThreshold on the way up and appSyncDegradedThreshold on the way down (12
+  // and 4). Reusing it means the policy rung opens and closes with the same peer set the
+  // spawner and the sync orchestrator use, and cannot flap on a single reconnect.
   //
   // A transport that does not report a count is treated as "unknown, ask anyway", so the
   // rung is only skipped on a positive answer of zero.
@@ -222,7 +231,7 @@ async function refresh() {
 }
 
 /**
- * A peer connection now exists.
+ * There is now a peer set worth asking.
  *
  * The boot refresh cannot use the peer rung: policyStore is started before discovery, so
  * when it asks, this node has no peers and the broadcast reaches nobody. Without this, the
@@ -230,15 +239,63 @@ async function refresh() {
  * while the published source was unreachable holds no policy for a day, with neighbours
  * beside it that have it. That is the gap peers-first was chosen to close, and it was open.
  *
- * While this node holds NOTHING, every new peer is a fresh chance and gets one ask; the
- * cost is bounded by the peer count and stops the moment a bundle is obtained. Once it
- * holds something, one ask is enough -- being a little behind is not urgent, and the
- * backstop tick covers it.
+ * Driven by peerManager's threshold edge rather than by every connection: one ask when the
+ * peer set becomes usable, not sixteen as it fills. While this node holds NOTHING a later
+ * crossing is another chance and gets another ask; once it holds something, one is enough
+ * -- being a little behind is not urgent, and the backstop tick covers it.
  */
 function notePeerAvailable() {
   if (current && askedPeersSinceBoot) return;
   askedPeersSinceBoot = true;
   refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
+}
+
+/**
+ * Where in the backstop period this node's tick falls, derived from its identity.
+ *
+ * The period is per node, so the fleet's tick distribution IS its restart distribution.
+ * In steady state that is spread and the first node to tick finds a change within
+ * seconds. After a release wave it is not: thousands of nodes restart together, their
+ * ticks bunch, and the fleet then both waits a whole period for the first look AND makes
+ * that look simultaneously - a synchronised fetch against the published source. The phase
+ * persists until the next wave re-scatters it.
+ *
+ * DETERMINISTIC, not random. A random offset re-rolls on every boot, so a restart wave
+ * still has every node drawing inside the same minute and the spread decays back toward
+ * the restart distribution. Hashing a stable identity instead means a node returns to the
+ * slot it already had: restarting changes nothing, and the fleet is uniformly spread over
+ * the period by construction rather than by luck. The ticks are aligned to absolute time,
+ * so two nodes with the same identity would collide and everything else is spread by the
+ * hash - which is uniform over the period by definition.
+ *
+ * @param {string} identity Something unique to this node and stable across restarts.
+ * @param {number} periodMs The backstop period.
+ * @returns {number} An offset in [0, periodMs).
+ */
+function backstopPhaseMs(identity, periodMs) {
+  const digest = crypto.createHash('sha256').update(String(identity)).digest();
+  return Number(digest.readBigUInt64BE(0) % BigInt(periodMs));
+}
+
+/**
+ * This node's identity for phasing: its collateral, which is unique and outlives a reboot.
+ *
+ * Resolved through a local require to keep policyStore off generalService's load path -
+ * the same reason fluxCommunicationMessagesSender requires this module locally. A node
+ * that cannot answer falls back to a random phase, which is worse than a stable one but
+ * still better than every node sharing zero.
+ * @returns {Promise<string>}
+ */
+async function nodePhaseIdentity() {
+  try {
+    // eslint-disable-next-line global-require
+    const generalService = require('./generalService');
+    const collateral = await generalService.obtainNodeCollateralInformation();
+    if (collateral && collateral.txhash) return `${collateral.txhash}:${collateral.txindex}`;
+  } catch (error) {
+    log.warn(`policyStore - could not read collateral for tick phasing: ${error.message}`);
+  }
+  return `random:${crypto.randomBytes(16).toString('hex')}`;
 }
 
 /** refresh(), with at most one in flight. Every caller but the interval goes through this. */
@@ -285,12 +342,30 @@ async function start() {
   if (refreshInterval) return;
   await restore();
   await refreshOnce();
-  refreshInterval = setInterval(() => {
+
+  // The first tick lands on this node's own slot rather than one period from boot, so the
+  // schedule is a property of the node and not of when it happened to start. Aligned to
+  // absolute time: ticks fall at t ≡ phase (mod period) forever, through any number of
+  // restarts.
+  const phase = backstopPhaseMs(await nodePhaseIdentity(), REFRESH_INTERVAL_MS);
+  const now = Date.now();
+  const firstTickIn = (Math.ceil((now - phase) / REFRESH_INTERVAL_MS) * REFRESH_INTERVAL_MS + phase) - now;
+  log.info(`policyStore - backstop phase ${Math.round(phase / 1000)}s, first tick in ${Math.round(firstTickIn / 1000)}s`);
+  phaseTimer = setTimeout(() => {
     refreshOnce().catch((error) => log.error(`policyStore - refresh error: ${error.message}`));
-  }, REFRESH_INTERVAL_MS);
+    refreshInterval = setInterval(() => {
+      refreshOnce().catch((error) => log.error(`policyStore - refresh error: ${error.message}`));
+    }, REFRESH_INTERVAL_MS);
+  }, firstTickIn);
+  // Held so start() is still idempotent while the first tick is pending.
+  refreshInterval = refreshInterval || phaseTimer;
 }
 
 function stop() {
+  if (phaseTimer) {
+    clearTimeout(phaseTimer);
+    phaseTimer = null;
+  }
   if (refreshInterval) {
     clearInterval(refreshInterval);
     refreshInterval = null;
@@ -312,6 +387,7 @@ function reset() {
 }
 
 module.exports = {
+  backstopPhaseMs,
   getArtifact,
   getDocument,
   getRawBundle,
