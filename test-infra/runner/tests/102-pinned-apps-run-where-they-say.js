@@ -128,10 +128,21 @@ describe('a pinned app runs where its spec says', function () {
 
     it('leaves an unpinned app available to every node', async function () {
       this.timeout(300000);
+      // instances = the whole fleet, which the pinned apps above do not need.
+      //
+      // A verdict is only computed for an app that is SHORT of instances. At one
+      // instance the first node to draw it installs it - measured: node 3 had it running
+      // seconds later - and from that moment it is short nowhere, so the other nodes
+      // never compute a verdict and a wait for one can only time out. Asking for an
+      // instance per node keeps it short on every node long enough for each to say so.
+      //
+      // The pinned tests do not need this: a pin the node does not match drops the app at
+      // the filter, which IS the verdict, and the two above are additionally deferred as
+      // non-enterprise apps on an Arcane node, so they stay short throughout.
       const app = await buildSeedableApp({
         env,
         name: `unpinned${Date.now()}`,
-        instances: 1,
+        instances: env.clients.length,
         nodes: [],
       });
       await seedToFleet(env, app);
