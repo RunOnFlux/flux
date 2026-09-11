@@ -1,5 +1,5 @@
 // weight: medium
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
@@ -7,6 +7,10 @@ import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { assignPorts } from '../framework/port-allocator.js';
+import { appOwnerKey, userKey } from '../framework/keys.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+import { nodeOutpoint } from '../framework/seed-helper.js';
+import { buildEnterpriseBlob } from '../framework/enterprise-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // The signed policy bundle, end to end on one node: obtained, verified, persisted,
@@ -28,11 +32,16 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const APP_IMAGE = 'e2e-policy-probe';
 
-// An owner in the harness bundle's enterprise map, and one that is not. Neither needs a
-// key: the validator checks the owner FIELD against the policy, and signature checking
-// belongs to appregister, which this suite does not use.
-const ENTERPRISE_OWNER = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
-const ORDINARY_OWNER = '1KPKzKSKn6iLmiJRWDcs1Ss1xtqM3DBkCG';
+// An owner in the harness bundle's enterprise map, and one that is not.
+//
+// TAKEN FROM THE FIXTURE KEYS, never written out. Neither needs its private half here -
+// the validator checks the owner FIELD against the policy and signature checking belongs
+// to appregister, which this suite does not use - but an address still has to BE one.
+// A hand-typed address fails base58check, and the validator says so
+// ('Invalid Flux App owner') long before it reaches any rule this suite is about, which
+// is a refusal that looks like the rule working.
+const ENTERPRISE_OWNER = userKey().zelid;
+const ORDINARY_OWNER = appOwnerKey().zelid;
 
 // The node's own pubkey is not known until it boots, so the map is keyed on a placeholder.
 // Nothing in the eligibility rule looks at WHICH node an owner may use - that is the
@@ -40,31 +49,58 @@ const ORDINARY_OWNER = '1KPKzKSKn6iLmiJRWDcs1Ss1xtqM3DBkCG';
 // enterprise, and the union of its values is the whole answer.
 const ENTERPRISE_MAP = { '04harnessenterprisenodepubkey': [ENTERPRISE_OWNER] };
 
-// A pin by collateral outpoint rather than by address. Both forms are live on the network
-// and the validator's own length check is sized for this one (64 hex, a colon, the index).
-const OUTPOINT_PIN = `${'a'.repeat(64)}:0`;
+// The pins name THIS FLEET'S ONE NODE, by each of the two forms a `nodes` entry may take.
+//
+// They have to name a real node, and the run's own address at that. placementFeasibility's
+// pooledNodes treats a pin as a CLOSED POOL - the candidate set becomes exactly the pinned
+// entries - so a pin naming nobody leaves zero candidates and the spec is refused as
+// impossible, several rules past the one being tested. run-all.sh claims a per-run /24, so
+// a literal address is the wrong one on most runs; subnet-config knows which.
+//
+// nodeOutpoint reads the same fixture the daemon stub answers getzelnodestatus from, so
+// the outpoint form names the node the node agrees it is.
+const PIN_BY_ADDRESS = `${getSubnetConfig().nodeIp(1)}:16127`;
+const PIN_BY_OUTPOINT = nodeOutpoint(0);
 
-function policySpec({ name, owner = ORDINARY_OWNER, nodes = [], datacenter }) {
+/**
+ * A v8 spec for the verify endpoint.
+ *
+ * `nodes` REQUIRES `enterprise`. appValidator.js:381 refuses a v8 spec carrying a pin
+ * without one - 'Nodes can only be used in enterprise apps' - and that rule sits ahead of
+ * the eligibility rule this suite is about, so a pinned spec built with `enterprise: ''`
+ * never reaches it and fails on a sentence about something else entirely.
+ *
+ * That ordering is the whole point of the rule under test. Pinning was already confined
+ * to encrypted specs; what nothing checked was WHOSE. So the fixture has to be the shape
+ * the hole had: a real blob, from any owner at all.
+ *
+ * An enterprise spec carries its components INSIDE the blob and an empty compose, which
+ * is how the chain sees it - the node decrypts before it validates.
+ */
+function policySpec({ name, owner = ORDINARY_OWNER, nodes = [], datacenter, enterprise = nodes.length > 0 }) {
+  const components = [{
+    name: 'probe',
+    description: 'probe component',
+    repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
+    ports: [],
+    domains: [''],
+    environmentParameters: [],
+    commands: [],
+    containerPorts: [80],
+    containerData: 'g:/appdata',
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    repoauth: '',
+  }];
+  // Before the blob is sealed: a port assigned afterwards is a port the node never sees.
+  assignPorts(components, name);
   const spec = {
     version: 8,
     name,
     description: `policy probe ${name}`,
     owner,
-    compose: [{
-      name: 'probe',
-      description: 'probe component',
-      repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
-      ports: [],
-      domains: [''],
-      environmentParameters: [],
-      commands: [],
-      containerPorts: [80],
-      containerData: 'g:/appdata',
-      cpu: 0.1,
-      ram: 100,
-      hdd: 1,
-      repoauth: '',
-    }],
+    compose: enterprise ? [] : components,
     // One, because one node is the whole eligible pool: the placement gate runs after the
     // validator and would refuse a larger count for a reason this suite is not about.
     // v8 may ask for one above minimumInstancesV8Block, and the harness chain starts at
@@ -75,10 +111,9 @@ function policySpec({ name, owner = ORDINARY_OWNER, nodes = [], datacenter }) {
     expire: 22000,
     nodes,
     staticip: false,
-    enterprise: '',
+    enterprise: enterprise ? buildEnterpriseBlob(components, []) : '',
   };
   if (datacenter !== undefined) spec.datacenter = datacenter;
-  assignPorts(spec.compose, name);
   return spec;
 }
 
@@ -193,7 +228,7 @@ describe('the signed policy bundle on a single node', function () {
       const response = await verify(policySpec({
         name: `pinreject${Date.now()}`,
         owner: ORDINARY_OWNER,
-        nodes: ['198.18.0.11:16127'],
+        nodes: [PIN_BY_ADDRESS],
       }));
       expect(response.status).to.equal('error');
       expect(response.data.message).to.include('only available for enterprise app owners');
@@ -204,7 +239,7 @@ describe('the signed policy bundle on a single node', function () {
       const response = await verify(policySpec({
         name: `pinaccept${Date.now()}`,
         owner: ENTERPRISE_OWNER,
-        nodes: ['198.18.0.11:16127'],
+        nodes: [PIN_BY_ADDRESS],
       }));
       expect(response.status).to.equal('success');
     });
@@ -214,7 +249,7 @@ describe('the signed policy bundle on a single node', function () {
       const response = await verify(policySpec({
         name: `pinoutpoint${Date.now()}`,
         owner: ENTERPRISE_OWNER,
-        nodes: [OUTPOINT_PIN],
+        nodes: [PIN_BY_OUTPOINT],
       }));
       expect(response.status).to.equal('success');
     });
@@ -242,6 +277,21 @@ describe('the signed policy bundle on a single node', function () {
   });
 
   describe('bundles it must refuse', function () {
+    // Restoration belongs in a hook, not at the end of a test body. Test 12 used to
+    // republish a good enterprisenodes document as its last statement; when its assertion
+    // failed, that line never ran and the NEXT test inherited a malformed map and failed
+    // for a reason that had nothing to do with it. A fixture a test breaks is a fixture
+    // the suite has to put back whatever the test does.
+    afterEach(async function () {
+      this.timeout(30000);
+      await stub(env, '/policy', {
+        signer: 'pinned',
+        body: null,
+        available: true,
+        documents: { enterprisenodes: ENTERPRISE_MAP },
+      }).catch(() => {});
+    });
+
     // Each of these publishes something the node must not take, then proves the node
     // still holds what it held. Held-not-adopted is the assertion, because a refusal
     // that dropped the policy would be a worse failure than accepting the bad bundle.
@@ -270,7 +320,6 @@ describe('the signed policy bundle on a single node', function () {
         () => stub(env, '/policy', { signer: 'rogue' }),
         'a valid signature from an untrusted signer is fetched and not adopted',
       );
-      await stub(env, '/policy', { signer: 'pinned' });
     });
 
     it('refuses a bundle whose sequence goes backwards', async function () {
@@ -292,7 +341,6 @@ describe('the signed policy bundle on a single node', function () {
         () => stub(env, '/policy', { body: 'this is not a signed bundle' }),
         'a body that is not a bundle is fetched and not adopted',
       );
-      await stub(env, '/policy', { body: null });
     });
 
     it('adopts a correctly signed bundle whose document is malformed, and reads it as unknown', async function () {
@@ -315,15 +363,21 @@ describe('the signed policy bundle on a single node', function () {
       const response = await verify(policySpec({
         name: `unknownpin${Date.now()}`,
         owner: ENTERPRISE_OWNER,
-        nodes: ['198.18.0.11:16127'],
+        nodes: [PIN_BY_ADDRESS],
       }));
       expect(response.status).to.equal('error');
       expect(response.data.message).to.include('network policy not yet obtained');
-      await stub(env, '/policy', { seq: seq + 1, documents: { enterprisenodes: ENTERPRISE_MAP } });
     });
   });
 
   describe('surviving a source that stops answering', function () {
+    // Same reasoning as the block above: these tests take the source away, and a failure
+    // part way through must not leave it unavailable for whatever runs next.
+    afterEach(async function () {
+      this.timeout(30000);
+      await stub(env, '/policy', { available: true, body: null, signer: 'pinned' }).catch(() => {});
+    });
+
     it('restores the stored bundle at boot with the source returning 503', async function () {
       this.timeout(180000);
       await env.restartNode(0);
@@ -383,7 +437,7 @@ describe('the signed policy bundle on a single node', function () {
       const pinned = await verify(policySpec({
         name: `nopolicypin${Date.now()}`,
         owner: ENTERPRISE_OWNER,
-        nodes: ['198.18.0.11:16127'],
+        nodes: [PIN_BY_ADDRESS],
       }));
       expect(pinned.status).to.equal('error');
       expect(pinned.data.message).to.include('network policy not yet obtained');
