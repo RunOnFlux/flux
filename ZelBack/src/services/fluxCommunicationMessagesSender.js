@@ -143,10 +143,30 @@ async function respondWithPolicy(msgObj, peer) {
     const message = msgObj.data;
     if (!message || message.version !== 1) return;
     const askerSeq = Number.isInteger(message.seq) ? message.seq : 0;
-    if (policyStore.getSeq() <= askerSeq) return;
 
+    // A node with no bundle says NOTHING, whatever the asker holds. It has no
+    // information: answering "I am at 0" to a node at 5 would read as "you are not
+    // behind me", which is true and useless - the asker would take an empty peer for
+    // agreement. Only a node that holds policy can speak to whether someone else's is
+    // current.
     const raw = await policyStore.getRawBundle();
     if (!raw) return;
+
+    if (policyStore.getSeq() <= askerSeq) {
+      // Nothing newer to give - but say so, rather than saying nothing.
+      //
+      // Silence used to be the answer here, on the grounds that "I have nothing newer"
+      // is a claim the asker cannot check. True, and it stays uncheckable: what comes
+      // back is a sequence, and a sequence grants nothing. What it does give the asker
+      // is the difference between "my peers agree I am current" and "my peers are
+      // asleep", which silence cannot express - and a node that cannot tell those apart
+      // has no way to know whether the policy it restored from disk is still the
+      // network's. A peer that lies low is ignored (we only act on a HIGHER claim); a
+      // peer that lies high costs one request and a refused bundle.
+      await sendSignedMessage({ type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq() }, peer);
+      return;
+    }
+
     await sendSignedMessage({ type: 'fluxpolicy', version: 1, bundle: raw }, peer);
   } catch (error) {
     log.error(error);

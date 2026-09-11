@@ -36,6 +36,25 @@ const FETCH_TIMEOUT_MS = config.policy.fetchTimeoutMs;
 // payload would produce something the signature does not cover.
 let current = null;
 let currentRaw = null;
+// Whether this node has established that NO PEER IT CAN REACH IS AHEAD OF IT.
+//
+// Not "my policy is current" - no node can know that without an authority, which is the
+// dependency this design exists to remove. It is the strongest available claim, and it is
+// what the acquisition gate actually needs: a node must not install on policy the network
+// has already moved past, and a peer holding more is how it finds out that it has.
+//
+// HOLDING a bundle and being entitled to ACT on it are different things. A bundle off
+// disk is real and signed, but it says nothing about whether policy moved while this node
+// was down - and the documents in it decide who may host what. So a restored bundle opens
+// the gate once a peer reports a sequence no higher than ours, or something newer
+// replaces it.
+//
+// There is no fallback for "nobody answered", deliberately. A node with no peer set is
+// below appSyncPeerThreshold, and the network already says such a node should not be
+// acquiring apps - appSyncDegradedThreshold pauses the spawner for exactly that reason.
+// Unconfirmed and not-spawning are the same condition arriving twice, so a timer that
+// forced the gate open would be overriding a decision the fleet had already made.
+let confirmed = false;
 let refreshInterval = null;
 // The one-shot that carries the schedule from boot to this node's own slot in the period.
 let phaseTimer = null;
@@ -103,11 +122,30 @@ function getArtifact(name) {
   return current.artifacts?.[name] ?? null;
 }
 
+/**
+ * No reachable peer is ahead of this node, so it may act on what it holds.
+ *
+ * Called when a peer answers with a sequence at or below ours, or when anything is
+ * adopted. A peer that is merely repeating a bundle we gave it still supports the claim:
+ * "nobody I can reach is ahead of me" does not depend on where their copy came from. What
+ * it cannot tell you is whether the WIDER network has moved on - an isolated segment
+ * cannot detect that from the inside, and the backstop tick is what corrects it.
+ * @param {string} source What established it, for the log.
+ */
+function markConfirmed(source) {
+  if (confirmed) return;
+  confirmed = true;
+  if (!current) return;
+  globalState.policyReady = true;
+  log.info(`policyStore - seq ${current.seq}: no reachable peer is ahead (${source})`);
+}
+
 function adopt(raw, payload, source) {
   current = payload;
   currentRaw = raw;
-  globalState.policyReady = true;
   log.info(`policyStore - adopted seq ${payload.seq} from ${source}`);
+  // Adopting settles it too: this bundle came from outside this node, moments ago.
+  markConfirmed(`adoption from ${source}`);
   // Announced on adoption, never on a timer. Each adopter tells its own peers, so a change
   // spreads outwards from whichever node reached the backstop first rather than every node
   // waiting out its own interval. The traffic is bounded by how often policy changes.
@@ -173,8 +211,9 @@ async function restore() {
   if (!payload) return false;
   current = payload;
   currentRaw = stored.raw;
-  globalState.policyReady = true;
-  log.info(`policyStore - restored seq ${payload.seq} from disk`);
+  // Deliberately NOT opening the gate. Disk proves the bundle is real, never that it is
+  // still the network's - see `confirmed`.
+  log.info(`policyStore - restored seq ${payload.seq} from disk, pending confirmation`);
   return true;
 }
 
@@ -227,7 +266,14 @@ async function refresh() {
   }
 
   const raw = await fetchFromBackstop();
-  return raw ? consider(raw, 'backstop') : false;
+  if (!raw) return false;
+  const adopted = consider(raw, 'backstop');
+  // The source answered. Even when it carried the sequence we already had - which is the
+  // ordinary case - that is the publisher itself, which is the one answer that DOES mean
+  // current rather than merely not-behind-my-neighbours.
+  // consider() returns false for "valid, but nothing new", which is not a failure.
+  markConfirmed('the published source');
+  return adopted;
 }
 
 /**
@@ -326,7 +372,17 @@ function setPeerTransport({ request, announce, count } = {}) {
  * @param {number} seq The sequence the peer claims.
  */
 function notePeerSeq(seq) {
-  if (!Number.isInteger(seq) || seq <= getSeq()) return;
+  // `null` is a peer saying it holds no policy at all. Not confirmation - an empty peer
+  // cannot speak to whether ours is current - but not nothing either: it answered, so it
+  // is alive, and a node whose peers all answer this way is on a network that has no
+  // policy rather than one it cannot reach.
+  if (!Number.isInteger(seq)) return;
+  if (seq <= getSeq()) {
+    // A peer that is not ahead of us is the evidence we are not behind. This is the
+    // whole reason a peer answers "nothing newer" with a number instead of with silence.
+    markConfirmed('peer');
+    return;
+  }
   if (!peerRequest) return;
   peerRequest(getSeq()).catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
 }
@@ -397,6 +453,7 @@ function reset() {
   peerAnswered = null;
   refreshInFlight = null;
   askedPeersSinceBoot = false;
+  confirmed = false;
   globalState.policyReady = false;
 }
 

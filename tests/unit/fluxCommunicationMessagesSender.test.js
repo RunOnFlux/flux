@@ -378,9 +378,12 @@ describe('fluxCommunicationMessagesSender tests', () => {
         expect(JSON.parse(peer.send.firstCall.args[0]).data.bundle).to.equal('{"payload_b64":"x","sig_b64":"y"}');
       });
 
-      it('says nothing when it holds no more than the asker', async () => {
-        // Silence is the answer for "nothing newer". A reply saying so would be a claim the
-        // asker cannot check, and one a hostile peer would send to keep it where it is.
+      it('answers with its sequence when it holds no more than the asker', async () => {
+        // It used to say nothing, on the grounds that "I have nothing newer" is a claim
+        // the asker cannot check. Still uncheckable, and still grants nothing - but
+        // silence cannot distinguish "my peers agree I am current" from "my peers are
+        // asleep", and a node that restored a bundle from disk needs exactly that
+        // difference before it acts on it.
         sinon.stub(policyStore, 'getSeq').returns(4);
         sinon.stub(policyStore, 'getRawBundle').returns('{}');
         const peer = makePeer();
@@ -392,7 +395,12 @@ describe('fluxCommunicationMessagesSender tests', () => {
           { data: { type: 'fluxpolicyrequest', version: 1, seq: 9 } }, peer,
         );
 
-        expect(peer.send.called).to.equal(false);
+        expect(peer.send.callCount, 'both asks answered').to.equal(2);
+        for (const call of peer.send.getCalls()) {
+          const sent = JSON.parse(call.args[0]);
+          expect(sent.data.type, 'a sequence, never the bundle').to.equal('fluxpolicyseq');
+          expect(sent.data.seq).to.equal(4);
+        }
       });
 
       it('says nothing when it holds no bundle at all', async () => {
