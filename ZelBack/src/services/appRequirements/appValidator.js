@@ -1253,6 +1253,31 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
     throw new Error('Invalid Flux App owner. Must be a Flux ID or an Ethereum address');
   }
 
+  // NODE PINNING ELIGIBILITY
+  // Pinning a v8+ spec to named nodes is an enterprise-owner privilege. The frontend has
+  // always gated its node picker this way; nothing enforced it, so a spec posted straight
+  // to the API pinned regardless and the restriction was decoration.
+  //
+  // Live submissions only, for the same reason as the owner check above: a rule applied to
+  // replay would have upgraded nodes rejecting messages already on chain that their peers
+  // accept, which is a disagreement about the past rather than a rule about the present.
+  // That is also what makes a fork height unnecessary here.
+  //
+  // v7 is untouched. There, nodes[] is what MAKES a spec enterprise -- it carries the
+  // per-node encrypted secrets -- so the same rule would invalidate every v7 enterprise
+  // app on the network.
+  if (liveSubmission && appSpecifications.version >= 8 && appSpecifications.nodes.length) {
+    const enterpriseOwners = enterpriseConfig.getEnterpriseAppOwners();
+    // Same as the datacenter check: a node that has not obtained the policy refuses rather
+    // than waving through a privilege it cannot verify.
+    if (enterpriseOwners === null) {
+      throw new Error('Cannot verify node pinning eligibility: network policy not yet obtained.');
+    }
+    if (!enterpriseOwners.includes(appSpecifications.owner)) {
+      throw new Error('Pinning an application to specific nodes is only available for enterprise app owners.');
+    }
+  }
+
   // RESTRICTION CHECKS
   verifyRestrictionCorrectnessOfApp(appSpecifications, height);
 

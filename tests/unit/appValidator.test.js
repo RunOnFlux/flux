@@ -6,6 +6,9 @@ describe('appValidator tests', () => {
   let appValidator;
   let logStub;
   let imageManagerStub;
+  // The enterprise app owners this node has obtained. null means it has not obtained
+  // the policy at all, which is a different answer from "there are none".
+  let enterpriseOwners;
 
   beforeEach(() => {
     logStub = {
@@ -13,6 +16,8 @@ describe('appValidator tests', () => {
       info: sinon.stub(),
       warn: sinon.stub(),
     };
+
+    enterpriseOwners = ['1GM41a9A4rH8CCkCyzDRahHUccuTRLhoDe'];
 
     imageManagerStub = {
       checkWhitelistedRepository: sinon.stub().returns(true),
@@ -75,6 +80,9 @@ describe('appValidator tests', () => {
       },
       '../generalService': {
         getApplicationGlobalSpecifications: sinon.stub().resolves({}),
+      },
+      '../utils/enterpriseConfig': {
+        getEnterpriseAppOwners: () => enterpriseOwners,
       },
       '../verificationHelper': {
         verifyPrivilege: sinon.stub().resolves(true),
@@ -254,6 +262,111 @@ describe('appValidator tests', () => {
 
     it('should accept an owner that is not a signing identity when replaying a message already on chain', async () => {
       await appValidator.verifyAppSpecifications(specsOwnedBy('TrippleCore'), 1000);
+    });
+  });
+
+  // Pinning a v8+ spec to named nodes is an enterprise-owner privilege. The frontend's
+  // node picker has always gated on it; nothing on the chain did, so a spec posted
+  // straight to the API pinned regardless and the restriction was decoration.
+  describe('node pinning eligibility', () => {
+    const ENTERPRISE_OWNER = '1GM41a9A4rH8CCkCyzDRahHUccuTRLhoDe';
+    const ORDINARY_OWNER = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
+
+    // v7 and v8 permit different keys, and the validator rejects an unknown one, so the
+    // two shapes are built separately rather than patched from one another.
+    function v8Component() {
+      return {
+        name: 'component1',
+        description: 'Component 1',
+        repotag: 'nginx:latest',
+        ports: [],
+        domains: [],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [],
+        containerData: '/data',
+        repoauth: '',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      };
+    }
+
+    function pinnedSpec(overrides = {}) {
+      return {
+        name: 'pinnedapp',
+        version: 8,
+        description: 'Pinned app',
+        owner: ORDINARY_OWNER,
+        nodes: ['203.0.113.7:16127'],
+        // The encrypted-spec field, not the owner list. v8 already refuses to pin
+        // without it ('Nodes can only be used in enterprise apps'); the new rule adds
+        // that the OWNER must be an enterprise owner too.
+        enterprise: 'encrypted-blob',
+        compose: [v8Component()],
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 22000,
+        staticip: false,
+        ...overrides,
+      };
+    }
+
+    function pinnedSpecV7() {
+      return {
+        name: 'pinnedapp',
+        version: 7,
+        description: 'Pinned app',
+        owner: ORDINARY_OWNER,
+        nodes: ['203.0.113.7:16127'],
+        compose: [{ ...v8Component(), secrets: '', tiered: false }],
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 22000,
+        staticip: false,
+      };
+    }
+
+    it('rejects a v8 spec pinned by an ordinary owner on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('accepts a v8 spec pinned by an enterprise owner', async () => {
+      await appValidator.verifyAppSpecifications(pinnedSpec({ owner: ENTERPRISE_OWNER }), 1000, true);
+    });
+
+    it('accepts an unpinned v8 spec from an ordinary owner', async () => {
+      await appValidator.verifyAppSpecifications(pinnedSpec({ nodes: [] }), 1000, true);
+    });
+
+    it('leaves v7 alone, where nodes[] is what makes a spec enterprise', async () => {
+      // Applying the rule to v7 would invalidate every v7 enterprise app on the network:
+      // there the array carries the per-node encrypted secrets rather than a privilege.
+      await appValidator.verifyAppSpecifications(pinnedSpecV7(), 1000, true);
+    });
+
+    it('does not re-judge a message already on chain', async () => {
+      // Replay is not a live submission. Applying the rule there would have upgraded
+      // nodes rejecting history their peers accept - a disagreement about the past,
+      // and the reason this needs no fork height.
+      await appValidator.verifyAppSpecifications(pinnedSpec(), 1000);
+    });
+
+    it('refuses rather than guessing when the policy has not been obtained', async () => {
+      enterpriseOwners = null;
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec({ owner: ENTERPRISE_OWNER }), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('network policy not yet obtained');
+      }
     });
   });
 
