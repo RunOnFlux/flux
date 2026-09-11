@@ -422,6 +422,9 @@ module.exports = {
       'c31930ec386a49f31321851766d93bcb90bf269cd15bec7a329155a4d79ea380',
       '739ca41408f66c75d6cb4bc1d5c044ca5a118de190081da68e5a7d6839fb69f8',
     ],
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    peerWindowMs: 3 * 1000,
+    fetchTimeoutMs: 10 * 1000,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

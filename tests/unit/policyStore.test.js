@@ -52,6 +52,12 @@ function load(overrides = {}) {
       policy: {
         signedBaseUrl: 'https://policy.example/signed',
         publicKeys: overrides.publicKeys || [KEY.publicHex],
+        // Production's values unless a test says otherwise. Supplied rather than left
+        // undefined: the period reaches setInterval, and setInterval(fn, undefined) is
+        // setInterval(fn, 0) - a runaway refresh under every other test in this file.
+        refreshIntervalMs: overrides.refreshIntervalMs ?? 24 * 60 * 60 * 1000,
+        peerWindowMs: overrides.peerWindowMs ?? 3 * 1000,
+        fetchTimeoutMs: overrides.fetchTimeoutMs ?? 10 * 1000,
       },
     },
     '../lib/log': log,
@@ -137,6 +143,33 @@ describe('policyStore', () => {
   // source "is there anything newer?", so the source stays primary wherever it sits in the
   // ladder. Being TOLD inverts that: a change spreads outwards from whichever node reached
   // the backstop first, and the poll becomes a safety net for nodes that missed it.
+  describe('the timings come from config', () => {
+    // They were constants in the module, and a 24-hour period written there cannot be
+    // observed by any test - so the periodic refresh had no coverage and the fleet suites
+    // restarted nodes to approximate it, which exercises the boot path instead.
+    it('refreshes on the configured period, not on a hardcoded day', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module } = load({ refreshIntervalMs: 40, serviceHelper: { axiosGet } });
+      await module.start();
+      const afterBoot = axiosGet.callCount;
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
+      module.stop();
+      // At 40ms a 150ms wait is three ticks; asserted as "more than the boot fetch"
+      // rather than an exact count, because the number of ticks in a window is the
+      // machine's business and the property is only that the period is the one given.
+      expect(axiosGet.callCount, 'the configured period elapsed and it refreshed')
+        .to.be.greaterThan(afterBoot);
+    });
+
+    it('bounds the backstop fetch with the configured timeout', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(3) });
+      const { module } = load({ fetchTimeoutMs: 1234, serviceHelper: { axiosGet } });
+      await module.start();
+      module.stop();
+      expect(axiosGet.firstCall.args[1].timeout).to.equal(1234);
+    });
+  });
+
   describe('the peer rung at boot', () => {
     // policyStore is started before discovery (serviceManager.js:505 vs :560), so the boot
     // refresh asks an empty peer set and falls through to the backstop. Until a peer
