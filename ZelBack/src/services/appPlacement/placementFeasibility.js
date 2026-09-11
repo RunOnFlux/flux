@@ -31,6 +31,7 @@ const cidrUtils = require('../utils/cidrUtils');
 const mountParser = require('../utils/mountParser');
 const verificationHelper = require('../verificationHelper');
 const { bareIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const geolocationRule = require('./geolocationRule');
 const ipLocationStore = require('./ipLocationStore');
 const { Privilege, authOf } = require('../utils/privileges');
@@ -280,10 +281,10 @@ async function countHeldInDomain(locations, domainKey, domainOf) {
 async function specNamesThisNode(appSpecifications, localSocketAddr) {
   const nodes = appSpecifications.nodes ?? [];
   if (!nodes.length) return false;
-  if (nodes.some((node) => socketAddressesMatch(node, localSocketAddr))) return true;
+  if (nodesNameThisNode(nodes, localSocketAddr)) return true;
   try {
     const collateral = await generalService.obtainNodeCollateralInformation();
-    return nodes.includes(`${collateral.txhash}:${collateral.txindex}`);
+    return nodesNameThisNode(nodes, localSocketAddr, collateralOutpoint(collateral));
   } catch (error) {
     log.warn(`placementFeasibility - could not resolve node collateral: ${error.message}`);
     return false;

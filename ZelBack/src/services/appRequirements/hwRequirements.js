@@ -6,7 +6,8 @@ const ipLocationStore = require('../appPlacement/ipLocationStore');
 const geolocationRule = require('../appPlacement/geolocationRule');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+
+const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
@@ -301,7 +302,7 @@ async function checkAppNodesRequirements(appSpecs) {
       throw new Error('Unable to detect Flux IP address');
     }
 
-    if (appSpecs.nodes.find((node) => socketAddressesMatch(node, localSocketAddr)) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
+    if (nodesNameThisNode(appSpecs.nodes, localSocketAddr, collateralOutpoint(myCollateral))) {
       return true;
     }
     throw new Error(`Application ${appSpecs.name} is not allowed to run on this node. Aborting.`);

@@ -9,6 +9,7 @@ const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = require('../utils/instanceOrdering');
 
 // Import modular services
@@ -205,6 +206,17 @@ async function trySpawningGlobalApplication() {
     // were the same value.
     const localIp = extractIp(localSocketAddr);
 
+    // The other way a spec can name this node. Resolved once per pass beside the
+    // address, because the filters below run inside .filter() and cannot await, and
+    // because obtainNodeCollateralInformation is a daemon RPC per call. A failure
+    // narrows pin matching to addresses rather than stopping the pass.
+    const myOutpoint = collateralOutpoint(
+      await generalService.obtainNodeCollateralInformation().catch((error) => {
+        log.warn(`trySpawningGlobalApplication - could not resolve node collateral, pins naming this node by collateral will not match: ${error.message}`);
+        return null;
+      }),
+    );
+
     const runningApps = await appQueryService.listRunningApps();
     if (runningApps.status !== 'success') {
       throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
@@ -389,9 +401,9 @@ async function trySpawningGlobalApplication() {
       // bypass below does not apply to them).
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => {
         if (app.nodes.length > 0 && enterpriseNetwork.isEnterpriseAppOwner(app.owner) === true) {
-          return app.nodes.some((ip) => socketAddressesMatch(ip, localSocketAddr));
+          return nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint);
         }
-        return app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8;
+        return app.nodes.length === 0 || nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint) || app.version >= 8;
       });
       // Selection uses the SAME eligibility implementation as candidate counting
       // and the install gate, over the SAME source for where this node is - the
@@ -476,7 +488,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       let random = Math.floor(Math.random() * globalAppNamesLocation.length);
       appToRunAux = globalAppNamesLocation[random];
-      const appsNamingThisNode = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
+      const appsNamingThisNode = globalAppNamesLocation.filter((app) => nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint));
       if (appsNamingThisNode.length > 0) {
         random = Math.floor(Math.random() * appsNamingThisNode.length);
         appToRunAux = appsNamingThisNode[random];
@@ -778,7 +790,7 @@ async function trySpawningGlobalApplication() {
     }
 
     if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater
-      && appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr))) {
+      && appToRunAux.nodes.length > 0 && !nodesNameThisNode(appToRunAux.nodes, localSocketAddr, myOutpoint)) {
       const deferral = config.fluxapps.spawnDeferrals.targetedNodesMs;
       const appToCheck = {
         timeToCheck: Date.now() + (appToRunAux.enterprise ? deferral.enterprise : deferral.standard),
@@ -839,7 +851,7 @@ async function trySpawningGlobalApplication() {
         globalState.trySpawningGlobalAppCache.delete(appHash);
         fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'datacenter', delayMs });
         delay = true;
-      } else if (appToRunAux.nodes.length > 0 && appToRunAux.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr))) {
+      } else if (appToRunAux.nodes.length > 0 && nodesNameThisNode(appToRunAux.nodes, localSocketAddr, myOutpoint)) {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs have this node as target ip`);
       } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const deferral = config.fluxapps.spawnDeferrals.capacityGap.largeMs;
