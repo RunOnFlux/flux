@@ -924,6 +924,13 @@ function getAPIPort(req, res) {
  */
 function getEnterpriseAppOwners(req, res) {
   const enterpriseAppOwners = enterpriseConfig.getEnterpriseAppOwners();
+  // An unknown policy is reported as an error, not as an empty list. Callers use this to
+  // decide who may pick priority nodes, and "nobody is eligible" is a different answer
+  // from "this node cannot say yet".
+  if (enterpriseAppOwners === null) {
+    const errorResponse = messageHelper.createErrorMessage('Network policy not yet obtained');
+    return res ? res.json(errorResponse) : errorResponse;
+  }
   const message = messageHelper.createDataMessage(enterpriseAppOwners);
   return res ? res.json(message) : message;
 }
