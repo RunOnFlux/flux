@@ -295,7 +295,10 @@ async function checkAppGeolocationRequirements(appSpecs) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkAppNodesRequirements(appSpecs) {
-  if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
+  // Every version, not just v7. The spawner's filter was not the only place the v8
+  // bypass lived: this gate skipped v8 entirely, so an app that reached an install by
+  // any path other than selection was never checked against its own pin.
+  if (appSpecs.version >= 7 && appSpecs.nodes && appSpecs.nodes.length) {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {

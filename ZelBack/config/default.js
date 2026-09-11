@@ -584,7 +584,6 @@ module.exports = {
     nodeMonitorCheckIntervalMs: 120000,
     nodeMonitorCheckTimeoutMs: 10000,
     spawnDeferrals: {
-      targetedNodesMs: { enterprise: 1800000, standard: 3420000 },
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },
       capacityGap: {
