@@ -10,10 +10,16 @@
 // is written before the stub is running. Importing the value rather than restating it is what
 // stops the two drifting -- a literal in shared.js would be a second place to change.
 //
-// PINNED is what the fleet's config trusts. ROGUE is a perfectly valid ed25519 key that the
-// fleet does not trust, which is the only way to test the case that matters -- a bundle whose
-// signature is real and whose signer is not ours. It cannot be faked by corrupting bytes,
-// because that produces an invalid signature rather than an untrusted one.
+// Three keys, because the fleet's config holds a LIST and the list has a purpose:
+//
+//   PINNED     the key that normally signs.
+//   SECONDARY  also pinned, and never used unless a suite asks for it. Production pins a
+//              cold second key so signing can move to it without every node needing a
+//              release first - that is the only thing a second key buys, and it is worth
+//              nothing until something has actually verified against it.
+//   ROGUE      a perfectly valid ed25519 key the fleet does NOT pin. The only way to test
+//              an untrusted bundle: corrupting bytes gives an INVALID signature, which is
+//              a different refusal from an untrusted one.
 //
 // These are test keys. They are in the repository on purpose and sign nothing outside a fleet
 // of containers on 198.18.0.0/15.
@@ -25,6 +31,7 @@ const PKCS8_ED25519_PREFIX = Buffer.from('302e020100300506032b657004220420', 'he
 // Ed25519 seeds are 32 bytes. Written as ASCII rather than base64 so the length is the one
 // the eye counts -- the first pair of these were hand-encoded and decoded to 35.
 const PINNED_SEED = 'flux-harness-policy-pinned-key01';
+const SECONDARY_SEED = 'flux-harness-policy-second-key01';
 const ROGUE_SEED = 'flux-harness-policy-rogue-key001';
 
 function privateKeyFromSeed(seedAscii) {
@@ -45,25 +52,31 @@ function publicHex(privateKey) {
 }
 
 const PINNED_KEY = privateKeyFromSeed(PINNED_SEED);
+const SECONDARY_KEY = privateKeyFromSeed(SECONDARY_SEED);
 const ROGUE_KEY = privateKeyFromSeed(ROGUE_SEED);
+
+const SIGNERS = { pinned: PINNED_KEY, secondary: SECONDARY_KEY, rogue: ROGUE_KEY };
 
 /**
  * Build a signed bundle the way fluxos-network-policy does: the payload is signed and carried
  * as the exact bytes, so a consumer never has to agree with the signer about JSON key order.
  * @param {object} payload `{ seq, issued_at, documents, artifacts }`.
- * @param {boolean} [rogue] Sign with the key the fleet does NOT pin.
+ * @param {'pinned'|'secondary'|'rogue'} [signer] Which key signs it.
  * @returns {string} The bundle as it would be served.
  */
-function signBundle(payload, rogue = false) {
+function signBundle(payload, signer = 'pinned') {
+  const key = SIGNERS[signer];
+  if (!key) throw new Error(`unknown signer '${signer}'`);
   const bytes = Buffer.from(JSON.stringify(payload), 'utf8');
   return JSON.stringify({
     payload_b64: bytes.toString('base64'),
-    sig_b64: crypto.sign(null, bytes, rogue ? ROGUE_KEY : PINNED_KEY).toString('base64'),
+    sig_b64: crypto.sign(null, bytes, key).toString('base64'),
   });
 }
 
 module.exports = {
   PINNED_PUBLIC_HEX: publicHex(PINNED_KEY),
+  SECONDARY_PUBLIC_HEX: publicHex(SECONDARY_KEY),
   ROGUE_PUBLIC_HEX: publicHex(ROGUE_KEY),
   signBundle,
 };

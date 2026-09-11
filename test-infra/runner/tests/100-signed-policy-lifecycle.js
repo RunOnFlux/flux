@@ -125,6 +125,64 @@ const stub = (env, path, body) => fetch(`${env.stubControl}${path}`, {
 
 const stubState = (env) => fetch(`${env.stubControl}/state`).then((r) => r.json());
 
+describe('the backstop tick', function () {
+  // The periodic refresh, on its own fleet because it needs its own clock.
+  //
+  // Production polls every 24 hours, which no test can watch - so until the period became
+  // config the only way to make a node look again was to restart it, and that exercises
+  // the BOOT path. This is the one thing restarting cannot stand in for: a node that has
+  // been up all along noticing on its own.
+  //
+  // Its own fleet, not an override on the suite below, because a node polling in the
+  // background makes "the source served nothing" false - and that assertion is how the
+  // other suites prove a bundle travelled peer-to-peer.
+  let env;
+  let db;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(360000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 1,
+      tickerAutostart: false,
+      configOverrides: { policy: { refreshIntervalMs: 15000 } },
+    });
+    db = dbClient(1);
+    await waitForBootSettled(env.clients[0]);
+    await waitFor(async () => Boolean(await db.policyBundle()), {
+      timeout: 90000,
+      label: 'the node to adopt at boot',
+    });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('picks up a change on its own, with nothing restarted and nobody telling it', async function () {
+    this.timeout(180000);
+    const before = (await db.policyBundle()).seq;
+    const { seq } = await stub(env, '/blocked-repos', ['found/by-the-tick:v1']);
+    expect(seq).to.be.greaterThan(before);
+
+    // No restart, no peer - this fleet has one node. The only thing that can move it is
+    // its own timer.
+    await waitFor(async () => (await db.policyBundle()).seq === seq, {
+      timeout: 120000,
+      label: `the node to reach seq ${seq} on its own timer`,
+    });
+
+    const stored = await db.policyBundle();
+    const payload = JSON.parse(
+      Buffer.from(JSON.parse(stored.raw).payload_b64, 'base64').toString('utf8'),
+    );
+    expect(payload.documents.blockedrepositories).to.deep.equal(['found/by-the-tick:v1']);
+  });
+});
+
 describe('the signed policy bundle on a single node', function () {
   let env;
   let node;
@@ -320,6 +378,24 @@ describe('the signed policy bundle on a single node', function () {
         () => stub(env, '/policy', { signer: 'rogue' }),
         'a valid signature from an untrusted signer is fetched and not adopted',
       );
+    });
+
+    it('adopts a bundle signed by the OTHER pinned key', async function () {
+      this.timeout(150000);
+      // A rotation. The fleet pins two keys so signing can move to the second without
+      // every node needing a release first - that is the only thing the second key buys,
+      // and until something verifies against it the list is decoration. The bundle is
+      // otherwise identical, so what is being proven is the key list, nothing else.
+      const before = (await db.policyBundle()).seq;
+      await stub(env, '/policy', { signer: 'secondary' });
+      const served = (await stubState(env)).policySeq;
+      expect(served).to.be.greaterThan(before);
+      await env.restartNode(0);
+      await waitForBootSettled(node);
+      await waitFor(async () => (await db.policyBundle()).seq === served, {
+        timeout: 90000,
+        label: `the node to adopt seq ${served} signed by the secondary key`,
+      });
     });
 
     it('refuses a bundle whose sequence goes backwards', async function () {

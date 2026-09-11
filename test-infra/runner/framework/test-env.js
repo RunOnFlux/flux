@@ -1282,10 +1282,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
       policy: {
         baseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
         signedBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
-        // Only the pinned key. Production lists two so signing can move to the cold key
-        // without a release; a fleet has one signer and adding the rogue key here would
-        // make the untrusted-signer case unprovable.
-        publicKeys: [policySigning.PINNED_PUBLIC_HEX],
+        // TWO keys, as production has: signing can move to the second without a release,
+        // and that is the only thing a second key buys. Pinned but unused is worth
+        // nothing - a suite rotates onto it and the fleet has to take the bundle.
+        // The rogue key is deliberately absent, or the untrusted-signer case could not
+        // be told from any other refusal.
+        publicKeys: [policySigning.PINNED_PUBLIC_HEX, policySigning.SECONDARY_PUBLIC_HEX],
       },
       // Peer thresholds follow the fleet, so a suite declares a shape and never a
       // constant. The production values assume a network large enough to carry
