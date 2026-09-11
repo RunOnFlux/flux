@@ -144,13 +144,25 @@ async function respondWithPolicy(msgObj, peer) {
     if (!message || message.version !== 1) return;
     const askerSeq = Number.isInteger(message.seq) ? message.seq : 0;
 
-    // A node with no bundle says NOTHING, whatever the asker holds. It has no
-    // information: answering "I am at 0" to a node at 5 would read as "you are not
-    // behind me", which is true and useless - the asker would take an empty peer for
-    // agreement. Only a node that holds policy can speak to whether someone else's is
-    // current.
+    // A node with no bundle answers `seq: null` - it says so, rather than saying nothing.
+    //
+    // It must not answer 0: to an asker at 5 that reads as "you are not behind me", which
+    // is true and useless, and the asker would take an empty peer for agreement. But
+    // silence is no better, and for the same reason the branch below exists - a peer that
+    // says nothing is indistinguishable from a peer that is not there. Three different
+    // states, three different answers:
+    //
+    //   seq >= mine   this peer has policy, and I am not ahead of it
+    //   seq null      this peer is alive and has no policy at all
+    //   no reply      this peer is not answering
+    //
+    // The third is the only one that means "ask someone else". The second is what tells a
+    // node the NETWORK is empty rather than unreachable, which is the cold-start case.
     const raw = await policyStore.getRawBundle();
-    if (!raw) return;
+    if (!raw) {
+      await sendSignedMessage({ type: 'fluxpolicyseq', version: 1, seq: null }, peer);
+      return;
+    }
 
     if (policyStore.getSeq() <= askerSeq) {
       // Nothing newer to give - but say so, rather than saying nothing.
