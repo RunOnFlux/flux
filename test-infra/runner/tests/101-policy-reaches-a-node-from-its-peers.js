@@ -260,12 +260,13 @@ describe('a fleet that has never obtained policy', function () {
     // enterprise node" from "I do not know yet", and those demand opposite behaviour -
     // guessing the first is what filled enterprise nodes with apps that the ownership
     // sweep then removed from under their owners five minutes after every boot.
+    // waitForEvent resolves with the envelope, not the payload: the reason is under .data.
     const blocked = await env.clients[1].waitForEvent(
       'spawner:blocked',
       (payload) => payload.reason === 'policy_not_ready',
       240000,
     );
-    expect(blocked.reason).to.equal('policy_not_ready');
+    expect(blocked.data.reason).to.equal('policy_not_ready');
   });
 
   it('the whole fleet recovers from one node reaching the source', async function () {

@@ -51,12 +51,15 @@ const UNNAMED_INDEX = 2;
  * CHANGES - a node that has always excluded an app says so once and then goes quiet.
  */
 async function candidacy(client, appName, timeout = 180000) {
-  const event = await client.waitForEvent(
+  // waitForEvent resolves with the ENVELOPE - { event, id, data } - not the payload. Read
+  // the wrong level and `stage` is undefined, which quietly satisfies a not-equal assertion:
+  // the pin test would go green while measuring nothing. Unwrapped once, here.
+  const entry = await client.waitForEvent(
     'spawner:candidacy',
     (payload) => payload.name === appName,
     timeout,
   );
-  return event;
+  return entry.data;
 }
 
 describe('a pinned app runs where its spec says', function () {
