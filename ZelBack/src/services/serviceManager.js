@@ -38,7 +38,8 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
-const enterpriseConfig = require('./utils/enterpriseConfig');
+const policyStore = require('./policyStore');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -259,16 +260,6 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    // Obtain the enterprise node->owners map, then sync it every 6h. Awaited so the
-    // consumers (identity resolution, the spawn loop, app-spec validation) usually have
-    // it before they run, and bounded by a 10s fetch timeout so boot is never stuck here.
-    //
-    // Awaiting it is not what makes this safe: a failed fetch leaves the policy unknown
-    // and boot carries on regardless. What makes it safe is that acquisition waits on
-    // globalState.policyReady, so a node that has not obtained the map spawns nothing
-    // rather than assuming it is an ordinary node. A failed sync keeps the last-good
-    // value; there is no on-disk seed to fall back to, by design.
-    await enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
@@ -510,6 +501,20 @@ async function startFluxFunctions() {
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
     });
+
+    // Network policy, started here rather than at the top of boot because it needs both of
+    // the things that only exist by now: mongo, to restore and re-verify the bundle this
+    // node last held, and peers, to ask for anything newer. Its old position could reach
+    // neither, which is why it could only ever fetch from github.
+    //
+    // Not awaited. Boot does not wait on policy and never did: the node comes up, serves its
+    // API and keeps its containers running regardless. What waits is acquisition, through
+    // globalState.policyReady, which is the one decision that must not be made on a guess.
+    policyStore.setPeerTransport({
+      request: (seq) => fluxCommunicationMessagesSender.requestPolicyFromPeers(seq),
+      announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
+    });
+    policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
     appSpawner.initialize();
