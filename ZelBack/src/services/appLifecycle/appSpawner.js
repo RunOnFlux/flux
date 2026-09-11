@@ -395,16 +395,24 @@ async function trySpawningGlobalApplication() {
       survivors.afterAlreadyHeldOrTried = globalAppNamesLocation.length;
       stages.push(['afterAlreadyHeldOrTried', nameSet()]);
 
-      // filter apps that are non enterprise or are marked to install on my node.
-      // Enterprise-owned apps that target specific node IPs are strict: only a node
-      // whose IP is listed may install them, regardless of version (the version>=8
-      // bypass below does not apply to them).
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => {
-        if (app.nodes.length > 0 && enterpriseNetwork.isEnterpriseAppOwner(app.owner) === true) {
-          return nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint);
-        }
-        return app.nodes.length === 0 || nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint) || app.version >= 8;
-      });
+      // A pinned spec runs on the nodes it names and nowhere else. Unpinned specs are
+      // unaffected and go on to the placement rules below.
+      //
+      // This used to mean three different things for one field. v7 was strict. v8 was
+      // not - `|| app.version >= 8` let any node take a pinned v8 app, which then fell
+      // through to the deferral below and installed elsewhere 30 to 57 minutes later.
+      // A carve-out restored strictness for enterprise owners alone, using the policy
+      // as a flag meaning "this pin is real".
+      //
+      // Soft pinning is not a weaker guarantee, it is the absence of one: an owner pins
+      // to three nodes and an hour later the app is somewhere else. For the shape the
+      // enterprise owners actually deploy - one node, one instance - it is worse than
+      // useless, because the app lands on a node that was not chosen and looks healthy
+      // while measuring the wrong thing. Refusing to place it is the honest outcome and
+      // the visible one.
+      globalAppNamesLocation = globalAppNamesLocation.filter(
+        (app) => app.nodes.length === 0 || nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint),
+      );
       // Selection uses the SAME eligibility implementation as candidate counting
       // and the install gate, over the SAME source for where this node is - the
       // published table, which is the only thing the count can read for the
@@ -789,22 +797,11 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater
-      && appToRunAux.nodes.length > 0 && !nodesNameThisNode(appToRunAux.nodes, localSocketAddr, myOutpoint)) {
-      const deferral = config.fluxapps.spawnDeferrals.targetedNodesMs;
-      const appToCheck = {
-        timeToCheck: Date.now() + (appToRunAux.enterprise ? deferral.enterprise : deferral.standard),
-        appName: appToRun,
-        hash: appHash,
-        required: minInstances,
-      };
-      const delayMs = appToRunAux.enterprise ? deferral.enterprise : deferral.standard;
-      log.info(`trySpawningGlobalApplication - App ${appToRun} specs have target ips, will check in around ${Math.round(delayMs / 60000)}m if instances are still missing`);
-      globalState.appsToBeCheckedLater.push(appToCheck);
-      globalState.trySpawningGlobalAppCache.delete(appHash);
-      fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'targeted_nodes', delayMs });
-      return shortDelayTime;
-    }
+    // A node not named by a pinned spec used to be parked here and allowed to install it
+    // 30 to 57 minutes later if the instance count was still short - the soft half of
+    // pinning. The selection filter above is strict now, so such an app never reaches
+    // this point, and the branch went with the behaviour rather than being left
+    // unreachable for someone to wire back up.
 
     if (!isEnterprise && !appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater) {
       const tier = await generalService.nodeTier();

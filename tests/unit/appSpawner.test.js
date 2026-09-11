@@ -472,13 +472,17 @@ describe('appSpawner tests', () => {
       expect(infoLogged('selected to try to spawn')).to.be.true;
     });
 
-    it('still lets a v8 non-enterprise app through when its targeted IP is not this node', async () => {
+    // Was: 'still lets a v8 non-enterprise app through when its targeted IP is not this
+    // node'. That was the `|| app.version >= 8` bypass, which let any node take a pinned
+    // v8 app and install it elsewhere 30 to 57 minutes later. A pin is a pin for every
+    // version and every owner now, so the same case asserts the opposite.
+    it('drops a v8 app pinned elsewhere even when its owner is not an enterprise owner', async () => {
       buildModule({
         aggregateResult: [makeApp({ owner: 'normalOwner', nodes: ['10.0.0.99'] })],
         isEnterpriseAppOwner: () => false,
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
-      expect(infoLogged('selected to try to spawn')).to.be.true;
+      expect(infoLogged('selected to try to spawn')).to.be.false;
     });
 
     it('keeps an enterprise-owned app that targets no nodes (no IP restriction) (finding #12)', async () => {
