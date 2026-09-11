@@ -50,7 +50,15 @@ const heldSeq = async (index) => (await dbClient(index + 1).policyBundle())?.seq
 // over has exactly one way into the fleet.
 const STUB_PEER_INDEX = 3;
 const TOLD_NODE = 1;
-const HEARD_NODES = [0, 2];
+// NOT index 0. A stub holds a ring slot and supplies no connection, and with the stub at
+// the LAST index every real node's backward arc is fine except node 0's, which wraps onto
+// that empty slot - so node 0 is the one node that never reaches the inbound floor,
+// however long it is given (E2E_FLEET_SIZING.md, "Index 0 is the worst node to assert
+// on"). Measured here rather than taken on faith: on the first run node 2 was told and
+// adopted 49ms after node 1, while node 0 was still issuing addoutgoingpeer calls five
+// seconds later and never heard anything. Node 0 stays in the fleet as a dialer; nothing
+// is asserted of it.
+const HEARD_NODES = [2];
 
 /**
  * Bring a restarted node back into the mesh.
@@ -152,7 +160,7 @@ describe('policy reaching a node from its peers', function () {
 
   it('a node with no stored bundle and no reachable source gets one from its peers', async function () {
     this.timeout(300000);
-    const level = await heldSeq(0);
+    const level = await heldSeq(TOLD_NODE);
     expect(level, 'the fleet is level before the source goes away').to.equal(await heldSeq(2));
 
     // Nothing on disk, nothing to fetch: the only policy left in the world is on the other
@@ -181,41 +189,38 @@ describe('policy reaching a node from its peers', function () {
     await stub(env, '/policy', { available: true });
   });
 
-  it('a node BEHIND its peers catches up from them, not from the source', async function () {
+  it('a node behind its peers catches up from them when it regains one', async function () {
     this.timeout(300000);
-    // Move policy forward and let exactly one node take it from the source.
+    // The other trigger. Test 2 is a node being TOLD; this is a node ASKING - the rung
+    // that runs when a peer appears, rather than when an announcement lands.
+    //
+    // Exactly one node reaches the source: node 1 is restarted while it is answering, and
+    // a restarted node has no peers during its boot refresh, so it fetches. Node 2 is not
+    // restarted and its own backstop tick is a day away, so the only thing that can move
+    // it is node 1 coming back.
     const { seq } = await stub(env, '/blocked-repos', ['spread/by-peers:v1']);
-    // Node 1, not node 0: index 0 is the node every other node's backward arc wraps onto,
-    // so it is the least representative of the ring and the first to be stranded if the
-    // arcs ever overlap.
-    await restartAndRepeer(env, 1);
-    await waitFor(async () => (await heldSeq(1)) === seq, {
+    await restartAndRepeer(env, TOLD_NODE);
+    await waitFor(async () => (await heldSeq(TOLD_NODE)) === seq, {
       timeout: 150000,
-      label: `node 1 to adopt seq ${seq} from the source`,
+      label: `node ${TOLD_NODE} to adopt seq ${seq} from the source`,
     });
-    expect(await heldSeq(0), 'node 0 is still behind').to.be.lessThan(seq);
 
-    // Now shut the source. Node 0 holds an older bundle, restores it, and has exactly one
-    // place left to find anything newer.
-    await stub(env, '/policy', { available: false });
-    const okBefore = (await stubState(env)).policyFetches.ok;
-    await restartAndRepeer(env, 0);
-
-    await waitFor(async () => (await heldSeq(0)) === seq, {
+    // Everything from here must happen without the source being asked again. The mark is
+    // taken after the one node that was meant to fetch has finished fetching.
+    const okAfterFetch = (await stubState(env)).policyFetches.ok;
+    await waitFor(async () => (await heldSeq(2)) === seq, {
       timeout: 150000,
-      label: `node 0 to catch up to seq ${seq} from its peers`,
+      label: `node 2 to catch up to seq ${seq} from the peer that has it`,
     });
-    expect((await stubState(env)).policyFetches.ok, 'the source served nothing')
-      .to.equal(okBefore);
+    expect((await stubState(env)).policyFetches.ok, 'the source served nothing after that one fetch')
+      .to.equal(okAfterFetch);
 
     // And what it caught up to is the document, not just the number.
-    const stored = await dbClient(1).policyBundle();
+    const stored = await dbClient(3).policyBundle();
     const payload = JSON.parse(
       Buffer.from(JSON.parse(stored.raw).payload_b64, 'base64').toString('utf8'),
     );
     expect(payload.documents.blockedrepositories).to.deep.equal(['spread/by-peers:v1']);
-
-    await stub(env, '/policy', { available: true });
   });
 });
 
