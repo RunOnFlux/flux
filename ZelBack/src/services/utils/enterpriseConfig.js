@@ -7,6 +7,7 @@ const FILE = 'enterprisenodes.json';
 const URL = `${config.policy.baseUrl}/${FILE}`;
 
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const RETRY_INTERVAL_MS = 60 * 1000; // while the policy is still unknown
 const FETCH_TIMEOUT_MS = 10 * 1000; // bound the github fetch so boot is never stuck on it
 
 // Maps each enterprise node pubkey to the app-owner addresses allowed to install on it
@@ -24,6 +25,7 @@ const FETCH_TIMEOUT_MS = 10 * 1000; // bound the github fetch so boot is never s
 let nodeOwnerMap = null;
 
 let syncInterval = null;
+let retryTimeout = null;
 
 // Memoized union of all owners. Rebuilt only when nodeOwnerMap is replaced, keyed by
 // reference: the map is always reassigned wholesale, never mutated in place, so reference
@@ -68,8 +70,32 @@ async function syncFromGithub() {
   return false;
 }
 
+function startRefresh() {
+  syncInterval = setInterval(() => {
+    syncFromGithub().catch((error) => log.error(`enterpriseConfig - sync error: ${error.message}`));
+  }, SYNC_INTERVAL_MS);
+}
+
 /**
- * Fetch the map, then refresh every 6h. Safe to call multiple times (no-ops if already
+ * Retry every minute for as long as the policy is unknown, then settle into the 6h
+ * refresh. The two cadences answer different questions: a refresh that fails costs
+ * nothing, because the node keeps the map it already has, but a FIRST fetch that fails
+ * leaves the node unable to acquire any app at all. Waiting six hours to try again
+ * would turn a momentary blip at boot into six hours of a node doing nothing.
+ */
+function scheduleRetry() {
+  retryTimeout = setTimeout(async () => {
+    retryTimeout = null;
+    const obtained = await syncFromGithub();
+    if (obtained) startRefresh();
+    else scheduleRetry();
+  }, RETRY_INTERVAL_MS);
+  // Never hold the process open on a retry: this is best-effort background work.
+  if (retryTimeout.unref) retryTimeout.unref();
+}
+
+/**
+ * Fetch the map, then keep it fresh. Safe to call multiple times (no-ops if already
  * started). Initialization is performed here (not as a side effect of require) so module
  * loading stays pure.
  *
@@ -80,17 +106,20 @@ async function syncFromGithub() {
  * to acquire apps until the first fetch lands, and costs it nothing else.
  */
 async function startSync() {
-  if (syncInterval) return;
-  await syncFromGithub();
-  syncInterval = setInterval(() => {
-    syncFromGithub().catch((error) => log.error(`enterpriseConfig - sync error: ${error.message}`));
-  }, SYNC_INTERVAL_MS);
+  if (syncInterval || retryTimeout) return;
+  const obtained = await syncFromGithub();
+  if (obtained) startRefresh();
+  else scheduleRetry();
 }
 
 function stopSync() {
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;
+  }
+  if (retryTimeout) {
+    clearTimeout(retryTimeout);
+    retryTimeout = null;
   }
 }
 

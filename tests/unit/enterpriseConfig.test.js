@@ -240,6 +240,90 @@ describe('enterpriseConfig', () => {
     });
   });
 
+  // Two cadences, because the failures are not equivalent. A refresh that fails costs
+  // nothing - the node keeps the map it has. A FIRST fetch that fails leaves it unable to
+  // acquire any app at all, so waiting the full refresh interval to try again would turn a
+  // momentary blip at boot into six hours of a node doing nothing.
+  describe('retry while the policy is unknown', () => {
+    it('retries on a short interval instead of waiting for the refresh', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('no network'));
+      let retryCb = null;
+      let retryMs = null;
+      sinon.stub(global, 'setTimeout').callsFake((cb, ms) => {
+        retryCb = cb;
+        retryMs = ms;
+        return { unref: () => {} };
+      });
+      const setIntervalStub = sinon.stub(global, 'setInterval');
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync();
+
+      expect(retryMs).to.equal(60 * 1000); // a minute, not six hours
+      expect(setIntervalStub.called).to.equal(false); // no refresh until there is something to refresh
+      expect(retryCb).to.be.a('function');
+    });
+
+    it('keeps retrying for as long as the fetch keeps failing', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('no network'));
+      const timeoutStub = sinon.stub(global, 'setTimeout').callsFake(() => ({ unref: () => {} }));
+      sinon.stub(global, 'setInterval');
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync();
+      await timeoutStub.firstCall.args[0](); // one retry tick, still failing
+
+      expect(axiosGet.callCount).to.equal(2);
+      expect(timeoutStub.callCount).to.equal(2); // another retry scheduled
+    });
+
+    it('settles into the refresh once the policy is obtained', async () => {
+      const axiosGet = sinon.stub();
+      axiosGet.onFirstCall().rejects(new Error('no network'));
+      axiosGet.onSecondCall().resolves({ data: { nodeA: ['ownerA'] } });
+      const timeoutStub = sinon.stub(global, 'setTimeout').callsFake(() => ({ unref: () => {} }));
+      const setIntervalStub = sinon.stub(global, 'setInterval');
+      const { module: m, globalState } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync();
+      expect(setIntervalStub.called).to.equal(false);
+
+      await timeoutStub.firstCall.args[0](); // the retry that succeeds
+
+      expect(globalState.policyReady).to.equal(true);
+      expect(setIntervalStub.calledOnce).to.equal(true);
+      expect(setIntervalStub.firstCall.args[1]).to.equal(SIX_HOURS_MS);
+      expect(timeoutStub.callCount).to.equal(1); // no further retry scheduled
+    });
+
+    it('stopSync clears a pending retry', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('no network'));
+      const handle = { unref: () => {} };
+      sinon.stub(global, 'setTimeout').returns(handle);
+      sinon.stub(global, 'setInterval');
+      const clearTimeoutStub = sinon.stub(global, 'clearTimeout');
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync();
+      m.stopSync();
+
+      expect(clearTimeoutStub.calledOnceWithExactly(handle)).to.equal(true);
+    });
+
+    it('a second startSync does not stack a second retry', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('no network'));
+      const timeoutStub = sinon.stub(global, 'setTimeout').callsFake(() => ({ unref: () => {} }));
+      sinon.stub(global, 'setInterval');
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync();
+      await m.startSync();
+
+      expect(axiosGet.callCount).to.equal(1);
+      expect(timeoutStub.callCount).to.equal(1);
+    });
+  });
+
   describe('getEnterpriseAppOwners memoization (finding #6)', () => {
     it('returns the same array instance until the map is replaced', async () => {
       const axiosGet = sinon.stub();
