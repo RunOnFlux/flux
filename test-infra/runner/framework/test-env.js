@@ -1498,6 +1498,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     initialHeight,
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
+    // What the FLEET reads, as opposed to what the suite drives. A suite needs it when
+    // the bytes a node would fetch are the subject rather than the fetching - reading the
+    // signed policy bundle to hand to a peer, say.
+    stubBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
     fdmControl: `http://${FDM_IP}:16131`,
     syncthingControl: `http://${SYNCTHING_IP}:8385`,
     registryUrl: `https://${REGISTRY_IP}:5000`,

@@ -19,18 +19,21 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // so each node ends with one peer out and one in. bootAndPeer derives that from the fleet;
 // no threshold is pinned here.
 //
-// WHAT THIS SUITE DOES NOT COVER, deliberately. The design has two halves. The ASK - a
-// node that needs policy asks its peers - is what every test below drives. The ANNOUNCE -
-// a node that adopts tells its peers the new sequence, and they ask for it - is not
-// covered, because the harness cannot start it: the only way it can make a node fetch is
-// to restart it, and a node adopts during boot, before discovery has given it a single
-// peer to announce to, so that announcement reaches nobody. That is a property of the
-// product, not of the harness.
+// Both halves of the design are driven here.
 //
-// It matters less than it did. Since the peer rung is now offered peers when they arrive
-// rather than only at the 24-hour tick, a node that holds nothing asks the moment someone
-// appears - so the fleet converges through the ask even when no announcement lands. The
-// last test here is exactly that case.
+// The ASK - a node that needs policy asks its peers - is driven by taking the source away
+// and giving a node a reason to look.
+//
+// The ANNOUNCE - a node that adopts tells its peers, and they ask for it - needs a node to
+// adopt something new WHILE it has peers. A restart cannot produce that: a node adopts
+// during boot, before discovery has given it anyone to tell. A stub peer can, because it
+// speaks the protocol and the harness decides who it is connected to. It hands the bundle
+// to one real node exactly as a real peer would, and the other two can then only have
+// learned from that node.
+//
+// The fleet is four indices, one of them a stub peer wired to node 1 alone
+// (`stubPeeredWith`), so three real nodes dial - the same disjoint-arc ring as before
+// (peer-topology's 2k+1 with k=1), and one unambiguous entry point for a told bundle.
 
 const stub = (env, path, body) => fetch(`${env.stubControl}${path}`, {
   method: 'POST',
@@ -42,6 +45,12 @@ const stubState = (env) => fetch(`${env.stubControl}/state`).then((r) => r.json(
 
 // dbClient is 1-based over node indices: node index 0 is node 1.
 const heldSeq = async (index) => (await dbClient(index + 1).policyBundle())?.seq ?? null;
+
+// The stub peer's ring index. Wired to node 1 and to nothing else, so a bundle it hands
+// over has exactly one way into the fleet.
+const STUB_PEER_INDEX = 3;
+const TOLD_NODE = 1;
+const HEARD_NODES = [0, 2];
 
 /**
  * Bring a restarted node back into the mesh.
@@ -74,7 +83,15 @@ describe('policy reaching a node from its peers', function () {
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ hookCtx: this, nodes: 3 });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 4,
+      stubPeers: [STUB_PEER_INDEX],
+      // Connected to node 1 only. createTestEnv waits for the link before returning, so a
+      // test never has to establish it - and a bundle this stub hands over can only have
+      // entered the fleet at node 1.
+      stubPeeredWith: { [STUB_PEER_INDEX]: [TOLD_NODE] },
+    });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
@@ -91,6 +108,46 @@ describe('policy reaching a node from its peers', function () {
       async () => (await Promise.all([0, 1, 2].map(heldSeq))).every((s) => s === policySeq),
       { timeout: 90000, label: `all three nodes to hold seq ${policySeq}` },
     );
+  });
+
+  it('a node TOLD by a peer adopts it and passes it on to its own peers', async function () {
+    this.timeout(300000);
+    // The announce half, end to end. Everything below happens with the published source
+    // refusing, so no node can have fetched any of it: the only copy in the fleet arrives
+    // on one socket, and has to reach the other two by being announced.
+    const before = await heldSeq(TOLD_NODE);
+    const { seq } = await stub(env, '/blocked-repos', ['told/by-a-peer:v1']);
+    expect(seq).to.be.greaterThan(before);
+    // The bytes the stub would have served, taken by the SUITE rather than by a node.
+    const bundle = await fetch(`${env.stubBaseUrl}/policy-signed.json`).then((r) => r.text());
+    await stub(env, '/policy', { available: false });
+    const okBefore = (await stubState(env)).policyFetches.ok;
+
+    // Framed and signed as any peer's broadcast, so the receiving node validates and acts
+    // on it through the path it uses for a real peer - offerBundle, which verifies against
+    // the pinned keys before adopting. A stub peer cannot forge that; it does not have to.
+    await env.stubPeerClients.get(STUB_PEER_INDEX).broadcast({
+      type: 'fluxpolicy', version: 1, bundle,
+    });
+
+    await waitFor(async () => (await heldSeq(TOLD_NODE)) === seq, {
+      timeout: 120000,
+      label: `node ${TOLD_NODE} to adopt seq ${seq} from the peer that told it`,
+    });
+
+    // Neither of these is connected to the stub peer, neither was restarted, and neither
+    // can reach the source. The only path left is node 1 announcing the sequence it just
+    // adopted, them asking for it, and node 1 answering with the signed bundle.
+    await waitFor(
+      async () => (await Promise.all(HEARD_NODES.map(heldSeq))).every((s) => s === seq),
+      { timeout: 120000, label: `nodes ${HEARD_NODES.join(' and ')} to be told and catch up` },
+    );
+
+    const served = await stubState(env);
+    expect(served.policyFetches.ok, 'the source served nothing: this spread peer to peer')
+      .to.equal(okBefore);
+    expect(served.policyAvailable).to.equal(false);
+    await stub(env, '/policy', { available: true });
   });
 
   it('a node with no stored bundle and no reachable source gets one from its peers', async function () {
