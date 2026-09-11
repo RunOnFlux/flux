@@ -1,8 +1,39 @@
 FROM ubuntu:26.04 AS base
 
+# Where the base packages come from. Canonical by default, so an unset build changes
+# nothing; a box that cannot reach archive.ubuntu.com passes another mirror:
+#
+#   UBUNTU_MIRROR=http://mirrors.edge.kernel.org/ubuntu ./test-infra/build-images.sh
+#
+# This exists because a whole gate is one unreachable host away from impossible. On
+# 2026-09-11 both harness boxes could fetch github, npm and download.docker.com in under
+# a quarter-second each while every Canonical mirror refused TCP - ICMP to the same
+# address answered, at a second per round trip - and the node image cannot be built
+# without the archive. The three apt layers are normally cache hits, so the outage only
+# surfaced because `ubuntu:26.04` is a ROLLING tag: a fresh pull changed the base digest
+# and turned every cached layer into a live fetch.
+#
+# Security is redirected with it, and can be pointed somewhere else again: leaving it on
+# Canonical would stall the same build for the same reason, since apt-get update fetches
+# every configured source whether or not the install needs it.
+ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
+ARG UBUNTU_SECURITY_MIRROR=
+
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The rewrite rides along with the first install rather than taking a layer of its own -
+# a mirror is not a step, it is where this layer's bytes come from. 26.04 ships deb822
+# (`/etc/apt/sources.list.d/ubuntu.sources`), with archive and security as separate
+# stanzas, so both URIs are replaced and the trailing slash is normalised so a mirror
+# written either way works.
+RUN set -eu; \
+    sec="${UBUNTU_SECURITY_MIRROR:-$UBUNTU_MIRROR}"; \
+    sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu/|${UBUNTU_MIRROR%/}/|g" \
+      -e "s|http://security.ubuntu.com/ubuntu/|${sec%/}/|g" \
+      /etc/apt/sources.list.d/ubuntu.sources; \
+    grep -q '^URIs:' /etc/apt/sources.list.d/ubuntu.sources; \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     sudo \
