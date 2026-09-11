@@ -252,21 +252,21 @@ describe('enterpriseConfig', () => {
       sinon.stub(global, 'setTimeout').callsFake((cb, ms) => {
         retryCb = cb;
         retryMs = ms;
-        return { unref: () => {} };
+        return 'retry-handle';
       });
       const setIntervalStub = sinon.stub(global, 'setInterval');
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
 
       await m.startSync();
 
-      expect(retryMs).to.equal(60 * 1000); // a minute, not six hours
+      expect(retryMs).to.be.at.most(60 * 1000); // within the first minute, not six hours
       expect(setIntervalStub.called).to.equal(false); // no refresh until there is something to refresh
       expect(retryCb).to.be.a('function');
     });
 
     it('keeps retrying for as long as the fetch keeps failing', async () => {
       const axiosGet = sinon.stub().rejects(new Error('no network'));
-      const timeoutStub = sinon.stub(global, 'setTimeout').callsFake(() => ({ unref: () => {} }));
+      const timeoutStub = sinon.stub(global, 'setTimeout').returns('retry-handle');
       sinon.stub(global, 'setInterval');
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
 
@@ -281,7 +281,7 @@ describe('enterpriseConfig', () => {
       const axiosGet = sinon.stub();
       axiosGet.onFirstCall().rejects(new Error('no network'));
       axiosGet.onSecondCall().resolves({ data: { nodeA: ['ownerA'] } });
-      const timeoutStub = sinon.stub(global, 'setTimeout').callsFake(() => ({ unref: () => {} }));
+      const timeoutStub = sinon.stub(global, 'setTimeout').returns('retry-handle');
       const setIntervalStub = sinon.stub(global, 'setInterval');
       const { module: m, globalState } = loadModule({ serviceHelper: { axiosGet } });
 
@@ -296,9 +296,48 @@ describe('enterpriseConfig', () => {
       expect(timeoutStub.callCount).to.equal(1); // no further retry scheduled
     });
 
+    it('backs off, and never past the cap', async () => {
+      // A fixed interval would put the whole fleet on raw.githubusercontent at a
+      // constant rate for as long as an outage lasted - and the outage is the only
+      // time this path runs.
+      const axiosGet = sinon.stub().rejects(new Error('no network'));
+      const timeoutStub = sinon.stub(global, 'setTimeout').returns('retry-handle');
+      sinon.stub(global, 'setInterval');
+      sinon.stub(Math, 'random').returns(1); // take the top of each window
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync();
+      // eslint-disable-next-line no-await-in-loop
+      for (let i = 0; i < 10; i += 1) await timeoutStub.lastCall.args[0]();
+
+      const delays = timeoutStub.getCalls().map((c) => c.args[1]);
+      expect(delays[0]).to.equal(60 * 1000);
+      expect(delays[1]).to.equal(120 * 1000);
+      expect(delays[2]).to.equal(240 * 1000);
+      expect(Math.max(...delays)).to.equal(30 * 60 * 1000); // capped
+    });
+
+    it('jitters, so nodes that restarted together do not stay in lockstep', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('no network'));
+      const timeoutStub = sinon.stub(global, 'setTimeout').returns('retry-handle');
+      sinon.stub(global, 'setInterval');
+      const randomStub = sinon.stub(Math, 'random');
+      randomStub.onCall(0).returns(0.1);
+      randomStub.onCall(1).returns(0.9);
+      randomStub.returns(0.5);
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync();
+      await timeoutStub.lastCall.args[0]();
+
+      const [first, second] = timeoutStub.getCalls().map((c) => c.args[1]);
+      expect(first).to.equal(6 * 1000); // 10% of the first window
+      expect(second).to.equal(108 * 1000); // 90% of the second - not a multiple of the first
+    });
+
     it('stopSync clears a pending retry', async () => {
       const axiosGet = sinon.stub().rejects(new Error('no network'));
-      const handle = { unref: () => {} };
+      const handle = 'retry-handle';
       sinon.stub(global, 'setTimeout').returns(handle);
       sinon.stub(global, 'setInterval');
       const clearTimeoutStub = sinon.stub(global, 'clearTimeout');
@@ -312,7 +351,7 @@ describe('enterpriseConfig', () => {
 
     it('a second startSync does not stack a second retry', async () => {
       const axiosGet = sinon.stub().rejects(new Error('no network'));
-      const timeoutStub = sinon.stub(global, 'setTimeout').callsFake(() => ({ unref: () => {} }));
+      const timeoutStub = sinon.stub(global, 'setTimeout').returns('retry-handle');
       sinon.stub(global, 'setInterval');
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
 
