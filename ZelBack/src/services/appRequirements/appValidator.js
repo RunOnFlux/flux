@@ -1274,7 +1274,25 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
       throw new Error('Cannot verify node pinning eligibility: network policy not yet obtained.');
     }
     if (!enterpriseOwners.includes(appSpecifications.owner)) {
-      throw new Error('Pinning an application to specific nodes is only available for enterprise app owners.');
+      // An ineligible owner may carry an EXISTING pin forward, but not acquire a new one
+      // or redirect the one they have. The frontend grandfathers the same way
+      // (`if (!newApp && appHasExistingNodes) return true`), and without it an app pinned
+      // before this rule existed becomes unupdatable -- renewal is an update, so the app
+      // would expire with the owner given no way to keep it other than guessing that
+      // emptying nodes[] is the escape.
+      //
+      // Read from the permanent message history rather than the live spec, because an app
+      // that has already expired still has to be renewable. A lookup that fails is treated
+      // as no previous pin: this grants a privilege, so it fails closed.
+      const previous = await registryManager
+        .getPreviousAppSpecifications(appSpecifications, Date.now())
+        .catch(() => null);
+      const previousNodes = (previous && previous.nodes) || [];
+      const carriedForward = previousNodes.length === appSpecifications.nodes.length
+        && [...previousNodes].sort().join('\u0000') === [...appSpecifications.nodes].sort().join('\u0000');
+      if (!carriedForward) {
+        throw new Error('Pinning an application to specific nodes is only available for enterprise app owners.');
+      }
     }
   }
 
