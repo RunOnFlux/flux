@@ -8,6 +8,7 @@ const messageStore = require('./appMessaging/messageStore');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const policyStore = require('./policyStore');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
@@ -704,6 +705,17 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
           setImmediate(() => handleAppInstallingErrorMessage(msgObj, peerSocket.ip, peerSocket.port));
         } else if (msgObj.data.type === 'fluxnodesigterm') {
           setImmediate(() => handleNodeSigtermMessage(msgObj, peerSocket.ip, peerSocket.port));
+        } else if (msgObj.data.type === 'fluxpolicyrequest') {
+          setImmediate(() => fluxCommunicationMessagesSender.respondWithPolicy(msgObj, peerSocket));
+        } else if (msgObj.data.type === 'fluxpolicyseq') {
+          // A claim, not an answer. policyStore decides whether it is worth asking about;
+          // nothing here is believed, because a number cannot be checked.
+          setImmediate(() => policyStore.notePeerSeq(msgObj.data.seq));
+        } else if (msgObj.data.type === 'fluxpolicy') {
+          // The bundle itself. Verified against the pinned keys before it is adopted, so an
+          // unsolicited one from any peer is no more dangerous than one we asked for -- and
+          // arriving unasked is normal, since peers announce what they adopt.
+          setImmediate(() => policyStore.offerBundle(msgObj.data.bundle));
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
