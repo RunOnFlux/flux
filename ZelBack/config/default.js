@@ -721,12 +721,23 @@ module.exports = {
     apiBaseUrl: 'https://api.github.com',
   },
   policy: {
-    // The directory holding the network's enforcement documents, fetched at runtime by
-    // policyStore. A repo of its own, so a merge to the application cannot change fleet
-    // policy as a side effect and a policy change is not a commit to the application's
-    // default branch. Releases predating this still read RunOnFlux/flux helpers/, so both
-    // copies are kept in step until minimumFluxOSAllowedVersion is above all of them.
+    // The directory holding the network's enforcement documents. A repo of its own, so a
+    // merge to the application cannot change fleet policy as a side effect and a policy
+    // change is not a commit to the application's default branch.
+    //
+    // `main` is what people edit. `signed` is what nodes read: the same documents, bundled
+    // under one signature with a sequence number. baseUrl stays for the releases that fetch
+    // the plain documents directly and for the artifact they name.
     baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
+    signedBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/signed',
+    // Raw ed25519 public keys. A bundle signed by ANY of them is accepted, so the cold key
+    // can take over signing without every node needing a release first -- which is the only
+    // thing a second key buys. Removing a compromised key from this list IS a release.
+    // Kept in step with SIGNING.md in fluxos-network-policy.
+    publicKeys: [
+      'c31930ec386a49f31321851766d93bcb90bf269cd15bec7a329155a4d79ea380',
+      '739ca41408f66c75d6cb4bc1d5c044ca5a118de190081da68e5a7d6839fb69f8',
+    ],
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
