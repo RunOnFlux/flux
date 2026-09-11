@@ -170,6 +170,50 @@ describe('policyStore', () => {
     });
   });
 
+  describe('when in the period this node ticks', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const { backstopPhaseMs } = load().module;
+
+    it('is the same slot every time, so a restart does not move it', () => {
+      const id = 'a0b1c2:0';
+      expect(backstopPhaseMs(id, DAY)).to.equal(backstopPhaseMs(id, DAY));
+    });
+
+    it('is inside the period', () => {
+      for (let i = 0; i < 50; i += 1) {
+        const phase = backstopPhaseMs(`node-${i}:0`, DAY);
+        expect(phase).to.be.at.least(0);
+        expect(phase).to.be.below(DAY);
+      }
+    });
+
+    it('spreads a fleet across the whole period', () => {
+      // The property the whole thing exists for. A fleet-sized sample is bucketed by
+      // hour; a deterministic phase has to fill all 24 roughly evenly, because if it
+      // clusters then a release wave still produces a synchronised fetch - which is the
+      // failure being designed out, not a cosmetic concern.
+      const buckets = new Array(24).fill(0);
+      const fleet = 6300;
+      for (let i = 0; i < fleet; i += 1) {
+        const phase = backstopPhaseMs(`${i.toString(16).padStart(64, '0')}:0`, DAY);
+        buckets[Math.floor(phase / (60 * 60 * 1000))] += 1;
+      }
+      const expectedPerBucket = fleet / 24; // 262.5
+      expect(Math.min(...buckets), 'no hour is starved').to.be.greaterThan(expectedPerBucket * 0.8);
+      expect(Math.max(...buckets), 'no hour is crowded').to.be.below(expectedPerBucket * 1.2);
+    });
+
+    it('gives different nodes different slots', () => {
+      // Restarted together, phased apart: this is the case a random offset gets wrong,
+      // because a random offset is re-drawn on every boot and a release wave has every
+      // node drawing inside the same minute.
+      const slots = new Set(
+        Array.from({ length: 200 }, (unused, i) => backstopPhaseMs(`peer-${i}:0`, DAY)),
+      );
+      expect(slots.size, '200 nodes land on 200 distinct slots').to.equal(200);
+    });
+  });
+
   describe('asking peers only when there are peers', () => {
     it('does not ask, and does not wait, when nothing is connected', async () => {
       // What every boot did: the store starts before discovery, so this broadcast reached
