@@ -7,6 +7,7 @@ const pgpService = require('../../ZelBack/src/services/pgpService');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const imageVerifier = require('../../ZelBack/src/services/utils/imageVerifier');
+const policyStore = require('../../ZelBack/src/services/policyStore');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('imageManager tests', () => {
@@ -320,49 +321,33 @@ describe('imageManager tests', () => {
     });
   });
 
+  // The blocked and vetted lists come from the signed policy bundle now, not from a fetch
+  // this module caches. That removed a real failure: the old cache stored whatever the
+  // response contained without checking it was a list, for six hours, so a github error page
+  // was cached and every read of it threw `repos.forEach is not a function`.
   describe('getBlockedRepositores tests', () => {
-    it('should return cached blocked repositories', async () => {
-      const cachedData = ['blocked/repo1', 'blocked/repo2'];
+    it('returns the blocked list the signed bundle carries', () => {
+      const blocked = ['blocked/repo1', 'blocked/repo2'];
+      sinon.stub(policyStore, 'getDocument').withArgs('blockedrepositories').returns(blocked);
 
-      // First call to populate cache
-      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: cachedData });
-      const result1 = await imageManager.getBlockedRepositores();
-
-      // Second call should use cache
-      const result2 = await imageManager.getBlockedRepositores();
-
-      expect(result1).to.deep.equal(cachedData);
-      expect(result2).to.deep.equal(cachedData);
-      sinon.assert.calledOnce(serviceHelper.axiosGet);
+      expect(imageManager.getBlockedRepositores()).to.deep.equal(blocked);
     });
 
-    it('should fetch blocked repositories from GitHub', async () => {
-      const blockedRepos = ['blocked/repo1', 'blocked/repo2'];
-      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: blockedRepos });
+    it('returns null when the policy has not been obtained', () => {
+      // Null and an empty list are different answers, and the callers treat them that way:
+      // an unreadable list refuses installs, an empty one permits everything.
+      sinon.stub(policyStore, 'getDocument').returns(null);
 
-      const result = await imageManager.getBlockedRepositores();
-
-      expect(result).to.deep.equal(blockedRepos);
-      sinon.assert.calledWith(
-        serviceHelper.axiosGet,
-        'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main/blockedrepositories.json',
-      );
+      expect(imageManager.getBlockedRepositores()).to.be.null;
     });
 
-    it('should return null on error', async () => {
-      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Network error'));
+    it('does not fetch anything', () => {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      sinon.stub(policyStore, 'getDocument').returns([]);
 
-      const result = await imageManager.getBlockedRepositores();
+      imageManager.getBlockedRepositores();
 
-      expect(result).to.be.null;
-    });
-
-    it('should return null if no data returned', async () => {
-      sinon.stub(serviceHelper, 'axiosGet').resolves({});
-
-      const result = await imageManager.getBlockedRepositores();
-
-      expect(result).to.be.null;
+      expect(axiosGet.called).to.equal(false);
     });
   });
 
@@ -556,9 +541,8 @@ describe('imageManager tests', () => {
 
   describe('checkApplicationImagesCompliance tests', () => {
     beforeEach(() => {
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo', 'blocked-org', 'blockedowner'],
-      });
+      sinon.stub(policyStore, 'getDocument')
+        .returns(['blocked/repo', 'blocked-org', 'blockedowner']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
@@ -673,8 +657,8 @@ describe('imageManager tests', () => {
     });
 
     it('should throw error if unable to communicate with Flux Services', async () => {
-      serviceHelper.axiosGet.restore();
-      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: null });
+      policyStore.getDocument.restore();
+      sinon.stub(policyStore, 'getDocument').returns(null);
 
       const appSpecs = {
         name: 'TestApp',
@@ -782,9 +766,7 @@ describe('imageManager tests', () => {
 
       const removeAppLocally = sinon.stub().resolves();
 
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo'],
-      });
+      sinon.stub(policyStore, 'getDocument').returns(['blocked/repo']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
@@ -834,9 +816,7 @@ describe('imageManager tests', () => {
 
       const removeAppLocally = sinon.stub().resolves();
 
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo'],
-      });
+      sinon.stub(policyStore, 'getDocument').returns(['blocked/repo']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
@@ -876,9 +856,7 @@ describe('imageManager tests', () => {
 
       const removeAppLocally = sinon.stub().resolves();
 
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo1', 'blocked/repo2'],
-      });
+      sinon.stub(policyStore, 'getDocument').returns(['blocked/repo1', 'blocked/repo2']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
