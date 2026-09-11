@@ -7,6 +7,7 @@ const dbHelper = require('../dbHelper');
 const verificationHelper = require('../verificationHelper');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
+const policyStore = require('../policyStore');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
@@ -171,22 +172,16 @@ async function verifyRepository(repotag, options = {}) {
  * Get blocked repositories from official source
  * @returns {Promise<Array|null>} List of blocked repositories
  */
-async function getBlockedRepositores() {
-  try {
-    const cachedResponse = fluxCaching.blockedRepositoriesCache.get('blockedRepositories');
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-    const resBlockedRepo = await serviceHelper.axiosGet(`${config.policy.baseUrl}/blockedrepositories.json`);
-    if (resBlockedRepo.data) {
-      fluxCaching.blockedRepositoriesCache.set('blockedRepositories', resBlockedRepo.data);
-      return resBlockedRepo.data;
-    }
-    return null;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
+function getBlockedRepositores() {
+  // Read from the signed bundle policyStore holds, not fetched here. What that removes, as
+  // well as the trust: this used to cache whatever the response contained without checking it
+  // was a list, for six hours. A github error page is truthy, so it was cached, and every
+  // read of it then threw `repos.forEach is not a function` -- refusing installs with a
+  // TypeError and, in the spawner, marking apps unspawnable for seven days because the
+  // TypeError did not match the one error message that path treats as "the service is down".
+  //
+  // Still null for "not obtained", which callers already distinguish from an empty list.
+  return policyStore.getDocument('blockedrepositories');
 }
 
 /**
