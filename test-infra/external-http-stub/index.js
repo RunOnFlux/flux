@@ -1,7 +1,9 @@
 const zlib = require('zlib');
 const dgram = require('dgram');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
+const { PINNED_PUBLIC_HEX, ROGUE_PUBLIC_HEX, signBundle } = require('./policy-signing');
 
 const PORT = parseInt(process.env.STUB_PORT || '3000', 10);
 const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
@@ -334,6 +336,14 @@ function newRouteCounters() {
 
 const IPLOCATION_JSON_ROUTE = '/iplocation.json';
 const IPLOCATION_BINARY_ROUTE = '/iplocation.bin.gz';
+// the same artifact as the bundle names it: a file name, not a path
+const IPLOCATION_BINARY_FILE = 'iplocation.bin.gz';
+// The signed bundle, at the root of what config.policy.signedBaseUrl names.
+const POLICY_SIGNED_ROUTE = '/policy-signed.json';
+
+function sha256Hex(bytes) {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
 
 // The apt repository copied out of the node image at build time, served to the fleet
 // so a legacy node installs its packages from here instead of from the internet. It is
@@ -358,6 +368,10 @@ const state = {
   blockedRepositories: [],
   vettedRepositories: [],
   tamperingBlocklist: [],
+  // node pubkey -> [owner address]. Empty is a FACT the node acts on: it means nobody is an
+  // enterprise node, which is what every suite that is not about enterprise placement wants.
+  // Absent would be a different thing entirely - see the policy block below.
+  enterpriseNodes: {},
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
   // The syncthing the node image ships, read from the repository the image was built
@@ -393,6 +407,31 @@ const state = {
     [IPLOCATION_JSON_ROUTE]: newRouteCounters(),
     [IPLOCATION_BINARY_ROUTE]: newRouteCounters(),
   },
+  // --- the signed policy bundle ---
+  //
+  // This is the `signed` branch of fluxos-network-policy: the same documents served above,
+  // bundled under one signature with a sequence number. It is what a node actually reads --
+  // nothing fetches the plain documents any more - so it is published from the moment the
+  // stub starts. A fleet whose stub served no bundle would have no policy at all, and a node
+  // with no policy installs nothing: globalState.policyReady is shut and the spawner returns
+  // before it considers a single app. That is not a policy suite failing, it is EVERY app
+  // suite failing, so the default here has to be a good bundle.
+  policySeq: 1,
+  // 'pinned' is a key the fleet's config trusts; 'rogue' is a valid signature from a signer
+  // it does not. Only the second tells a refusal-to-trust apart from a refusal-to-parse.
+  policySigner: 'pinned',
+  // false serves 503 - the published source is reachable and not answering, which is the
+  // shape a node must survive by restoring what it already verified.
+  policyAvailable: true,
+  // Exact bytes to serve instead of a signed bundle, for the cases that are not a bundle at
+  // all: not JSON, or JSON that is not { payload_b64, sig_b64 }. Null means sign normally.
+  policyBodyOverride: null,
+  // the signed bytes, rebuilt by resignPolicy whenever a document or a knob above changes
+  policyBundle: null,
+  // Counted like the artifact routes, and for the same reason: a suite proving a node took
+  // its policy from a PEER has to show the backstop was not asked, and the only side of that
+  // it controls is this one.
+  policyFetches: { total: 0, ok: 0, unavailable: 0 },
 };
 
 /**
@@ -428,6 +467,53 @@ function serveIpLocation(artifact, { pad = true } = {}) {
 }
 
 serveIpLocation(buildIpLocationArtifact(1));
+
+/**
+ * Rebuild and re-sign the policy bundle from the documents the stub currently serves.
+ *
+ * Called after every change to one of them, so a suite never signs anything itself: it POSTs
+ * the blocked list it wants and the fleet is offered a bundle carrying it.
+ *
+ * The sequence advances on every rebuild. It has to: a node refuses a bundle at or below the
+ * one it holds, so a re-signed bundle at the same sequence is indistinguishable from nothing
+ * having changed and the fleet would go on running the old documents. A suite that wants a
+ * rollback refused sets the sequence backwards deliberately, through the control.
+ *
+ * @param {{bumpSeq?: boolean}} [options] bumpSeq: false re-signs at the current sequence -
+ *   for the suite that changes the SIGNER without changing the content.
+ */
+function resignPolicy({ bumpSeq = true } = {}) {
+  if (bumpSeq) state.policySeq += 1;
+  const payload = {
+    seq: state.policySeq,
+    issued_at: new Date().toISOString(),
+    // The same four names the live bundle carries. A document the node does not find reads
+    // as unknown rather than empty, so all four are always present even when empty.
+    documents: {
+      blockedrepositories: state.blockedRepositories,
+      vettedrepositories: state.vettedRepositories,
+      tamperingblockednodes: state.tamperingBlocklist,
+      enterprisenodes: state.enterpriseNodes,
+    },
+    // Content-addressed, as the real publisher does it: the plain name is mutable and means
+    // "the current table", so the bundle names the hash a fetch should produce. Derived from
+    // the bytes actually served rather than restated, which is the only way it stays true
+    // across a POST /iplocation.
+    artifacts: state.ipLocationBinary
+      ? {
+        [IPLOCATION_BINARY_FILE]: {
+          name: `iplocation-${sha256Hex(state.ipLocationBinary)}.bin.gz`,
+          sha256: sha256Hex(state.ipLocationBinary),
+        },
+      }
+      : {},
+  };
+  state.policyBundle = signBundle(payload, state.policySigner === 'rogue');
+  state.policyFetches = { total: 0, ok: 0, unavailable: 0 };
+  return state.policySeq;
+}
+
+resignPolicy({ bumpSeq: false });
 
 function defaultGeoResponse(ip) {
   return {
@@ -477,6 +563,24 @@ app.get('/vettedrepositories.json', (req, res) => {
 
 app.get('/tamperingblockednodes.json', (req, res) => {
   res.json(state.tamperingBlocklist);
+});
+
+app.get('/enterprisenodes.json', (req, res) => {
+  res.json(state.enterpriseNodes);
+});
+
+// The signed bundle - the `signed` branch, and the only policy route a current node reads.
+// Sent as text with no parsing on either side: the signature covers the bytes as served, so
+// anything that re-serialises them verifies something the signer never signed.
+app.get(POLICY_SIGNED_ROUTE, (req, res) => {
+  state.policyFetches.total += 1;
+  if (!state.policyAvailable) {
+    state.policyFetches.unavailable += 1;
+    res.status(503).json({ error: 'policy source unavailable' });
+    return;
+  }
+  state.policyFetches.ok += 1;
+  res.type('application/json').send(state.policyBodyOverride ?? state.policyBundle);
 });
 
 // The IP location artifact. Served with a strong etag so the conditional
@@ -665,8 +769,17 @@ control.use(express.json());
 
 control.get('/state', (req, res) => {
   // the wire artifact is opaque bytes; its size, its claimed row count and the
-  // per-route fetch counters (ipLocationFetches) are the readable parts
-  res.json({ ...state, ipLocationBinary: undefined, ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0 });
+  // per-route fetch counters (ipLocationFetches) are the readable parts. The signed bundle
+  // is the same: what a suite asserts on is the sequence, the signer and who fetched it,
+  // never the base64.
+  res.json({
+    ...state,
+    ipLocationBinary: undefined,
+    ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0,
+    policyBundle: undefined,
+    policyBundleBytes: state.policyBundle?.length ?? 0,
+    policyPublicKeys: { pinned: PINNED_PUBLIC_HEX, rogue: ROGUE_PUBLIC_HEX },
+  });
 });
 
 control.post('/blocklist', (req, res) => {
@@ -676,17 +789,24 @@ control.post('/blocklist', (req, res) => {
 
 control.post('/blocked-repos', (req, res) => {
   state.blockedRepositories = req.body;
-  res.json({ ok: true });
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/vetted-repos', (req, res) => {
   state.vettedRepositories = req.body;
-  res.json({ ok: true });
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/tampering-blocklist', (req, res) => {
   state.tamperingBlocklist = req.body;
-  res.json({ ok: true });
+  res.json({ ok: true, seq: resignPolicy() });
+});
+
+// The node->owners map. `{}` is the default and means nobody is an enterprise node; a suite
+// pinning an app to a node POSTs that node's pubkey with the owner allowed to place there.
+control.post('/enterprise-nodes', (req, res) => {
+  state.enterpriseNodes = req.body;
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/latest-release', (req, res) => {
@@ -733,8 +853,13 @@ control.post('/iplocation', (req, res) => {
     );
     regions = regionAssignment(domains, withRegions);
   }
+  // The bundle names the artifact by content hash, so publishing a new one makes the held
+  // bundle's claim false. Re-signed here rather than inside serveIpLocation so there is one
+  // place that publishes at boot and one that republishes on demand.
+  resignPolicy();
   res.json({
     ok: true,
+    policySeq: state.policySeq,
     ranges: state.ipLocation?.v4?.length ?? 0,
     // what the served binary's header claims, filler included - null when the
     // bytes are not a format-2 artifact
@@ -743,6 +868,62 @@ control.post('/iplocation', (req, res) => {
     bytes: state.ipLocationBinary?.length ?? 0,
     regions,
     orgClasses: state.ipLocation?.orgClasses ?? null,
+  });
+});
+
+/**
+ * The bundle itself, for the cases that are about the bundle rather than about a document.
+ *
+ * Every field is optional and they compose, so one control covers the whole refusal surface:
+ *
+ *   { signer: 'rogue' }        a real signature from a signer the fleet does not pin. The
+ *                              only way to test an UNTRUSTED bundle - corrupting bytes gives
+ *                              an invalid signature, which is a different refusal.
+ *   { seq: 1 }                 publish backwards, for a rollback that must be refused.
+ *   { available: false }       the source stops answering (503).
+ *   { body: 'not json' }       served verbatim, for what is not a bundle at all.
+ *   { documents: {...} }       merged over the served documents, then signed - a VALID
+ *                              bundle carrying a malformed document, which is the case a
+ *                              signature cannot catch and the reader must.
+ *
+ * Defaults are restored by passing the opposite, or by POST /reset.
+ */
+control.post('/policy', (req, res) => {
+  const body = req.body || {};
+  if (body.documents) {
+    const map = {
+      blockedrepositories: 'blockedRepositories',
+      vettedrepositories: 'vettedRepositories',
+      tamperingblockednodes: 'tamperingBlocklist',
+      enterprisenodes: 'enterpriseNodes',
+    };
+    for (const [name, value] of Object.entries(body.documents)) {
+      if (!map[name]) return res.status(400).json({ error: `unknown document ${name}` });
+      state[map[name]] = value;
+    }
+  }
+  if (body.signer !== undefined) {
+    if (body.signer !== 'pinned' && body.signer !== 'rogue') {
+      return res.status(400).json({ error: "signer must be 'pinned' or 'rogue'" });
+    }
+    state.policySigner = body.signer;
+  }
+  if (body.available !== undefined) state.policyAvailable = body.available !== false;
+  if (Object.prototype.hasOwnProperty.call(body, 'body')) state.policyBodyOverride = body.body;
+  // An explicit sequence replaces the bump rather than adding to it, so a suite can publish
+  // backwards. Signing still happens: a rollback the fleet must refuse has to be otherwise
+  // perfect, or it proves only that a broken bundle is refused.
+  if (body.seq !== undefined) {
+    if (!Number.isInteger(body.seq)) return res.status(400).json({ error: 'seq must be an integer' });
+    state.policySeq = body.seq;
+  }
+  resignPolicy({ bumpSeq: body.seq === undefined });
+  return res.json({
+    ok: true,
+    seq: state.policySeq,
+    signer: state.policySigner,
+    available: state.policyAvailable,
+    overridden: state.policyBodyOverride !== null,
   });
 });
 
@@ -761,11 +942,19 @@ control.post('/reset', (req, res) => {
   state.blockedRepositories = [];
   state.vettedRepositories = [];
   state.tamperingBlocklist = [];
+  state.enterpriseNodes = {};
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
   artifacts.clear();
   serveIpLocation(buildIpLocationArtifact(1));
-  res.json({ ok: true });
+  // Back to a good bundle from a trusted signer. The sequence is NOT reset: a node that has
+  // already adopted one refuses anything at or below it, and a reset between suites sharing
+  // a fleet would otherwise leave the fleet unable to adopt anything again.
+  state.policySigner = 'pinned';
+  state.policyAvailable = true;
+  state.policyBodyOverride = null;
+  resignPolicy();
+  res.json({ ok: true, seq: state.policySeq });
 });
 
 control.get('/health', (req, res) => {
