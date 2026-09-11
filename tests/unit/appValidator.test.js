@@ -9,6 +9,8 @@ describe('appValidator tests', () => {
   // The enterprise app owners this node has obtained. null means it has not obtained
   // the policy at all, which is a different answer from "there are none".
   let enterpriseOwners;
+  // The spec already on chain for this app, or null when there is none.
+  let previousAppSpecs;
 
   beforeEach(() => {
     logStub = {
@@ -18,6 +20,7 @@ describe('appValidator tests', () => {
     };
 
     enterpriseOwners = ['1GM41a9A4rH8CCkCyzDRahHUccuTRLhoDe'];
+    previousAppSpecs = null;
 
     imageManagerStub = {
       checkWhitelistedRepository: sinon.stub().returns(true),
@@ -97,6 +100,7 @@ describe('appValidator tests', () => {
       '../appDatabase/registryManager': {
         availableApps: sinon.stub().resolves([]),
         checkApplicationRegistrationRequirements: sinon.stub().resolves(true),
+        getPreviousAppSpecifications: async () => previousAppSpecs,
       },
       '../appMessaging/messageVerifier': {
         verifyAppHash: sinon.stub().resolves(true),
@@ -357,6 +361,53 @@ describe('appValidator tests', () => {
       // nodes rejecting history their peers accept - a disagreement about the past,
       // and the reason this needs no fork height.
       await appValidator.verifyAppSpecifications(pinnedSpec(), 1000);
+    });
+
+    // An app pinned before this rule existed must stay updatable. Renewal IS an update,
+    // so without this the owner's app expires and the only way to keep it is to guess
+    // that emptying nodes[] is the escape. The frontend grandfathers the same way.
+    it('lets an ordinary owner carry an existing pin forward unchanged', async () => {
+      previousAppSpecs = { nodes: ['203.0.113.7:16127'] };
+      await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
+    });
+
+    it('ignores the order of an unchanged pin', async () => {
+      previousAppSpecs = { nodes: ['198.51.100.9:16127', '203.0.113.7:16127'] };
+      const spec = pinnedSpec({ nodes: ['203.0.113.7:16127', '198.51.100.9:16127'] });
+      await appValidator.verifyAppSpecifications(spec, 1000, true);
+    });
+
+    it('does not let an ordinary owner redirect an existing pin', async () => {
+      // Carrying a pin forward is not the same privilege as choosing where it points.
+      previousAppSpecs = { nodes: ['203.0.113.7:16127'] };
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec({ nodes: ['198.51.100.9:16127'] }), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('does not let an ordinary owner widen an existing pin', async () => {
+      previousAppSpecs = { nodes: ['203.0.113.7:16127'] };
+      const spec = pinnedSpec({ nodes: ['203.0.113.7:16127', '198.51.100.9:16127'] });
+      try {
+        await appValidator.verifyAppSpecifications(spec, 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('treats a failed history lookup as no previous pin', async () => {
+      // Granting a privilege, so it fails closed rather than open.
+      previousAppSpecs = null;
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
     });
 
     it('refuses rather than guessing when the policy has not been obtained', async () => {
