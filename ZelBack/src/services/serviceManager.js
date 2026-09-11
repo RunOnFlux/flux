@@ -259,11 +259,15 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    // Seed the enterprise node->owners map from helpers/enterprisenodes.json on disk
-    // and sync it from github (every 6h thereafter). Awaited so consumers (identity
-    // resolution, the spawn loop, app-spec validation) have data before they run; the
-    // disk read and github fetch are both bounded (10s fetch timeout) so boot is never
-    // stuck on this. A failed/invalid sync keeps the last-good value.
+    // Obtain the enterprise node->owners map, then sync it every 6h. Awaited so the
+    // consumers (identity resolution, the spawn loop, app-spec validation) usually have
+    // it before they run, and bounded by a 10s fetch timeout so boot is never stuck here.
+    //
+    // Awaiting it is not what makes this safe: a failed fetch leaves the policy unknown
+    // and boot carries on regardless. What makes it safe is that acquisition waits on
+    // globalState.policyReady, so a node that has not obtained the map spawns nothing
+    // rather than assuming it is an ordinary node. A failed sync keeps the last-good
+    // value; there is no on-disk seed to fall back to, by design.
     await enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();

@@ -49,6 +49,10 @@ describe('appSpawner tests', () => {
   function createGlobalStateStub() {
     const state = resetGlobalState();
     state.dbReady = true;
+    // Acquisition waits on the network policy the way it waits on the db. Open by
+    // default here so every other case exercises what it means to; the gate's own
+    // behaviour is asserted in 'policy gate' below.
+    state.policyReady = true;
     state.fluxNodeWasAlreadyConfirmed = true;
     state.firstExecutionAfterItsSynced = false;
     // Wired from cacheManager when a node boots, so null in a unit process. The
@@ -303,6 +307,39 @@ describe('appSpawner tests', () => {
 
     it('should be exported as a function', () => {
       expect(appSpawner.trySpawningGlobalApplication).to.be.a('function');
+    });
+  });
+
+  // A node cannot tell "I am not an enterprise node" from "I have not read the policy"
+  // until it has the node->owners map. Guessing the first is how an enterprise node fills
+  // itself with apps it must not host and then has them uninstalled from under it, so
+  // acquisition waits on the gate the way it waits on the database.
+  describe('policy gate', () => {
+    function infoLoggedIncludes(substr) {
+      return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
+    }
+
+    it('installs nothing while the policy gate is shut', async () => {
+      // aggregateStub is the first thing the install path reaches, so it not being
+      // called is the evidence the pass really stopped here rather than logging and
+      // walking on - the same trap the placement-hold tests below were written for.
+      buildModule();
+      globalStateStub.policyReady = false;
+
+      const delay = await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Network policy not yet obtained')).to.equal(true);
+      expect(aggregateStub.called).to.equal(false);
+      expect(delay).to.be.a('number');
+    });
+
+    it('proceeds once the gate opens', async () => {
+      buildModule();
+      globalStateStub.policyReady = true;
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(aggregateStub.called).to.equal(true);
     });
   });
 

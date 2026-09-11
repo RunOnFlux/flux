@@ -4,27 +4,17 @@ const proxyquire = require('proxyquire').noCallThru();
 
 const MODULE_PATH = '../../ZelBack/src/services/utils/enterpriseConfig';
 
-const DISK_MAP = {
-  nodeA: ['ownerA', 'ownerB'],
-  nodeB: ['ownerB'],
-};
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 
 function makeLog() {
   return { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
 }
 
-// Each load runs the module top-level fresh. Initialization no longer happens as
-// a side effect of require(): callers must startSync() (which seeds from disk and
-// then syncs from github) before the getters return data.
+// Each load runs the module top-level fresh. Initialization does not happen as a side
+// effect of require(): callers must startSync() before the getters answer anything.
 function loadModule(overrides = {}) {
   const log = overrides.log || makeLog();
 
-  const fsStub = overrides.fs || {
-    promises: { readFile: sinon.stub().resolves(JSON.stringify(DISK_MAP)) },
-  };
-
-  // Default to a failing fetch so disk-seeding tests keep the disk value.
   const serviceHelperStub = overrides.serviceHelper
     || { axiosGet: sinon.stub().rejects(new Error('no network')) };
 
@@ -32,78 +22,92 @@ function loadModule(overrides = {}) {
     policy: { baseUrl: 'https://raw.example/RunOnFlux/fluxos-network-policy/main' },
   };
 
+  // A plain object, so a test can read back whether the module opened the gate.
+  const globalStateStub = overrides.globalState || { policyReady: false };
+
   const stubs = {
     config: configStub,
-    fs: fsStub,
     '../serviceHelper': serviceHelperStub,
     '../../lib/log': log,
+    './globalState': globalStateStub,
   };
 
   return {
-    module: proxyquire(MODULE_PATH, stubs), fs: fsStub, serviceHelper: serviceHelperStub, log,
+    module: proxyquire(MODULE_PATH, stubs),
+    serviceHelper: serviceHelperStub,
+    globalState: globalStateStub,
+    log,
   };
 }
 
 describe('enterpriseConfig', () => {
   afterEach(() => sinon.restore());
 
-  describe('disk seeding via startSync', () => {
-    it('seeds the node->owners map from the on-disk helper file', async () => {
+  // The release used to ship helpers/enterprisenodes.json and startSync seeded from it.
+  // That seed was frozen at the moment the release was cut, so every restart began by
+  // enforcing a snapshot that could name the wrong nodes and the wrong owners - and the
+  // ownership sweep acted on it five minutes later. There is no disk seed now, and the
+  // map is unknown until a fetch succeeds.
+  describe('unknown until a fetch succeeds', () => {
+    it('answers null from every getter before any successful fetch', async () => {
       const { module: m } = loadModule();
       await m.startSync();
-      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal(DISK_MAP);
+
+      expect(m.isPolicyKnown()).to.equal(false);
+      expect(m.getEnterpriseNodeOwnerMap()).to.equal(null);
+      expect(m.getEnterpriseNodesPublicKeys()).to.equal(null);
+      expect(m.getEnterpriseAppOwners()).to.equal(null);
+      expect(m.getAllowedOwnersForNode('nodeA')).to.equal(null);
       m.stopSync();
     });
 
-    it('derives node pubkeys (keys) and the global owner union (deduped values)', async () => {
+    it('null is not an empty map: an unknown policy never reads as "nobody is enterprise"', async () => {
       const { module: m } = loadModule();
       await m.startSync();
-      expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal(['nodeA', 'nodeB']);
-      expect(m.getEnterpriseAppOwners()).to.deep.equal(['ownerA', 'ownerB']);
+
+      // The distinction this module exists to preserve. `[]` would let a caller conclude
+      // this node is not an enterprise node, which is the answer that fills it with apps
+      // it must not host.
+      expect(m.getEnterpriseNodesPublicKeys()).to.not.deep.equal([]);
+      expect(m.getEnterpriseAppOwners()).to.not.deep.equal([]);
       m.stopSync();
     });
 
-    it('returns a specific node\'s allowed owners, or [] for an unknown node', async () => {
-      const { module: m } = loadModule();
+    it('leaves the policyReady gate shut while the fetch keeps failing', async () => {
+      const { module: m, globalState } = loadModule();
       await m.startSync();
+
+      expect(globalState.policyReady).to.equal(false);
+      m.stopSync();
+    });
+
+    it('opens the policyReady gate once a valid payload arrives', async () => {
+      const axiosGet = sinon.stub().resolves({ data: { nodeA: ['ownerA'] } });
+      const { module: m, globalState } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+
+      expect(globalState.policyReady).to.equal(true);
+      expect(m.isPolicyKnown()).to.equal(true);
+      m.stopSync();
+    });
+
+    it('does not open the gate for a payload of the wrong shape', async () => {
+      const axiosGet = sinon.stub().resolves({ data: { nodeA: 'not-an-array' } });
+      const { module: m, globalState } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+
+      expect(globalState.policyReady).to.equal(false);
+      expect(m.isPolicyKnown()).to.equal(false);
+      m.stopSync();
+    });
+
+    it('once known, an unmapped node reads as [] rather than null', async () => {
+      const axiosGet = sinon.stub().resolves({ data: { nodeA: ['ownerA', 'ownerB'] } });
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+
       expect(m.getAllowedOwnersForNode('nodeA')).to.deep.equal(['ownerA', 'ownerB']);
-      expect(m.getAllowedOwnersForNode('nodeB')).to.deep.equal(['ownerB']);
-      expect(m.getAllowedOwnersForNode('unknown')).to.deep.equal([]);
-      m.stopSync();
-    });
-
-    it('does the disk read asynchronously (fs.promises.readFile)', async () => {
-      const readFile = sinon.stub().resolves(JSON.stringify(DISK_MAP));
-      const { module: m } = loadModule({ fs: { promises: { readFile } } });
-      await m.startSync();
-      expect(readFile.calledOnce).to.equal(true);
-      m.stopSync();
-    });
-
-    it('falls back to an empty map when the disk read throws', async () => {
-      const fs = { promises: { readFile: sinon.stub().rejects(new Error('ENOENT')) } };
-      const { module: m } = loadModule({ fs });
-      await m.startSync();
-      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({});
-      expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal([]);
-      expect(m.getEnterpriseAppOwners()).to.deep.equal([]);
-      m.stopSync();
-    });
-
-    it('ignores disk content that is not a JSON object', async () => {
-      const fs = { promises: { readFile: sinon.stub().resolves('["not","an","object"]') } };
-      const { module: m } = loadModule({ fs });
-      await m.startSync();
-      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({});
-      m.stopSync();
-    });
-
-    it('rejects disk content whose values are not arrays of strings (finding #2/#10)', async () => {
-      const fs = { promises: { readFile: sinon.stub().resolves(JSON.stringify({ nodeA: null })) } };
-      const { module: m, log } = loadModule({ fs });
-      await m.startSync();
-      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({});
-      expect(log.error.called).to.equal(true);
+      expect(m.getAllowedOwnersForNode('nodeZ')).to.deep.equal([]); // known, and hosts nobody
       m.stopSync();
     });
   });
