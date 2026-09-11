@@ -33,6 +33,11 @@ import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
 import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
 
+// How long after a re-attach the collector goes on treating an exact repeat as docker
+// replaying a line it already has. Docker's `since` is whole-second, so the replay is over
+// within a second of the stream opening; this is that bound with room for a loaded box.
+const REPLAY_WINDOW_MS = 5000;
+
 function createLogCollector() {
   // Each entry is { t, line }: t is the capture wall-clock (ISO), line is the raw
   // log text. The container's own log lines carry no timestamp, so we stamp at
@@ -42,18 +47,63 @@ function createLogCollector() {
   const entries = [];
   const push = (line) => entries.push({ t: new Date().toISOString(), line });
 
-  function consumer(stream) {
+  /**
+   * Attach to a container log stream.
+   *
+   * @param {import('stream').Readable} stream The container's log stream.
+   * @param {Map<string, number>} [suppress] Lines this collector already holds that the
+   *   stream is expected to REPLAY, as line -> how many times. Docker's `since` filter is
+   *   whole-second, so re-attaching after a restart re-delivers everything written in that
+   *   second - which the collector captured the first time round. Each match is dropped
+   *   once and decremented, so a line that genuinely repeats later is still recorded.
+   *   Only the first REPLAY_WINDOW_MS of the new stream are filtered: after that the
+   *   replay is over, and going on matching would silently drop real repeats.
+   */
+  function consumer(stream, suppress = null) {
+    const attachedAt = Date.now();
+    const dropReplay = (line) => {
+      if (!suppress || !suppress.size) return false;
+      if (Date.now() - attachedAt > REPLAY_WINDOW_MS) {
+        suppress.clear();
+        return false;
+      }
+      const remaining = suppress.get(line);
+      if (!remaining) return false;
+      if (remaining === 1) suppress.delete(line); else suppress.set(line, remaining - 1);
+      return true;
+    };
     stream.on('data', (data) => {
       const text = typeof data === 'string' ? data : data.toString('utf-8');
       for (const line of text.split('\n')) {
         const trimmed = line.trimEnd();
-        if (trimmed) push(trimmed);
+        if (trimmed && !dropReplay(trimmed)) push(trimmed);
       }
     });
     stream.on('end', () => push('[LOG_STREAM_ENDED]'));
     stream.on('error', (err) => push(`[LOG_STREAM_ERROR: ${err.message}]`));
     stream.on('close', () => push('[LOG_STREAM_CLOSED]'));
   }
+
+  /**
+   * What a re-attach asking for `since` seconds is expected to replay: everything already
+   * captured from that second onwards. Widened by one second because an entry is stamped
+   * when it was CAPTURED and docker filters on when it was WRITTEN, and the two differ by
+   * the length of the pipe.
+   * @param {number} sinceSeconds The value about to be passed to container.logs.
+   * @returns {Map<string, number>}
+   */
+  consumer.replayFrom = (sinceSeconds) => {
+    const fromMs = (Math.floor(sinceSeconds) - 1) * 1000;
+    const pending = new Map();
+    for (const entry of entries) {
+      if (Date.parse(entry.t) >= fromMs) pending.set(entry.line, (pending.get(entry.line) ?? 0) + 1);
+    }
+    return pending;
+  };
+
+  // Record a line that did not come off the container's stream - the harness saying
+  // something about the capture itself, so a gap in the log explains itself in the dump.
+  consumer.note = (line) => push(line);
 
   consumer.hasLine = (pattern) => {
     const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern);
@@ -1458,13 +1508,37 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     // the same HttpPollWaitStrategy the initial fleet build uses.
     async restartNode(index, { timeout = 15000 } = {}) {
       if (clients[index]) clients[index].disconnectEventStream();
-      const { container } = fluxNodes[index];
+      const { container, logCollector } = fluxNodes[index];
+      // Taken before the container goes down: everything the restarted node writes from
+      // here on is what the re-attached stream has to carry.
+      const sinceSeconds = Math.floor(Date.now() / 1000);
       const saved = container.waitStrategy;
       container.waitStrategy = nodeReadyWaitStrategy(fluxNodes[index].ip);
       try {
         await container.restart({ timeout });
       } finally {
         container.waitStrategy = saved;
+      }
+      // RE-ATTACH THE LOG COLLECTOR. withLogConsumer's stream is a following read of the
+      // container's log, and a restart ENDS it - the collector records [LOG_STREAM_ENDED]
+      // and then hears nothing ever again. Until this existed, every log assertion placed
+      // after a restart could only time out, and it timed out looking like the product had
+      // stopped doing the thing rather than like the harness had stopped listening. That
+      // cost most of a session on suite 99.
+      //
+      // `since` rather than `tail: 0`, taken BEFORE the restart: restart() does not return
+      // until the wait strategy passes, by which time FluxOS has already printed its whole
+      // boot. Asking for no history would lose exactly the lines a restart suite wants.
+      // The cost of `since` is that docker's filter is whole-second and re-delivers what
+      // was written in that second, which the collector already has - so it is told what
+      // to expect and drops each replayed line once. A failure here is recorded in the log
+      // rather than thrown: the restart itself succeeded, and a suite should fail on its
+      // own assertion with the reason sitting in the dump, not on a throw from the
+      // instrument that was only watching.
+      if (logCollector) {
+        await container.logs({ since: sinceSeconds })
+          .then((stream) => logCollector(stream, logCollector.replayFrom(sinceSeconds)))
+          .catch((err) => logCollector.note(`[LOG_STREAM_REATTACH_FAILED: ${err.message}]`));
       }
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];
