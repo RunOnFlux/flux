@@ -417,6 +417,11 @@ module.exports = {
   },
   policy: {
     baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
+    signedBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/signed',
+    publicKeys: [
+      'c31930ec386a49f31321851766d93bcb90bf269cd15bec7a329155a4d79ea380',
+      '739ca41408f66c75d6cb4bc1d5c044ca5a118de190081da68e5a7d6839fb69f8',
+    ],
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
