@@ -8,7 +8,7 @@ import { buildSeedableApp, nodeOutpoint } from '../framework/seed-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
-import { waitForBootSettled } from '../framework/wait.js';
+import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // An app pinned to named nodes runs on those nodes and nowhere else.
@@ -152,6 +152,47 @@ describe('a pinned app runs where its spec says', function () {
       );
       for (const verdict of verdicts) {
         expect(verdict.stage, 'no pin, so the pin filter drops nobody').to.not.equal('afterNodePin');
+      }
+    });
+  });
+
+  describe('where it actually lands', function () {
+    it('the named node installs it, and no other node does', async function () {
+      this.timeout(420000);
+      // The two blocks above ask what each node THINKS. This one lets the fleet run and
+      // reads where the app ended up, which is the claim the whole feature makes.
+      //
+      // There is no lottery to lose here, which is why this can be asserted at all: the
+      // pin filter leaves exactly one candidate, so the only open question is WHEN. (A
+      // non-enterprise app on an Arcane node is deferred first - spawner:deferred,
+      // reason non_enterprise_on_arcane - which delays the install rather than
+      // preventing it.)
+      const app = await buildSeedableApp({
+        env,
+        name: `landspin${Date.now()}`,
+        instances: 1,
+        nodes: [nodeOutpoint(PINNED_INDEX)],
+      });
+      await seedToFleet(env, app);
+
+      await waitFor(
+        async () => {
+          const installed = await env.clients[PINNED_INDEX].getInstalledApps();
+          return JSON.stringify(installed.data ?? []).includes(app.spec.name);
+        },
+        { timeout: 360000, interval: 5000, label: `the named node to install ${app.spec.name}` },
+      );
+
+      // And nowhere else. Read after the named node has it, so this is not merely "the
+      // others have not got round to it yet" - the app is at its instance count by now,
+      // so any other node holding it took one it was not entitled to.
+      for (const index of env.clients.map((_, i) => i).filter((i) => i !== PINNED_INDEX)) {
+        // eslint-disable-next-line no-await-in-loop
+        const installed = await env.clients[index].getInstalledApps();
+        expect(
+          JSON.stringify(installed.data ?? []).includes(app.spec.name),
+          `node ${index} is not named by the pin and must not hold the app`,
+        ).to.equal(false);
       }
     });
   });
