@@ -7,7 +7,8 @@ const FILE = 'enterprisenodes.json';
 const URL = `${config.policy.baseUrl}/${FILE}`;
 
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const RETRY_INTERVAL_MS = 60 * 1000; // while the policy is still unknown
+const RETRY_BASE_MS = 60 * 1000; // first retry while the policy is still unknown
+const RETRY_CAP_MS = 30 * 60 * 1000; // and the longest it backs off to
 const FETCH_TIMEOUT_MS = 10 * 1000; // bound the github fetch so boot is never stuck on it
 
 // Maps each enterprise node pubkey to the app-owner addresses allowed to install on it
@@ -26,6 +27,7 @@ let nodeOwnerMap = null;
 
 let syncInterval = null;
 let retryTimeout = null;
+let retryAttempt = 0;
 
 // Memoized union of all owners. Rebuilt only when nodeOwnerMap is replaced, keyed by
 // reference: the map is always reassigned wholesale, never mutated in place, so reference
@@ -77,21 +79,43 @@ function startRefresh() {
 }
 
 /**
- * Retry every minute for as long as the policy is unknown, then settle into the 6h
- * refresh. The two cadences answer different questions: a refresh that fails costs
- * nothing, because the node keeps the map it already has, but a FIRST fetch that fails
- * leaves the node unable to acquire any app at all. Waiting six hours to try again
+ * How long to wait before the next attempt at a policy this node does not yet have.
+ *
+ * Backs off from a minute to half an hour, and takes a RANDOM point in that window
+ * rather than the window itself. Both halves matter, and for the same reason: the
+ * moment this code runs at all is a github outage, which is exactly when every node in
+ * the fleet is also retrying. A fixed minute would put six thousand nodes on
+ * raw.githubusercontent at a hundred requests a second for as long as the outage
+ * lasted, and - because a fixed interval never disperses anything - nodes that
+ * restarted together would stay in lockstep indefinitely.
+ *
+ * Full jitter rather than a fraction of the delay: a node restarting into an outage
+ * gets its own answer instead of one derived from a shared clock.
+ */
+function nextRetryDelayMs() {
+  const ceiling = Math.min(RETRY_CAP_MS, RETRY_BASE_MS * (2 ** retryAttempt));
+  retryAttempt += 1;
+  return Math.round(Math.random() * ceiling);
+}
+
+/**
+ * Keep trying for as long as the policy is unknown, then settle into the 6h refresh.
+ * The two cadences answer different questions: a refresh that fails costs nothing,
+ * because the node keeps the map it already has, but a FIRST fetch that fails leaves the
+ * node unable to acquire any app at all. Waiting a full refresh interval to try again
  * would turn a momentary blip at boot into six hours of a node doing nothing.
  */
 function scheduleRetry() {
   retryTimeout = setTimeout(async () => {
     retryTimeout = null;
     const obtained = await syncFromGithub();
-    if (obtained) startRefresh();
-    else scheduleRetry();
-  }, RETRY_INTERVAL_MS);
-  // Never hold the process open on a retry: this is best-effort background work.
-  if (retryTimeout.unref) retryTimeout.unref();
+    if (obtained) {
+      retryAttempt = 0;
+      startRefresh();
+    } else {
+      scheduleRetry();
+    }
+  }, nextRetryDelayMs());
 }
 
 /**
@@ -121,6 +145,7 @@ function stopSync() {
     clearTimeout(retryTimeout);
     retryTimeout = null;
   }
+  retryAttempt = 0;
 }
 
 /** The raw node-pubkey -> [ownerAddress] map, or null when the policy is unknown. */
