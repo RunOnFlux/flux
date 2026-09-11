@@ -337,6 +337,131 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
   });
 
+  // The peer half of policy distribution. A node that adopts a sequence tells its peers; a
+  // peer that is behind asks for the bundle. Both directions are here because neither had any
+  // coverage and they are the point of the whole exercise.
+  describe('policy messages', () => {
+    const KEY = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const PRIV = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
+    let policyStore;
+
+    function makePeer() {
+      return { send: sinon.stub().returns('okay') };
+    }
+
+    function sentTypes(peer) {
+      return peer.send.getCalls().map((c) => JSON.parse(c.args[0]).data.type);
+    }
+
+    beforeEach(() => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns(KEY);
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns(PRIV);
+      // eslint-disable-next-line global-require
+      policyStore = require('../../ZelBack/src/services/policyStore');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    describe('respondWithPolicy', () => {
+      it('sends the bundle when this node holds something newer', async () => {
+        sinon.stub(policyStore, 'getSeq').returns(9);
+        sinon.stub(policyStore, 'getRawBundle').returns('{"payload_b64":"x","sig_b64":"y"}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 4 } }, peer,
+        );
+
+        expect(sentTypes(peer)).to.deep.equal(['fluxpolicy']);
+        expect(JSON.parse(peer.send.firstCall.args[0]).data.bundle).to.equal('{"payload_b64":"x","sig_b64":"y"}');
+      });
+
+      it('says nothing when it holds no more than the asker', async () => {
+        // Silence is the answer for "nothing newer". A reply saying so would be a claim the
+        // asker cannot check, and one a hostile peer would send to keep it where it is.
+        sinon.stub(policyStore, 'getSeq').returns(4);
+        sinon.stub(policyStore, 'getRawBundle').returns('{}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 4 } }, peer,
+        );
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 9 } }, peer,
+        );
+
+        expect(peer.send.called).to.equal(false);
+      });
+
+      it('says nothing when it holds no bundle at all', async () => {
+        sinon.stub(policyStore, 'getSeq').returns(0);
+        sinon.stub(policyStore, 'getRawBundle').returns(null);
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 0 } }, peer,
+        );
+
+        expect(peer.send.called).to.equal(false);
+      });
+
+      it('treats a missing sequence as zero rather than refusing to answer', async () => {
+        // A node asking before it has anything sends seq 0; a malformed one may send none.
+        sinon.stub(policyStore, 'getSeq').returns(3);
+        sinon.stub(policyStore, 'getRawBundle').returns('{"a":1}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1 } }, peer,
+        );
+
+        expect(sentTypes(peer)).to.deep.equal(['fluxpolicy']);
+      });
+
+      it('ignores a version it does not know', async () => {
+        sinon.stub(policyStore, 'getSeq').returns(9);
+        sinon.stub(policyStore, 'getRawBundle').returns('{"a":1}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 2, seq: 0 } }, peer,
+        );
+
+        expect(peer.send.called).to.equal(false);
+      });
+
+      it('does not throw on a message with no data', async () => {
+        const peer = makePeer();
+        await fluxCommunicationMessagesSender.respondWithPolicy({}, peer);
+        expect(peer.send.called).to.equal(false);
+      });
+    });
+
+    describe('what goes on the wire', () => {
+      it('an announcement carries the sequence and nothing else', async () => {
+        // A peer cannot check a claim about a number, so it is a prompt to ask rather than
+        // something to believe. Sending the bundle unasked would be the expensive mistake.
+        const serialised = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(
+          { type: 'fluxpolicyseq', version: 1, seq: 12 },
+        );
+
+        const { data } = JSON.parse(serialised);
+        expect(data).to.deep.equal({ type: 'fluxpolicyseq', version: 1, seq: 12 });
+        expect(data.bundle).to.equal(undefined);
+      });
+
+      it('a request carries the sequence the asker holds', async () => {
+        const serialised = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(
+          { type: 'fluxpolicyrequest', version: 1, seq: 7 },
+        );
+
+        expect(JSON.parse(serialised).data).to.deep.equal({ type: 'fluxpolicyrequest', version: 1, seq: 7 });
+      });
+    });
+  });
+
   describe('respondWithAppMessage tests', () => {
     const generateWebsocket = () => {
       const ws = {};

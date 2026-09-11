@@ -7,6 +7,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+const policyStore = require('../../ZelBack/src/services/policyStore');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { requireMongo } = require('./dbTestHelper');
@@ -1238,6 +1239,50 @@ describe('fluxCommunication tests', () => {
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
+      });
+    }
+
+    // Policy arrives over the same dispatch, and each of the three types goes somewhere
+    // different: a request is answered, a claimed sequence is a prompt to ask, and a bundle
+    // is verified before it is believed. None of that had coverage.
+    const policyCases = [
+      { type: 'fluxpolicyrequest', data: { seq: 4 }, target: 'respondWithPolicy', on: () => fluxCommunicationMessagesSender },
+      { type: 'fluxpolicyseq', data: { seq: 12 }, target: 'notePeerSeq', on: () => policyStore },
+      { type: 'fluxpolicy', data: { bundle: '{"payload_b64":"x"}' }, target: 'offerBundle', on: () => policyStore },
+    ];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const testCase of policyCases) {
+      // eslint-disable-next-line no-loop-func
+      it(`routes ${testCase.type} to ${testCase.target}`, async () => {
+        const message = JSON.stringify({
+          timestamp: Date.now(),
+          pubKey: '1234asd',
+          signature: 'blabla',
+          version: 1,
+          data: { type: testCase.type, version: 1, ...testCase.data },
+        });
+        const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+          wss.on('connection', (ws) => {
+            ws.send(message);
+            resolve();
+          });
+          // eslint-disable-next-line no-param-reassign
+          wss.onerror = (err) => { reject(err); };
+        });
+        const ip = '127.0.0.2';
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
+        lruRateLimitStub.returns(true);
+        sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
+        sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(fluxCommunicationUtils.VerifyResult.OK);
+        sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+        const handler = sinon.stub(testCase.on(), testCase.target).returns(true);
+        daemonServiceMiscRpcsStub.returns({ data: { synced: false, height: 0 } });
+
+        await fluxCommunication.initiateAndHandleConnection(ip);
+        await waitForWsConnected(wsserver);
+        await waitFor(() => handler.called);
+
+        expect(handler.called).to.equal(true);
       });
     }
 
