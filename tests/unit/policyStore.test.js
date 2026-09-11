@@ -170,6 +170,33 @@ describe('policyStore', () => {
     });
   });
 
+  describe('what boot costs the published source', () => {
+    it('does not fetch when it came back holding a verified bundle', async () => {
+      // A release wave restarts the fleet inside a short window. An unconditional boot
+      // fetch makes that every node at once - the storm the tick phase exists to prevent,
+      // through a different door. A restored node already has policy.
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const repo = {
+        readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
+        writeBundle: sinon.stub().resolves(true),
+      };
+      const { module } = load({ repo, serviceHelper: { axiosGet } });
+      await module.start();
+      module.stop();
+      expect(module.getSeq(), 'it is running on what it restored').to.equal(4);
+      expect(axiosGet.called, 'and it did not go to the source to learn that').to.equal(false);
+    });
+
+    it('fetches when it came back with nothing', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const { module } = load({ serviceHelper: { axiosGet } });
+      await module.start();
+      module.stop();
+      expect(axiosGet.calledOnce, 'nothing on disk, so it must ask').to.equal(true);
+      expect(module.getSeq()).to.equal(9);
+    });
+  });
+
   describe('when in the period this node ticks', () => {
     const DAY = 24 * 60 * 60 * 1000;
     const { backstopPhaseMs } = load().module;

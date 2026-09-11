@@ -340,8 +340,22 @@ function notePeerSeq(seq) {
  */
 async function start() {
   if (refreshInterval) return;
-  await restore();
-  await refreshOnce();
+  const restored = await restore();
+
+  // Only fetch at boot when this node came back with NOTHING.
+  //
+  // Phasing the tick spreads the periodic fetch across the period, but boot is not the
+  // tick: a release wave restarts the fleet inside a short window, and an unconditional
+  // boot fetch is then every node hitting the published source at once - the same storm
+  // the phase exists to prevent, arriving through a different door. A node that restored
+  // a verified bundle does not need it: it HAS policy, its own slot will bring anything
+  // newer, and the first peer-threshold crossing asks peers, which is local and free.
+  //
+  // The cost is that a restored node can be up to one period behind until its slot comes
+  // round or a peer tells it. It is never WITHOUT policy, which is the property that
+  // matters - and for a node that has been off for a long time the peer ask on the first
+  // threshold crossing closes the gap in seconds.
+  if (!restored) await refreshOnce();
 
   // The first tick lands on this node's own slot rather than one period from boot, so the
   // schedule is a property of the node and not of when it happened to start. Aligned to
