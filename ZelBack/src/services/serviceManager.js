@@ -514,6 +514,13 @@ async function startFluxFunctions() {
       request: (seq) => fluxCommunicationMessagesSender.requestPolicyFromPeers(seq),
       announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
     });
+    // The peer rung is useless at this point in boot -- discovery has not started yet (it
+    // is fifty lines below), so the refresh below asks an empty peer set and falls through
+    // to the published source. Telling the store when a peer actually appears is what makes
+    // peers-first true at boot rather than only at the 24-hour tick, and it is the whole
+    // difference between a node that boots while github is down getting policy from the
+    // neighbour beside it and getting none for a day.
+    peerManager.on('peerConnected', () => policyStore.notePeerAvailable());
     policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();

@@ -52,6 +52,17 @@ const PEER_WINDOW_MS = 3 * 1000;
 // woken rather than polling for it.
 let peerAnswered = null;
 
+// One refresh at a time. Without this, a node that gains sixteen peers in a second would
+// start sixteen refreshes, each of which can reach the backstop -- the fleet-wide lockstep
+// stampede against the published source that this design exists to avoid, arriving by the
+// back door. A caller that asks while one is running waits for that one.
+let refreshInFlight = null;
+
+// Whether the peer rung has been offered any peers yet. The boot refresh runs before
+// discovery has started (serviceManager wires peering after it), so its peer step
+// broadcasts to an empty set and the ladder silently degenerates to stored + backstop.
+let askedPeersSinceBoot = false;
+
 /** Whether this node holds a verified bundle. False means unknown, never "empty". */
 function isReady() {
   return current !== null;
@@ -198,6 +209,34 @@ async function refresh() {
 }
 
 /**
+ * A peer connection now exists.
+ *
+ * The boot refresh cannot use the peer rung: policyStore is started before discovery, so
+ * when it asks, this node has no peers and the broadcast reaches nobody. Without this, the
+ * first time peers are ever asked is the 24-hour backstop tick -- so a node that booted
+ * while the published source was unreachable holds no policy for a day, with neighbours
+ * beside it that have it. That is the gap peers-first was chosen to close, and it was open.
+ *
+ * While this node holds NOTHING, every new peer is a fresh chance and gets one ask; the
+ * cost is bounded by the peer count and stops the moment a bundle is obtained. Once it
+ * holds something, one ask is enough -- being a little behind is not urgent, and the
+ * backstop tick covers it.
+ */
+function notePeerAvailable() {
+  if (current && askedPeersSinceBoot) return;
+  askedPeersSinceBoot = true;
+  refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
+}
+
+/** refresh(), with at most one in flight. Every caller but the interval goes through this. */
+function refreshOnce() {
+  if (!refreshInFlight) {
+    refreshInFlight = refresh().finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
+
+/**
  * Wire the peer steps. Called once peering is up; until then the ladder is stored + backstop.
  * @param {Function} request Ask peers for anything above a sequence.
  * @param {Function} announce Tell peers what this node has adopted.
@@ -229,9 +268,9 @@ function notePeerSeq(seq) {
 async function start() {
   if (refreshInterval) return;
   await restore();
-  await refresh();
+  await refreshOnce();
   refreshInterval = setInterval(() => {
-    refresh().catch((error) => log.error(`policyStore - refresh error: ${error.message}`));
+    refreshOnce().catch((error) => log.error(`policyStore - refresh error: ${error.message}`));
   }, REFRESH_INTERVAL_MS);
 }
 
@@ -250,6 +289,8 @@ function reset() {
   peerRequest = null;
   peerAnnounce = null;
   peerAnswered = null;
+  refreshInFlight = null;
+  askedPeersSinceBoot = false;
   globalState.policyReady = false;
 }
 
@@ -259,6 +300,7 @@ module.exports = {
   getRawBundle,
   getSeq,
   isReady,
+  notePeerAvailable,
   notePeerSeq,
   offerBundle,
   refresh,
