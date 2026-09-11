@@ -403,16 +403,23 @@ describe('fluxCommunicationMessagesSender tests', () => {
         }
       });
 
-      it('says nothing when it holds no bundle at all', async () => {
+      it('answers null when it holds no bundle at all, rather than saying nothing', async () => {
+        // Three states the asker has to tell apart: a peer with policy, a peer with none,
+        // and a peer that is not there. Answering 0 would be read as "you are not behind
+        // me" and taken for agreement; answering nothing is indistinguishable from being
+        // absent. null is the third answer.
         sinon.stub(policyStore, 'getSeq').returns(0);
         sinon.stub(policyStore, 'getRawBundle').returns(null);
         const peer = makePeer();
 
         await fluxCommunicationMessagesSender.respondWithPolicy(
-          { data: { type: 'fluxpolicyrequest', version: 1, seq: 0 } }, peer,
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 5 } }, peer,
         );
 
-        expect(peer.send.called).to.equal(false);
+        expect(peer.send.calledOnce, 'it answered').to.equal(true);
+        const sent = JSON.parse(peer.send.firstCall.args[0]);
+        expect(sent.data.type).to.equal('fluxpolicyseq');
+        expect(sent.data.seq, 'no policy, and it says so').to.equal(null);
       });
 
       it('treats a missing sequence as zero rather than refusing to answer', async () => {
