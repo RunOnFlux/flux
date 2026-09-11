@@ -104,6 +104,49 @@ async function writeArtifactBytes(name, bytes, etag = null) {
   return true;
 }
 
+// The signed bundle is a few tens of kilobytes, so it sits inline in an ordinary document
+// rather than in the bucket. GridFS exists here for the 4.6 MB location table; using it for
+// the bundle would mean a file, a chunk, a record and an orphan sweep for something that fits
+// in a single row with room to spare.
+const BUNDLE_ID = 'networkPolicy';
+
+/**
+ * The signed bundle this node last verified, or null when it has never had one.
+ *
+ * The distinction is what the whole store exists for: a node that has never verified a
+ * bundle must not act, and one that has must keep acting on it however long the sources
+ * stay unreachable.
+ * @returns {Promise<{raw: string, seq: number, verifiedAt: number}|null>}
+ */
+async function readBundle() {
+  const database = db();
+  if (!database) return null;
+  const doc = await dbHelper.findOneInDatabase(database, policyDocumentsCollection, { _id: BUNDLE_ID });
+  if (!doc || typeof doc.raw !== 'string') return null;
+  return { raw: doc.raw, seq: doc.seq ?? 0, verifiedAt: doc.verifiedAt ?? null };
+}
+
+/**
+ * Record a bundle this node has verified. Stored as the bytes that were verified, not as the
+ * parsed payload: re-serialising and re-parsing would leave a document whose signature no
+ * longer checks, and the point of keeping it is to be able to check it again at boot.
+ * @param {string} raw The bundle exactly as received.
+ * @param {number} seq Its sequence, already verified.
+ * @returns {Promise<boolean>} true when recorded.
+ */
+async function writeBundle(raw, seq) {
+  const database = db();
+  if (!database) return false;
+  await dbHelper.findOneAndUpdateInDatabase(
+    database,
+    policyDocumentsCollection,
+    { _id: BUNDLE_ID },
+    { $set: { raw, seq, verifiedAt: Date.now() } },
+    { upsert: true },
+  );
+  return true;
+}
+
 /**
  * Delete stored files for an artifact that its record does not point at.
  *
@@ -136,6 +179,9 @@ async function sweepOrphanedArtifacts(name) {
 }
 
 module.exports = {
+  BUNDLE_ID,
+  readBundle,
+  writeBundle,
   getArtifactRecord,
   readArtifactBytes,
   writeArtifactBytes,
