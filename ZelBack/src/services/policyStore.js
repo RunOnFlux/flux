@@ -23,12 +23,12 @@ const { verifyBundle, MAX_BUNDLE_BYTES } = require('./utils/policySignature');
 
 const FILE = 'policy-signed.json';
 const URL = `${config.policy.signedBaseUrl}/${FILE}`;
-// The backstop poll. Long, because it is no longer how a change reaches a node: adoption is
-// announced to peers and spreads outwards in seconds, so this exists for a node that missed
-// the announcement -- offline at the time, or with no peers holding it yet -- and for the
-// cold start where there is nothing to miss.
-const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const FETCH_TIMEOUT_MS = 10 * 1000; // bound it so a boot is never stuck on one source
+// Every timing here is config, not a constant. See ZelBack/config/default.js for what each
+// one means and which of them compress: the backstop period does, the two latency bounds
+// do not. A 24-hour period written in this file could not be observed by any test, so the
+// periodic refresh had no fleet coverage and the suites restarted nodes to fake it.
+const REFRESH_INTERVAL_MS = config.policy.refreshIntervalMs;
+const FETCH_TIMEOUT_MS = config.policy.fetchTimeoutMs;
 
 // The verified payload, or null when this node has never obtained one, and the bytes it was
 // verified from. The bytes are kept because that is what a peer is served: re-serialising the
@@ -46,7 +46,7 @@ let peerAnnounce = null;
 // How long a refresh waits for a peer to answer before going to the backstop. Peers are on
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
 // prepared to sit doing nothing, not an expectation of how long they take.
-const PEER_WINDOW_MS = 3 * 1000;
+const PEER_WINDOW_MS = config.policy.peerWindowMs;
 
 // Resolved by offerBundle when a peer's answer is adopted, so a refresh waiting on peers is
 // woken rather than polling for it.

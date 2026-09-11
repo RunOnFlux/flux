@@ -79,6 +79,20 @@ module.exports = {
     // failing. The pinned keys are not restated here - test-env imports them from the
     // stub's own signing module, so there is one place they are written down.
     signedBaseUrl: 'http://198.18.0.6:3000',
+    // Left at production's 24 hours ON PURPOSE, though it is compressible.
+    //
+    // Compressing it fleet-wide would have every node in every suite re-fetching from
+    // the stub on a short period, and the policy suites assert on the stub's fetch
+    // COUNTERS to prove a bundle travelled peer-to-peer rather than being downloaded.
+    // A background poll would make "the source served nothing" false everywhere and the
+    // proof would quietly stop being one.
+    //
+    // The suite that tests the backstop tick sets its own through configOverrides, which
+    // merges over this and wins.
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    // Absolute latency bounds: these do not compress with the clocks.
+    peerWindowMs: 3 * 1000,
+    fetchTimeoutMs: 10 * 1000,
   },
   fluxapps: {
     minOutgoing: 4,
