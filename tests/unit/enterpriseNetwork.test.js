@@ -27,6 +27,7 @@ function loadModule(overrides = {}) {
   const stubs = {
     config: overrides.config || defaultConfig,
     './enterpriseConfig': overrides.enterpriseConfig || {
+      isPolicyKnown: () => true,
       getEnterpriseAppOwners: () => OWNERS,
       getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
       getAllowedOwnersForNode: (pubKey) => NODE_OWNER_MAP[pubKey] || [],
@@ -296,6 +297,7 @@ describe('enterpriseNetwork', () => {
       const { module: m } = loadModule({
         fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubB') },
         enterpriseConfig: {
+          isPolicyKnown: () => true,
           getEnterpriseAppOwners: () => OWNERS,
           getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
           getAllowedOwnersForNode: () => [], // pubB mapped to no owners
@@ -453,6 +455,79 @@ describe('enterpriseNetwork', () => {
       } catch (err) {
         expect(err.message).to.equal('boom');
       }
+    });
+  });
+
+  // An unknown policy is not an empty one. Before these, every read below answered as
+  // though the node were an ordinary one with no enterprise owners anywhere - which is
+  // how a node with no policy filled itself with apps it must not host, and how the
+  // sweep uninstalled a customer's apps off a release-time snapshot.
+  describe('unknown policy', () => {
+    const unknownPolicy = {
+      isPolicyKnown: () => false,
+      getEnterpriseAppOwners: () => null,
+      getEnterpriseNodesPublicKeys: () => null,
+      getAllowedOwnersForNode: () => null,
+    };
+
+    it('getCachedEnterpriseIdentity answers null, not false', async () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+      // Resolve the pubkey first, so null can only be coming from the policy.
+      await m.isEnterpriseNode().catch(() => {});
+
+      expect(m.getCachedEnterpriseIdentity()).to.equal(null);
+    });
+
+    it('isEnterpriseNode throws, so boot identity resolution keeps retrying', async () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+
+      try {
+        await m.isEnterpriseNode();
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('network policy not yet obtained');
+      }
+    });
+
+    it('getCachedAllowedOwnersForNode answers null, not []', async () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+      await m.isEnterpriseNode().catch(() => {});
+
+      expect(m.getCachedAllowedOwnersForNode()).to.equal(null);
+    });
+
+    it('isEnterpriseAppOwner answers null, not false', () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+
+      expect(m.isEnterpriseAppOwner('ownerA')).to.equal(null);
+    });
+
+    it('filterAppsByOwnership selects nothing', () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+      const apps = [{ name: 'n1', owner: 'stranger' }, { name: 'n2', owner: 'ownerA' }];
+
+      expect(m.filterAppsByOwnership(apps, false)).to.deep.equal([]);
+      expect(m.filterAppsByOwnership(apps, true)).to.deep.equal([]);
+    });
+
+    it('cleanupOwnershipViolations uninstalls NOTHING', async () => {
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m, log } = loadModule({
+        enterpriseConfig: unknownPolicy,
+        dbHelper: {
+          databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+          findInDatabase: sinon.stub().resolves([
+            { name: 'customer-app', owner: 'ownerA' },
+            { name: 'stranger-app', owner: 'stranger' },
+          ]),
+        },
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      expect(removeAppLocally.called).to.equal(false);
+      expect(log.warn.calledWithMatch(/policy unknown/)).to.equal(true);
     });
   });
 });

@@ -22,9 +22,16 @@ function getEnterpriseNodesPublicKeys() {
   return enterpriseConfig.getEnterpriseNodesPublicKeys();
 }
 
+/**
+ * Whether an address is an enterprise app owner. Returns null when the policy is
+ * unknown — callers must not read that as false, which would let an ordinary node
+ * host enterprise apps and let the sweep tear down apps it cannot judge.
+ */
 function isEnterpriseAppOwner(owner) {
   if (!owner) return false;
-  return getEnterpriseAppOwners().includes(owner);
+  const owners = getEnterpriseAppOwners();
+  if (owners === null) return null;
+  return owners.includes(owner);
 }
 
 /**
@@ -51,7 +58,14 @@ async function isEnterpriseNode() {
     }
     cachedNodePubKey = pubKey;
   }
-  return getEnterpriseNodesPublicKeys().includes(cachedNodePubKey);
+  const pubKeys = getEnterpriseNodesPublicKeys();
+  // Unknown policy throws rather than answering false, so scheduleIdentityResolution
+  // keeps retrying and identityReady stays unresolved — which is what holds the
+  // ownership sweep back until there is something real to judge against.
+  if (pubKeys === null) {
+    throw new Error('enterpriseNetwork: network policy not yet obtained');
+  }
+  return pubKeys.includes(cachedNodePubKey);
 }
 
 /**
@@ -67,7 +81,9 @@ async function isEnterpriseNode() {
  */
 function getCachedEnterpriseIdentity() {
   if (cachedNodePubKey === null) return null;
-  return getEnterpriseNodesPublicKeys().includes(cachedNodePubKey);
+  const pubKeys = getEnterpriseNodesPublicKeys();
+  if (pubKeys === null) return null;
+  return pubKeys.includes(cachedNodePubKey);
 }
 
 /**
@@ -79,7 +95,9 @@ function getCachedEnterpriseIdentity() {
  */
 function getCachedAllowedOwnersForNode() {
   if (cachedNodePubKey === null) return null;
-  if (!getEnterpriseNodesPublicKeys().includes(cachedNodePubKey)) return [];
+  const pubKeys = getEnterpriseNodesPublicKeys();
+  if (pubKeys === null) return null;
+  if (!pubKeys.includes(cachedNodePubKey)) return [];
   return enterpriseConfig.getAllowedOwnersForNode(cachedNodePubKey);
 }
 
@@ -119,11 +137,15 @@ function resetEnterpriseNodeCache() {
  * callers pass (both derive from isEnterpriseNode()).
  */
 function filterAppsByOwnership(apps, isEnterprise) {
+  // Defensive: the spawner already declines to run at all while the policy gate is
+  // shut, so this should be unreachable. Selecting nothing is the answer that cannot
+  // be wrong if it ever is reached.
+  if (!enterpriseConfig.isPolicyKnown()) return [];
   if (isEnterprise) {
     const allowedOwners = getCachedAllowedOwnersForNode() || [];
     return apps.filter((app) => allowedOwners.includes(app.owner));
   }
-  return apps.filter((app) => !isEnterpriseAppOwner(app.owner));
+  return apps.filter((app) => isEnterpriseAppOwner(app.owner) === false);
 }
 
 /**
@@ -156,6 +178,15 @@ function getSpawnDelays(isEnterprise, appsAvailable) {
 async function cleanupOwnershipViolations() {
   // eslint-disable-next-line global-require
   const appUninstaller = require('../appLifecycle/appUninstaller');
+
+  // Nothing is uninstalled on a policy this node never obtained. The caller already
+  // awaits identityReady, which cannot resolve while the policy is unknown, so this is
+  // the second of two locks on the only destructive path in this module — the one that
+  // removed customer apps when a stale release-time seed was mistaken for the truth.
+  if (!enterpriseConfig.isPolicyKnown()) {
+    log.warn('enterpriseNetwork: network policy unknown, skipping ownership cleanup');
+    return;
+  }
 
   const enterprise = await isEnterpriseNode();
   const allowedOwners = getCachedAllowedOwnersForNode() || [];

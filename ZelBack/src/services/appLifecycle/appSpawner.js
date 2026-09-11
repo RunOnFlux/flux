@@ -120,6 +120,16 @@ async function spawnLoop() {
  */
 async function trySpawningGlobalApplication() {
   const installDelay = config.fluxapps.installation.delay * 1000;
+  // Acquisition waits on the network policy the way it waits on the database. Until the
+  // node->owners map has been obtained this node cannot tell "I am not an enterprise node"
+  // from "I do not know yet", and the two demand opposite behaviour: the first may take
+  // any app going, the second must take none. Guessing the first is how an enterprise node
+  // fills with apps it must not host and has them removed from under it minutes later.
+  if (!globalState.policyReady) {
+    log.info('Network policy not yet obtained. Global applications will not be installed');
+    fluxEventBus.publish('spawner:blocked', { reason: 'policy_not_ready' });
+    return installDelay;
+  }
   const isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
   if (isEnterprise === null) {
     log.info('Flux enterprise identity not yet resolved');
@@ -378,7 +388,7 @@ async function trySpawningGlobalApplication() {
       // whose IP is listed may install them, regardless of version (the version>=8
       // bypass below does not apply to them).
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => {
-        if (app.nodes.length > 0 && enterpriseNetwork.isEnterpriseAppOwner(app.owner)) {
+        if (app.nodes.length > 0 && enterpriseNetwork.isEnterpriseAppOwner(app.owner) === true) {
           return app.nodes.some((ip) => socketAddressesMatch(ip, localSocketAddr));
         }
         return app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8;

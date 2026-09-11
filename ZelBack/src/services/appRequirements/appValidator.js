@@ -543,9 +543,16 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (datacenter !== undefined && typeof datacenter !== 'boolean') {
       throw new Error('Invalid datacenter value obtained. Only undefined, true, or false allowed.');
     }
-    // datacenter=true is only allowed for enterprise app owners
+    // datacenter=true is only allowed for enterprise app owners. A node that has not
+    // obtained the policy refuses rather than waving it through: this grants a privilege,
+    // and granting one that cannot be checked is the worse of the two mistakes. The
+    // refusal is transient — the message is re-offered by app sync once policy lands.
     if (datacenter === true) {
-      if (!enterpriseConfig.getEnterpriseAppOwners().includes(owner)) {
+      const enterpriseOwners = enterpriseConfig.getEnterpriseAppOwners();
+      if (enterpriseOwners === null) {
+        throw new Error('Cannot verify datacenter eligibility: network policy not yet obtained.');
+      }
+      if (!enterpriseOwners.includes(owner)) {
         throw new Error('Datacenter requirement is only available for enterprise app owners.');
       }
     }
