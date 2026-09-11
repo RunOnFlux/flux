@@ -198,6 +198,18 @@ describe('policyStore', () => {
       module.stop();
     });
 
+    it('a peer with no policy at all does not confirm us', async () => {
+      // It answers, so it is alive - but an empty peer cannot speak to whether what we
+      // restored is still the network's.
+      const { module, state } = load({ repo: restoredRepo(4) });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 1 });
+      await module.start();
+
+      module.notePeerSeq(null);
+      expect(state.policyReady, 'an empty peer is not agreement').to.equal(false);
+      module.stop();
+    });
+
     it('a peer AHEAD of us does not confirm - it means we are behind', async () => {
       const request = sinon.stub().resolves();
       const { module, state } = load({ repo: restoredRepo(4) });
