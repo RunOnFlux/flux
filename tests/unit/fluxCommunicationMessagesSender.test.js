@@ -439,25 +439,50 @@ describe('fluxCommunicationMessagesSender tests', () => {
       });
     });
 
-    describe('what goes on the wire', () => {
-      it('an announcement carries the sequence and nothing else', async () => {
-        // A peer cannot check a claim about a number, so it is a prompt to ask rather than
-        // something to believe. Sending the bundle unasked would be the expensive mistake.
-        const serialised = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(
-          { type: 'fluxpolicyseq', version: 1, seq: 12 },
-        );
+    // These call the functions, rather than asserting what serialiseAndSignFluxBroadcast does
+    // with a hand-built message. A test that never invokes the function under test passes
+    // whatever that function does, including nothing.
+    describe('what actually goes on the wire', () => {
+      function connectedPeer() {
+        const ws = {
+          ip: '127.0.0.1',
+          port: '16127',
+          readyState: WebSocket.OPEN,
+          ping: sinon.stub(),
+          send: sinon.stub().returns('okay'),
+          on: sinon.stub(),
+          close: sinon.stub(),
+          _socket: { remoteAddress: '127.0.0.1' },
+        };
+        peerManager.add(ws, '127.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        ws.send.resetHistory();
+        return ws;
+      }
 
-        const { data } = JSON.parse(serialised);
+      beforeEach(() => peerManager.reset());
+
+      it('announcePolicySeq sends the sequence to peers, and NOT the bundle', async () => {
+        // A peer cannot check a claim about a number, so it is a prompt to ask rather than
+        // something to believe. Attaching the bundle would push megabytes at every peer on
+        // every policy change, unasked.
+        const ws = connectedPeer();
+
+        await fluxCommunicationMessagesSender.announcePolicySeq(12);
+
+        expect(ws.send.calledOnce).to.equal(true);
+        const { data } = JSON.parse(ws.send.firstCall.args[0]);
         expect(data).to.deep.equal({ type: 'fluxpolicyseq', version: 1, seq: 12 });
         expect(data.bundle).to.equal(undefined);
       });
 
-      it('a request carries the sequence the asker holds', async () => {
-        const serialised = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(
-          { type: 'fluxpolicyrequest', version: 1, seq: 7 },
-        );
+      it('requestPolicyFromPeers sends the sequence this node holds', async () => {
+        const ws = connectedPeer();
 
-        expect(JSON.parse(serialised).data).to.deep.equal({ type: 'fluxpolicyrequest', version: 1, seq: 7 });
+        await fluxCommunicationMessagesSender.requestPolicyFromPeers(7);
+
+        expect(ws.send.calledOnce).to.equal(true);
+        expect(JSON.parse(ws.send.firstCall.args[0]).data)
+          .to.deep.equal({ type: 'fluxpolicyrequest', version: 1, seq: 7 });
       });
     });
   });
