@@ -26,6 +26,10 @@ import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
+// CommonJS, and deliberately so: the stub requires the same file inside its image, where it
+// signs. Importing the public half rather than restating it is what keeps the key the fleet
+// pins and the key the stub signs with from drifting apart.
+import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
 import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
 
@@ -1205,7 +1209,18 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
       // first one. A policy URL left pointing at another run's subnet is
       // unreachable, and the fetch stalls the spawn attempt rather than failing
       // it - the app is simply never installed, with nothing logged.
-      policy: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      // baseUrl is the plain documents and the iplocation artifact; signedBaseUrl is the
+      // bundle, and the only policy a current node reads. A fleet pointed at neither has no
+      // policy at all - which is not a policy suite failing but every app suite failing,
+      // because acquisition waits on globalState.policyReady and it never opens.
+      policy: {
+        baseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+        signedBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+        // Only the pinned key. Production lists two so signing can move to the cold key
+        // without a release; a fleet has one signer and adding the rogue key here would
+        // make the untrusted-signer case unprovable.
+        publicKeys: [policySigning.PINNED_PUBLIC_HEX],
+      },
       // Peer thresholds follow the fleet, so a suite declares a shape and never a
       // constant. The production values assume a network large enough to carry
       // them; a smaller fleet cannot, and asking it to is what leaves a node short
