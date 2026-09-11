@@ -738,6 +738,24 @@ module.exports = {
       'c31930ec386a49f31321851766d93bcb90bf269cd15bec7a329155a4d79ea380',
       '739ca41408f66c75d6cb4bc1d5c044ca5a118de190081da68e5a7d6839fb69f8',
     ],
+    // The backstop poll. Long, because it is not how a change reaches a node: adoption
+    // is announced to peers and spreads outwards in seconds. This covers the node that
+    // missed the announcement -- offline at the time, or with no peers holding it yet --
+    // and the cold start where there is nothing to miss.
+    //
+    // CONFIG, not a constant, so the harness can compress it. A 24-hour tick is
+    // unobservable in a test, and a suite that cannot watch the backstop fire has to
+    // restart a node to approximate it - which tests the boot path instead, and leaves
+    // the periodic one with no coverage at all.
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    // How long a refresh waits for a peer to answer before falling through to the
+    // source. Peers are on the local network and answer in milliseconds; this bounds how
+    // long a refresh is prepared to sit doing nothing, so it is an ABSOLUTE latency
+    // bound and does not compress with the clocks.
+    peerWindowMs: 3 * 1000,
+    // Bound on a single backstop fetch, so a boot is never stuck on one source. Absolute,
+    // for the same reason as above.
+    fetchTimeoutMs: 10 * 1000,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
