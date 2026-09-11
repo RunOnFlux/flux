@@ -36,8 +36,8 @@ function isEnterpriseAppOwner(owner) {
 
 /**
  * Returns true if this fluxnode's own pubkey is currently listed in the
- * enterprise nodes public keys (helpers/enterprisenodes.json, synced via
- * enterpriseConfig). Only the resolved pubkey is cached for the lifetime of the
+ * enterprise nodes public keys (enterprisenodes.json in fluxos-network-policy,
+ * fetched via enterpriseConfig). Only the resolved pubkey is cached for the lifetime of the
  * process; membership is evaluated live against the current map on every call,
  * so a node added to or removed from the map is reflected within the sync
  * interval with no restart. resetEnterpriseNodeCache() forces the pubkey to be
