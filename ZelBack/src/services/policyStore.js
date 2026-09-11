@@ -42,6 +42,10 @@ let refreshInterval = null;
 // ladder can be exercised without one.
 let peerRequest = null;
 let peerAnnounce = null;
+// How many peers there are to ask. Without it the peer rung cannot tell "asked and nobody
+// answered" from "asked nobody" -- and the second is what every boot does, because the
+// store is started before discovery.
+let peerCount = null;
 
 // How long a refresh waits for a peer to answer before going to the backstop. Peers are on
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
@@ -195,7 +199,16 @@ function offerBundle(raw) {
  * or unprompted, is still adopted -- it just does not stop this refresh going to the backstop.
  */
 async function refresh() {
-  if (peerRequest) {
+  // The rung is skipped when there is nobody on it. A broadcast to zero peers reaches
+  // nobody by definition, and waiting PEER_WINDOW_MS afterwards waits for an answer that
+  // cannot come - which every node used to do on every boot, because this runs before
+  // discovery has connected anything. It cost the 3s window plus the 500ms the broadcast
+  // itself sleeps between directions, on every boot, to ask nobody anything.
+  //
+  // A transport that does not report a count is treated as "unknown, ask anyway", so the
+  // rung is only skipped on a positive answer of zero.
+  const reachable = peerCount ? peerCount() : null;
+  if (peerRequest && reachable !== 0) {
     // Armed before the ask, because a peer can answer while peerRequest is still awaiting.
     const answered = new Promise((resolve) => { peerAnswered = () => resolve(true); });
     await peerRequest(getSeq()).catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
@@ -240,10 +253,13 @@ function refreshOnce() {
  * Wire the peer steps. Called once peering is up; until then the ladder is stored + backstop.
  * @param {Function} request Ask peers for anything above a sequence.
  * @param {Function} announce Tell peers what this node has adopted.
+ * @param {Function} [count] How many peers are connected right now. Without it the store
+ *   asks regardless and waits out the window, which is what a boot used to do.
  */
-function setPeerTransport({ request, announce } = {}) {
+function setPeerTransport({ request, announce, count } = {}) {
   peerRequest = request || null;
   peerAnnounce = announce || null;
+  peerCount = count || null;
 }
 
 /**
@@ -288,6 +304,7 @@ function reset() {
   currentRaw = null;
   peerRequest = null;
   peerAnnounce = null;
+  peerCount = null;
   peerAnswered = null;
   refreshInFlight = null;
   askedPeersSinceBoot = false;
