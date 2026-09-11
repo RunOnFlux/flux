@@ -170,6 +170,45 @@ describe('policyStore', () => {
     });
   });
 
+  describe('asking peers only when there are peers', () => {
+    it('does not ask, and does not wait, when nothing is connected', async () => {
+      // What every boot did: the store starts before discovery, so this broadcast reached
+      // nobody and the window that followed waited for an answer that could not come.
+      const request = sinon.stub().resolves();
+      const delay = sinon.stub().resolves();
+      const axiosGet = sinon.stub().resolves({ data: bundle(2) });
+      const { module } = load({ serviceHelper: { axiosGet, delay } });
+      module.setPeerTransport({ request, announce: sinon.stub().resolves(), count: () => 0 });
+
+      await module.refresh();
+      expect(request.called, 'nobody to ask, so it did not ask').to.equal(false);
+      expect(delay.called, 'and it did not wait out the peer window').to.equal(false);
+      expect(module.getSeq(), 'it went straight to the backstop').to.equal(2);
+    });
+
+    it('asks when peers exist', async () => {
+      const request = sinon.stub().resolves();
+      const axiosGet = sinon.stub().resolves({ data: bundle(2) });
+      const { module } = load({ serviceHelper: { axiosGet } });
+      module.setPeerTransport({ request, announce: sinon.stub().resolves(), count: () => 3 });
+
+      await module.refresh();
+      expect(request.calledOnce, 'three peers, so it asked them').to.equal(true);
+    });
+
+    it('asks anyway when the transport cannot say how many there are', async () => {
+      // Unknown is not zero. A transport wired without a count keeps the old behaviour
+      // rather than silently losing the peer rung.
+      const request = sinon.stub().resolves();
+      const axiosGet = sinon.stub().resolves({ data: bundle(2) });
+      const { module } = load({ serviceHelper: { axiosGet } });
+      module.setPeerTransport({ request, announce: sinon.stub().resolves() });
+
+      await module.refresh();
+      expect(request.calledOnce).to.equal(true);
+    });
+  });
+
   describe('the peer rung at boot', () => {
     // policyStore is started before discovery (serviceManager.js:505 vs :560), so the boot
     // refresh asks an empty peer set and falls through to the backstop. Until a peer

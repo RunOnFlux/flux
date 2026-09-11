@@ -513,6 +513,7 @@ async function startFluxFunctions() {
     policyStore.setPeerTransport({
       request: (seq) => fluxCommunicationMessagesSender.requestPolicyFromPeers(seq),
       announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
+      count: () => peerManager.outboundCount + peerManager.inboundCount,
     });
     // The peer rung is useless at this point in boot -- discovery has not started yet (it
     // is fifty lines below), so the refresh below asks an empty peer set and falls through
