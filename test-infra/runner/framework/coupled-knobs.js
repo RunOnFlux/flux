@@ -49,7 +49,21 @@ export const PRODUCTION = Object.freeze({
   residentialQueueStepMs: 40 * 60 * 1000,
   locationTtlS: 7500,
   sigtermExpiryS: 420,
+  // The peer-flap DOS: how far back the tally looks, and how often the sweep
+  // that releases it runs. One decision at two scales - a suite that shortens
+  // the window without shortening the tick is measuring the tick.
+  peerSetDipWindowMinutes: 120,
+  peerSetDipEvaluateMs: 60 * 1000,
 });
+
+/**
+ * How many sweeps fit in one window. Production's ratio, which a compressed
+ * fleet has to keep.
+ * @returns {number}
+ */
+export function peerSetSweepsPerWindow() {
+  return (PRODUCTION.peerSetDipWindowMinutes * 60 * 1000) / PRODUCTION.peerSetDipEvaluateMs;
+}
 
 // What one node boot costs, measured: a suite-19 fixture pinning 300s of
 // downtime was read by the node as 316s, on cindy under a MAXN=6 gate - so this

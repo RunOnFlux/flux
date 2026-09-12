@@ -454,6 +454,15 @@ module.exports = {
     // they are not the same number.
     peerSetDipDosThreshold: 5,
     peerSetDipWindowMinutes: 120,
+    // Only the RELEASE needs a clock. A dip is judged as it arrives; a node that
+    // has stabilised produces no events at all, so without a tick it would hold
+    // the DOS until something unrelated happened to it.
+    //
+    // Coupled to the window, not chosen: it is the granularity of a two-hour
+    // decision, so the pair compresses together. 120:1 is the ratio a harness
+    // has to keep when it shortens the window, or the suite is measuring the
+    // tick instead of the rule.
+    peerSetDipEvaluateMs: 60 * 1000,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

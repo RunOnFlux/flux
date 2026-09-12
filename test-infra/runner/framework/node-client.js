@@ -218,6 +218,12 @@ export function nodeClient(nodeNum) {
         'peers:belowThreshold',
         'peers:removed',
         'peers:thresholdReached',
+        // A node taken out of service for losing its peer set, and given back.
+        // dos:changed alone cannot carry this: it fires for every DOS owner, so
+        // a suite asserting on it would pass on the tampering enforcer's verdict
+        // just as happily.
+        'peerSetStability:dos',
+        'peerSetStability:released',
         'syncthing:folderErrors',
         'syncthing:eventsResync',
         'syncthing:holderRetained',
