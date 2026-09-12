@@ -18,7 +18,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // anything once a node knows who the enterprise owners are.
 //
 // One node, because none of this involves a second one. Policy reaching a node from its
-// PEERS is suite 101; where a pinned app actually lands is suite 102.
+// PEERS is suite 1502; where a pinned app actually lands is suite 1503.
 // /apps/verifyappregistrationspecifications is the whole validator without the front
 // door's peer counts - those live in registryManager's appregister path
 // (registryManager.js:1860 and :1863), not here - so a fleet of one can exercise every
@@ -45,7 +45,7 @@ const ORDINARY_OWNER = appOwnerKey().zelid;
 
 // The node's own pubkey is not known until it boots, so the map is keyed on a placeholder.
 // Nothing in the eligibility rule looks at WHICH node an owner may use - that is the
-// spawner's question, and suite 102 asks it. Here the map exists to make an owner
+// spawner's question, and suite 1503 asks it. Here the map exists to make an owner
 // enterprise, and the union of its values is the whole answer.
 const ENTERPRISE_MAP = { '04harnessenterprisenodepubkey': [ENTERPRISE_OWNER] };
 
@@ -421,7 +421,7 @@ describe('the signed policy bundle on a single node', function () {
       // guess is what filled enterprise nodes with apps the ownership sweep then removed
       // from under their owners.
       //
-      // That acquisition itself is held shut is asserted in suite 101, not here: the spawn
+      // That acquisition itself is held shut is asserted in suite 1502, not here: the spawn
       // loop only starts when the sync orchestrator reaches READY, which needs peers, so
       // on a fleet of one the loop never runs and `spawner:blocked` could never fire. A
       // wait for it here would pass its whole timeout and fail as though the gate were
