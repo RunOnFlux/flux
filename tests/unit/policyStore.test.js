@@ -441,7 +441,42 @@ describe('policyStore', () => {
       await new Promise(setImmediate);
       await new Promise(setImmediate);
 
-      expect(axiosGet.callCount, 'unconfirmed, so the source is still in reach')
+      expect(axiosGet.callCount, 'restored, so the source is still in reach')
+        .to.be.greaterThan(fetchesBefore);
+      module.stop();
+    });
+
+    it('reaches the source after a restart even when a peer has already confirmed it', async () => {
+      // THE WHOLE FLEET RESTARTED TOGETHER. Every node restores the same stale bundle, so
+      // every peer answers "not ahead" - true, and useless. That answer marks the node
+      // confirmed within milliseconds, and if confirmation gated the ladder, nothing would
+      // ever reach the published source: a newly published document would wait for a
+      // backstop tick up to a day out, and a blocklist naming a running application would
+      // not arrive at all.
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const { module } = load({
+        serviceHelper: { axiosGet },
+        repo: {
+          readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
+          writeBundle: sinon.stub().resolves(true),
+        },
+      });
+      module.setPeerTransport({
+        request: sinon.stub().resolves(),
+        requestFrom: sinon.stub().resolves(),
+        announce: sinon.stub().resolves(),
+      });
+      await module.restore();
+
+      // A peer at the same sequence settles it before any arrival is noted.
+      module.notePeerSeq(4, '198.18.0.11:16127');
+      const fetchesBefore = axiosGet.callCount;
+
+      module.notePeerAvailable('198.18.0.11:16127');
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
+
+      expect(axiosGet.callCount, 'a level peer must not close the road to the source')
         .to.be.greaterThan(fetchesBefore);
       module.stop();
     });
@@ -459,6 +494,11 @@ describe('policyStore', () => {
       await module.start();
       module.stop();
       expect(module.getSeq()).to.equal(4);
+      // The first arrival after boot spends the once-per-boot ladder; the targeted rung is
+      // what every arrival AFTER it takes.
+      module.notePeerAvailable('198.18.0.99:16127');
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
       const broadcastsAtBoot = request.callCount;
 
       module.notePeerAvailable('198.18.0.11:16127');
@@ -484,6 +524,12 @@ describe('policyStore', () => {
       await module.start();
       module.stop();
 
+      // The first arrival after boot spends the once-per-boot ladder; the targeted rung is
+      // what every arrival AFTER it takes.
+      module.notePeerAvailable('198.18.0.99:16127');
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
+
       module.notePeerAvailable('198.18.0.11:16127');
       await new Promise(setImmediate);
       module.notePeerAvailable('198.18.0.13:16127');
@@ -505,6 +551,11 @@ describe('policyStore', () => {
       });
       await module.start();
       module.stop();
+      // The first arrival after boot spends the once-per-boot ladder; the targeted rung is
+      // what every arrival AFTER it takes.
+      module.notePeerAvailable('198.18.0.99:16127');
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
       const fetchesAtBoot = axiosGet.callCount;
 
       module.notePeerAvailable('198.18.0.11:16127');
@@ -529,6 +580,10 @@ describe('policyStore', () => {
       });
       await module.start();
       module.stop();
+
+      module.notePeerAvailable('198.18.0.99:16127');
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
 
       module.notePeerAvailable('198.18.0.11:16127');
       await new Promise(setImmediate);
