@@ -6,7 +6,8 @@ const ipLocationStore = require('../appPlacement/ipLocationStore');
 const geolocationRule = require('../appPlacement/geolocationRule');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+
+const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
@@ -294,14 +295,17 @@ async function checkAppGeolocationRequirements(appSpecs) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkAppNodesRequirements(appSpecs) {
-  if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
+  // Every version, not just v7. The spawner's filter was not the only place the v8
+  // bypass lived: this gate skipped v8 entirely, so an app that reached an install by
+  // any path other than selection was never checked against its own pin.
+  if (appSpecs.version >= 7 && appSpecs.nodes && appSpecs.nodes.length) {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
       throw new Error('Unable to detect Flux IP address');
     }
 
-    if (appSpecs.nodes.find((node) => socketAddressesMatch(node, localSocketAddr)) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
+    if (nodesNameThisNode(appSpecs.nodes, localSocketAddr, collateralOutpoint(myCollateral))) {
       return true;
     }
     throw new Error(`Application ${appSpecs.name} is not allowed to run on this node. Aborting.`);

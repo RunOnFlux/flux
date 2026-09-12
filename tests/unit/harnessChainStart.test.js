@@ -75,7 +75,7 @@ describe('harness chain start', () => {
   // chain start unless it is something a height cannot be.
   //
   // Durations in milliseconds are named ...Ms throughout, sometimes on a parent
-  // (spawnDeferrals.targetedNodesMs.standard, crashBackoffDelaysMs.4).
+  // (spawnDeferrals.staticIpMs.standard, crashBackoffDelaysMs.4).
   const MILLISECONDS = /(^|\.)[A-Za-z0-9]*Ms(\.|$)/;
   // Sizes in bytes.
   const BYTES = /(Size|Bytes)(\.|$)/i;

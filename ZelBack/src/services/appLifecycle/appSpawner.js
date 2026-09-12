@@ -9,6 +9,7 @@ const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = require('../utils/instanceOrdering');
 
 // Import modular services
@@ -120,6 +121,16 @@ async function spawnLoop() {
  */
 async function trySpawningGlobalApplication() {
   const installDelay = config.fluxapps.installation.delay * 1000;
+  // Acquisition waits on the network policy the way it waits on the database. Until the
+  // node->owners map has been obtained this node cannot tell "I am not an enterprise node"
+  // from "I do not know yet", and the two demand opposite behaviour: the first may take
+  // any app going, the second must take none. Guessing the first is how an enterprise node
+  // fills with apps it must not host and has them removed from under it minutes later.
+  if (!globalState.policyReady) {
+    log.info('Network policy not yet obtained. Global applications will not be installed');
+    fluxEventBus.publish('spawner:blocked', { reason: 'policy_not_ready' });
+    return installDelay;
+  }
   const isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
   if (isEnterprise === null) {
     log.info('Flux enterprise identity not yet resolved');
@@ -194,6 +205,17 @@ async function trySpawningGlobalApplication() {
     // four places under three different names, so nothing told a reader they
     // were the same value.
     const localIp = extractIp(localSocketAddr);
+
+    // The other way a spec can name this node. Resolved once per pass beside the
+    // address, because the filters below run inside .filter() and cannot await, and
+    // because obtainNodeCollateralInformation is a daemon RPC per call. A failure
+    // narrows pin matching to addresses rather than stopping the pass.
+    const myOutpoint = collateralOutpoint(
+      await generalService.obtainNodeCollateralInformation().catch((error) => {
+        log.warn(`trySpawningGlobalApplication - could not resolve node collateral, pins naming this node by collateral will not match: ${error.message}`);
+        return null;
+      }),
+    );
 
     const runningApps = await appQueryService.listRunningApps();
     if (runningApps.status !== 'success') {
@@ -373,16 +395,24 @@ async function trySpawningGlobalApplication() {
       survivors.afterAlreadyHeldOrTried = globalAppNamesLocation.length;
       stages.push(['afterAlreadyHeldOrTried', nameSet()]);
 
-      // filter apps that are non enterprise or are marked to install on my node.
-      // Enterprise-owned apps that target specific node IPs are strict: only a node
-      // whose IP is listed may install them, regardless of version (the version>=8
-      // bypass below does not apply to them).
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => {
-        if (app.nodes.length > 0 && enterpriseNetwork.isEnterpriseAppOwner(app.owner)) {
-          return app.nodes.some((ip) => socketAddressesMatch(ip, localSocketAddr));
-        }
-        return app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8;
-      });
+      // A pinned spec runs on the nodes it names and nowhere else. Unpinned specs are
+      // unaffected and go on to the placement rules below.
+      //
+      // This used to mean three different things for one field. v7 was strict. v8 was
+      // not - `|| app.version >= 8` let any node take a pinned v8 app, which then fell
+      // through to the deferral below and installed elsewhere 30 to 57 minutes later.
+      // A carve-out restored strictness for enterprise owners alone, using the policy
+      // as a flag meaning "this pin is real".
+      //
+      // Soft pinning is not a weaker guarantee, it is the absence of one: an owner pins
+      // to three nodes and an hour later the app is somewhere else. For the shape the
+      // enterprise owners actually deploy - one node, one instance - it is worse than
+      // useless, because the app lands on a node that was not chosen and looks healthy
+      // while measuring the wrong thing. Refusing to place it is the honest outcome and
+      // the visible one.
+      globalAppNamesLocation = globalAppNamesLocation.filter(
+        (app) => app.nodes.length === 0 || nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint),
+      );
       // Selection uses the SAME eligibility implementation as candidate counting
       // and the install gate, over the SAME source for where this node is - the
       // published table, which is the only thing the count can read for the
@@ -466,7 +496,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       let random = Math.floor(Math.random() * globalAppNamesLocation.length);
       appToRunAux = globalAppNamesLocation[random];
-      const appsNamingThisNode = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
+      const appsNamingThisNode = globalAppNamesLocation.filter((app) => nodesNameThisNode(app.nodes, localSocketAddr, myOutpoint));
       if (appsNamingThisNode.length > 0) {
         random = Math.floor(Math.random() * appsNamingThisNode.length);
         appToRunAux = appsNamingThisNode[random];
@@ -767,22 +797,11 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater
-      && appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr))) {
-      const deferral = config.fluxapps.spawnDeferrals.targetedNodesMs;
-      const appToCheck = {
-        timeToCheck: Date.now() + (appToRunAux.enterprise ? deferral.enterprise : deferral.standard),
-        appName: appToRun,
-        hash: appHash,
-        required: minInstances,
-      };
-      const delayMs = appToRunAux.enterprise ? deferral.enterprise : deferral.standard;
-      log.info(`trySpawningGlobalApplication - App ${appToRun} specs have target ips, will check in around ${Math.round(delayMs / 60000)}m if instances are still missing`);
-      globalState.appsToBeCheckedLater.push(appToCheck);
-      globalState.trySpawningGlobalAppCache.delete(appHash);
-      fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'targeted_nodes', delayMs });
-      return shortDelayTime;
-    }
+    // A node not named by a pinned spec used to be parked here and allowed to install it
+    // 30 to 57 minutes later if the instance count was still short - the soft half of
+    // pinning. The selection filter above is strict now, so such an app never reaches
+    // this point, and the branch went with the behaviour rather than being left
+    // unreachable for someone to wire back up.
 
     if (!isEnterprise && !appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater) {
       const tier = await generalService.nodeTier();
@@ -829,7 +848,7 @@ async function trySpawningGlobalApplication() {
         globalState.trySpawningGlobalAppCache.delete(appHash);
         fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'datacenter', delayMs });
         delay = true;
-      } else if (appToRunAux.nodes.length > 0 && appToRunAux.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr))) {
+      } else if (appToRunAux.nodes.length > 0 && nodesNameThisNode(appToRunAux.nodes, localSocketAddr, myOutpoint)) {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs have this node as target ip`);
       } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const deferral = config.fluxapps.spawnDeferrals.capacityGap.largeMs;

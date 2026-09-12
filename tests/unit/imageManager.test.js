@@ -7,6 +7,7 @@ const pgpService = require('../../ZelBack/src/services/pgpService');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const imageVerifier = require('../../ZelBack/src/services/utils/imageVerifier');
+const policyStore = require('../../ZelBack/src/services/policyStore');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('imageManager tests', () => {
@@ -320,49 +321,36 @@ describe('imageManager tests', () => {
     });
   });
 
+  // The blocked and vetted lists come from the signed policy bundle now, not from a fetch
+  // this module caches. That removed a real failure: the old cache stored whatever the
+  // response contained without checking it was a list, for six hours, so a github error page
+  // was cached and every read of it threw `repos.forEach is not a function`.
   describe('getBlockedRepositores tests', () => {
-    it('should return cached blocked repositories', async () => {
-      const cachedData = ['blocked/repo1', 'blocked/repo2'];
+    it('returns the blocked list the signed bundle carries', () => {
+      const blocked = ['blocked/repo1', 'blocked/repo2'];
+      sinon.stub(policyStore, 'getDocument').withArgs('blockedrepositories').returns(blocked);
 
-      // First call to populate cache
-      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: cachedData });
-      const result1 = await imageManager.getBlockedRepositores();
-
-      // Second call should use cache
-      const result2 = await imageManager.getBlockedRepositores();
-
-      expect(result1).to.deep.equal(cachedData);
-      expect(result2).to.deep.equal(cachedData);
-      sinon.assert.calledOnce(serviceHelper.axiosGet);
+      expect(imageManager.getBlockedRepositores()).to.deep.equal(blocked);
     });
 
-    it('should fetch blocked repositories from GitHub', async () => {
-      const blockedRepos = ['blocked/repo1', 'blocked/repo2'];
-      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: blockedRepos });
+    it('returns null when the policy has not been obtained', () => {
+      // Null and an empty list are different answers, and the callers treat them that way:
+      // an unreadable list refuses installs, an empty one permits everything.
+      sinon.stub(policyStore, 'getDocument').returns(null);
 
-      const result = await imageManager.getBlockedRepositores();
-
-      expect(result).to.deep.equal(blockedRepos);
-      sinon.assert.calledWith(
-        serviceHelper.axiosGet,
-        'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main/blockedrepositories.json',
-      );
+      expect(imageManager.getBlockedRepositores()).to.be.null;
     });
 
-    it('should return null on error', async () => {
-      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Network error'));
+    it('does not fetch anything', () => {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      // Scoped to the flat document: getBlocklist asks for 'blocklist' first, and an
+      // unqualified stub would answer that with the flat shape and be refused as a
+      // malformed typed document.
+      sinon.stub(policyStore, 'getDocument').withArgs('blockedrepositories').returns([]);
 
-      const result = await imageManager.getBlockedRepositores();
+      imageManager.getBlockedRepositores();
 
-      expect(result).to.be.null;
-    });
-
-    it('should return null if no data returned', async () => {
-      sinon.stub(serviceHelper, 'axiosGet').resolves({});
-
-      const result = await imageManager.getBlockedRepositores();
-
-      expect(result).to.be.null;
+      expect(axiosGet.called).to.equal(false);
     });
   });
 
@@ -556,9 +544,9 @@ describe('imageManager tests', () => {
 
   describe('checkApplicationImagesCompliance tests', () => {
     beforeEach(() => {
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo', 'blocked-org', 'blockedowner'],
-      });
+      sinon.stub(policyStore, 'getDocument')
+        .withArgs('blockedrepositories')
+        .returns(['blocked/repo', 'blocked-org', 'blockedowner']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
@@ -673,8 +661,8 @@ describe('imageManager tests', () => {
     });
 
     it('should throw error if unable to communicate with Flux Services', async () => {
-      serviceHelper.axiosGet.restore();
-      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: null });
+      policyStore.getDocument.restore();
+      sinon.stub(policyStore, 'getDocument').returns(null);
 
       const appSpecs = {
         name: 'TestApp',
@@ -782,9 +770,7 @@ describe('imageManager tests', () => {
 
       const removeAppLocally = sinon.stub().resolves();
 
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo'],
-      });
+      sinon.stub(policyStore, 'getDocument').withArgs('blockedrepositories').returns(['blocked/repo']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
@@ -834,9 +820,7 @@ describe('imageManager tests', () => {
 
       const removeAppLocally = sinon.stub().resolves();
 
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo'],
-      });
+      sinon.stub(policyStore, 'getDocument').withArgs('blockedrepositories').returns(['blocked/repo']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
@@ -876,9 +860,7 @@ describe('imageManager tests', () => {
 
       const removeAppLocally = sinon.stub().resolves();
 
-      sinon.stub(serviceHelper, 'axiosGet').resolves({
-        data: ['blocked/repo1', 'blocked/repo2'],
-      });
+      sinon.stub(policyStore, 'getDocument').withArgs('blockedrepositories').returns(['blocked/repo1', 'blocked/repo2']);
 
       // eslint-disable-next-line global-require
       const axios = require('axios');
@@ -984,101 +966,103 @@ describe('imageManager tests', () => {
   describe('getBlocklist tests', () => {
     const typed = [{ kind: 'name', value: 'dowz', reason: 'why', added: '2026-09-12' }];
 
-    it('prefers the typed document', async () => {
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
-      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: typed });
-      axiosGet.resolves({ data: ['legacy-entry'] });
+    // FROM THE BUNDLE, NOT FROM TWO FETCHES, and two of the rules below changed with it.
+    //
+    // While this read blocklist.json over HTTP, a malformed or empty typed document had to
+    // fall through to the flat one: a CDN serving 404-as-200 and an error page with a 200
+    // are indistinguishable from an absent document, so falling through was the only safe
+    // reading. Neither lie is reachable through signature-verified bytes.
+    //
+    // So: an EMPTY typed document now returns [] directly - from a signed bundle that
+    // genuinely means "published, and nothing is blocked". A MALFORMED one now refuses
+    // rather than falling through, because wrong-shape-inside-validly-signed means the
+    // bundle is internally inconsistent, and that is exactly when refusing beats guessing.
+    // Suite 1501 asserts the same rule from the other end.
+    function documents(map) {
+      const stub = sinon.stub(policyStore, 'getDocument');
+      Object.entries(map).forEach(([name, value]) => stub.withArgs(name).returns(value));
+      stub.returns(null);
+      return stub;
+    }
 
-      const entries = await imageManager.getBlocklist();
+    it('prefers the typed document', () => {
+      documents({ blocklist: typed, blockedrepositories: ['legacy-entry'] });
+
+      expect(imageManager.getBlocklist()).to.deep.equal(typed);
+    });
+
+    it('never reads the flat document when the typed one is usable', () => {
+      // Precedence, not a combine: the flat entries must not appear alongside the typed
+      // ones. A combine would double-count and, worse, would make the flat document's
+      // contents matter when the typed one has already answered.
+      const stub = documents({ blocklist: typed, blockedrepositories: ['legacy-entry'] });
+
+      const entries = imageManager.getBlocklist();
 
       expect(entries).to.deep.equal(typed);
+      expect(stub.calledWith('blockedrepositories'), 'the flat document was read anyway').to.equal(false);
     });
 
-    it('falls back to the flat document when the typed one is not typed', async () => {
-      // A response that is merely array-shaped - an error page, or the flat
-      // document served under the wrong name - must not read as "nothing is
-      // blocked".
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
-      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: ['not', 'typed'] });
-      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
+    it('refuses when the typed document is not typed', () => {
+      // Was: falls back to the flat document. A response that is merely array-shaped could
+      // be an error page over HTTP; inside a signed bundle it is a bundle that contradicts
+      // itself, and the node must not decide from it.
+      documents({ blocklist: ['not', 'typed'], blockedrepositories: ['blocked-org'] });
 
-      const entries = await imageManager.getBlocklist();
-
-      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
+      expect(imageManager.getBlocklist()).to.equal(null);
     });
 
-    it('falls back when the typed document is empty', async () => {
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
-      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: [] });
-      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
-
-      const entries = await imageManager.getBlocklist();
-
-      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
-    });
-
-    it('falls back when the typed document is absent', async () => {
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
-      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).rejects(new Error('404'));
-      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
-
-      const entries = await imageManager.getBlocklist();
-
-      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
-    });
-
-    it('rejects the whole typed document when any one element is malformed', async () => {
+    it('refuses when any one element of the typed document is malformed', () => {
       // `every`, not `filter`. Dropping the bad element would answer from a document the
       // reader could not fully read, and silently under-block by exactly the entries it
       // discarded - which is the direction that costs money.
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
-      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({
-        data: [
+      documents({
+        blocklist: [
           { kind: 'name', value: 'dowz', reason: 'why', added: '2026-09-12' },
           { kind: 'name' },
         ],
+        blockedrepositories: ['blocked-org'],
       });
-      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
 
-      const entries = await imageManager.getBlocklist();
-
-      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
+      expect(imageManager.getBlocklist()).to.equal(null);
     });
 
-    it('returns null when the flat document is not a list', async () => {
-      // The flat fetch caches on truthiness, so an error page served as 200 is held for six
-      // hours. Reading it as "nothing is blocked" would unblock the network; mapping over it
-      // throws a TypeError no caller recognises. Neither: it is "could not ask".
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
-      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).rejects(new Error('404'));
-      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/))
-        .resolves({ data: '<html>rate limited</html>' });
+    it('reads an empty typed document as nothing being blocked', () => {
+      // Was: falls back. [] in a signed bundle is a published verdict, not a gap - and the
+      // flat document is generated from this one, so they are empty together anyway.
+      documents({ blocklist: [], blockedrepositories: ['blocked-org'] });
 
-      const entries = await imageManager.getBlocklist();
-
-      expect(entries).to.equal(null);
+      expect(imageManager.getBlocklist()).to.deep.equal([]);
     });
 
-    it('returns an empty list when the documents say nothing is blocked', async () => {
-      // [] and null must never collapse into one value: a node that cannot read policy has to
-      // refuse to decide, where one that read an empty policy has decided.
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
-      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: [] });
-      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: [] });
+    it('falls back to the flat document when the typed one is absent', () => {
+      // The case that keeps this fallback alive: a bundle signed before blocklist joined
+      // the published documents. The node holds a perfectly good bundle and must go on
+      // enforcing what it does carry.
+      documents({ blockedrepositories: ['blocked-org'] });
 
-      const entries = await imageManager.getBlocklist();
-
-      expect(entries).to.deep.equal([]);
+      expect(imageManager.getBlocklist()).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
     });
 
-    it('returns null when neither document can be read', async () => {
-      // Null is "could not ask", which callers refuse or defer on. An empty
-      // list would answer "nothing is blocked" from an outage.
-      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('network down'));
+    it('returns null when the flat document is not a list', () => {
+      documents({ blockedrepositories: '<html>rate limited</html>' });
 
-      const entries = await imageManager.getBlocklist();
+      expect(imageManager.getBlocklist()).to.equal(null);
+    });
 
-      expect(entries).to.equal(null);
+    it('returns an empty list when the documents say nothing is blocked', () => {
+      // [] and null must never collapse into one value: a node that cannot read policy has
+      // to refuse to decide, where one that read an empty policy has decided.
+      documents({ blocklist: [], blockedrepositories: [] });
+
+      expect(imageManager.getBlocklist()).to.deep.equal([]);
+    });
+
+    it('returns null when neither document can be read', () => {
+      // No bundle at all - the node holds nothing and cannot answer.
+      documents({});
+
+      expect(imageManager.getBlocklist()).to.equal(null);
     });
   });
 
@@ -1104,12 +1088,14 @@ describe('imageManager tests', () => {
     }
 
     function stubBlocklist(entries) {
-      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      // The documents as the signed bundle carries them. null is "no bundle held", which
+      // is the node that cannot answer - not a node that answered "nothing".
+      const getDocument = sinon.stub(policyStore, 'getDocument');
       if (entries === null) {
-        axiosGet.rejects(new Error('unreachable'));
+        getDocument.returns(null);
       } else {
-        axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: entries });
-        axiosGet.resolves({ data: [] });
+        getDocument.withArgs('blocklist').returns(entries);
+        getDocument.returns([]);
       }
       // eslint-disable-next-line global-require
       const axios = require('axios');

@@ -337,6 +337,171 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
   });
 
+  // The peer half of policy distribution. A node that adopts a sequence tells its peers; a
+  // peer that is behind asks for the bundle. Both directions are here because neither had any
+  // coverage and they are the point of the whole exercise.
+  describe('policy messages', () => {
+    const KEY = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const PRIV = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
+    let policyStore;
+
+    function makePeer() {
+      return { send: sinon.stub().returns('okay') };
+    }
+
+    function sentTypes(peer) {
+      return peer.send.getCalls().map((c) => JSON.parse(c.args[0]).data.type);
+    }
+
+    beforeEach(() => {
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns(KEY);
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns(PRIV);
+      // eslint-disable-next-line global-require
+      policyStore = require('../../ZelBack/src/services/policyStore');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    describe('respondWithPolicy', () => {
+      it('sends the bundle when this node holds something newer', async () => {
+        sinon.stub(policyStore, 'getSeq').returns(9);
+        sinon.stub(policyStore, 'getRawBundle').returns('{"payload_b64":"x","sig_b64":"y"}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 4 } }, peer,
+        );
+
+        expect(sentTypes(peer)).to.deep.equal(['fluxpolicy']);
+        expect(JSON.parse(peer.send.firstCall.args[0]).data.bundle).to.equal('{"payload_b64":"x","sig_b64":"y"}');
+      });
+
+      it('answers with its sequence when it holds no more than the asker', async () => {
+        // It used to say nothing, on the grounds that "I have nothing newer" is a claim
+        // the asker cannot check. Still uncheckable, and still grants nothing - but
+        // silence cannot distinguish "my peers agree I am current" from "my peers are
+        // asleep", and a node that restored a bundle from disk needs exactly that
+        // difference before it acts on it.
+        sinon.stub(policyStore, 'getSeq').returns(4);
+        sinon.stub(policyStore, 'getRawBundle').returns('{}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 4 } }, peer,
+        );
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 9 } }, peer,
+        );
+
+        expect(peer.send.callCount, 'both asks answered').to.equal(2);
+        for (const call of peer.send.getCalls()) {
+          const sent = JSON.parse(call.args[0]);
+          expect(sent.data.type, 'a sequence, never the bundle').to.equal('fluxpolicyseq');
+          expect(sent.data.seq).to.equal(4);
+        }
+      });
+
+      it('answers null when it holds no bundle at all, rather than saying nothing', async () => {
+        // Three states the asker has to tell apart: a peer with policy, a peer with none,
+        // and a peer that is not there. Answering 0 would be read as "you are not behind
+        // me" and taken for agreement; answering nothing is indistinguishable from being
+        // absent. null is the third answer.
+        sinon.stub(policyStore, 'getSeq').returns(0);
+        sinon.stub(policyStore, 'getRawBundle').returns(null);
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1, seq: 5 } }, peer,
+        );
+
+        expect(peer.send.calledOnce, 'it answered').to.equal(true);
+        const sent = JSON.parse(peer.send.firstCall.args[0]);
+        expect(sent.data.type).to.equal('fluxpolicyseq');
+        expect(sent.data.seq, 'no policy, and it says so').to.equal(null);
+      });
+
+      it('treats a missing sequence as zero rather than refusing to answer', async () => {
+        // A node asking before it has anything sends seq 0; a malformed one may send none.
+        sinon.stub(policyStore, 'getSeq').returns(3);
+        sinon.stub(policyStore, 'getRawBundle').returns('{"a":1}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 1 } }, peer,
+        );
+
+        expect(sentTypes(peer)).to.deep.equal(['fluxpolicy']);
+      });
+
+      it('ignores a version it does not know', async () => {
+        sinon.stub(policyStore, 'getSeq').returns(9);
+        sinon.stub(policyStore, 'getRawBundle').returns('{"a":1}');
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithPolicy(
+          { data: { type: 'fluxpolicyrequest', version: 2, seq: 0 } }, peer,
+        );
+
+        expect(peer.send.called).to.equal(false);
+      });
+
+      it('does not throw on a message with no data', async () => {
+        const peer = makePeer();
+        await fluxCommunicationMessagesSender.respondWithPolicy({}, peer);
+        expect(peer.send.called).to.equal(false);
+      });
+    });
+
+    // These call the functions, rather than asserting what serialiseAndSignFluxBroadcast does
+    // with a hand-built message. A test that never invokes the function under test passes
+    // whatever that function does, including nothing.
+    describe('what actually goes on the wire', () => {
+      function connectedPeer() {
+        const ws = {
+          ip: '127.0.0.1',
+          port: '16127',
+          readyState: WebSocket.OPEN,
+          ping: sinon.stub(),
+          send: sinon.stub().returns('okay'),
+          on: sinon.stub(),
+          close: sinon.stub(),
+          _socket: { remoteAddress: '127.0.0.1' },
+        };
+        peerManager.add(ws, '127.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        ws.send.resetHistory();
+        return ws;
+      }
+
+      beforeEach(() => peerManager.reset());
+
+      it('announcePolicySeq sends the sequence to peers, and NOT the bundle', async () => {
+        // A peer cannot check a claim about a number, so it is a prompt to ask rather than
+        // something to believe. Attaching the bundle would push megabytes at every peer on
+        // every policy change, unasked.
+        const ws = connectedPeer();
+
+        await fluxCommunicationMessagesSender.announcePolicySeq(12);
+
+        expect(ws.send.calledOnce).to.equal(true);
+        const { data } = JSON.parse(ws.send.firstCall.args[0]);
+        expect(data).to.deep.equal({ type: 'fluxpolicyseq', version: 1, seq: 12 });
+        expect(data.bundle).to.equal(undefined);
+      });
+
+      it('requestPolicyFromPeers sends the sequence this node holds', async () => {
+        const ws = connectedPeer();
+
+        await fluxCommunicationMessagesSender.requestPolicyFromPeers(7);
+
+        expect(ws.send.calledOnce).to.equal(true);
+        expect(JSON.parse(ws.send.firstCall.args[0]).data)
+          .to.deep.equal({ type: 'fluxpolicyrequest', version: 1, seq: 7 });
+      });
+    });
+  });
+
   describe('respondWithAppMessage tests', () => {
     const generateWebsocket = () => {
       const ws = {};

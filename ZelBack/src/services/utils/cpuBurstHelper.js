@@ -8,12 +8,15 @@ const enterpriseConfig = require('./enterpriseConfig');
 let burstSupportCache = null;
 
 /**
- * Checks if an app owner is in the enterprise app owners whitelist.
+ * Checks if an app owner is in the enterprise app owners whitelist. An unknown policy
+ * answers false: burst is a privilege, and one that cannot be verified is not granted.
  * @param {string} owner - The app owner address
  * @returns {boolean}
  */
 function isEnterpriseOwner(owner) {
-  return enterpriseConfig.getEnterpriseAppOwners().includes(owner);
+  const owners = enterpriseConfig.getEnterpriseAppOwners();
+  if (owners === null) return false;
+  return owners.includes(owner);
 }
 
 /**

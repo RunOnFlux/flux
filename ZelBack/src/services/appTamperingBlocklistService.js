@@ -1,13 +1,12 @@
 const config = require('config');
 const log = require('../lib/log');
-const serviceHelper = require('./serviceHelper');
+const policyStore = require('./policyStore');
 const dbHelper = require('./dbHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const generalService = require('./generalService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const benchmarkService = require('./benchmarkService');
 
-const BLOCKLIST_URL = `${config.policy.baseUrl}/tamperingblockednodes.json`;
 const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 // How often to look at the DOS slot while waiting for another owner to let go
 // of it. Purely local - it reads the slot and nothing else, so it costs no
@@ -69,16 +68,19 @@ function releaseOurDos(reason) {
  * Returns null on any failure - could-not-fetch is not an empty list, and the
  * enforcer must distinguish them or an outage clears an active DOS.
  */
-async function fetchBlocklist() {
-  try {
-    const res = await serviceHelper.axiosGet(BLOCKLIST_URL);
-    if (res && Array.isArray(res.data)) return res.data;
-    log.warn('appTamperingBlocklist - unexpected response shape from blocklist URL');
-    return null;
-  } catch (error) {
-    log.warn(`appTamperingBlocklist - failed to fetch blocklist: ${error.message}`);
+function fetchBlocklist() {
+  // Read from the signed bundle rather than fetched here. Null still means "could not read
+  // it", which the caller already treats as a reason to skip the tick rather than as an
+  // empty list -- an unreadable blocklist releasing a node the network deliberately DOSed is
+  // the bug this contract was written for.
+  const blocklist = policyStore.getDocument('tamperingblockednodes');
+  if (blocklist === null) return null;
+  // A signature says who published a document, not that it is the shape this code expects.
+  if (!Array.isArray(blocklist)) {
+    log.warn('appTamperingBlocklist - tamperingblockednodes in the signed bundle is not an array');
     return null;
   }
+  return blocklist;
 }
 
 /**

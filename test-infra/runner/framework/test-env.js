@@ -26,8 +26,17 @@ import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
+// CommonJS, and deliberately so: the stub requires the same file inside its image, where it
+// signs. Importing the public half rather than restating it is what keeps the key the fleet
+// pins and the key the stub signs with from drifting apart.
+import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
 import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
+
+// How long after a re-attach the collector goes on treating an exact repeat as docker
+// replaying a line it already has. Docker's `since` is whole-second, so the replay is over
+// within a second of the stream opening; this is that bound with room for a loaded box.
+const REPLAY_WINDOW_MS = 5000;
 
 function createLogCollector() {
   // Each entry is { t, line }: t is the capture wall-clock (ISO), line is the raw
@@ -38,18 +47,63 @@ function createLogCollector() {
   const entries = [];
   const push = (line) => entries.push({ t: new Date().toISOString(), line });
 
-  function consumer(stream) {
+  /**
+   * Attach to a container log stream.
+   *
+   * @param {import('stream').Readable} stream The container's log stream.
+   * @param {Map<string, number>} [suppress] Lines this collector already holds that the
+   *   stream is expected to REPLAY, as line -> how many times. Docker's `since` filter is
+   *   whole-second, so re-attaching after a restart re-delivers everything written in that
+   *   second - which the collector captured the first time round. Each match is dropped
+   *   once and decremented, so a line that genuinely repeats later is still recorded.
+   *   Only the first REPLAY_WINDOW_MS of the new stream are filtered: after that the
+   *   replay is over, and going on matching would silently drop real repeats.
+   */
+  function consumer(stream, suppress = null) {
+    const attachedAt = Date.now();
+    const dropReplay = (line) => {
+      if (!suppress || !suppress.size) return false;
+      if (Date.now() - attachedAt > REPLAY_WINDOW_MS) {
+        suppress.clear();
+        return false;
+      }
+      const remaining = suppress.get(line);
+      if (!remaining) return false;
+      if (remaining === 1) suppress.delete(line); else suppress.set(line, remaining - 1);
+      return true;
+    };
     stream.on('data', (data) => {
       const text = typeof data === 'string' ? data : data.toString('utf-8');
       for (const line of text.split('\n')) {
         const trimmed = line.trimEnd();
-        if (trimmed) push(trimmed);
+        if (trimmed && !dropReplay(trimmed)) push(trimmed);
       }
     });
     stream.on('end', () => push('[LOG_STREAM_ENDED]'));
     stream.on('error', (err) => push(`[LOG_STREAM_ERROR: ${err.message}]`));
     stream.on('close', () => push('[LOG_STREAM_CLOSED]'));
   }
+
+  /**
+   * What a re-attach asking for `since` seconds is expected to replay: everything already
+   * captured from that second onwards. Widened by one second because an entry is stamped
+   * when it was CAPTURED and docker filters on when it was WRITTEN, and the two differ by
+   * the length of the pipe.
+   * @param {number} sinceSeconds The value about to be passed to container.logs.
+   * @returns {Map<string, number>}
+   */
+  consumer.replayFrom = (sinceSeconds) => {
+    const fromMs = (Math.floor(sinceSeconds) - 1) * 1000;
+    const pending = new Map();
+    for (const entry of entries) {
+      if (Date.parse(entry.t) >= fromMs) pending.set(entry.line, (pending.get(entry.line) ?? 0) + 1);
+    }
+    return pending;
+  };
+
+  // Record a line that did not come off the container's stream - the harness saying
+  // something about the capture itself, so a gap in the log explains itself in the dump.
+  consumer.note = (line) => push(line);
 
   consumer.hasLine = (pattern) => {
     const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern);
@@ -563,7 +617,7 @@ function getBootId(nodeNum) {
   return `test-boot-id-node-${String(nodeNum).padStart(2, '0')}`;
 }
 
-async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true, staticIp = true, initialHeight = DEFAULT_INITIAL_HEIGHT } = {}) {
+async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true, staticIp = true, initialHeight = DEFAULT_INITIAL_HEIGHT, policySeeds = null } = {}) {
   const client = new MongoClient(`mongodb://${mongoIp}:27017`);
   try {
     await client.connect();
@@ -600,6 +654,31 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
         },
         { upsert: true },
       );
+      // A policy bundle already on this node's disk when it boots.
+      //
+      // The state a node is IN is seeded, never manufactured by driving a running fleet
+      // into it. "This node kept its bundle, its neighbours did not" is a starting
+      // condition, and restarting containers to approximate one produces a different
+      // thing that merely resembles it - with the restart's own boot ordering mixed in.
+      //
+      // Signed with the harness's pinned key, so the node verifies it exactly as it
+      // would a real one; written to the row policyArtifactRepository reads at boot.
+      if (policySeeds && policySeeds[i - 1] !== undefined) {
+        const seq = policySeeds[i - 1];
+        const raw = policySigning.signBundle({
+          seq,
+          issued_at: new Date().toISOString(),
+          documents: {
+            blockedrepositories: [], vettedrepositories: [], tamperingblockednodes: [], enterprisenodes: {},
+          },
+          artifacts: {},
+        });
+        await localDb.collection('policydocuments').updateOne(
+          { _id: 'networkPolicy' },
+          { $set: { raw, seq, verifiedAt: Date.now() } },
+          { upsert: true },
+        );
+      }
       if (bootContext === 'running') {
         await localDb.collection('nodestartuptracker').updateOne(
           { _id: 'heartbeat' },
@@ -663,7 +742,7 @@ export async function createTestEnv({
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
-  geolocation = {}, locationTable = null, staticIp = true,
+  geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
@@ -873,7 +952,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -902,7 +981,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -939,7 +1018,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
   containers.mongo = mongo;
   watchInfra(env, 'mongo', mongo);
 
-  await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter, staticIp, initialHeight });
+  await seedMongo(MONGO_IP, nodes, bootContext, {
+    dataCenter, staticIp, initialHeight, policySeeds,
+  });
 
   const daemonStub = await new StaticIpContainer(image('flux-e2e-daemon-stub'))
     .withStaticIp(networkName, DAEMON_IP)
@@ -1069,6 +1150,22 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     });
   }
 
+  // The policy bundle the fleet will boot onto, published before any node starts, for the
+  // same reason the location table is: a node resolves policy once at boot and then not
+  // again for a day, so a suite that configures it afterwards is racing that resolution.
+  // Losing the race leaves the fleet holding the DEFAULT bundle - which verifies, so
+  // nothing looks wrong; the suite simply proves something about a policy it did not set.
+  //
+  // Takes the stub's own /policy control body: { documents }, { signer: 'rogue' },
+  // { seq }, { available: false } to boot a fleet whose source never answers.
+  if (policy) {
+    await fetch(`http://${EXTERNAL_STUB_IP}:3001/policy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(policy),
+    });
+  }
+
   const registryTlsDir = join(fixturesDir, 'registry-tls');
   // The registry is reached by a stable network alias (fluxregistry), not its IP:
   // node dockerd pulls fluxregistry:5000/... and TLS verifies DNS:fluxregistry, so
@@ -1190,7 +1287,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
         aptSourceUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/`,
         releaseKeyUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/keyring.gpg`,
       },
-      github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      github: { apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       stats: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       pricing: {
@@ -1205,7 +1302,20 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
       // first one. A policy URL left pointing at another run's subnet is
       // unreachable, and the fetch stalls the spawn attempt rather than failing
       // it - the app is simply never installed, with nothing logged.
-      policy: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      // baseUrl is the plain documents and the iplocation artifact; signedBaseUrl is the
+      // bundle, and the only policy a current node reads. A fleet pointed at neither has no
+      // policy at all - which is not a policy suite failing but every app suite failing,
+      // because acquisition waits on globalState.policyReady and it never opens.
+      policy: {
+        baseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+        signedBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+        // TWO keys, as production has: signing can move to the second without a release,
+        // and that is the only thing a second key buys. Pinned but unused is worth
+        // nothing - a suite rotates onto it and the fleet has to take the bundle.
+        // The rogue key is deliberately absent, or the untrusted-signer case could not
+        // be told from any other refusal.
+        publicKeys: [policySigning.PINNED_PUBLIC_HEX, policySigning.SECONDARY_PUBLIC_HEX],
+      },
       // Peer thresholds follow the fleet, so a suite declares a shape and never a
       // constant. The production values assume a network large enough to carry
       // them; a smaller fleet cannot, and asking it to is what leaves a node short
@@ -1417,6 +1527,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     initialHeight,
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
+    // What the FLEET reads, as opposed to what the suite drives. A suite needs it when
+    // the bytes a node would fetch are the subject rather than the fetching - reading the
+    // signed policy bundle to hand to a peer, say.
+    stubBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
     fdmControl: `http://${FDM_IP}:16131`,
     syncthingControl: `http://${SYNCTHING_IP}:8385`,
     registryUrl: `https://${REGISTRY_IP}:5000`,
@@ -1443,13 +1557,37 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     // the same HttpPollWaitStrategy the initial fleet build uses.
     async restartNode(index, { timeout = 15000 } = {}) {
       if (clients[index]) clients[index].disconnectEventStream();
-      const { container } = fluxNodes[index];
+      const { container, logCollector } = fluxNodes[index];
+      // Taken before the container goes down: everything the restarted node writes from
+      // here on is what the re-attached stream has to carry.
+      const sinceSeconds = Math.floor(Date.now() / 1000);
       const saved = container.waitStrategy;
       container.waitStrategy = nodeReadyWaitStrategy(fluxNodes[index].ip);
       try {
         await container.restart({ timeout });
       } finally {
         container.waitStrategy = saved;
+      }
+      // RE-ATTACH THE LOG COLLECTOR. withLogConsumer's stream is a following read of the
+      // container's log, and a restart ENDS it - the collector records [LOG_STREAM_ENDED]
+      // and then hears nothing ever again. Until this existed, every log assertion placed
+      // after a restart could only time out, and it timed out looking like the product had
+      // stopped doing the thing rather than like the harness had stopped listening. That
+      // cost most of a session on suite 99.
+      //
+      // `since` rather than `tail: 0`, taken BEFORE the restart: restart() does not return
+      // until the wait strategy passes, by which time FluxOS has already printed its whole
+      // boot. Asking for no history would lose exactly the lines a restart suite wants.
+      // The cost of `since` is that docker's filter is whole-second and re-delivers what
+      // was written in that second, which the collector already has - so it is told what
+      // to expect and drops each replayed line once. A failure here is recorded in the log
+      // rather than thrown: the restart itself succeeded, and a suite should fail on its
+      // own assertion with the reason sitting in the dump, not on a throw from the
+      // instrument that was only watching.
+      if (logCollector) {
+        await container.logs({ since: sinceSeconds })
+          .then((stream) => logCollector(stream, logCollector.replayFrom(sinceSeconds)))
+          .catch((err) => logCollector.note(`[LOG_STREAM_REATTACH_FAILED: ${err.message}]`));
       }
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];

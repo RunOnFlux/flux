@@ -124,6 +124,110 @@ async function respondWithAppMessage(msgObj, peer) {
 }
 
 /**
+ * Answer a peer asking for network policy newer than the sequence it holds.
+ *
+ * Answered only when this node holds something strictly newer. Silence is the answer for
+ * "nothing newer", because a reply saying so would be a claim the asker cannot check -- and
+ * one a hostile peer would send to keep it where it is. What the asker CAN check is a signed
+ * bundle, so that is the only thing worth sending.
+ *
+ * The bundle is served as the bytes this node verified, not a re-serialisation: the signature
+ * covers those bytes and nothing else.
+ * @param {object} msgObj The request.
+ * @param {object} peer Peer socket to answer on.
+ */
+async function respondWithPolicy(msgObj, peer) {
+  try {
+    // eslint-disable-next-line global-require
+    const policyStore = require('./policyStore');
+    const message = msgObj.data;
+    if (!message || message.version !== 1) return;
+    const askerSeq = Number.isInteger(message.seq) ? message.seq : 0;
+
+    // A node with no bundle answers `seq: null` - it says so, rather than saying nothing.
+    //
+    // It must not answer 0: to an asker at 5 that reads as "you are not behind me", which
+    // is true and useless, and the asker would take an empty peer for agreement. But
+    // silence is no better, and for the same reason the branch below exists - a peer that
+    // says nothing is indistinguishable from a peer that is not there. Three different
+    // states, three different answers:
+    //
+    //   seq >= mine   this peer has policy, and I am not ahead of it
+    //   seq null      this peer is alive and has no policy at all
+    //   no reply      this peer is not answering
+    //
+    // The third is the only one that means "ask someone else". The second is what tells a
+    // node the NETWORK is empty rather than unreachable, which is the cold-start case.
+    const raw = await policyStore.getRawBundle();
+    if (!raw) {
+      await sendSignedMessage({ type: 'fluxpolicyseq', version: 1, seq: null }, peer);
+      return;
+    }
+
+    if (policyStore.getSeq() <= askerSeq) {
+      // Nothing newer to give - but say so, rather than saying nothing.
+      //
+      // Silence used to be the answer here, on the grounds that "I have nothing newer"
+      // is a claim the asker cannot check. True, and it stays uncheckable: what comes
+      // back is a sequence, and a sequence grants nothing. What it does give the asker
+      // is the difference between "my peers agree I am current" and "my peers are
+      // asleep", which silence cannot express - and a node that cannot tell those apart
+      // has no way to know whether the policy it restored from disk is still the
+      // network's. A peer that lies low is ignored (we only act on a HIGHER claim); a
+      // peer that lies high costs one request and a refused bundle.
+      await sendSignedMessage({ type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq() }, peer);
+      return;
+    }
+
+    await sendSignedMessage({ type: 'fluxpolicy', version: 1, bundle: raw }, peer);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Ask every connected peer for policy newer than what this node holds.
+ *
+ * One hop, no relay: the handler does not pass this on, so the cost is the peer count rather
+ * than the network. Used at boot and by the backstop refresh -- a node catching up asks
+ * rather than waiting to be told.
+ * @param {number} seq The sequence this node holds.
+ */
+async function requestPolicyFromPeers(seq) {
+  await broadcastMessageToAll({ type: 'fluxpolicyrequest', version: 1, seq });
+}
+
+/**
+ * Ask ONE peer. The same question as requestPolicyFromPeers, put to a single socket.
+ *
+ * respondWithPolicy answers a targeted request exactly as it answers a broadcast one, so
+ * this needs nothing on the far side.
+ * @param {object} peer The peer socket to ask.
+ * @param {number} seq What this node holds.
+ */
+async function requestPolicyFromPeer(peer, seq) {
+  await sendSignedMessage({ type: 'fluxpolicyrequest', version: 1, seq }, peer);
+}
+
+/**
+ * Tell direct peers this node has adopted a sequence.
+ *
+ * Sent ON ADOPTION, never on a timer. That is what keeps it affordable: the traffic is
+ * bounded by how often policy changes -- weekly at most -- rather than by how often nodes
+ * check, and a periodic announcement would be the same volume forever. Each node that adopts
+ * announces to its own peers, so a change spreads outwards in seconds instead of waiting out
+ * a refresh interval on every node independently.
+ *
+ * It carries the sequence only. A peer cannot check a claim about a number, so it is a prompt
+ * to ask rather than something to believe -- and what comes back is a signed bundle, which it
+ * can check. A peer claiming a sequence it cannot produce costs one request and nothing else.
+ * @param {number} seq The sequence just adopted.
+ */
+async function announcePolicySeq(seq) {
+  await broadcastMessageToAll({ type: 'fluxpolicyseq', version: 1, seq });
+}
+
+/**
  * Relay a message to all connected peers (both directions), excluding the sender.
  * @param {string} data Serialised message data.
  * @param {string} [excludeKey] Peer key (ip:port) to exclude (the sender).
@@ -435,6 +539,10 @@ async function respondWithAppInstallingErrorsMessages(peer, sinceTimestamp = 0) 
 
 module.exports = {
   relay,
+  announcePolicySeq,
+  requestPolicyFromPeers,
+  requestPolicyFromPeer,
+  respondWithPolicy,
   sendSignedMessage,
   respondWithAppMessage,
   respondWithTempMessages,

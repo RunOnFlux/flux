@@ -119,7 +119,7 @@ module.exports = {
     zmqport: 16123,
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
-  minimumFluxOSAllowedVersion: '8.13.1',
+  minimumFluxOSAllowedVersion: '8.18.0',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
@@ -584,7 +584,6 @@ module.exports = {
     nodeMonitorCheckIntervalMs: 120000,
     nodeMonitorCheckTimeoutMs: 10000,
     spawnDeferrals: {
-      targetedNodesMs: { enterprise: 1800000, standard: 3420000 },
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },
       capacityGap: {
@@ -672,7 +671,7 @@ module.exports = {
     aptSourceUrl: 'https://apt.syncthing.net/',
     releaseKeyUrl: 'https://syncthing.net/release-key.gpg',
   },
-  // enterpriseAppOwners moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
+  // enterpriseAppOwners moved to enterprisenodes.json in fluxos-network-policy (fetched every 6h, see enterpriseConfig)
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '045bd4f81d7bda582141793463edb58e0f3228a873bd6b6680b78586db2969f51dfeda672eae65e64ca814316f77557012d02c73db7876764f5eddb6b6d9d02b5b',
     '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',
@@ -694,7 +693,7 @@ module.exports = {
   // Pubkeys of nodes that opt into the enterprise network. A node whose own
   // fluxnode pubkey is in this list will only spawn/run apps owned by the
   // enterprise app owners and will uninstall any non-matching apps on boot.
-  // Moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
+  // Moved to enterprisenodes.json in fluxos-network-policy (fetched every 6h, see enterpriseConfig)
   cpuBurst: {
     // Enables CFS CPU burst for enterprise app owners on cgroups-v2 + kernel >= 5.14 hosts.
     // The kernel rule (cgroup-v2: 0 <= cpu.max.burst <= cpu.max quota) lets a container
@@ -716,16 +715,47 @@ module.exports = {
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
   github: {
-    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+    // The REST API only. Nothing reads files from github any more: the policy documents
+    // that used to come from RunOnFlux/flux helpers/ are served from config.policy.baseUrl
+    // and the helpers/ copies are gone.
     apiBaseUrl: 'https://api.github.com',
   },
   policy: {
-    // The directory holding the network's enforcement documents, fetched at runtime by
-    // policyStore. A repo of its own, so a merge to the application cannot change fleet
-    // policy as a side effect and a policy change is not a commit to the application's
-    // default branch. Releases predating this still read RunOnFlux/flux helpers/, so both
-    // copies are kept in step until minimumFluxOSAllowedVersion is above all of them.
+    // The directory holding the network's enforcement documents. A repo of its own, so a
+    // merge to the application cannot change fleet policy as a side effect and a policy
+    // change is not a commit to the application's default branch.
+    //
+    // `main` is what people edit. `signed` is what nodes read: the same documents, bundled
+    // under one signature with a sequence number. baseUrl stays for the releases that fetch
+    // the plain documents directly and for the artifact they name.
     baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
+    signedBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/signed',
+    // Raw ed25519 public keys. A bundle signed by ANY of them is accepted, so the cold key
+    // can take over signing without every node needing a release first -- which is the only
+    // thing a second key buys. Removing a compromised key from this list IS a release.
+    // Kept in step with SIGNING.md in fluxos-network-policy.
+    publicKeys: [
+      'c31930ec386a49f31321851766d93bcb90bf269cd15bec7a329155a4d79ea380',
+      '739ca41408f66c75d6cb4bc1d5c044ca5a118de190081da68e5a7d6839fb69f8',
+    ],
+    // The backstop poll. Long, because it is not how a change reaches a node: adoption
+    // is announced to peers and spreads outwards in seconds. This covers the node that
+    // missed the announcement -- offline at the time, or with no peers holding it yet --
+    // and the cold start where there is nothing to miss.
+    //
+    // CONFIG, not a constant, so the harness can compress it. A 24-hour tick is
+    // unobservable in a test, and a suite that cannot watch the backstop fire has to
+    // restart a node to approximate it - which tests the boot path instead, and leaves
+    // the periodic one with no coverage at all.
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    // How long a refresh waits for a peer to answer before falling through to the
+    // source. Peers are on the local network and answer in milliseconds; this bounds how
+    // long a refresh is prepared to sit doing nothing, so it is an ABSOLUTE latency
+    // bound and does not compress with the clocks.
+    peerWindowMs: 3 * 1000,
+    // Bound on a single backstop fetch, so a boot is never stuck on one source. Absolute,
+    // for the same reason as above.
+    fetchTimeoutMs: 10 * 1000,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

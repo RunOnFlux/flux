@@ -543,9 +543,16 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (datacenter !== undefined && typeof datacenter !== 'boolean') {
       throw new Error('Invalid datacenter value obtained. Only undefined, true, or false allowed.');
     }
-    // datacenter=true is only allowed for enterprise app owners
+    // datacenter=true is only allowed for enterprise app owners. A node that has not
+    // obtained the policy refuses rather than waving it through: this grants a privilege,
+    // and granting one that cannot be checked is the worse of the two mistakes. The
+    // refusal is transient — the message is re-offered by app sync once policy lands.
     if (datacenter === true) {
-      if (!enterpriseConfig.getEnterpriseAppOwners().includes(owner)) {
+      const enterpriseOwners = enterpriseConfig.getEnterpriseAppOwners();
+      if (enterpriseOwners === null) {
+        throw new Error('Cannot verify datacenter eligibility: network policy not yet obtained.');
+      }
+      if (!enterpriseOwners.includes(owner)) {
         throw new Error('Datacenter requirement is only available for enterprise app owners.');
       }
     }
@@ -1244,6 +1251,49 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
   // to live submissions only - messages already on chain replay unchanged.
   if (liveSubmission && !signatureVerifier.isValidSigningIdentity(appSpecifications.owner)) {
     throw new Error('Invalid Flux App owner. Must be a Flux ID or an Ethereum address');
+  }
+
+  // NODE PINNING ELIGIBILITY
+  // Pinning a v8+ spec to named nodes is an enterprise-owner privilege. The frontend has
+  // always gated its node picker this way; nothing enforced it, so a spec posted straight
+  // to the API pinned regardless and the restriction was decoration.
+  //
+  // Live submissions only, for the same reason as the owner check above: a rule applied to
+  // replay would have upgraded nodes rejecting messages already on chain that their peers
+  // accept, which is a disagreement about the past rather than a rule about the present.
+  // That is also what makes a fork height unnecessary here.
+  //
+  // v7 is untouched. There, nodes[] is what MAKES a spec enterprise -- it carries the
+  // per-node encrypted secrets -- so the same rule would invalidate every v7 enterprise
+  // app on the network.
+  if (liveSubmission && appSpecifications.version >= 8 && appSpecifications.nodes.length) {
+    const enterpriseOwners = enterpriseConfig.getEnterpriseAppOwners();
+    // Same as the datacenter check: a node that has not obtained the policy refuses rather
+    // than waving through a privilege it cannot verify.
+    if (enterpriseOwners === null) {
+      throw new Error('Cannot verify node pinning eligibility: network policy not yet obtained.');
+    }
+    if (!enterpriseOwners.includes(appSpecifications.owner)) {
+      // An ineligible owner may carry an EXISTING pin forward, but not acquire a new one
+      // or redirect the one they have. The frontend grandfathers the same way
+      // (`if (!newApp && appHasExistingNodes) return true`), and without it an app pinned
+      // before this rule existed becomes unupdatable -- renewal is an update, so the app
+      // would expire with the owner given no way to keep it other than guessing that
+      // emptying nodes[] is the escape.
+      //
+      // Read from the permanent message history rather than the live spec, because an app
+      // that has already expired still has to be renewable. A lookup that fails is treated
+      // as no previous pin: this grants a privilege, so it fails closed.
+      const previous = await registryManager
+        .getPreviousAppSpecifications(appSpecifications, Date.now())
+        .catch(() => null);
+      const previousNodes = (previous && previous.nodes) || [];
+      const carriedForward = previousNodes.length === appSpecifications.nodes.length
+        && [...previousNodes].sort().join('\u0000') === [...appSpecifications.nodes].sort().join('\u0000');
+      if (!carriedForward) {
+        throw new Error('Pinning an application to specific nodes is only available for enterprise app owners.');
+      }
+    }
   }
 
   // RESTRICTION CHECKS
