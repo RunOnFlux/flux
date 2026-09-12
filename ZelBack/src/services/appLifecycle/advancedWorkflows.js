@@ -4131,6 +4131,30 @@ async function checkAndRemoveApplicationInstance() {
  * @returns {Promise<void>} Completion status
  */
 async function reinstallOldApplications() {
+  // This pass is not re-entrant, and everything around it already knows that:
+  // forceAppRemovals stands aside on exactly this flag, as do the soft and hard
+  // redeploy paths on theirs. What was missing is this function standing aside
+  // for ITSELF. It is started fire-and-forget from the block scanner, so a pass
+  // that outlives the gap between blocks is simply run again on top of itself.
+  //
+  // Two passes on one app destroy it. Observed: the first soft-uninstalled a
+  // component and was sleeping out composedDelay before reinstalling it; the
+  // second started on the same app, asked docker to remove the container the
+  // first had already begun removing, and got `(HTTP code 409) removal of
+  // container ... is already in progress`. That throw lands in the redeployment
+  // catch below, whose cleanup force-removes the ENTIRE app - so when the first
+  // pass woke and tried to install, it was refused with "Another application is
+  // undergoing removal" and the app was left deleted with nothing to put it
+  // back. A specification update is an ordinary thing to do to a running app.
+  //
+  // Skipped rather than queued: the scanner runs this again on a later block,
+  // and the app is still obsolete then, so the work is not lost by declining it
+  // now. The flag cannot strand a later pass - it is cleared on both the normal
+  // and the error path, and nothing returns between setting and clearing it.
+  if (globalState.reinstallationOfOldAppsInProgress) {
+    log.info('reinstallOldApplications - a reinstall pass is already running, leaving this block to it');
+    return;
+  }
   try {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
