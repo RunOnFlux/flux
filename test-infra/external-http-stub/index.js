@@ -795,7 +795,12 @@ control.get('/state', (req, res) => {
 
 control.post('/blocklist', (req, res) => {
   state.blocklist = req.body;
-  res.json({ ok: true });
+  // RE-SIGNED, like every sibling below. This endpoint predates the bundle - on a tree
+  // where the only road was blocklist.json over HTTP, setting the state WAS publishing,
+  // and there was nothing to re-sign. With the bundle it is not: a suite that publishes a
+  // typed blocklist and then waits for a node to act on it would wait forever, because the
+  // node reads the bundle and the bundle still holds whatever was signed at boot.
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/blocked-repos', (req, res) => {
