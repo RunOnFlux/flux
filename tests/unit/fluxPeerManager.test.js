@@ -143,7 +143,13 @@ describe('FluxPeerSocket tests', () => {
   });
 
   describe('onPingSent', () => {
-    it('should increment missedPongs and set lastPingTime', () => {
+    // A ping in flight is not a missed pong. This used to count at SEND, so a
+    // peer answering every ping perfectly still read as having missed one for
+    // the whole round trip - and everything that asks "has this peer missed a
+    // pong" believed it. getEligibleSyncPeers did, and since pingAll() pings the
+    // whole fleet in one loop, the pool of peers to sync from went EMPTY once
+    // per ping interval however healthy the fleet was.
+    it('does not count a ping that is still in flight', () => {
       const ws = createMockWs();
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -151,12 +157,53 @@ describe('FluxPeerSocket tests', () => {
       expect(peer.lastPingTime).to.equal(null);
 
       peer.onPingSent();
-      expect(peer.missedPongs).to.equal(1);
+
+      expect(peer.missedPongs, 'a ping in flight was counted as missed').to.equal(0);
       expect(peer.lastPingTime).to.be.a('number');
       expect(peer.lastPingTime).to.be.closeTo(Date.now(), 50);
+    });
+
+    it('counts the previous ping as missed once the next one goes out unanswered', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       peer.onPingSent();
+      expect(peer.missedPongs).to.equal(0);
+      peer.onPingSent();
+      expect(peer.missedPongs).to.equal(1);
+      peer.onPingSent();
       expect(peer.missedPongs).to.equal(2);
+    });
+
+    it('never accrues a miss against a peer that answers every ping', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      for (let round = 0; round < 5; round += 1) {
+        peer.onPingSent();
+        peer.onPongReceived();
+      }
+
+      expect(peer.missedPongs, 'a peer answering every ping accrued a miss').to.equal(0);
+    });
+
+    // The drop takes maxMissedPongs whole intervals, which is the ~45s that
+    // peerResponsiveness documents - not one interval early.
+    it('takes maxMissedPongs unanswered intervals to give up on a silent peer', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      for (let round = 0; round < peer.maxMissedPongs; round += 1) {
+        expect(peer.missedPongs).to.be.below(peer.maxMissedPongs);
+        peer.onPingSent();
+      }
+
+      expect(peer.missedPongs).to.equal(peer.maxMissedPongs - 1);
+      peer.onPingSent();
+      expect(peer.missedPongs).to.equal(peer.maxMissedPongs);
     });
   });
 
@@ -174,7 +221,9 @@ describe('FluxPeerSocket tests', () => {
       const terminate = sinon.stub(peer, 'terminate');
 
       peer.ws.onmessage({ data: 'anything' });
-      for (let i = 0; i < peer.maxMissedPongs; i += 1) peer.onPingSent();
+      // One ping more than the threshold: the first is in flight, and each ping
+      // after it is what makes the one before it overdue.
+      for (let i = 0; i <= peer.maxMissedPongs; i += 1) peer.onPingSent();
 
       expect(peer.missedPongs).to.be.at.least(peer.maxMissedPongs);
       sinon.assert.notCalled(terminate);
@@ -189,7 +238,9 @@ describe('FluxPeerSocket tests', () => {
 
       expect(peer.lastMessageMono).to.equal(null);
       expect(peer.heardFromRecently).to.equal(false);
-      for (let i = 0; i < peer.maxMissedPongs; i += 1) peer.onPingSent();
+      // One ping more than the threshold: the first is in flight, and each ping
+      // after it is what makes the one before it overdue.
+      for (let i = 0; i <= peer.maxMissedPongs; i += 1) peer.onPingSent();
       sinon.assert.called(terminate);
     });
 
@@ -229,10 +280,10 @@ describe('FluxPeerSocket tests', () => {
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
 
-      // Simulate a ping then pong
+      // Two pings with nothing back: the first is overdue, the second in flight.
       peer.onPingSent();
       peer.onPingSent();
-      expect(peer.missedPongs).to.equal(2);
+      expect(peer.missedPongs).to.equal(1);
 
       const pingTime = peer.lastPingTime;
       peer.onPongReceived();
@@ -361,7 +412,8 @@ describe('FluxPeerSocket tests', () => {
 
       sinon.assert.calledOnce(ws.ping);
       sinon.assert.calledOnce(peer.onPingSent);
-      expect(peer.missedPongs).to.equal(1);
+      expect(peer.pingOutstanding, 'the ping was not tracked as awaiting a pong').to.equal(true);
+      expect(peer.missedPongs, 'a ping in flight was counted as a missed pong').to.equal(0);
     });
 
     it('should not call ws.ping when not OPEN', () => {
@@ -755,6 +807,36 @@ describe('FluxPeerManager tests', () => {
     // issued the requests and holds their deadlines. The manager offers every
     // connected peer that could serve one and asks that owner whether an
     // arriving answer is still wanted.
+    // THE WINDOW AFTER EVERY PING. pingAll() pings the whole fleet in one loop,
+    // so when a ping in flight counted as a missed pong, EVERY peer failed this
+    // bar at the same moment and the pool went empty once per ping interval
+    // however healthy the fleet was. A sync reconcile landing in that window was
+    // told there was nobody to ask, and left its slot empty with nothing to
+    // re-examine it - which stranded a state sync outright (suite 83, test 9).
+    it('still offers every peer immediately after pinging all of them', () => {
+      eligible(manager, '10.0.0.1');
+      eligible(manager, '10.0.0.2');
+
+      manager.pingAll();
+
+      const keys = manager.getEligibleSyncPeers().map((p) => p.key).sort();
+      expect(keys, 'pinging the fleet emptied the pool of peers to sync from').to.deep.equal(['10.0.0.1:16127', '10.0.0.2:16127']);
+    });
+
+    // And the bar still bites when a pong is genuinely missed: the second ping
+    // goes out with the first still unanswered, which is one real miss.
+    it('does not offer a peer that left a ping unanswered for a whole interval', () => {
+      const silent = eligible(manager, '10.0.0.1');
+      const answering = eligible(manager, '10.0.0.2');
+
+      manager.pingAll();
+      answering.onPongReceived();
+      manager.pingAll();
+
+      expect(silent.missedPongs, 'a genuinely missed pong was not counted').to.equal(1);
+      expect(manager.getEligibleSyncPeers().map((p) => p.key)).to.deep.equal(['10.0.0.2:16127']);
+    });
+
     it('offers every capable peer, leaving who has been asked to the asker', () => {
       eligible(manager, '10.0.0.1');
       eligible(manager, '10.0.0.2');
@@ -1164,6 +1246,7 @@ describe('FluxPeerManager tests', () => {
       const ws = createMockWs('10.0.0.1', '16127');
       const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
+      peer.onPingSent(); // in flight, missedPongs = 0
       peer.onPingSent(); // missedPongs = 1
       peer.onPingSent(); // missedPongs = 2
       sinon.assert.notCalled(ws.close);

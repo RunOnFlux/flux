@@ -114,6 +114,16 @@ class FluxPeerSocket {
     this.lastPongTime = null;
     this.lastPingMono = null;
     this.missedPongs = 0;
+    /**
+     * Whether a ping has gone out that this peer has not yet answered.
+     *
+     * A ping in flight is not a missed pong, and the two used to be the same
+     * number: missedPongs was incremented at SEND, so it read 1 on a healthy
+     * peer for the whole round trip after every ping. Anything asking "has this
+     * peer missed a pong" got yes, once per ping interval, about a peer that
+     * was answering perfectly.
+     */
+    this.pingOutstanding = false;
     this.maxMissedPongs = config.peers.wsMaxMissedPongs ?? 3;
     /**
      * When anything was last heard from this peer, on the monotonic clock.
@@ -190,9 +200,20 @@ class FluxPeerSocket {
   }
 
   onPingSent() {
+    // The ping going out now is IN FLIGHT, and nothing is yet known about it.
+    // What this moment decides is the fate of the PREVIOUS one: its pong has had
+    // a full interval to arrive, so if the peer still owes us one, that is a
+    // pong genuinely missed. Counting at send instead made the number a count of
+    // pings sent since the last pong, which is not what it is named, not what
+    // isAlive means by it, and not what the peers that read it assume.
+    //
+    // So a peer answering normally now sits at 0 always, and one that has gone
+    // silent reaches maxMissedPongs after that many intervals rather than one
+    // early - the ~45s that peerResponsiveness already documents.
+    if (this.pingOutstanding) this.missedPongs += 1;
+    this.pingOutstanding = true;
     this.lastPingTime = Date.now();
     this.lastPingMono = monotonicMs();
-    this.missedPongs += 1;
     // Unanswered pings only terminate a peer we have heard NOTHING else from. Three unanswered
     // pings from a peer that is streaming messages at us means our own reader has not reached the
     // pong yet, not that the peer is gone.
@@ -203,6 +224,7 @@ class FluxPeerSocket {
   }
 
   onPongReceived() {
+    this.pingOutstanding = false;
     this.missedPongs = 0;
     this.lastPongTime = Date.now();
     this.lastMessageMono = monotonicMs();
