@@ -205,7 +205,10 @@ describe('Orchestrator: SYNCING to READY', function () {
       await assertNoEvent(
         env.clients[0],
         'orchestrator:stateChanged',
-        (e) => e.data.to === 'READY',
+        // The PAYLOAD, not the envelope: assertNoEvent calls predicate(e.data)
+        // while waitForEvent RESOLVES with the envelope. Reaching for .data here
+        // is a TypeError inside a find(), which reads as a broken assertion.
+        (d) => d.to === 'READY',
         30000,
       );
       // Then the WHOLE run, not just that window. 10 blocks is the budget here,
@@ -433,6 +436,77 @@ describe('Orchestrator: block timer during RESYNCING', function () {
     this.timeout(120000);
     await advanceBlocks(300);
     await waitForOrchestratorState(env.clients[0], 'READY', 30000);
+  });
+});
+
+// THE RESET, WHICH NOTHING ON A FLEET DISTINGUISHED. The two blocks above lose
+// every peer and get them back, and both then wait for READY - which arrives
+// whether or not the budget restarted, just sooner if it did not. So the fleet
+// has never separated "the counter went back to zero" from "the counter kept its
+// credit", and that credit is what a node with no peers would be spending.
+//
+// Held on the budget alone: appSyncMinCompletions is above the number of peers
+// this fleet can supply, so node 0's state sync can never complete and the block
+// timer is the only road to READY. createTestEnv makes nobody authoritative for
+// the same reason, without being asked.
+describe('Orchestrator: the block budget starts again after the peer set goes', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  // appSyncFallbackMinutes 5 at BLOCKS_PER_MINUTE 2.
+  const BUDGET_BLOCKS = 10;
+
+  before(async function () {
+    this.timeout(300000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 5,
+      tickerAutostart: false,
+      configOverrides: {
+        // dropEveryPeerAndAwaitDegraded waits out peer liveness here.
+        peers: { wsPingIntervalMs: 3000 },
+        fluxapps: { appSyncFallbackMinutes: 5, appSyncMinCompletions: 6 },
+      },
+    });
+    await bootNodes(env, { discover: true });
+    await stopTicker();
+    await advanceBlocks(BUDGET_BLOCKS);
+    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('needs a whole fresh budget after a recovery, not one more block', async function () {
+    this.timeout(300000);
+    await dropEveryPeerAndAwaitDegraded(env);
+    for (let i = 1; i < env.clients.length; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await env.reconnectNode(i);
+    }
+    await waitForOrchestratorState(env.clients[0], 'RESYNCING', 60000);
+
+    const anchor = env.clients[0].getLastEventId();
+    await advanceBlocks(BUDGET_BLOCKS - 1);
+
+    // THE ASSERTION. This node spent a full budget before the peer set went. If
+    // that credit survived the gap it is already past the bar, so the first
+    // block back would take it to READY and nine certainly would.
+    await assertNoEvent(
+      env.clients[0],
+      'orchestrator:stateChanged',
+      (d) => d.to === 'READY',
+      20000,
+      { afterId: anchor },
+    );
+
+    // And the discriminator: one more block, which is the budget met from zero.
+    // Without it the assertion above would also pass on a node that had stopped
+    // counting blocks altogether.
+    await advanceBlocks(1);
+    await waitForOrchestratorState(env.clients[0], 'READY', 60000);
   });
 });
 

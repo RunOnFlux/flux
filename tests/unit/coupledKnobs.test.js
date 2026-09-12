@@ -29,6 +29,23 @@ describe('coupled harness knobs track production', () => {
     expect(knobs.PRODUCTION.removeFluxAppsPeriod).to.equal(fluxapps.removeFluxAppsPeriod);
     expect(knobs.PRODUCTION.residentialQueueBaseMs).to.equal(fluxapps.residentialQueueBaseMs);
     expect(knobs.PRODUCTION.residentialQueueStepMs).to.equal(fluxapps.residentialQueueStepMs);
+    expect(knobs.PRODUCTION.peerSetDipWindowMinutes).to.equal(fluxapps.peerSetDipWindowMinutes);
+    expect(knobs.PRODUCTION.peerSetDipEvaluateMs).to.equal(fluxapps.peerSetDipEvaluateMs);
+  });
+
+  // Suite 103 compresses a two-hour window into minutes and has to bring the
+  // sweep that releases the DOS down with it. A suite that shortened only the
+  // window would sit through a tick that never comes and read as the rule
+  // holding the node out - which is exactly what the suite next to it asserts,
+  // so the failure would look like a pass.
+  it('derives how many release sweeps a window holds', () => {
+    const { fluxapps } = productionConfig();
+    const expected = (fluxapps.peerSetDipWindowMinutes * 60 * 1000) / fluxapps.peerSetDipEvaluateMs;
+
+    expect(knobs.peerSetSweepsPerWindow()).to.equal(expected);
+    // Above one is the property: a window swept less than once cannot release
+    // anything, whatever else is true.
+    expect(knobs.peerSetSweepsPerWindow()).to.be.above(1);
   });
 
   it('derives the ratio production actually runs at', () => {
