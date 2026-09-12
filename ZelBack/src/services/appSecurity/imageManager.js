@@ -222,39 +222,42 @@ function namespaceOf(repository) {
  *
  * Null means the list could not be obtained from either document. That is not
  * "nothing is blocked": callers refuse or defer on it.
- * @returns {Promise<Array<{kind: string, value: string}>|null>}
+ * @returns {Array<{kind: string, value: string}>|null}
  */
-async function getBlocklist() {
-  const cachedResponse = fluxCaching.blockedRepositoriesCache.get('blocklist');
-  if (cachedResponse) {
-    return cachedResponse;
-  }
-  try {
-    const response = await serviceHelper.axiosGet(`${config.policy.baseUrl}/blocklist.json`);
-    // Every element must be a typed entry, and there must be at least one. A
-    // response that is merely array-shaped is the flat document or an error page,
-    // and taking it would answer "nothing is blocked" from something that never
-    // said so - discarding entries and reading as success. An empty answer falls
-    // through to the flat document, which is generated from this one and so
-    // carries the same verdict.
-    const { data } = response;
-    const typed = Array.isArray(data) && data.length
-      && data.every((entry) => entry && typeof entry.kind === 'string' && typeof entry.value === 'string');
-    if (typed) {
-      fluxCaching.blockedRepositoriesCache.set('blocklist', data);
-      return data;
+function getBlocklist() {
+  // PRECEDENCE, NOT A COMBINE. The typed document wins outright when it is usable, and
+  // the flat one is then never read; otherwise the flat one decides alone, its bare
+  // strings marked `legacy` rather than guessed at, because guessing a kind is the
+  // ambiguity this reader exists to remove.
+  //
+  // Usable means every element is a typed entry. An EMPTY typed document is usable and
+  // returns [] - from a signed bundle that genuinely means "published, and nothing is
+  // blocked". The fetch version fell through on empty, which was right for a fetch: a
+  // 200 carrying [] from a host that does not have the file must not silently skip the
+  // flat list. A bundle cannot be uncertain in that way.
+  //
+  // A MALFORMED typed document refuses rather than falling through, for the same reason
+  // in reverse. The fetch version fell through because the ways a fetch lies - a CDN
+  // serving 404-as-200, an error page with a 200 - are indistinguishable from an absent
+  // document. Neither is reachable through signature-verified bytes: a document of the
+  // wrong shape inside a validly signed bundle means the bundle is internally
+  // inconsistent, and that is exactly when refusing beats guessing. Suite 1501 asserts
+  // the same rule from the other end.
+  //
+  // Null still means "could not ask", never "nothing is blocked", and callers refuse or
+  // defer on it. What no longer needs defending against is the cache that held an error
+  // page for six hours: there is no response to cache, only bytes a signature has
+  // already vouched for.
+  const typed = policyStore.getDocument('blocklist');
+  if (typed !== null && typed !== undefined) {
+    if (!Array.isArray(typed)) return null;
+    if (typed.every((entry) => entry && typeof entry.kind === 'string' && typeof entry.value === 'string')) {
+      return typed;
     }
-  } catch (error) {
-    // An absent or unreachable typed document is not a failure while releases
-    // that predate it are still being served the flat one.
-    log.info(`Typed blocklist unavailable (${error.message}); falling back to blockedrepositories.json`);
+    return null;
   }
-  // Anything that is not a list is "could not ask", not "nothing is blocked". The flat
-  // document is fetched and cached on whether the response was truthy, so an error page
-  // served as 200 is held for six hours - and mapping over it throws a TypeError that no
-  // caller recognises, which in the spawner reads as a permanently unspawnable application
-  // rather than as a policy source that could not be read.
-  const repos = await getBlockedRepositores();
+
+  const repos = getBlockedRepositores();
   if (!Array.isArray(repos)) return null;
   return repos.map((value) => ({ kind: 'legacy', value }));
 }
@@ -428,7 +431,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
  * @returns {Promise<boolean>} True if images are compliant
  */
 async function checkApplicationImagesCompliance(appSpecs) {
-  const entries = await getBlocklist();
+  const entries = getBlocklist();
 
   if (!entries) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -503,7 +506,7 @@ async function checkApplicationsCompliance(installedApps, removeAppLocally) {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const entries = await getBlocklist();
+    const entries = getBlocklist();
     if (!entries) {
       // The list could not be obtained. Removing on that would tear down every
       // application on the node the first time the document was unreachable.
