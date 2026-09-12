@@ -63,6 +63,9 @@ let phaseTimer = null;
 // once peering is up, so this module does not reach into the communication layer and the
 // ladder can be exercised without one.
 let peerRequest = null;
+// Asks ONE named peer whether it is ahead. One message and one reply, so it needs no
+// rationing and can run on every arrival.
+let peerRequestFrom = null;
 let peerAnnounce = null;
 let peerCount = null;
 // Whether there is a peer set worth asking, as a LEVEL rather than an edge. Without it the
@@ -78,16 +81,19 @@ const PEER_WINDOW_MS = config.policy.peerWindowMs;
 // woken rather than polling for it.
 let peerAnswered = null;
 
+// One resolver per peer asked directly, keyed by ip:port.
+//
+// Every peer answers - respondWithPolicy replies in all three states - so silence means only
+// "not there". A targeted ask therefore ends on its answer, and PEER_WINDOW_MS is the floor
+// for a peer that has gone away rather than the mechanism.
+const pendingPeerAsks = new Map();
+
 // One refresh at a time. Without this, a node that gains sixteen peers in a second would
 // start sixteen refreshes, each of which can reach the backstop -- the fleet-wide lockstep
 // stampede against the published source that this design exists to avoid, arriving by the
 // back door. A caller that asks while one is running waits for that one.
 let refreshInFlight = null;
 
-// Whether the peer rung has been offered any peers yet. The boot refresh runs before
-// discovery has started (serviceManager wires peering after it), so its peer step
-// broadcasts to an empty set and the ladder silently degenerates to stored + backstop.
-let askedPeersSinceBoot = false;
 
 /** Whether this node holds a verified bundle. False means unknown, never "empty". */
 function isReady() {
@@ -226,10 +232,46 @@ async function restore() {
  * @param {string} raw The bundle as received.
  * @returns {boolean} Whether it was adopted.
  */
-function offerBundle(raw) {
+function offerBundle(raw, peerKey) {
   const adopted = consider(raw, 'peer');
   if (adopted && peerAnswered) peerAnswered();
+  settlePeerAsk(peerKey);
   return adopted;
+}
+
+/**
+ * Ends a targeted ask waiting on this peer. Any of the three answers settles it.
+ * @param {string} [peerKey] ip:port of the peer that answered.
+ */
+function settlePeerAsk(peerKey) {
+  if (!peerKey) return;
+  const settle = pendingPeerAsks.get(peerKey);
+  if (settle) settle();
+}
+
+/**
+ * Ask ONE peer whether it is ahead, and adopt what it sends if it is.
+ *
+ * This rung never reaches the published source. The source is rate-limited and shared by the
+ * fleet, so anything that can reach it must run on the backstop's timer; the peer question is
+ * one signed message on the local network and runs as often as peers arrive.
+ *
+ * Settles on the answer - a bundle if the peer is ahead, its sequence if not, null if it
+ * holds nothing - so PEER_WINDOW_MS bounds only a peer that left between connecting and
+ * being asked.
+ * @param {string} peerKey ip:port.
+ */
+async function askPeer(peerKey) {
+  // One outstanding ask per peer. A second is not more informative, and a peer that
+  // reconnects repeatedly must not accumulate them.
+  if (pendingPeerAsks.has(peerKey)) return;
+  const answered = new Promise((resolve) => { pendingPeerAsks.set(peerKey, () => resolve(true)); });
+  try {
+    await peerRequestFrom(peerKey, getSeq());
+    await Promise.race([answered, serviceHelper.delay(PEER_WINDOW_MS)]);
+  } finally {
+    pendingPeerAsks.delete(peerKey);
+  }
 }
 
 /**
@@ -290,10 +332,26 @@ async function refresh() {
  * crossing is another chance and gets another ask; once it holds something, one is enough
  * -- being a little behind is not urgent, and the backstop tick covers it.
  */
-function notePeerAvailable() {
-  if (current && askedPeersSinceBoot) return;
-  askedPeersSinceBoot = true;
-  refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
+function notePeerAvailable(peerKey) {
+  // Two questions, decided by what this node holds.
+  //
+  // Holding NOTHING is the cold start: the whole ladder runs, because this peer may hold
+  // nothing either and the published source is the floor under a network that has no policy
+  // yet. Every arriving peer triggers it, since any one of them may be the first that can
+  // answer.
+  if (!current) {
+    refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
+    return;
+  }
+
+  // Holding something needs a far smaller answer: is THIS peer ahead. One message, one
+  // reply, no source, so it runs on every arrival.
+  //
+  // It has to be an ask rather than a wait, because being TOLD is a broadcast this node must
+  // already be connected to hear. A peer that adopts in the seconds before it connects
+  // announces to nobody, and nothing afterwards revisits it.
+  if (!peerKey || !peerRequestFrom) return;
+  askPeer(peerKey).catch((error) => log.warn(`policyStore - peer ask failed: ${error.message}`));
 }
 
 /**
@@ -359,8 +417,11 @@ function refreshOnce() {
  * @param {Function} [count] How many peers are connected right now. Without it the store
  *   asks regardless and waits out the window, which is what a boot used to do.
  */
-function setPeerTransport({ request, announce, count } = {}) {
+function setPeerTransport({
+  request, requestFrom, announce, count,
+} = {}) {
   peerRequest = request || null;
+  peerRequestFrom = requestFrom || null;
   peerAnnounce = announce || null;
   peerCount = count || null;
 }
@@ -371,7 +432,9 @@ function setPeerTransport({ request, announce, count } = {}) {
  * claiming a sequence it cannot produce costs one request.
  * @param {number} seq The sequence the peer claims.
  */
-function notePeerSeq(seq) {
+function notePeerSeq(seq, peerKey) {
+  // It answered, whatever it said. A targeted ask waiting on this peer is done.
+  settlePeerAsk(peerKey);
   // `null` is a peer saying it holds no policy at all. Not confirmation - an empty peer
   // cannot speak to whether ours is current - but not nothing either: it answered, so it
   // is alive, and a node whose peers all answer this way is on a network that has no
@@ -448,11 +511,12 @@ function reset() {
   current = null;
   currentRaw = null;
   peerRequest = null;
+  peerRequestFrom = null;
   peerAnnounce = null;
   peerCount = null;
   peerAnswered = null;
   refreshInFlight = null;
-  askedPeersSinceBoot = false;
+  pendingPeerAsks.clear();
   confirmed = false;
   globalState.policyReady = false;
 }

@@ -710,12 +710,12 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         } else if (msgObj.data.type === 'fluxpolicyseq') {
           // A claim, not an answer. policyStore decides whether it is worth asking about;
           // nothing here is believed, because a number cannot be checked.
-          setImmediate(() => policyStore.notePeerSeq(msgObj.data.seq));
+          setImmediate(() => policyStore.notePeerSeq(msgObj.data.seq, peerSocket.key));
         } else if (msgObj.data.type === 'fluxpolicy') {
           // The bundle itself. Verified against the pinned keys before it is adopted, so an
           // unsolicited one from any peer is no more dangerous than one we asked for -- and
           // arriving unasked is normal, since peers announce what they adopt.
-          setImmediate(() => policyStore.offerBundle(msgObj.data.bundle));
+          setImmediate(() => policyStore.offerBundle(msgObj.data.bundle, peerSocket.key));
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
