@@ -1162,6 +1162,50 @@ describe('imageManager tests', () => {
       expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
     });
 
+    it('rejects the whole typed document when any one element is malformed', async () => {
+      // `every`, not `filter`. Dropping the bad element would answer from a document the
+      // reader could not fully read, and silently under-block by exactly the entries it
+      // discarded - which is the direction that costs money.
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({
+        data: [
+          { kind: 'name', value: 'dowz', reason: 'why', added: '2026-09-12' },
+          { kind: 'name' },
+        ],
+      });
+      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
+    });
+
+    it('returns null when the flat document is not a list', async () => {
+      // The flat fetch caches on truthiness, so an error page served as 200 is held for six
+      // hours. Reading it as "nothing is blocked" would unblock the network; mapping over it
+      // throws a TypeError no caller recognises. Neither: it is "could not ask".
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).rejects(new Error('404'));
+      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/))
+        .resolves({ data: '<html>rate limited</html>' });
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.equal(null);
+    });
+
+    it('returns an empty list when the documents say nothing is blocked', async () => {
+      // [] and null must never collapse into one value: a node that cannot read policy has to
+      // refuse to decide, where one that read an empty policy has decided.
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: [] });
+      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: [] });
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.deep.equal([]);
+    });
+
     it('returns null when neither document can be read', async () => {
       // Null is "could not ask", which callers refuse or defer on. An empty
       // list would answer "nothing is blocked" from an outage.

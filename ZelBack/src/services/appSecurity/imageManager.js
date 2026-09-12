@@ -256,8 +256,13 @@ async function getBlocklist() {
     // that predate it are still being served the flat one.
     log.info(`Typed blocklist unavailable (${error.message}); falling back to blockedrepositories.json`);
   }
+  // Anything that is not a list is "could not ask", not "nothing is blocked". The flat
+  // document is fetched and cached on whether the response was truthy, so an error page
+  // served as 200 is held for six hours - and mapping over it throws a TypeError that no
+  // caller recognises, which in the spawner reads as a permanently unspawnable application
+  // rather than as a policy source that could not be read.
   const repos = await getBlockedRepositores();
-  if (!repos) return null;
+  if (!Array.isArray(repos)) return null;
   return repos.map((value) => ({ kind: 'legacy', value }));
 }
 
