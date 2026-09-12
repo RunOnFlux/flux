@@ -81,6 +81,16 @@ const PEER_WINDOW_MS = config.policy.peerWindowMs;
 // woken rather than polling for it.
 let peerAnswered = null;
 
+// Whether the whole ladder has run since this process started.
+//
+// A restart is the one moment a node is certain to be behind and cannot tell: it restored
+// a bundle, so it holds something, and its peers may hold the same stale thing. Peer
+// confirmation cannot decide it - a peer at the same sequence answers "not ahead", which is
+// true and useless, and it is what a whole fleet restarted together says to itself. So the
+// ladder runs once per boot regardless of what any peer says, and the published source is
+// what breaks the tie.
+let ladderRunSinceBoot = false;
+
 // One resolver per peer asked directly, keyed by ip:port.
 //
 // Every peer answers - respondWithPolicy replies in all three states - so silence means only
@@ -333,26 +343,28 @@ async function refresh() {
  * -- being a little behind is not urgent, and the backstop tick covers it.
  */
 function notePeerAvailable(peerKey) {
-  // Two questions, decided by whether this node's policy is CONFIRMED - not by whether it
-  // holds any.
-  //
-  // Unconfirmed is the cold start and the restart alike: a node with nothing, and a node
-  // that restored a bundle from disk, are in the same position. Disk proves a bundle was
-  // real, never that it is still the network's, so a restored node is behind until something
-  // says otherwise - and its peers may be equally stale, which makes the published source
-  // the floor under both. The whole ladder runs, on every arriving peer, since any one of
-  // them may be the first that can answer.
-  //
-  // Holding a bundle is NOT the same as being up to date, and using `current` here left a
-  // restarted node unable to reach the source at all: it held something, so it took the
-  // targeted rung, which by design cannot fetch.
-  if (!confirmed) {
+  // Holding NOTHING: the whole ladder, on every arriving peer. Any one of them may be the
+  // first that can answer, and the published source is the floor under a network that has no
+  // policy yet.
+  if (!current) {
+    ladderRunSinceBoot = true;
     refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
     return;
   }
 
-  // Confirmed needs a far smaller answer: is THIS peer ahead. One message, one reply, no
-  // source, so it runs on every arrival.
+  // Holding a RESTORED bundle: the ladder once, before any peer is allowed to settle the
+  // question. Confirmation cannot be the gate here, because a peer at the same sequence
+  // confirms in milliseconds and is exactly as stale - which is what a fleet restarted
+  // together tells itself, so nothing would ever reach the source and a newly published
+  // document would wait for a backstop tick up to a day out.
+  if (!ladderRunSinceBoot) {
+    ladderRunSinceBoot = true;
+    refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
+    return;
+  }
+
+  // Past that, a far smaller answer is enough: is THIS peer ahead. One message, one reply,
+  // no source, so it runs on every arrival.
   //
   // It has to be an ask rather than a wait, because being TOLD is a broadcast this node must
   // already be connected to hear. A peer that adopts in the seconds before it connects
@@ -524,6 +536,7 @@ function reset() {
   peerAnswered = null;
   refreshInFlight = null;
   pendingPeerAsks.clear();
+  ladderRunSinceBoot = false;
   confirmed = false;
   globalState.policyReady = false;
 }
