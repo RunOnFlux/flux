@@ -494,6 +494,11 @@ function resignPolicy({ bumpSeq = true } = {}) {
     // The same four names the live bundle carries. A document the node does not find reads
     // as unknown rather than empty, so all four are always present even when empty.
     documents: {
+      // The typed document the readers prefer. It is served over HTTP as well, but the
+      // bundle is what a current node reads - so without it here getDocument('blocklist')
+      // is null on every harness fleet and the typed path is never exercised, while the
+      // flat fallback passes and looks like coverage.
+      blocklist: state.blocklist,
       blockedrepositories: state.blockedRepositories,
       vettedrepositories: state.vettedRepositories,
       tamperingblockednodes: state.tamperingBlocklist,
