@@ -526,9 +526,28 @@ async function startFluxFunctions() {
     // a node that boots while github is down getting policy from the neighbour beside it
     // and getting none for a day.
     //
-    // The THRESHOLD edge, not every connection: one ask when the peer set becomes usable
-    // rather than one per peer as it fills.
+    // BOTH EDGES, because the threshold one is LATCHED and cannot carry this on its own.
+    //
+    // peerThresholdReached fires when the count first crosses appSyncPeerThreshold and
+    // then never again unless the set has since fallen below appSyncDegradedThreshold.
+    // For a node that holds NO policy that is the wrong signal: it asks once at boot,
+    // its peers have nothing either, and when one of them later obtains a bundle nothing
+    // tells this node to ask again. Its peer set never collapsed, so the edge never
+    // re-arms, and the only road left is a backstop tick up to 24 hours away - the exact
+    // gap peers-first was chosen to close. Measured on a three-node fleet: node 1 asked
+    // at 08:16:09, node 0 adopted at 08:16:54, and node 1 held nothing thereafter.
+    //
+    // Asking per JOIN is safe rather than chatty, and notePeerAvailable is where that is
+    // decided: a node that already holds policy returns early after its first ask, so
+    // the per-join path only ever runs for a node with nothing - which is the state the
+    // whole ladder exists to get out of. refreshOnce is single-flight, so a burst of
+    // joins as the pool fills coalesces into one refresh rather than one per peer.
+    //
+    // The orchestrator next door draws exactly this distinction for its sync pool, and
+    // for the same reason: a latched edge says nothing about a pool that has changed
+    // since it fired.
     peerManager.on('peerThresholdReached', () => policyStore.notePeerAvailable());
+    peerManager.on('peerConnected', () => policyStore.notePeerAvailable());
     policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
