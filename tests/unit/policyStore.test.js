@@ -412,6 +412,40 @@ describe('policyStore', () => {
       expect(request.callCount, 'still nothing held, so still worth asking').to.be.greaterThan(afterFirst);
     });
 
+    it('runs the whole ladder for a RESTORED bundle, which is not confirmation', async () => {
+      // A node that restored from disk holds a bundle and is still behind until something
+      // says otherwise: disk proves the bundle was real, never that it is still the
+      // network's. Its peers may be equally stale, so the published source is the floor
+      // under it exactly as under a node holding nothing.
+      //
+      // Gating on "holds something" instead left a restarted node unable to reach the source
+      // at all - it took the targeted rung, which by design cannot fetch - so it sat on
+      // whatever it had until its next backstop tick.
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const { module } = load({
+        serviceHelper: { axiosGet },
+        repo: {
+          readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
+          writeBundle: sinon.stub().resolves(true),
+        },
+      });
+      const requestFrom = sinon.stub().resolves();
+      module.setPeerTransport({
+        request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves(),
+      });
+      await module.restore();
+      expect(module.getSeq(), 'restored, so it holds something').to.equal(4);
+
+      const fetchesBefore = axiosGet.callCount;
+      module.notePeerAvailable('198.18.0.11:16127');
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
+
+      expect(axiosGet.callCount, 'unconfirmed, so the source is still in reach')
+        .to.be.greaterThan(fetchesBefore);
+      module.stop();
+    });
+
     it('asks the peer that arrived, not the whole set, once it holds something', async () => {
       // A node that already holds policy has one question - is THIS peer ahead - and puts it
       // to that peer alone. A broadcast here would have to be rationed, and a rationed ask
