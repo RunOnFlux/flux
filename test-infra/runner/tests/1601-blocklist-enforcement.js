@@ -78,9 +78,24 @@ describe('Blocklist enforcement over the published policy document', function ()
 
   it('removes an installed application once the document names it', async function () {
     this.timeout(300000);
-    // Named by application name rather than by hash: a non-extending update is
-    // free to an owner and mints a new hash, so a hash names one version where a
-    // name names the application.
+    // Named by application name for two reasons, and the second one is what keeps
+    // this suite honest.
+    //
+    // A non-extending update is free to an owner and mints a new hash, so a hash
+    // names one version where a name names the application.
+    //
+    // And `name` is the only kind the flat document cannot express: name entries
+    // are omitted from its projection, and a bare application name there would be
+    // tested against the hash, the owner, the repository and the namespace, which
+    // it matches none of. So the typed document is the ONLY thing that can satisfy
+    // this test. If a node ever stops reading it - an unpublished document, an
+    // unsigned one, a bundle that does not carry it - the fallback answers with
+    // nothing blocked, the application is never removed, and test 1 fails on its
+    // wait.
+    //
+    // A case added here with kind `image` or `org` gives that up: the fallback can
+    // express both, so it would stand in silently and the suite would pass while
+    // proving the road not taken.
     await setBlocklist([{
       kind: 'name',
       value: appName,
