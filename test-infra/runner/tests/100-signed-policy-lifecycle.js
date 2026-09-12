@@ -256,17 +256,53 @@ describe('the signed policy bundle on a single node', function () {
       expect(owners.data).to.deep.equal([ENTERPRISE_OWNER]);
     });
 
-    it('a document published after boot reaches the node', async function () {
+    // A RESTART IS NO LONGER HOW A SINGLE NODE LEARNS, and that is the point of the
+    // pair below rather than a limitation of it.
+    //
+    // This block used to be one test: publish a document, restart, and wait for the
+    // node to pick it up - on the reasoning that a peerless node's only other road
+    // is a 24-hour backstop. Boot fetched unconditionally then. It no longer does:
+    // only a node that restored NOTHING asks the source at boot, because a release
+    // wave restarting the whole fleet was otherwise one github fetch per node inside
+    // the rollout window, and phasing the periodic tick does nothing about the boot
+    // path. So the old test's premise is now false by design, and it timed out the
+    // first time this suite met the change.
+    //
+    // Split, the two halves say what actually holds, and the first of them had no
+    // fleet coverage at all.
+    it('does not ask the source at boot when it restored a bundle', async function () {
       this.timeout(120000);
       const before = (await db.policyBundle()).seq;
       const { seq } = await stub(env, '/blocked-repos', ['blocked/by-policy:v1']);
       expect(seq, 'the stub advanced its sequence').to.be.greaterThan(before);
-      // Nothing pushes here: this node has no peers to be told by, and the backstop poll
-      // is 24 hours. A restart is how a single node learns, and it is also the cheapest
-      // proof that the boot path resolves from the source rather than only from the row.
+      // The stub's own count, which is the only side of "did not ask" this suite
+      // controls. Without it the assertion below is just "the sequence did not move",
+      // which is also true of a node that asked and was refused.
+      const asked = (await stubState(env)).policyFetches.total;
+
       await env.restartNode(0);
       await waitForBootSettled(node);
-      await waitFor(async () => (await db.policyBundle()).seq === seq, {
+
+      expect(
+        (await db.policyBundle()).seq,
+        'a node that restored a bundle moved to a newer sequence anyway',
+      ).to.equal(before);
+      expect(
+        (await stubState(env)).policyFetches.total,
+        'a node that restored a bundle still asked the backstop',
+      ).to.equal(asked);
+    });
+
+    it('takes the newly published document when it restored nothing', async function () {
+      this.timeout(120000);
+      const { seq } = await stubState(env).then((st) => ({ seq: st.policySeq }));
+      // Nothing on disk is the one case that still resolves from the source at boot,
+      // and it is how this suite proves the published document reaches a node at all.
+      await db.deletePolicyBundle();
+      await env.restartNode(0);
+      await waitForBootSettled(node);
+      await waitFor(async () => Boolean(await db.policyBundle())
+        && (await db.policyBundle()).seq === seq, {
         timeout: 90000,
         label: `the node to adopt seq ${seq}`,
       });
@@ -331,118 +367,6 @@ describe('the signed policy bundle on a single node', function () {
       }));
       expect(response.status).to.equal('error');
       expect(response.data.message).to.include('enterprise app owners');
-    });
-  });
-
-  describe('bundles it must refuse', function () {
-    // Restoration belongs in a hook, not at the end of a test body. Test 12 used to
-    // republish a good enterprisenodes document as its last statement; when its assertion
-    // failed, that line never ran and the NEXT test inherited a malformed map and failed
-    // for a reason that had nothing to do with it. A fixture a test breaks is a fixture
-    // the suite has to put back whatever the test does.
-    afterEach(async function () {
-      this.timeout(30000);
-      await stub(env, '/policy', {
-        signer: 'pinned',
-        body: null,
-        available: true,
-        documents: { enterprisenodes: ENTERPRISE_MAP },
-      }).catch(() => {});
-    });
-
-    // Each of these publishes something the node must not take, then proves the node
-    // still holds what it held. Held-not-adopted is the assertion, because a refusal
-    // that dropped the policy would be a worse failure than accepting the bad bundle.
-    //
-    // Both halves are asserted on the STUB, not in the node's log: env.restartNode ends
-    // that container's log collection, so a log assertion placed after one can only ever
-    // time out. The stub survives the restart, and publishing resets its fetch counters,
-    // so "the node came and asked for this exact bundle" is a count starting from zero.
-    async function refused(publish, label) {
-      const before = (await db.policyBundle()).seq;
-      await publish();
-      await env.restartNode(0);
-      await waitForBootSettled(node);
-      await waitFor(async () => (await stubState(env)).policyFetches.ok > 0, {
-        timeout: 90000,
-        label: 'the node to fetch the bundle it must refuse',
-      });
-      const after = await db.policyBundle();
-      expect(after.seq, label).to.equal(before);
-      return after;
-    }
-
-    it('refuses a bundle signed by a key it does not pin', async function () {
-      this.timeout(150000);
-      await refused(
-        () => stub(env, '/policy', { signer: 'rogue' }),
-        'a valid signature from an untrusted signer is fetched and not adopted',
-      );
-    });
-
-    it('adopts a bundle signed by the OTHER pinned key', async function () {
-      this.timeout(150000);
-      // A rotation. The fleet pins two keys so signing can move to the second without
-      // every node needing a release first - that is the only thing the second key buys,
-      // and until something verifies against it the list is decoration. The bundle is
-      // otherwise identical, so what is being proven is the key list, nothing else.
-      const before = (await db.policyBundle()).seq;
-      await stub(env, '/policy', { signer: 'secondary' });
-      const served = (await stubState(env)).policySeq;
-      expect(served).to.be.greaterThan(before);
-      await env.restartNode(0);
-      await waitForBootSettled(node);
-      await waitFor(async () => (await db.policyBundle()).seq === served, {
-        timeout: 90000,
-        label: `the node to adopt seq ${served} signed by the secondary key`,
-      });
-    });
-
-    it('refuses a bundle whose sequence goes backwards', async function () {
-      this.timeout(150000);
-      await refused(
-        () => stub(env, '/policy', { seq: 1 }),
-        'a rollback is fetched and not adopted',
-      );
-    });
-
-    it('refuses bytes that are not a bundle at all', async function () {
-      this.timeout(150000);
-      // Restored to a good, higher sequence first: the rollback above left the stub
-      // publishing seq 1, and a node that refused it would refuse this for that reason
-      // rather than for the one being tested.
-      const stored = await db.policyBundle();
-      await stub(env, '/policy', { seq: stored.seq + 1 });
-      await refused(
-        () => stub(env, '/policy', { body: 'this is not a signed bundle' }),
-        'a body that is not a bundle is fetched and not adopted',
-      );
-    });
-
-    it('adopts a correctly signed bundle whose document is malformed, and reads it as unknown', async function () {
-      this.timeout(150000);
-      // A signature says who published a document, never that its contents are the shape
-      // the reader expects. The bundle is taken; the READER is what must refuse.
-      const stored = await db.policyBundle();
-      const seq = stored.seq + 1;
-      await stub(env, '/policy', { seq, documents: { enterprisenodes: { '04abc': 'not-an-array' } } });
-      await env.restartNode(0);
-      await waitForBootSettled(node);
-      await waitFor(async () => (await db.policyBundle()).seq === seq, {
-        timeout: 90000,
-        label: 'the malformed-document bundle to be adopted',
-      });
-      const owners = await node.get('/flux/enterpriseappowners');
-      expect(owners.status, 'the reader answers unknown, never an empty list').to.equal('error');
-      expect(owners.data.message).to.include('not yet obtained');
-      // And a privilege that cannot be checked is refused rather than waved through.
-      const response = await verify(policySpec({
-        name: `unknownpin${Date.now()}`,
-        owner: ENTERPRISE_OWNER,
-        nodes: [PIN_BY_ADDRESS],
-      }));
-      expect(response.status).to.equal('error');
-      expect(response.data.message).to.include('network policy not yet obtained');
     });
   });
 
@@ -550,5 +474,168 @@ describe('the signed policy bundle on a single node', function () {
         label: 'the node to adopt once the source answers again',
       });
     });
+  });
+});
+
+describe('bundles a node must refuse', function () {
+  // ITS OWN FLEET, WITH A LIVE TICK, because a restart no longer makes a node look.
+  //
+  // Every test here used to publish something bad, restart the node, and wait for the
+  // boot fetch to bring it. Boot stopped fetching when the node has a bundle to restore
+  // - deliberately, so a release wave is not one source fetch per node - so that road is
+  // gone, and with it the only way these tests had of putting a bad bundle in front of a
+  // node that is also holding a good one.
+  //
+  // The backstop tick is the road that remains, and it is the one production uses: a node
+  // that has been up for a day meets a rotated or forged bundle on a poll, not on a boot.
+  // Held-not-adopted stays the assertion - a refusal that DROPPED the policy would be
+  // worse than taking the bad bundle - and that is exactly what a restart-driven version
+  // could no longer express, because a node with nothing to hold has nothing to keep.
+  //
+  // Not an override on the suite above: a node polling in the background makes "the source
+  // served nothing" false, and that is how the boot-fetch test next door proves its point.
+  let env;
+  let db;
+  let node;
+
+  const verify = (spec) => node.post(
+    '/apps/verifyappregistrationspecifications',
+    spec,
+    { 'Content-Type': 'text/plain' },
+  );
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(360000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 1,
+      tickerAutostart: false,
+      policy: { documents: { enterprisenodes: ENTERPRISE_MAP } },
+      configOverrides: { policy: { refreshIntervalMs: 15000 } },
+    });
+    [node] = env.clients;
+    db = dbClient(1);
+    await pushTestApp(APP_IMAGE);
+    await waitForBootSettled(node);
+    await waitFor(async () => Boolean(await db.policyBundle()), {
+      timeout: 90000,
+      label: 'the node to adopt a policy bundle',
+    });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await stub(env, '/policy', { available: true, body: null, signer: 'pinned' }).catch(() => {});
+    await env?.teardown();
+  });
+
+  // Restoration belongs in a hook, not at the end of a test body. A test used to
+  // republish a good enterprisenodes document as its last statement; when its assertion
+  // failed, that line never ran and the NEXT test inherited a malformed map and failed
+  // for a reason that had nothing to do with it. A fixture a test breaks is a fixture
+  // the suite has to put back whatever the test does.
+  afterEach(async function () {
+    this.timeout(30000);
+    await stub(env, '/policy', {
+      signer: 'pinned',
+      body: null,
+      available: true,
+      documents: { enterprisenodes: ENTERPRISE_MAP },
+    }).catch(() => {});
+  });
+
+  // Publishing RESETS the stub's fetch counters (resignPolicy), so `ok > 0` means this
+  // node came and asked for this exact bundle, counted from zero - not that it fetched
+  // something at some point. That is the half of "fetched and refused" the node's own log
+  // cannot be asked for reliably, and the stub can.
+  async function metAndRefused(publish, label) {
+    const before = (await db.policyBundle()).seq;
+    await publish();
+    await waitFor(async () => (await stubState(env)).policyFetches.ok > 0, {
+      timeout: 90000,
+      label: 'the node to fetch the bundle it must refuse',
+    });
+    const after = await db.policyBundle();
+    expect(after.seq, label).to.equal(before);
+    return after;
+  }
+
+  // Adopted rather than refused: same road, opposite verdict.
+  async function metAndAdopted(publish, label) {
+    await publish();
+    const served = (await stubState(env)).policySeq;
+    await waitFor(async () => (await db.policyBundle()).seq === served, {
+      timeout: 90000,
+      label,
+    });
+    return served;
+  }
+
+  it('refuses a bundle signed by a key it does not pin', async function () {
+    this.timeout(150000);
+    await metAndRefused(
+      () => stub(env, '/policy', { signer: 'rogue' }),
+      'a valid signature from an untrusted signer is fetched and not adopted',
+    );
+  });
+
+  it('adopts a bundle signed by the OTHER pinned key', async function () {
+    this.timeout(150000);
+    // A rotation. The fleet pins two keys so signing can move to the second without
+    // every node needing a release first - that is the only thing the second key buys,
+    // and until something verifies against it the list is decoration. The bundle is
+    // otherwise identical, so what is being proven is the key list, nothing else.
+    const before = (await db.policyBundle()).seq;
+    const served = await metAndAdopted(
+      () => stub(env, '/policy', { signer: 'secondary' }),
+      'the node to adopt the bundle signed by the secondary key',
+    );
+    expect(served, 'the stub advanced its sequence').to.be.greaterThan(before);
+  });
+
+  it('refuses a bundle whose sequence goes backwards', async function () {
+    this.timeout(150000);
+    await metAndRefused(
+      () => stub(env, '/policy', { seq: 1 }),
+      'a rollback is fetched and not adopted',
+    );
+  });
+
+  it('refuses bytes that are not a bundle at all', async function () {
+    this.timeout(150000);
+    // Restored to a good, higher sequence first: the rollback above left the stub
+    // publishing seq 1, and a node that refused it would refuse this for that reason
+    // rather than for the one being tested.
+    const stored = await db.policyBundle();
+    await stub(env, '/policy', { seq: stored.seq + 1 });
+    await metAndRefused(
+      () => stub(env, '/policy', { body: 'this is not a signed bundle' }),
+      'a body that is not a bundle is fetched and not adopted',
+    );
+  });
+
+  it('adopts a correctly signed bundle whose document is malformed, and reads it as unknown', async function () {
+    this.timeout(150000);
+    // A signature says who published a document, never that its contents are the shape
+    // the reader expects. The bundle is taken; the READER is what must refuse.
+    const stored = await db.policyBundle();
+    const seq = stored.seq + 1;
+    await metAndAdopted(
+      () => stub(env, '/policy', { seq, documents: { enterprisenodes: { '04abc': 'not-an-array' } } }),
+      'the malformed-document bundle to be adopted',
+    );
+    const owners = await node.get('/flux/enterpriseappowners');
+    expect(owners.status, 'the reader answers unknown, never an empty list').to.equal('error');
+    expect(owners.data.message).to.include('not yet obtained');
+    // And a privilege that cannot be checked is refused rather than waved through.
+    const response = await verify(policySpec({
+      name: `unknownpin${Date.now()}`,
+      owner: ENTERPRISE_OWNER,
+      nodes: [PIN_BY_ADDRESS],
+    }));
+    expect(response.status).to.equal('error');
+    expect(response.data.message).to.include('network policy not yet obtained');
   });
 });
