@@ -395,13 +395,17 @@ describe('the signed policy bundle on a single node', function () {
 
       const after = await db.policyBundle();
       expect(after.seq, 'the node came back holding what it had').to.equal(held.seq);
-      // It asked, and was refused - so the policy it holds came off its own disk rather
-      // than from a source that happened to still be answering.
-      await waitFor(async () => (await stubState(env)).policyFetches.unavailable > 0, {
-        timeout: 60000,
-        label: 'the node to try the unreachable backstop',
-      });
-      expect((await stubState(env)).policyFetches.total).to.be.greaterThan(fetchesBefore);
+      // IT DID NOT EVEN ASK, and that is a stronger proof than the one this used to
+      // make. The assertion here was "it asked and was refused", reaching for the fact
+      // that the policy it holds came off its own disk rather than from a source that
+      // happened to still be answering. Boot now resolves from the source only when
+      // restore() returns nothing, so a node holding a bundle never goes near the
+      // source at all - which settles the same question without depending on the
+      // source's answer, and would hold even if the source had come back up.
+      expect(
+        (await stubState(env)).policyFetches.total,
+        'a node that restored a bundle still went to the source',
+      ).to.equal(fetchesBefore);
 
       // The gate is open on a restored bundle: acquisition waits on policy being KNOWN,
       // not on it being fresh.
