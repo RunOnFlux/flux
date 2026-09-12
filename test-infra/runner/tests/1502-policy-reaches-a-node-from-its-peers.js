@@ -1,5 +1,7 @@
 // weight: medium
-import { describe, it, before, after } from 'mocha';
+import {
+  describe, it, before, after, afterEach,
+} from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
@@ -115,6 +117,13 @@ describe('policy reaching a node from its peers', function () {
     this.timeout(60000);
     await stub(env, '/policy', { available: true }).catch(() => {});
     await env?.teardown();
+  });
+
+  // Several tests here take the source down and restore it on their last line. Restoring it
+  // per TEST instead means a failure cannot leave it down for everything after it: when one
+  // did, the next two failed on a dead source and reported three defects where there was one.
+  afterEach(async () => {
+    await stub(env, '/policy', { available: true }).catch(() => {});
   });
 
   it('every node boots holding the published bundle', async function () {
@@ -239,6 +248,47 @@ describe('policy reaching a node from its peers', function () {
       Buffer.from(JSON.parse(stored.raw).payload_b64, 'base64').toString('utf8'),
     );
     expect(payload.documents.blockedrepositories).to.deep.equal(['spread/by-peers:v1']);
+  });
+
+  it('answers two nodes asking the same question, not just the first', async function () {
+    this.timeout(300000);
+    // THE PROPERTY A SINGLE ASKER CANNOT SHOW. Messages are deduplicated on the payload
+    // alone, and a request payload carries no sender - `{fluxpolicyrequest, seq}` is what
+    // every node at that sequence sends. So two nodes asking the same peer the same
+    // question are byte-identical, and a filter that treats the second as a repeat of the
+    // first drops it with no answer, no NAK and no log.
+    //
+    // One asker converging proves nothing here: the first asker is always answered. The
+    // assertion is that the SECOND one is too, so both ONE_HOP and TWO_HOPS have to arrive.
+    //
+    // The source is held down throughout, so neither of them can have fetched it - the only
+    // way either holds the new bundle is that its own request was answered.
+    const { seq } = await stub(env, '/blocked-repos', ['two/askers:v1']);
+    const bundle = await fetch(`${env.stubBaseUrl}/policy-signed.json`).then((r) => r.text());
+    await stub(env, '/policy', { available: false });
+    const okBefore = (await stubState(env)).policyFetches.ok;
+
+    await env.stubPeerClients.get(STUB_PEER_INDEX).broadcast({
+      type: 'fluxpolicy', version: 1, bundle,
+    });
+    await waitFor(async () => (await heldSeq(TOLD_NODE)) === seq, {
+      timeout: 120000,
+      label: `node ${TOLD_NODE} to adopt seq ${seq} from the stub peer`,
+    });
+
+    await waitFor(
+      async () => {
+        const held = await Promise.all([ONE_HOP, TWO_HOPS].map(heldSeq));
+        return held.every((h) => h === seq);
+      },
+      {
+        timeout: 150000,
+        label: `both node ${ONE_HOP} and node ${TWO_HOPS} to be answered, not just whichever asked first`,
+      },
+    );
+
+    expect((await stubState(env)).policyFetches.ok, 'neither of them fetched it')
+      .to.equal(okBefore);
   });
 
   it('asks every peer that arrives without ever reaching the source', async function () {

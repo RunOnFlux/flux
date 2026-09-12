@@ -616,6 +616,35 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
  * @param {object} msgObj Parsed message object.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket FluxPeerSocket instance.
  */
+// Message types whose meaning depends on WHO sent them.
+//
+// messageCache is a flood filter keyed on the payload alone, and for news that is right:
+// two copies of "I have seq 2" are the same fact whoever relayed them, and acting once is
+// the point. A question is not news. `{fluxapprequest, hash: X}` is what EVERY node missing
+// X sends, so the sender is the only thing distinguishing one from another - and it is the
+// one part the key throws away. The second asker then looks like a repeat of the first and
+// is dropped: no answer, no NAK, no log.
+//
+// Directed types skip the cache in both directions. They are point-to-point, so they cannot
+// arrive twice by different routes and there is nothing to suppress; and nothing ever
+// fetches a question from the store by hash, so there is nothing to keep. The cache is
+// smaller for their absence.
+//
+// The test for this list is NOT "is it relayed" - fluxpolicyseq is relayed by nobody and is
+// still news, spread by each adopter announcing to its own peers. It is "does the sender's
+// identity change what the message means".
+const DIRECTED_TYPES = Object.freeze(['fluxapprequest', 'fluxpolicyrequest']);
+
+/**
+ * Whether this message is a question rather than news, and so must never be suppressed by
+ * another node having asked the same thing.
+ * @param {object} msgObj Parsed message object.
+ * @returns {boolean}
+ */
+function isDirectedMessage(msgObj) {
+  return DIRECTED_TYPES.includes(msgObj?.data?.type);
+}
+
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
   const {
@@ -666,10 +695,12 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   // check if we have the message in cache. If yes, return false. If not, store it and continue
   await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
   const messageHash = hash(msgObj.data);
-  if (messageCache.has(messageHash)) {
-    return;
+  if (!isDirectedMessage(msgObj)) {
+    if (messageCache.has(messageHash)) {
+      return;
+    }
+    messageCache.set(messageHash, msgObj);
   }
-  messageCache.set(messageHash, msgObj);
 
   // check blocked list
   if (wsPeerCache.has(pubKey)) {
@@ -1878,6 +1909,8 @@ function logSocketsEvery(intervalMs) {
 }
 
 module.exports = {
+  isDirectedMessage,
+  DIRECTED_TYPES,
   connectedPeers,
   removePeer,
   removeIncomingPeer,
