@@ -63,6 +63,17 @@ class FluxPeerManager extends EventEmitter {
   #syncDegradedThreshold;
   /** @type {boolean} true when peer count is above syncPeerThreshold */
   #aboveThreshold;
+  /**
+   * Whether THIS NODE is the reason the peer set is emptying.
+   *
+   * disconnectAll() drops every peer when confirmation is lost, which crosses
+   * the degraded threshold exactly as a network failure does and is not one.
+   * The distinction cannot be inferred from acceptingConnections, which is also
+   * false before the node has ever been confirmed; it has to be stated. Read by
+   * the fall edge below, so a consumer counting peer-set collapses does not
+   * count this node's own teardown as one.
+   */
+  #deliberateTeardown = false;
   /** @type {Map<string, Set<string>>} reporter key → their peer keys */
   #peerTopology = new Map();
   /** @type {Array<function>} topology change listeners */
@@ -286,8 +297,16 @@ class FluxPeerManager extends EventEmitter {
     fluxEventBus.publish('peers:removed', { ip: peer.ip, port: peer.port, direction: peer.direction, closeCode: closeCode || null, outbound: this.#outboundKeys.size, inbound: this.#inboundKeys.size, total: this.#peers.size });
     if (this.#aboveThreshold && this.#peers.size < this.#syncDegradedThreshold) {
       this.#aboveThreshold = false;
-      this.emit('peersBelowThreshold', this.#peers.size);
-      fluxEventBus.publish('peers:belowThreshold', { count: this.#peers.size, threshold: this.#syncDegradedThreshold });
+      // WHY it fell, not only that it did. Every listener needs the edge - the
+      // orchestrator's readiness budget has to reset whatever emptied the set -
+      // but a listener judging the node's stability must not count a teardown
+      // this node performed on itself.
+      this.emit('peersBelowThreshold', this.#peers.size, { deliberate: this.#deliberateTeardown });
+      fluxEventBus.publish('peers:belowThreshold', {
+        count: this.#peers.size,
+        threshold: this.#syncDegradedThreshold,
+        deliberate: this.#deliberateTeardown,
+      });
     }
     // The counterpart of peerConnected. A listener waiting on this peer for an
     // answer now knows the answer is never coming, which is a fact rather than
@@ -350,9 +369,17 @@ class FluxPeerManager extends EventEmitter {
   disconnectAll() {
     this.acceptingConnections = false;
     const count = this.#peers.size;
-    // Snapshot the keys: evict() deletes from the map being walked.
-    for (const key of [...this.#peers.keys()]) {
-      this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+    // Held across the whole loop, because the fall edge fires from inside it -
+    // on whichever eviction takes the count below the degraded threshold - and
+    // a flag set only around that one eviction would have to know which it is.
+    this.#deliberateTeardown = true;
+    try {
+      // Snapshot the keys: evict() deletes from the map being walked.
+      for (const key of [...this.#peers.keys()]) {
+        this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+      }
+    } finally {
+      this.#deliberateTeardown = false;
     }
     log.info(`Disconnected all ${count} peers, no longer accepting connections`);
   }

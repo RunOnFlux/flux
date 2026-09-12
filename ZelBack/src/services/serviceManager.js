@@ -57,6 +57,7 @@ const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
+const peerSetStabilityService = require('./peerSetStabilityService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -494,6 +495,17 @@ async function startFluxFunctions() {
     // it is the only thing that knows whether an arriving answer is still
     // wanted. The peer manager asks rather than keeping its own copy.
     peerManager.syncResponseWanted = (peerSocket) => orchestrator.isSyncResponseWanted(peerSocket);
+
+    // The other half of the peer-gated fallback. The orchestrator stops a node
+    // whose peer set keeps collapsing from ever reaching READY, which is silent;
+    // this says so, and puts a node that does it repeatedly out of service. Same
+    // two edges, read for a different purpose, so it subscribes for itself
+    // rather than being another of the orchestrator's jobs.
+    peerSetStabilityService.start({
+      onPeerEvent: (event, cb) => peerManager.on(event, cb),
+      offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
+      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+    });
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
     appSpawner.initialize();
