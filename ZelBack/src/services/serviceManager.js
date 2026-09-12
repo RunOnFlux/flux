@@ -512,6 +512,13 @@ async function startFluxFunctions() {
     // globalState.policyReady, which is the one decision that must not be made on a guess.
     policyStore.setPeerTransport({
       request: (seq) => fluxCommunicationMessagesSender.requestPolicyFromPeers(seq),
+      // Targeted rung, for a node that already holds policy. A key that no longer resolves
+      // is a peer that left between connecting and being asked, which is not an error.
+      requestFrom: (key, seq) => {
+        const peer = peerManager.get(key);
+        if (!peer) return Promise.resolve();
+        return fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, seq);
+      },
       announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
       // The latched level, not a raw tally: peerManager already defines "enough peers to
       // gossip with" with hysteresis (appSyncPeerThreshold 12 up, appSyncDegradedThreshold
@@ -537,17 +544,20 @@ async function startFluxFunctions() {
     // gap peers-first was chosen to close. Measured on a three-node fleet: node 1 asked
     // at 08:16:09, node 0 adopted at 08:16:54, and node 1 held nothing thereafter.
     //
-    // Asking per JOIN is safe rather than chatty, and notePeerAvailable is where that is
-    // decided: a node that already holds policy returns early after its first ask, so
-    // the per-join path only ever runs for a node with nothing - which is the state the
-    // whole ladder exists to get out of. refreshOnce is single-flight, so a burst of
-    // joins as the pool fills coalesces into one refresh rather than one per peer.
+    // Asking per JOIN is safe rather than chatty, and notePeerAvailable decides which ask.
+    // A node holding nothing runs the whole ladder; refreshOnce is single-flight, so a burst
+    // of joins as the pool fills coalesces into one refresh rather than one per peer. A node
+    // that already holds policy asks that peer alone and never reaches the source, so the
+    // per-join path costs one message and one reply however often peers arrive.
+    //
+    // The key is what makes the second form possible: a broadcast would have to be rationed,
+    // and a rationed ask cannot serve a node that is merely behind.
     //
     // The orchestrator next door draws exactly this distinction for its sync pool, and
     // for the same reason: a latched edge says nothing about a pool that has changed
     // since it fired.
     peerManager.on('peerThresholdReached', () => policyStore.notePeerAvailable());
-    peerManager.on('peerConnected', () => policyStore.notePeerAvailable());
+    peerManager.on('peerConnected', (key) => policyStore.notePeerAvailable(key));
     policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
