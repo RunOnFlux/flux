@@ -714,18 +714,13 @@ control.delete('/pending-blocks', (req, res) => {
 });
 
 // -- Per-node status overrides --
-
-control.post('/node-status/:ip', (req, res) => {
-  const { status } = req.body;
-  if (!status) return res.status(400).json({ error: 'status required' });
-  nodeStatusOverrides.set(req.params.ip, { status });
-  return res.json({ ip: req.params.ip, status });
-});
-
-control.delete('/node-status/:ip', (req, res) => {
-  nodeStatusOverrides.delete(req.params.ip);
-  res.json({ ip: req.params.ip, cleared: true });
-});
+//
+// THE LITERAL ROUTES COME FIRST, and the parameterised ones refuse the word.
+// Express matches in registration order, so with '/:ip' first a DELETE of
+// '/node-status/all' reached it with ip='all' and deleted the key 'all' - a
+// no-op that answered { cleared: true }. Nothing failed, nothing logged, and
+// four suites had been calling a clear that never cleared anything. The guard
+// below is the half that makes a future reordering LOUD instead of silent.
 
 control.post('/node-status/all', (req, res) => {
   const { status } = req.body;
@@ -739,6 +734,20 @@ control.post('/node-status/all', (req, res) => {
 control.delete('/node-status/all', (req, res) => {
   nodeStatusOverrides.clear();
   res.json({ cleared: true });
+});
+
+control.post('/node-status/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /node-status/all must be registered first' });
+  const { status } = req.body;
+  if (!status) return res.status(400).json({ error: 'status required' });
+  nodeStatusOverrides.set(req.params.ip, { status });
+  return res.json({ ip: req.params.ip, status });
+});
+
+control.delete('/node-status/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /node-status/all must be registered first' });
+  nodeStatusOverrides.delete(req.params.ip);
+  return res.json({ ip: req.params.ip, cleared: true });
 });
 
 control.get('/node-status', (req, res) => {
@@ -801,16 +810,10 @@ control.delete('/system-secure', (req, res) => {
 });
 
 // -- RPC failure simulation --
-
-control.post('/rpc-fail/:ip', (req, res) => {
-  rpcFailures.set(req.params.ip, true);
-  res.json({ ip: req.params.ip, rpcFailing: true });
-});
-
-control.delete('/rpc-fail/:ip', (req, res) => {
-  rpcFailures.delete(req.params.ip);
-  res.json({ ip: req.params.ip, rpcFailing: false });
-});
+//
+// Literal before parameterised, and the guard, for the same reason as
+// /node-status above: enableAllRpcFailure and disableAllRpcFailure were both
+// reaching '/rpc-fail/:ip' with ip='all' and answering success.
 
 control.post('/rpc-fail/all', (req, res) => {
   for (const node of deterministicNodeList) {
@@ -822,6 +825,18 @@ control.post('/rpc-fail/all', (req, res) => {
 control.delete('/rpc-fail/all', (req, res) => {
   rpcFailures.clear();
   res.json({ rpcFailing: false, cleared: true });
+});
+
+control.post('/rpc-fail/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-fail/all must be registered first' });
+  rpcFailures.set(req.params.ip, true);
+  return res.json({ ip: req.params.ip, rpcFailing: true });
+});
+
+control.delete('/rpc-fail/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-fail/all must be registered first' });
+  rpcFailures.delete(req.params.ip);
+  return res.json({ ip: req.params.ip, rpcFailing: false });
 });
 
 // -- Seeded RPC data --
