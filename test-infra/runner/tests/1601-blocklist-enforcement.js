@@ -9,7 +9,7 @@ import { stopTicker } from '../framework/daemon-control.js';
 import { setBlocklist } from '../framework/external-http-control.js';
 import {
   waitForBlockProcessed, waitForAppSpecStored, waitForAppInstalled, waitForAppRemoved,
-  restartFluxosAndAwaitRecovery,
+  restartFluxosAndAwaitRecovery, waitFor,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { dbClient } from '../framework/db-client.js';
@@ -134,6 +134,27 @@ describe('Blocklist enforcement over the published policy document', function ()
       // eslint-disable-next-line no-await-in-loop
       await restartFluxosAndAwaitRecovery(client, { recoveryTimeoutMs: 180000 });
     }
+
+    // PUT THE FLEET BACK TOGETHER. restartFluxosAndAwaitRecovery restarts FluxOS and waits
+    // for file ops; it does not restart discovery, so every node comes back with no peers at
+    // all. That was invisible while each node fetched blocklist.json for itself - it needed
+    // nobody - and it is fatal now that the document travels peer to peer: the node that
+    // polls adopts and announces to an empty set.
+    //
+    // It also quietly weakened the last test in this file, which asserts no node takes the
+    // application back. An isolated node cannot take anything back, so it passed without
+    // the ban ever reaching it.
+    await env.startDiscovery();
+    await waitFor(
+      async () => {
+        const counts = await Promise.all(env.clients.map(async (client) => {
+          const [out, inc] = await Promise.all([client.getPeers(), client.getIncomingPeers()]);
+          return (out.data?.length ?? 0) + (inc.data?.length ?? 0);
+        }));
+        return counts.every((c) => c >= 2);
+      },
+      { timeout: 120000, interval: 2000, label: 'every node back in the mesh after the restarts' },
+    );
 
     await waitForAppRemoved(env.clients[hostIndex], appName, 240000);
 
