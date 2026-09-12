@@ -224,7 +224,18 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
   });
 
   it('should retry if hash sync fails after recovery', async function () {
-    this.timeout(120000);
+    this.timeout(180000);
+    // ESTABLISH THE PRECONDITION RATHER THAN INHERIT IT. This test degrades a second time
+    // and waits for the transition, which only happens from READY or SYNCING - so the node
+    // has to BE in one of them first.
+    //
+    // The previous test leaves it in RESYNCING, and it does not come back on its own: a
+    // degrade zeroes the block counter, so recovery needs a WHOLE fresh budget rather than
+    // one more block, and nothing here is advancing blocks. Waiting for a state change from
+    // RESYNCING is waiting for something the state machine will not do.
+    await advanceBlocks(260);
+    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+
     const mark = env.clients[0].getLastEventId();
     const db = dbClient(1);
 
