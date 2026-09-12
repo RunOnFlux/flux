@@ -14,7 +14,7 @@ import {
   waitForPeerSetDos, waitForPeerSetDosReleased, assertNoEvent, waitFor,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { peerSetSweepsPerWindow } from '../framework/coupled-knobs.js';
+import { peerSetSweepsPerWindow, PARTITION_PEERS } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
@@ -38,10 +38,10 @@ const ISOLATED = [0];
 const REST = [1, 2, 3, 4];
 
 // partitionGroups only returns once the cross-group sockets are GONE, and that
-// wait is peer liveness. Compressed like every other cadence here;
-// wsMaxMissedPongs stays at 3, because three consecutive misses is a far safer
-// signal on a loaded box than one slow round trip.
-const PEERS_OVERRIDE = { wsPingIntervalMs: 3000 };
+// wait is peer liveness. Both halves of that product are stated together in
+// PARTITION_PEERS, because naming only the interval inherits the shared fleet's
+// compressed miss count of 2 rather than production's 3.
+const PEERS_OVERRIDE = PARTITION_PEERS;
 
 /**
  * The window and the tick that sweeps it are ONE decision at two scales, so they

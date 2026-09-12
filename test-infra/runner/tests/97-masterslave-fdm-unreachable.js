@@ -10,6 +10,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, placeGAppInOrder } from '../framework/reconciler-suite.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PARTITION_PEERS } from '../framework/coupled-knobs.js';
 
 // MUST-PASS gate. What a g: app does when FDM - the election authority - cannot be
 // reached at all.
@@ -58,7 +59,9 @@ describe('masterSlave election while FDM is unreachable', function () {
       nodes: 3,
       tickerAutostart: false,
       configOverrides: {
-        peers: { wsPingIntervalMs: 3000 },
+        // Peer liveness, both halves together - the interval alone would inherit
+        // the shared fleet's compressed miss count of 2 rather than production's 3.
+        peers: PARTITION_PEERS,
         // Three nodes can only carry minOutgoing 1 - the discovery ring needs
         // 2*minOutgoing+1 to close, and a fleet that cannot reach its own floor
         // dies in this hook instead of testing anything.

@@ -33,6 +33,32 @@ describe('coupled harness knobs track production', () => {
     expect(knobs.PRODUCTION.peerSetDipEvaluateMs).to.equal(fluxapps.peerSetDipEvaluateMs);
   });
 
+  it('gives a partitioning suite production\'s miss count, not the compressed one', () => {
+    const { peers } = productionConfig();
+
+    expect(knobs.PRODUCTION.wsMaxMissedPongs).to.equal(peers.wsMaxMissedPongs);
+    expect(knobs.PRODUCTION.wsPingIntervalMs).to.equal(peers.wsPingIntervalMs);
+    // The pair is the point. A suite that takes only the interval inherits the
+    // shared fleet's 2 and quietly runs at two thirds of the margin it states.
+    expect(knobs.PARTITION_PEERS.wsMaxMissedPongs).to.equal(peers.wsMaxMissedPongs);
+    // The harness never runs at production's interval, so this one is compressed
+    // - which is exactly why the miss count beside it must not be.
+    expect(knobs.PARTITION_PEERS.wsPingIntervalMs).to.be.below(peers.wsPingIntervalMs);
+  });
+
+  it('refuses to derive a peer death from a config that is missing either half', () => {
+    const shared = knobs.loadSharedConfig().peers;
+
+    expect(knobs.peerDeathMs(shared)).to.equal(shared.wsPingIntervalMs * (shared.wsMaxMissedPongs + 1));
+    expect(knobs.peerDeathMs(knobs.PARTITION_PEERS)).to.equal(12000);
+    // No production fallback. It would return 60s where the shared fleet's real
+    // answer is 6s, and an over-long budget passes every wait it is given, so the
+    // caller's omission would never surface.
+    expect(() => knobs.peerDeathMs({ wsPingIntervalMs: 3000 })).to.throw(/wsMaxMissedPongs/);
+    expect(() => knobs.peerDeathMs({ wsMaxMissedPongs: 3 })).to.throw(/wsPingIntervalMs/);
+    expect(() => knobs.peerDeathMs(undefined)).to.throw(/EFFECTIVE peers config/);
+  });
+
   // Suite 103 compresses a two-hour window into minutes and has to bring the
   // sweep that releases the DOS down with it. A suite that shortened only the
   // window would sit through a tick that never comes and read as the rule
