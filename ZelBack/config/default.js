@@ -428,6 +428,41 @@ module.exports = {
     // at least once. That is what makes waiting it out equivalent to a view,
     // and it is why there is no shorter variant of it for anyone.
     appSyncFallbackMinutes: 125,
+    // A NODE WHOSE PEER SET KEEPS COLLAPSING SHOULD BE TAKEN OUT OF SERVICE.
+    //
+    // A "dip" is the fall edge of the same hysteretic pair the rest of this
+    // block uses: the peer count crossing below appSyncDegradedThreshold having
+    // been above appSyncPeerThreshold. That is not a wobble. Measured over a
+    // random sample of 228 fleet nodes and ~20,700 node-hours (2026-09-12), a
+    // node carries 26 peers at the tenth percentile and 36 at the median, and
+    // the lowest count seen at any of 890 connectivity diagnoses was 7 - not one
+    // observation at or below 4. Reaching the floor means losing roughly ninety
+    // per cent of the peer set, so one dip is already an outage rather than a
+    // bad minute, and the tally is a count of outages.
+    //
+    // Five, not the three that "keeps dipping in and out" would justify on its
+    // own, because a regional network outage can take the whole set and a node
+    // must not lose its customers' apps over one of those. Deliberately loose
+    // to begin with: the rule is inert on the healthy fleet at any of these
+    // values, and it is easier to tighten a threshold that never fires than to
+    // give an operator their volumes back.
+    //
+    // NOT the 5-in-2-hours of UNSTABLE_DISCONNECT_THRESHOLD in FluxPeerManager,
+    // which they happen to match. That one counts disconnects of INDIVIDUAL
+    // peers, where there are three dozen candidates and five events is cheap.
+    // This counts the node's own set, which is one thing. Same numbers, and
+    // they are not the same number.
+    peerSetDipDosThreshold: 5,
+    peerSetDipWindowMinutes: 120,
+    // Only the RELEASE needs a clock. A dip is judged as it arrives; a node that
+    // has stabilised produces no events at all, so without a tick it would hold
+    // the DOS until something unrelated happened to it.
+    //
+    // Coupled to the window, not chosen: it is the granularity of a two-hour
+    // decision, so the pair compresses together. 120:1 is the ratio a harness
+    // has to keep when it shortens the window, or the suite is measuring the
+    // tick instead of the rule.
+    peerSetDipEvaluateMs: 60 * 1000,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

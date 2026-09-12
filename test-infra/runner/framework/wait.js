@@ -219,6 +219,18 @@ export async function waitForPeersBelowThreshold(node, timeout = 30000, opts) {
   return node.waitForEvent('peers:belowThreshold', () => true, timeout, opts);
 }
 
+// The node's own peer set collapsing repeatedly, and the verdict being lifted.
+// Anchored by the caller with { afterId } wherever a previous collapse in the
+// same fleet could already have published one - waitForEvent answers from the
+// buffer, so an unanchored wait passes on the dip the suite's own setup caused.
+export async function waitForPeerSetDos(node, predicate = () => true, timeout = 60000, opts) {
+  return node.waitForEvent('peerSetStability:dos', predicate, timeout, opts);
+}
+
+export async function waitForPeerSetDosReleased(node, timeout = 180000, opts) {
+  return node.waitForEvent('peerSetStability:released', () => true, timeout, opts);
+}
+
 export async function waitForSpawnerPaused(node, timeout = 30000, opts) {
   return node.waitForEvent('spawner:paused', () => true, timeout, opts);
 }

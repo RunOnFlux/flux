@@ -107,6 +107,16 @@ describe('AppSyncOrchestrator', () => {
     }
   }
 
+  // THE BLOCK FALLBACK ONLY RUNS WITH PEERS, so a test whose subject is the
+  // fallback has to say the peer set is up or it is asserting on a timer that
+  // cannot advance. The eligible list is left alone - usually empty - because
+  // connected peers and peers eligible to answer a state sync are different
+  // sets: a node can hold twelve of the first and none of the second, which is
+  // exactly the "no sync peers available" case several of these tests mean.
+  function peersUp(count = 12) {
+    peerEmitter.emit('peerThresholdReached', count);
+  }
+
   function makeOrchestrator(overrides = {}) {
     const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions(), ...overrides });
     orchestrator.onMessageCapabilityChange(true);
@@ -1034,6 +1044,7 @@ describe('AppSyncOrchestrator', () => {
       });
       orchestrator.onMessageCapabilityChange(true);
       await orchestrator.start(defaultBootContext);
+      peersUp();
 
       // 2 minutes at 2 blocks a minute, so the fourth block is past it and the
       // 250th is not the bar any more.
@@ -1044,6 +1055,163 @@ describe('AppSyncOrchestrator', () => {
 
       expect(orchestrator.state).to.equal(mod.STATES.READY);
       expect(globalStateStub.appStateAuthoritative).to.equal(true);
+    });
+  });
+
+  // A PEERLESS NODE MUST NOT REACH SPAWNING READINESS. Every gate
+  // #checkReadiness would hold a node at - hash sync, the DB rebuild, the state
+  // sync - is waived by the block fallback, and #canSendMessages is on-chain
+  // confirmation rather than anything to do with peers. So the fallback counter
+  // IS the invariant: gate it and a node with nobody to learn from cannot
+  // arrive, gate anything else and there are three other roads.
+  //
+  // Two minutes of fallback, so four blocks. Small enough that the arithmetic
+  // is the assertion rather than a loop of 260.
+  describe('the block fallback is time spent WITH PEERS, not uptime', () => {
+    const FALLBACK_BLOCKS = 4;
+
+    function makeAtTwoMinutes() {
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 2 });
+      const orchestrator = new mod.AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      orchestrator.onMessageCapabilityChange(true);
+      return { mod, orchestrator };
+    }
+
+    // The first block also starts the explorer, and #onBlocksProcessed counts it
+    // as one because there is no previous height to difference against.
+    async function driveBlocks(from, count) {
+      for (let i = 0; i < count; i += 1) {
+        blockEmitter.emit('blocksProcessed', from + i);
+      }
+      await clock.tickAsync(0);
+    }
+
+    it('never reaches READY with no peers, however many blocks arrive', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+
+      // Ten times the budget. The hash sync and DB rebuild both succeed here, so
+      // the ONLY thing left between this node and READY is the fallback.
+      await driveBlocks(2555000, FALLBACK_BLOCKS * 10);
+
+      expect(orchestrator.state, 'a node with no peers reached spawning readiness').to.equal(mod.STATES.SYNCING);
+      expect(globalStateStub.appStateAuthoritative, 'it also offered to answer peers about app state').to.equal(false);
+    });
+
+    it('reaches READY on the budget once the peer set is up', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555000, FALLBACK_BLOCKS - 1);
+      expect(orchestrator.state, 'three blocks is not four').to.equal(mod.STATES.SYNCING);
+
+      await driveBlocks(2555000 + FALLBACK_BLOCKS - 1, 1);
+      expect(orchestrator.state).to.equal(mod.STATES.READY);
+    });
+
+    it('starts the budget again from zero after the peer set is lost and recovered', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555000, 3);
+      expect(orchestrator.state).to.equal(mod.STATES.SYNCING);
+
+      peerEmitter.emit('peersBelowThreshold', 3);
+      await clock.tickAsync(0);
+      expect(orchestrator.state).to.equal(mod.STATES.DEGRADED);
+
+      peersUp();
+      await clock.tickAsync(0);
+      expect(orchestrator.state).to.equal(mod.STATES.RESYNCING);
+
+      // Three more. Six in total, which would be past the budget twice over if
+      // the credit earned before the gap still counted.
+      // Contiguous with the three above: #onBlocksProcessed credits the
+      // DIFFERENCE between heights, so a gap in the numbers is a gap in blocks
+      // and would hand this node the budget it is supposed to have lost.
+      await driveBlocks(2555003, 3);
+      expect(orchestrator.state, 'credit accumulated across a gap with no peers').to.equal(mod.STATES.RESYNCING);
+
+      await driveBlocks(2555006, 1);
+      expect(orchestrator.state).to.equal(mod.STATES.READY);
+    });
+
+    // THE CASE NO STATE CHANGE MARKS. #onPeersDegraded only acts from READY and
+    // SYNCING, so a node that has already recovered once - it is in RESYNCING -
+    // and then loses its peers again transitions nowhere. Nothing about the
+    // state machine records it, and before this fix nothing about the budget
+    // did either: the level stayed latched from the recovery and the counter
+    // went on advancing with no peers to advance it. It is the road to READY
+    // with an empty peer set that survives every other guard.
+    it('stops the budget when the peer set goes a second time, which moves no state', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+      await clock.tickAsync(0);
+      await driveBlocks(2555000, 3);
+
+      peerEmitter.emit('peersBelowThreshold', 3);
+      await clock.tickAsync(0);
+      peersUp();
+      await clock.tickAsync(0);
+      expect(orchestrator.state).to.equal(mod.STATES.RESYNCING);
+
+      peerEmitter.emit('peersBelowThreshold', 2);
+      await clock.tickAsync(0);
+      expect(orchestrator.state, 'a second loss is meant to be invisible to the state machine').to.equal(mod.STATES.RESYNCING);
+
+      await driveBlocks(2555003, FALLBACK_BLOCKS * 5);
+
+      expect(orchestrator.state, 'a node with no peers reached READY through RESYNCING').to.equal(mod.STATES.RESYNCING);
+      expect(globalStateStub.appStateAuthoritative).to.equal(false);
+    });
+
+    // Between appSyncPeerThreshold (12) and appSyncDegradedThreshold (4)
+    // FluxPeerManager emits NEITHER edge - that band is what the hysteresis is -
+    // so a node oscillating between 5 and 11 peers reaches this class as
+    // peerConnected/peerDisconnected and nothing else. Reading a raw count here
+    // would reset the budget continuously and such a node would never finish.
+    it('does not restart the budget for churn inside the hysteresis band', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555000, FALLBACK_BLOCKS - 1);
+
+      for (let i = 0; i < 6; i += 1) {
+        peerEmitter.emit('peerDisconnected', `10.0.0.${i + 1}:16127`, i + 1);
+        peerEmitter.emit('peerConnected', `10.0.0.${i + 20}:16127`, i + 20);
+      }
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555000 + FALLBACK_BLOCKS - 1, 1);
+      expect(orchestrator.state, 'peer churn short of the degraded threshold reset the budget').to.equal(mod.STATES.READY);
+    });
+
+    // A node past the fallback was answering peers' state-sync requests, and a
+    // degrade takes that back. Not a loss - the claim the fallback buys is that
+    // every holder of a running-app location has had time to announce itself TO
+    // THIS NODE, and a node below four peers was not hearing them. It was
+    // answering on a view it no longer had.
+    it('stops answering peers about app state when the peer set goes', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555000, FALLBACK_BLOCKS);
+      expect(orchestrator.state).to.equal(mod.STATES.READY);
+      expect(globalStateStub.appStateAuthoritative).to.equal(true);
+
+      peerEmitter.emit('peersBelowThreshold', 2);
+      await clock.tickAsync(0);
+
+      expect(globalStateStub.appStateAuthoritative, 'a node that lost its peers still claimed a full view').to.equal(false);
     });
   });
 
@@ -1551,6 +1719,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -1615,6 +1784,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
 
       blockEmitter.emit('blocksProcessed', 2555000);
@@ -1638,6 +1808,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
 
       blockEmitter.emit('blocksProcessed', 2555000);
@@ -1659,6 +1830,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -1683,6 +1855,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -1701,6 +1874,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -1720,6 +1894,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -2054,6 +2229,7 @@ describe('AppSyncOrchestrator', () => {
     it('should not reach READY without message capability', async () => {
       const orchestrator = makeUncapableOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -2068,6 +2244,7 @@ describe('AppSyncOrchestrator', () => {
     it('should reach READY when capability gained after other conditions met', async () => {
       const orchestrator = makeUncapableOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       // Explorer syncs but hash sync deferred (no capability)
       blockEmitter.emit('blocksProcessed', 2555000);
@@ -2090,6 +2267,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
@@ -2112,6 +2290,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
+      peersUp();
 
 
       blockEmitter.emit('blocksProcessed', 2555000);

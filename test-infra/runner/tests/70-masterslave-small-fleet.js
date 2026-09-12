@@ -13,6 +13,7 @@ import {
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PARTITION_PEERS } from '../framework/coupled-knobs.js';
 
 // MUST-PASS gate. The election on a fleet small enough that a node has barely any
 // peers at all.
@@ -69,7 +70,9 @@ describe('masterSlave election on a three-node fleet', function () {
         // two peers at most. Lowered to what the topology can actually satisfy, which
         // is the point: this is the shape where an absolute connectivity threshold
         // would silently mean "never".
-        peers: { wsPingIntervalMs: 3000 },
+        // Peer liveness, both halves together - the interval alone would inherit
+        // the shared fleet's compressed miss count of 2 rather than production's 3.
+        peers: PARTITION_PEERS,
         // The discovery mesh is a ring, which needs at least 2*minOutgoing+1 nodes
         // to close: three nodes can only carry minOutgoing 1. Asking for 2 here
         // leaves the fleet unable to reach its own floor and the suite dies in its
