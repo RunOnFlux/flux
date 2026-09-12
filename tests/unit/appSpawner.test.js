@@ -137,7 +137,6 @@ describe('appSpawner tests', () => {
       },
       '../fluxNetworkHelper': {
         isPortOpen: sinon.stub().resolves(true),
-        isPortUserBlocked: sinon.stub().returns(false),
         isNodeDos: sinon.stub().returns(false),
         isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
         getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
@@ -203,7 +202,6 @@ describe('appSpawner tests', () => {
       '../appSecurity/imageManager': {
         checkApplicationImagesCompliance: sinon.stub().resolves(),
         verifyRepository: sinon.stub().resolves(),
-        isAppVetted: sinon.stub().resolves(false),
         // No blocklist by default, so the candidate filter is inert unless a test
         // supplies one. The matcher is the real implementation: a double of it
         // would let a test pass on matching rules the node does not have.

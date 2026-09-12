@@ -1,5 +1,4 @@
 const config = require('config');
-const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
@@ -13,7 +12,6 @@ const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
 
 // Cache for blocked repositories
-let cacheUserBlockedRepos = null;
 
 /**
  * Classify error type and determine appropriate cache TTL
@@ -334,131 +332,6 @@ function imagesOf(appSpecs) {
 }
 
 /**
- * Get vetted repositories from official source
- * These apps bypass user-defined blocked repositories and ports
- * @returns {Promise<Array|null>} List of vetted repositories
- */
-async function getVettedRepositories() {
-  try {
-    const cachedResponse = fluxCaching.blockedRepositoriesCache.get('vettedRepositories');
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-    const resVettedRepo = await serviceHelper.axiosGet(`${config.policy.baseUrl}/vettedrepositories.json`);
-    if (resVettedRepo.data) {
-      fluxCaching.blockedRepositoriesCache.set('vettedRepositories', resVettedRepo.data);
-      return resVettedRepo.data;
-    }
-    return null;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
-}
-
-/**
- * Check if an application is vetted (bypasses user blocks)
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} True if app is vetted
- */
-async function isAppVetted(appSpecs) {
-  const vettedRepos = await getVettedRepositories();
-  if (!vettedRepos || vettedRepos.length === 0) {
-    return false;
-  }
-
-  const pureVettedRepos = [];
-  vettedRepos.forEach((repo) => {
-    pureVettedRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
-
-  // Check if app owner is vetted
-  if (pureVettedRepos.includes(appSpecs.owner)) {
-    return true;
-  }
-
-  // Check if app hash is vetted
-  if (pureVettedRepos.includes(appSpecs.hash)) {
-    return true;
-  }
-
-  // Check images and organizations
-  const images = [];
-  const organisations = [];
-
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-
-  // Check if any image is vetted
-  for (const image of images) {
-    if (pureVettedRepos.includes(image) || pureVettedRepos.includes(image.toLowerCase())) {
-      return true;
-    }
-  }
-
-  // Check if any organisation is vetted
-  for (const org of organisations) {
-    if (pureVettedRepos.includes(org) || pureVettedRepos.includes(org.toLowerCase())) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Get user-defined blocked repositories from configuration
- * @returns {Promise<Array>} List of user blocked repositories
- */
-async function getUserBlockedRepositores() {
-  try {
-    if (cacheUserBlockedRepos) {
-      return cacheUserBlockedRepos;
-    }
-
-    const { userconfig } = globalThis;
-    const userBlockedRepos = userconfig.initial.blockedRepositories || [];
-    if (userBlockedRepos.length === 0) {
-      return userBlockedRepos;
-    }
-    const usableUserBlockedRepos = [];
-    const marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
-    const response = await axios.get(marketPlaceUrl);
-    console.log(response);
-    if (response && response.data && response.data.status === 'success') {
-      const visibleApps = response.data.data.filter((val) => val.visible);
-      for (let i = 0; i < userBlockedRepos.length; i += 1) {
-        const userRepo = userBlockedRepos[i];
-        userRepo.substring(0, userRepo.lastIndexOf(':') > -1 ? userRepo.lastIndexOf(':') : userRepo.length);
-        const exist = visibleApps.find((app) => app.compose.find((compose) => compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length).toLowerCase() === userRepo.toLowerCase()));
-        if (!exist) {
-          usableUserBlockedRepos.push(userRepo);
-        } else {
-          log.info(`${userRepo} is part of marketplace offer and despite being on blockedRepositories it will not be take in consideration`);
-        }
-      }
-      cacheUserBlockedRepos = usableUserBlockedRepos;
-      return cacheUserBlockedRepos;
-    }
-    return [];
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
-}
-
-/**
  * Check application secrets compliance
  * @param {string} appName - Application name
  * @param {object} appComponentSpecs - Component specifications
@@ -561,7 +434,6 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
  */
 async function checkApplicationImagesCompliance(appSpecs) {
   const entries = await getBlocklist();
-  const userBlockedRepos = await getUserBlockedRepositores();
 
   if (!entries) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -578,77 +450,8 @@ async function checkApplicationImagesCompliance(appSpecs) {
     throw new Error(networkReason);
   }
 
-  const images = (repotags ?? []).map(repositoryOf);
-  const organisations = images.map(namespaceOf);
-
-  // Check if app is vetted - vetted apps bypass user blocks
-  const appIsVetted = await isAppVetted(appSpecs);
-  if (appIsVetted) {
-    log.info(`Application ${appSpecs.name} is vetted. Bypassing user-blocked repositories check.`);
-  }
-
-  if (userBlockedRepos && !appIsVetted) {
-    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    organisations.forEach((org) => {
-      if (userBlockedRepos.includes(org.toLowerCase())) {
-        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
-      }
-    });
-    images.forEach((image) => {
-      if (userBlockedRepos.includes(image.toLowerCase())) {
-        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
-      }
-    });
-  }
 
   return true;
-}
-
-/**
- * Check if application images are blocked (non-throwing version)
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} True if blocked
- */
-async function checkApplicationImagesBlocked(appSpecs) {
-  const entries = await getBlocklist();
-  const userBlockedRepos = await getUserBlockedRepositores();
-  let isBlocked = false;
-  if (!entries && !userBlockedRepos) {
-    return isBlocked;
-  }
-  const repotags = imagesOf(appSpecs);
-  const images = (repotags ?? []).map(repositoryOf);
-  const organisations = images.map(namespaceOf);
-
-  if (entries) {
-    isBlocked = blockedReasonFor(entries, {
-      name: appSpecs.name,
-      owner: appSpecs.owner,
-      hash: appSpecs.hash,
-      images: repotags,
-    }) ?? false;
-  }
-
-  // Check if app is vetted - vetted apps bypass user blocks
-  const appIsVetted = await isAppVetted(appSpecs);
-
-  if (!isBlocked && userBlockedRepos && !appIsVetted) {
-    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    organisations.forEach((org) => {
-      if (userBlockedRepos.includes(org.toLowerCase())) {
-        isBlocked = `Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
-      }
-    });
-    if (!isBlocked) {
-      images.forEach((image) => {
-        if (userBlockedRepos.includes(image.toLowerCase())) {
-          isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
-        }
-      });
-    }
-  }
-
-  return isBlocked;
 }
 
 /**
@@ -762,12 +565,8 @@ module.exports = {
   getBlockedRepositores,
   getBlocklist,
   blockedReasonFor,
-  getUserBlockedRepositores,
-  getVettedRepositories,
-  isAppVetted,
   checkAppSecrets,
   checkApplicationImagesCompliance,
-  checkApplicationImagesBlocked,
   checkDockerAccessibility,
   checkApplicationsCompliance,
 };

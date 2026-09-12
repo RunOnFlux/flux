@@ -542,27 +542,8 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
-    // Get app ports early - needed for both user-blocked check and public availability check
+    // Needed by the public availability check below.
     const appPorts = appUtilities.getAppPorts(appSpecifications);
-
-    // EARLY CHECK: Verify app doesn't use user-blocked ports before expensive Docker Hub operations
-    // Skip this check for vetted apps
-    const appIsVetted = await imageManager.isAppVetted(appSpecifications);
-    if (!appIsVetted) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (let i = 0; i < appPorts.length; i += 1) {
-        const port = appPorts[i];
-        const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
-        if (isUserBlocked) {
-          log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} uses user-blocked port ${port}. Adding to error cache.`);
-          globalState.spawnErrorsLongerAppCache.set(appHash, '');
-          // eslint-disable-next-line no-await-in-loop
-          return shortDelayTime;
-        }
-      }
-    } else {
-      log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} is vetted. Bypassing user-blocked ports check.`);
-    }
 
     // verify app compliance
     await imageManager.checkApplicationImagesCompliance(appSpecifications).catch((error) => {

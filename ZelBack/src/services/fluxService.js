@@ -904,19 +904,6 @@ function getRouterIP(req, res) {
 }
 
 /**
- * To show the current user's blocked Ports setup in configuration file that is being used with FluxOS.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-function getBlockedPorts(req, res) {
-  const { userconfig } = globalThis;
-  const blockedPorts = userconfig.initial.blockedPorts || [];
-  const message = messageHelper.createDataMessage(blockedPorts);
-  return res ? res.json(message) : message;
-}
-
-/**
  * To show the current user's Api Port setup in configuration file that is being used with FluxOS.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -926,19 +913,6 @@ function getAPIPort(req, res) {
   const { userconfig } = globalThis;
   const routerIP = userconfig.initial.apiport || '16127';
   const message = messageHelper.createDataMessage(routerIP);
-  return res ? res.json(message) : message;
-}
-
-/**
- * To show the current user's blocked respositories setup in configuration file that is being used with FluxOS.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-function getBlockedRepositories(req, res) {
-  const { userconfig } = globalThis;
-  const blockedPorts = userconfig.initial.blockedRepositories || [];
-  const message = messageHelper.createDataMessage(blockedPorts);
   return res ? res.json(message) : message;
 }
 
@@ -1572,8 +1546,6 @@ async function adjustKadenaAccount(req, res) {
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
   }
 }`;
 
@@ -1616,8 +1588,6 @@ async function adjustRouterIP(req, res) {
           routerIP: '${routerip}',
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
@@ -1633,61 +1603,6 @@ async function adjustRouterIP(req, res) {
     log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-  }
-}
-
-/**
- * To update the current user blocked ports that is being used with FluxOS. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function adjustBlockedPorts(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-
-  if (authorized !== true) {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    res.json(errMessage);
-    return;
-  }
-
-  try {
-    if (!req.body) {
-      throw new Error('Missing Blocked Ports Information.');
-    }
-    const processedBody = serviceHelper.ensureObject(req.body);
-    const { blockedPorts } = processedBody;
-    log.info(`blockedPorts: ${JSON.stringify(blockedPorts)}`);
-    if (!Array.isArray(blockedPorts)) {
-      throw new Error('Blocked Ports is not a valid array');
-    }
-    const { userconfig } = globalThis;
-    const dataToWrite = `module.exports = {
-            initial: {
-              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-              kadena: '${userconfig.initial.kadena || ''}',
-              testnet: ${userconfig.initial.testnet || false},
-              development: ${userconfig.initial.development || false},
-              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-              routerIP: '${userconfig.initial.routerIP || ''}',
-              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-              blockedPorts: ${JSON.stringify(blockedPorts || [])},
-              blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-            }
-          }`;
-    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-    await fs.writeFile(fluxDirPath, dataToWrite);
-    const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
-    res.json(successMessage);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
   }
 }
 
@@ -1722,8 +1637,6 @@ async function adjustAPIPort(req, res) {
           routerIP: '${userconfig.initial.routerIP || ''}',
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
@@ -1739,69 +1652,6 @@ async function adjustAPIPort(req, res) {
     log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
-  }
-}
-
-/**
- * To update the current user blocked repositories that is being used with FluxOS. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function adjustBlockedRepositories(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-
-  if (authorized !== true) {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    res.json(errMessage);
-    return;
-  }
-
-  try {
-    if (!req.body) {
-      throw new Error('Missing Blocked Repositories Information.');
-    }
-    log.info(`body: ${JSON.stringify(req.body)}`);
-    // this is redundant now
-    const processedBody = serviceHelper.ensureObject(req.body);
-    const { blockedRepositories } = processedBody;
-    log.info(`blockedRepositories: ${JSON.stringify(blockedRepositories)}`);
-    if (!Array.isArray(blockedRepositories)) {
-      throw new Error('Blocked Repositories is not a valid array');
-    }
-    blockedRepositories.forEach((parameter) => {
-      if (typeof parameter !== 'string') {
-        throw new Error('Blocked Repositories are invalid');
-      }
-    });
-
-    const { userconfig } = globalThis;
-    const dataToWrite = `module.exports = {
-            initial: {
-              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-              kadena: '${userconfig.initial.kadena || ''}',
-              testnet: ${userconfig.initial.testnet || false},
-              development: ${userconfig.initial.development || false},
-              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-              routerIP: '${userconfig.initial.routerIP || ''}',
-              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-              blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-              blockedRepositories: ${JSON.stringify(blockedRepositories || []).replace(/"/g, "'")},
-            }
-          }`;
-    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-    await fs.writeFile(fluxDirPath, dataToWrite);
-    const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
-    res.json(successMessage);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
   }
 }
 
@@ -2270,8 +2120,6 @@ async function isArcaneOs(req, res) {
 
 module.exports = {
   adjustAPIPort,
-  adjustBlockedPorts,
-  adjustBlockedRepositories,
   adjustKadenaAccount,
   adjustRouterIP,
   benchmarkDebug,
@@ -2287,8 +2135,6 @@ module.exports = {
   fluxInfoLog,
   fluxWarnLog,
   getAPIPort,
-  getBlockedPorts,
-  getBlockedRepositories,
   getEnterpriseAppOwners,
   getCurrentBranch,
   getCurrentBranchApi,
