@@ -69,6 +69,9 @@ async function bootAndPeerFleet(env) {
     await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
+  // Unanchored deliberately, and only here: this is the fleet's FIRST crossing,
+  // so there is no earlier one in the buffer for the wait to be satisfied by.
+  // Every later one in this file is anchored, and has to be.
   await waitForPeerThreshold(env.clients[0], 120000);
   await startTicker();
   await waitForOrchestratorState(env.clients[0], 'READY', 120000);
@@ -91,14 +94,29 @@ async function collapsePeerSet(env) {
 }
 
 async function restorePeerSet(env) {
+  // ANCHORED. waitForEvent answers from the buffer, and peers:thresholdReached
+  // has already fired at least once on this fleet - at boot, and again after any
+  // earlier heal. Unanchored this returns instantly on that old event, the next
+  // collapse then runs against a node whose peers never came back, no fresh fall
+  // edge is produced, and the suite times out somewhere else entirely.
+  const afterId = env.clients[0].getLastEventId();
   await env.healPartition(ISOLATED, REST);
-  await waitForPeerThreshold(env.clients[0], 120000);
+  await waitForPeerThreshold(env.clients[0], 120000, { afterId });
 }
 
 async function seedAndWaitForInstall(env, appName) {
   await pushImage(appName, 'v1');
   const app = await buildSeedableApp({
     name: appName,
+    // AN INSTANCE PER NODE, because the block that uses this asserts the app is
+    // removed from node 0 SPECIFICALLY - node 0 being the one a partition can
+    // isolate. The default of three across five nodes is a coin toss on whether
+    // node 0 is one of them, and the block would fail in its own before() on a
+    // fixture fault wearing a product bug's clothes.
+    instances: env.nodeCount,
+    // Seeded relative to THIS fleet's chain rather than a literal, so the app is
+    // not already expired at the fleet's first block.
+    env,
     compose: [{
       name: appName,
       description: 'test container',
@@ -247,9 +265,12 @@ describe('Losing confirmation tears the peer set down and is not counted against
       const fall = await node.waitForEvent('peers:belowThreshold', () => true, 60000, { afterId: anchor });
       seen.push(fall.data.deliberate);
 
+      const backAnchor = node.getLastEventId();
       await clearAllNodeStatus();
-      await node.waitForEvent('confirmation:changed', (d) => d.confirmed === true, 60000);
-      await waitForPeerThreshold(node, 120000);
+      await node.waitForEvent('confirmation:changed', (d) => d.confirmed === true, 60000, { afterId: backAnchor });
+      // Anchored for the same reason as restorePeerSet: this fleet has crossed
+      // the threshold before, so the unanchored wait is satisfied by history.
+      await waitForPeerThreshold(node, 120000, { afterId: backAnchor });
     }
 
     // THE CANARY. Every entry here is a fall edge that genuinely fired, so the
