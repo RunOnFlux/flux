@@ -122,7 +122,19 @@ describe('Boundary: block timer', function () {
     this.timeout(180000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 2,
+      // THREE, AND PEERED, because the budget this block measures now only runs
+      // while the peer threshold is met. On two nodes each one holds a single
+      // peer, short of appSyncPeerThreshold, so the counter never advances and
+      // the 250th block arrives to a node still in SYNCING - which is the
+      // invariant working, not the boundary failing. Two nodes could only ever
+      // measure the old behaviour, where a node with nobody to learn from
+      // reached readiness on elapsed time alone.
+      nodes: 3,
+      // Nobody authoritative, so no state sync can complete and the block budget
+      // is the only road to READY. Without this the fleet's own answerer would
+      // carry node 0 to READY before the 250th block and test one would fail for
+      // a reason that has nothing to do with the boundary.
+      syncedNodes: [],
       tickerAutostart: false,
       // THE PRODUCTION BUDGET, declared because this suite is the one testing
       // it. The shared config runs a short fallback so that an ordinary fleet -
@@ -137,6 +149,12 @@ describe('Boundary: block timer', function () {
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);
     await waitForOrchestratorStarted(env.clients[0]);
+    // BEFORE the first block, and that ordering is the arithmetic. The counter
+    // only advances while the peer set is up, so a block delivered before the
+    // threshold is met is a block that does not count - and the 249/250 boundary
+    // below would then be off by however many arrived early.
+    await env.startDiscovery();
+    await waitForPeerThreshold(env.clients[0], 120000);
     await advanceBlock();
     await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
   });
