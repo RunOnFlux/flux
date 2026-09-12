@@ -354,6 +354,7 @@ function imageSyncthingVersion() {
 }
 
 const state = {
+  blocklist: [],
   blockedRepositories: [],
   vettedRepositories: [],
   whitelistedRepositories: [],
@@ -458,6 +459,13 @@ app.use(express.json());
 // Policy documents. Served at the repo root (the fluxos-network-policy layout,
 // config.policy.baseUrl) and at the retired /helpers/ paths (the RunOnFlux/flux
 // layout, config.github.rawBaseUrl) so one stub covers nodes from either era.
+// The typed document a node prefers. Left empty by default, which is how a node
+// that asks for it falls through to the flat one below - the same shape as a
+// release published before this document existed.
+app.get('/blocklist.json', (req, res) => {
+  res.json(state.blocklist);
+});
+
 app.get(['/blockedrepositories.json', '/helpers/blockedrepositories.json'], (req, res) => {
   res.json(state.blockedRepositories);
 });
@@ -664,6 +672,11 @@ control.get('/state', (req, res) => {
   res.json({ ...state, ipLocationBinary: undefined, ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0 });
 });
 
+control.post('/blocklist', (req, res) => {
+  state.blocklist = req.body;
+  res.json({ ok: true });
+});
+
 control.post('/blocked-repos', (req, res) => {
   state.blockedRepositories = req.body;
   res.json({ ok: true });
@@ -752,6 +765,7 @@ control.post('/artifact', (req, res) => {
 });
 
 control.post('/reset', (req, res) => {
+  state.blocklist = [];
   state.blockedRepositories = [];
   state.vettedRepositories = [];
   state.whitelistedRepositories = [];

@@ -68,6 +68,32 @@ export async function resetDnsAttempts() {
 }
 
 /**
+ * Publish the typed blocklist every node fetches, each entry naming the kind of
+ * thing it refuses: `{ kind, value, reason, added }` with kind one of hash, name,
+ * owner, image or org.
+ *
+ * A node caches what it fetched for six hours, so a fleet that has already read
+ * an empty document will not see this until that expires. Set it before the nodes
+ * that must see it are asked anything.
+ *
+ * @param {Array<{kind: string, value: string, reason?: string, added?: string}>} entries
+ */
+export async function setBlocklist(entries) {
+  return post('/blocklist', entries);
+}
+
+/**
+ * Publish the flat blocklist, which a node reads only when the typed document is
+ * empty or unreadable. Its entries are bare strings matched against the hash, the
+ * owner, the repository and the namespace alike.
+ *
+ * @param {string[]} entries
+ */
+export async function setBlockedRepositories(entries) {
+  return post('/blocked-repos', entries);
+}
+
+/**
  * Fail naming the host and the node, rather than leaving a caller to compare
  * lists. `allowed` is for a suite that means to reach something - it should be
  * rare enough that writing the name down is the easy part.
