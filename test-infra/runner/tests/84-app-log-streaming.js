@@ -31,7 +31,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { listAppContainers } from '../framework/container.js';
+import { listAppContainers, getAppContainerId } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
@@ -530,19 +530,39 @@ describe('an app log stream loses nothing and is shared between viewers', functi
       );
       expect([...byContainer.keys()].sort(), 'lines arrived attributed to something else').to.deep.equal(subscribed.slice().sort());
 
+      // Asked of docker, rather than taken from the order the confirmations
+      // arrived in. `subscribed` is filled in as the node answers, and a
+      // 'subscribed' payload carries an id and no name - so the only thing
+      // telling these two apart would be arrival order, and arrival order is
+      // not a property the node has. Each subscribe is answered when its own
+      // verifyPrivilege and docker lookup finish, and the second one finishing
+      // first is ordinary: measured on a node, it happened on 3 runs in 8.
+      //
+      // Which matters because the test gives ONE of them up by name below. Read
+      // the kept container out of `subscribed[0]` and, on the runs where the
+      // second one answered first, that IS the container being given up - the
+      // wait that follows then sits for its full 30s on a feed this test asked
+      // the node to end, and reports the node stopped feeding it.
+      const keptId = await getAppContainerId(holder.container, appName, component);
+      const leftId = await getAppContainerId(holder.container, appName, secondComponent);
+      expect(
+        subscribed.slice().sort(),
+        'the connection was given containers other than the two it asked for',
+      ).to.deep.equal([keptId, leftId].sort());
+
       // Given up by name rather than by disconnecting, so the other one is
       // proved to survive it.
-      const kept = byContainer.get(subscribed[0]).length;
+      const kept = byContainer.get(keptId).length;
       socket.emit('unsubscribe', secondIdentifier);
       await new Promise((resolve) => { setTimeout(resolve, 1500); });
-      const leftSettled = byContainer.get(subscribed[1]).length;
+      const leftSettled = byContainer.get(leftId).length;
 
       await waitFor(
-        async () => byContainer.get(subscribed[0]).length > kept + 5,
+        async () => byContainer.get(keptId).length > kept + 5,
         { timeout: 30000, interval: 500, label: 'the container that was kept is still being fed' },
       );
       expect(
-        byContainer.get(subscribed[1]).length,
+        byContainer.get(leftId).length,
         'a container given up by name is still being sent',
       ).to.equal(leftSettled);
     } finally {
