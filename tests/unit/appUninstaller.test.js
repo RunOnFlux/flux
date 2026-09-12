@@ -162,7 +162,12 @@ describe('appUninstaller tests', () => {
       sinon.assert.calledOnceWithExactly(verificationHelperStub.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'testapp' });
     });
 
-    it('should handle missing appname parameter', async () => {
+    // Asserting only that something was answered and something was logged cannot
+    // separate the refusal from a crash: an omitted appname used to reach
+    // appname.includes('_') and answer TypeError, which logs and responds exactly
+    // as the refusal does. The message is what tells the two apart, so it is what
+    // is pinned. Every sibling app-scoped route answers this same string.
+    it('refuses a missing appname by name, rather than dereferencing it', async () => {
       const req = {
         params: {},
         query: {},
@@ -177,6 +182,25 @@ describe('appUninstaller tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(logStub.error.called).to.be.true;
+      expect(messageHelperStub.createErrorMessage.firstCall.args[0]).to.equal('No Flux App specified');
+      expect(messageHelperStub.createErrorMessage.firstCall.args[1]).to.not.equal('TypeError');
+    });
+
+    it('rejects a component name without dereferencing an absent appname first', async () => {
+      const req = {
+        params: { appname: 'component_app' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+      };
+
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      await appUninstaller.removeAppLocallyApi(req, res);
+
+      expect(messageHelperStub.createErrorMessage.firstCall.args[0]).to.equal('Components cannot be removed manually');
+      expect(verificationHelperStub.verifyPrivilege.called).to.be.false;
     });
   });
 

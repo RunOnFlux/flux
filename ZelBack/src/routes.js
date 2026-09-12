@@ -307,6 +307,9 @@ module.exports = (app) => {
   app.get('/flux/dosstate', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxNetworkHelper.getDOSState(req, res);
   }));
+  app.get('/flux/health', cache('30 seconds'), asyncRoute((req, res) => {
+    return idService.nodeHealth(req, res);
+  }));
   app.post('/flux/dosstate', asyncRoute((req, res) => {
     return fluxNetworkHelper.setDOSStateApi(req, res);
   }));
@@ -597,173 +600,8 @@ module.exports = (app) => {
     return benchmarkService.getInfo(req, res);
   }));
 
-  app.get('/syncthing/meta', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getMetaApi(req, res);
-  }));
   app.get('/syncthing/deviceid', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getDeviceIdApi(req, res);
-  }));
-  app.get('/syncthing/health', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getHealthApi(req, res);
-  }));
-  app.get('/syncthing/system/browse/:current?', asyncRoute((req, res) => {
-    return syncthingService.systemBrowse(req, res);
-  }));
-  app.get('/syncthing/system/connections', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemConnections(req, res);
-  }));
-  app.get('/syncthing/system/debug/:enable?/:disable?', asyncRoute((req, res) => {
-    return syncthingService.systemDebug(req, res);
-  }));
-  app.get('/syncthing/system/discovery/:device?/:addr?', asyncRoute((req, res) => {
-    return syncthingService.systemDiscovery(req, res);
-  }));
-  app.get('/syncthing/system/error/clear', asyncRoute((req, res) => {
-    return syncthingService.systemErrorClear(req, res);
-  }));
-  app.get('/syncthing/system/error/:message?', asyncRoute((req, res) => {
-    return syncthingService.systemError(req, res);
-  }));
-  app.get('/syncthing/system/log/:since?', asyncRoute((req, res) => {
-    return syncthingService.systemLog(req, res);
-  }));
-  app.get('/syncthing/system/logtxt/:since?', asyncRoute((req, res) => {
-    return syncthingService.systemLogTxt(req, res);
-  }));
-  app.get('/syncthing/system/paths', asyncRoute((req, res) => {
-    return syncthingService.systemPaths(req, res);
-  }));
-  app.get('/syncthing/system/pause/:device?', asyncRoute((req, res) => {
-    return syncthingService.systemPauseApi(req, res);
-  }));
-  app.get('/syncthing/system/ping', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemPingApi(req, res);
-  }));
-  app.get('/syncthing/system/reset/:folder?', asyncRoute((req, res) => {
-    return syncthingService.systemReset(req, res);
-  }));
-  app.get('/syncthing/system/restart', asyncRoute((req, res) => {
-    return syncthingService.systemRestartApi(req, res);
-  }));
-  app.get('/syncthing/system/resume/:device?', asyncRoute((req, res) => {
-    return syncthingService.systemResumeApi(req, res);
-  }));
-  app.get('/syncthing/system/shutdown', asyncRoute((req, res) => {
-    return syncthingService.systemShutdown(req, res);
-  }));
-  app.get('/syncthing/system/status', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemStatus(req, res);
-  }));
-  app.get('/syncthing/system/upgrade', asyncRoute((req, res) => {
-    return syncthingService.systemUpgrade(req, res);
-  }));
-  app.get('/syncthing/system/version', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemVersionApi(req, res);
-  }));
-  app.get('/syncthing/config', asyncRoute((req, res) => {
-    return syncthingService.getConfigApi(req, res);
-  }));
-  app.get('/syncthing/config/restart-required', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigRestartRequired(req, res);
-  }));
-  app.get('/syncthing/config/folders/:id?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigFoldersApi(req, res);
-  }));
-  app.get('/syncthing/config/devices/:id?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDevicesApi(req, res);
-  }));
-  app.get('/syncthing/config/defaults/folder', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDefaultsFolderApi(req, res);
-  }));
-  app.get('/syncthing/config/defaults/device', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDefaultsDevice(req, res);
-  }));
-  app.get('/syncthing/config/defaults/ignores', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDefaultsIgnores(req, res);
-  }));
-  app.get('/syncthing/config/options', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigOptionsApi(req, res);
-  }));
-  app.get('/syncthing/config/ldap', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigLdap(req, res);
-  }));
-  app.get('/syncthing/config/gui', asyncRoute((req, res) => {
-    return syncthingService.getConfigGuiApi(req, res);
-  }));
-  app.get('/syncthing/stats/device', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.statsDevice(req, res);
-  }));
-  app.get('/syncthing/stats/folder', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.statsFolder(req, res);
-  }));
-  app.get('/syncthing/cluster/pending/devices', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getClusterPendigDevices(req, res);
-  }));
-  app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getClusterPendigFolders(req, res);
-  }));
-  app.get('/syncthing/folder/errors/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getFolderErrors(req, res);
-  }));
-  app.get('/syncthing/folder/versions/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getFolderVersions(req, res);
-  }));
-  app.get('/syncthing/db/browse/:folder?/:levels?/:prefix?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbBrowse(req, res);
-  }));
-  app.get('/syncthing/db/completion/:folder?/:device?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbCompletionApi(req, res);
-  }));
-  app.get('/syncthing/db/file/:folder?/:file?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbFile(req, res);
-  }));
-  app.get('/syncthing/db/ignores/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbIgnores(req, res);
-  }));
-  app.get('/syncthing/db/localchanged/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbLocalchanged(req, res);
-  }));
-  app.get('/syncthing/db/need/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbNeed(req, res);
-  }));
-  app.get('/syncthing/db/remoteneed/:folder?/:device?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbRemoteNeed(req, res);
-  }));
-  app.get('/syncthing/db/status/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbStatusApi(req, res);
-  }));
-  app.get('/syncthing/events/disk', asyncRoute((req, res) => {
-    return syncthingService.getEventsDisk(req, res);
-  }));
-  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', asyncRoute((req, res) => {
-    return syncthingService.getEventsApi(req, res);
-  }));
-  app.get('/syncthing/svc/random/string/:length?', asyncRoute((req, res) => {
-    return syncthingService.getSvcRandomString(req, res);
-  }));
-  app.get('/syncthing/svc/report', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getSvcReport(req, res);
-  }));
-  app.get('/syncthing/svc/:deviceid?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getSvcDeviceID(req, res);
-  }));
-  app.get('/syncthing/debug/peercompletion', asyncRoute((req, res) => {
-    return syncthingService.debugPeerCompletion(req, res);
-  }));
-  app.get('/syncthing/debug/httpmetrics', asyncRoute((req, res) => {
-    return syncthingService.debugHttpmetrics(req, res);
-  }));
-  app.get('/syncthing/debug/cpuprof', asyncRoute((req, res) => {
-    return syncthingService.debugCpuprof(req, res);
-  }));
-  app.get('/syncthing/debug/heapprof', asyncRoute((req, res) => {
-    return syncthingService.debugHeapprof(req, res);
-  }));
-  app.get('/syncthing/debug/support', asyncRoute((req, res) => {
-    return syncthingService.debugSupport(req, res);
-  }));
-  app.get('/syncthing/debug/file', asyncRoute((req, res) => {
-    return syncthingService.debugFile(req, res);
   }));
   // BACKUP & RESTORE
 

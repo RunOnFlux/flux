@@ -17,6 +17,7 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const cloudUIUpdateService = require('../../ZelBack/src/services/cloudUIUpdateService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
@@ -758,6 +759,64 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithExactly(runCmdStub, 'fluxbenchd', { params: ['-daemon'] });
+    });
+  });
+
+  // restartFluxOS was the only endpoint in its family the flux team could not
+  // reach: every sibling, including hardUpdateFlux, which deletes node_modules,
+  // admits adminandfluxteam. The asymmetry left the team's own update path
+  // unfinishable - softupdateinstall advances the checkout and nothing can then
+  // restart the process, so the node runs the old code off a new tree and the
+  // watchdog, comparing disk to remote, stops trying.
+  describe('restartFluxOS tests', () => {
+    let verifyPrivilegeStub;
+    let runCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('admits the flux team, not the node operator alone', async () => {
+      verifyPrivilegeStub.returns(true);
+      runCmdStub.resolves({ error: null });
+      const res = generateResponse();
+
+      await fluxService.restartFluxOS(undefined, res);
+
+      sinon.assert.calledWith(verifyPrivilegeStub, Privilege.NODE_OPERATOR_OR_FLUX_TEAM);
+    });
+
+    it('should throw error if user is unauthorized', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      await fluxService.restartFluxOS(undefined, res);
+
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+      sinon.assert.notCalled(runCmdStub);
+    });
+
+    it('restarts the process under pm2 once authorized', async () => {
+      verifyPrivilegeStub.returns(true);
+      runCmdStub.resolves({ error: null });
+      const res = generateResponse();
+
+      await fluxService.restartFluxOS(undefined, res);
+
+      sinon.assert.calledWithExactly(runCmdStub, 'pm2', { params: ['restart', 'flux'] });
     });
   });
 

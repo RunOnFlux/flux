@@ -484,6 +484,107 @@ describe('idService tests', () => {
     });
   });
 
+  describe('nodeHealth / checkNodeFitness tests', () => {
+    let osTotalmemStub;
+    let osCpusStub;
+    let tierStub;
+    let collateralStub;
+    let getDOSStateStub;
+
+    before(async () => {
+      await dbHelper.initiateDB();
+    });
+
+    const healthyHardware = () => {
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
+        data: { dosState: 0, dosMessage: null, nodeHardwareSpecsGood: true },
+      });
+    };
+
+    beforeEach(() => {
+      osTotalmemStub = sinon.stub(os, 'totalmem');
+      osCpusStub = sinon.stub(os, 'cpus');
+      tierStub = sinon.stub(generalService, 'nodeTier');
+      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
+      syncthingService.setSyncthingRunningState(true);
+      sinon.stub(dockerService, 'dockerListImages').returns(true);
+    });
+
+    afterEach(() => {
+      syncthingService.setSyncthingRunningState(true);
+      sinon.restore();
+    });
+
+    it('nodeHealth reports success with per-check data when the node is fit', async () => {
+      healthyHardware();
+      const res = generateResponse();
+
+      await idService.nodeHealth(undefined, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, {
+        status: 'success',
+        data: { db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'ok', dos: 'ok', appsDos: 'ok' },
+      });
+    });
+
+    it('checkNodeFitness returns ok with the checks when the node is fit', async () => {
+      healthyHardware();
+
+      const fitness = await idService.checkNodeFitness();
+
+      expect(fitness.ok).to.equal(true);
+      expect(fitness.error).to.equal(null);
+      expect(fitness.checks.syncthing).to.equal('ok');
+    });
+
+    it('nodeHealth gates on hardware exactly as loginPhrase does', async () => {
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(1 * 1024 ** 3);
+      osCpusStub.returns([1]);
+      const res = generateResponse();
+
+      await idService.nodeHealth(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Node hardware requirements not met' },
+      });
+    });
+
+    it('nodeHealth gates on syncthing - a sustained outage fails the node', async () => {
+      healthyHardware();
+      syncthingService.setSyncthingRunningState(false);
+      const res = generateResponse();
+
+      await idService.nodeHealth(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Syncthing is not running properly' },
+      });
+    });
+
+    it('loginPhrase gates on syncthing the same way, through the shared check', async () => {
+      healthyHardware();
+      syncthingService.setSyncthingRunningState(false);
+      const res = generateResponse();
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Syncthing is not running properly' },
+      });
+    });
+  });
+
   describe('emergencyPhrase tests', () => {
     afterEach(() => {
       sinon.restore();
