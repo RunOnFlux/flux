@@ -240,6 +240,49 @@ describe('policy reaching a node from its peers', function () {
     );
     expect(payload.documents.blockedrepositories).to.deep.equal(['spread/by-peers:v1']);
   });
+
+  it('asks every peer that arrives without ever reaching the source', async function () {
+    this.timeout(300000);
+    // A node holding policy asks each peer that joins, with no cap on how many times it
+    // will do so. That is affordable only because the targeted rung cannot reach the
+    // published source, and this is what holds it unable to: the source is the fleet's
+    // shared, rate-limited dependency, and a rung that runs on every reconnect must never
+    // touch it.
+    //
+    // Arrivals are made by partitioning and healing rather than by restarting. A restarted
+    // node fetches during its boot refresh - test 4 depends on exactly that - so a restart
+    // would move the counter for a legitimate reason and the assertion could not tell the
+    // two apart. A healed partition produces the same peerConnected arrival with no boot
+    // refresh anywhere, so ANY successful fetch here is the ask rung reaching the source.
+    //
+    // The source is left AVAILABLE on purpose. Asserting that nothing was served while the
+    // source refuses everything would assert the fixture rather than the node.
+    const okBefore = (await stubState(env)).policyFetches.ok;
+    const settled = await heldSeq(ONE_HOP);
+
+    const REST = [0, TOLD_NODE, ONE_HOP];
+    for (let i = 0; i < 2; i += 1) {
+      await env.partitionGroups([TWO_HOPS], REST);
+      await env.healPartition([TWO_HOPS], REST);
+      await env.startDiscovery([TWO_HOPS]);
+      // Counted rather than named: the node is cut off from the whole fleet, so its peers
+      // go to zero and coming back is unambiguous.
+      await waitFor(
+        async () => {
+          const [out, inc] = await Promise.all([
+            env.clients[TWO_HOPS].getPeers(),
+            env.clients[TWO_HOPS].getIncomingPeers(),
+          ]);
+          return (out.data?.length ?? 0) + (inc.data?.length ?? 0) >= 2;
+        },
+        { timeout: 120000, interval: 2000, label: `node ${TWO_HOPS} back in the mesh` },
+      );
+    }
+
+    expect(await heldSeq(ONE_HOP), 'nothing was published, so nothing moved').to.equal(settled);
+    expect((await stubState(env)).policyFetches.ok, 'the source was never asked')
+      .to.equal(okBefore);
+  });
 });
 
 describe('a node that restored STALE policy catches up before it acts', function () {

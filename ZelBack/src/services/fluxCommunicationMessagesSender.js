@@ -198,6 +198,18 @@ async function requestPolicyFromPeers(seq) {
 }
 
 /**
+ * Ask ONE peer. The same question as requestPolicyFromPeers, put to a single socket.
+ *
+ * respondWithPolicy answers a targeted request exactly as it answers a broadcast one, so
+ * this needs nothing on the far side.
+ * @param {object} peer The peer socket to ask.
+ * @param {number} seq What this node holds.
+ */
+async function requestPolicyFromPeer(peer, seq) {
+  await sendSignedMessage({ type: 'fluxpolicyrequest', version: 1, seq }, peer);
+}
+
+/**
  * Tell direct peers this node has adopted a sequence.
  *
  * Sent ON ADOPTION, never on a timer. That is what keeps it affordable: the traffic is
@@ -529,6 +541,7 @@ module.exports = {
   relay,
   announcePolicySeq,
   requestPolicyFromPeers,
+  requestPolicyFromPeer,
   respondWithPolicy,
   sendSignedMessage,
   respondWithAppMessage,
