@@ -192,6 +192,143 @@ async function getBlockedRepositores() {
 }
 
 /**
+ * A repository reference with any tag or digest removed. Entries are compared
+ * against this form, never against the raw repotag.
+ * @param {string} repotag
+ * @returns {string}
+ */
+function repositoryOf(repotag) {
+  const separator = repotag.lastIndexOf(':');
+  return separator > -1 ? repotag.substring(0, separator) : repotag;
+}
+
+/**
+ * The namespace an image is published under. An image with no namespace is its
+ * own, which is how a bare entry reaches an official library image.
+ * @param {string} repository
+ * @returns {string}
+ */
+function namespaceOf(repository) {
+  const separator = repository.lastIndexOf('/');
+  return separator > -1 ? repository.substring(0, separator) : repository;
+}
+
+/**
+ * The blocklist, as typed entries.
+ *
+ * `blocklist.json` states what each entry refuses - an application hash, an
+ * application name, an owner, an image or a namespace - so an entry is compared
+ * against exactly one field. `blockedrepositories.json` cannot: there an entry is
+ * a bare string tested against all of them, so `grafana` refuses both the
+ * application called grafana and every image under the grafana namespace, and
+ * whoever wrote it had no way to say which was meant.
+ *
+ * The flat document is the fallback, and its entries keep that older meaning -
+ * they are marked `legacy` rather than guessed at, because guessing a kind is the
+ * ambiguity this reader exists to remove.
+ *
+ * Null means the list could not be obtained from either document. That is not
+ * "nothing is blocked": callers refuse or defer on it.
+ * @returns {Promise<Array<{kind: string, value: string}>|null>}
+ */
+async function getBlocklist() {
+  const cachedResponse = fluxCaching.blockedRepositoriesCache.get('blocklist');
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+  try {
+    const response = await serviceHelper.axiosGet(`${config.policy.baseUrl}/blocklist.json`);
+    // Every element must be a typed entry, and there must be at least one. A
+    // response that is merely array-shaped is the flat document or an error page,
+    // and taking it would answer "nothing is blocked" from something that never
+    // said so - discarding entries and reading as success. An empty answer falls
+    // through to the flat document, which is generated from this one and so
+    // carries the same verdict.
+    const { data } = response;
+    const typed = Array.isArray(data) && data.length
+      && data.every((entry) => entry && typeof entry.kind === 'string' && typeof entry.value === 'string');
+    if (typed) {
+      fluxCaching.blockedRepositoriesCache.set('blocklist', data);
+      return data;
+    }
+  } catch (error) {
+    // An absent or unreachable typed document is not a failure while releases
+    // that predate it are still being served the flat one.
+    log.info(`Typed blocklist unavailable (${error.message}); falling back to blockedrepositories.json`);
+  }
+  const repos = await getBlockedRepositores();
+  if (!repos) return null;
+  return repos.map((value) => ({ kind: 'legacy', value }));
+}
+
+/**
+ * Why this application is blocked, or null.
+ *
+ * `images` may be null, which asks only the questions that need no components:
+ * an application's name, owner and hash are plaintext on the stored record, so
+ * they can be answered for an application whose specification cannot be read.
+ * @param {Array<{kind: string, value: string}>} entries From getBlocklist
+ * @param {{name: string, owner: string, hash: string, images: string[]|null}} subject
+ * @returns {string|null}
+ */
+function blockedReasonFor(entries, subject) {
+  const repositories = (subject.images ?? []).map(repositoryOf);
+  const namespaces = repositories.map(namespaceOf);
+
+  const matchedImage = (value) => repositories.find((repository) => repository === value);
+  const matchedNamespace = (value) => namespaces.find((namespace) => namespace === value);
+
+  const found = entries.map((entry) => {
+    const { value } = entry;
+    switch (entry.kind) {
+      case 'hash':
+        return subject.hash && value === subject.hash ? `${value} is not allowed to be spawned` : null;
+      case 'name':
+        return subject.name && value === subject.name ? `Application ${value} is not allowed to run` : null;
+      case 'owner':
+        return subject.owner && value === subject.owner ? `${value} is not allowed to run applications` : null;
+      case 'image':
+        return matchedImage(value) ? `Image ${value} is blocked. Application ${subject.name} cannot be spawned.` : null;
+      case 'org':
+        return matchedNamespace(value) ? `Organisation ${value} is blocked. Application ${subject.name} cannot be spawned.` : null;
+      case 'legacy': {
+        // One string against four fields, which is what the flat document means
+        // and the reason the typed one exists. Order follows the reader it
+        // replaces, so a legacy entry refuses for the same stated reason it
+        // always did.
+        const pure = repositoryOf(value);
+        if (subject.hash && pure === subject.hash) return `${pure} is not allowed to be spawned`;
+        if (subject.owner && pure === subject.owner) return `${pure} is not allowed to run applications`;
+        if (matchedImage(pure)) return `Image ${pure} is blocked. Application ${subject.name} cannot be spawned.`;
+        if (matchedNamespace(pure)) return `Organisation ${pure} is blocked. Application ${subject.name} cannot be spawned.`;
+        return null;
+      }
+      default:
+        // A kind this release does not know refuses nothing. A newer document can
+        // then ship before the reader that understands it, which is how the
+        // signed bundle is designed to roll out.
+        return null;
+    }
+  }).find((reason) => reason);
+
+  return found ?? null;
+}
+
+/**
+ * The repositories an application's components run, or null when they cannot be
+ * read - an enterprise specification carries them inside its encrypted blob.
+ * @param {object} appSpecs
+ * @returns {string[]|null}
+ */
+function imagesOf(appSpecs) {
+  if (appSpecs.version <= 3) {
+    return appSpecs.repotag ? [appSpecs.repotag] : null;
+  }
+  if (!Array.isArray(appSpecs.compose) || !appSpecs.compose.length) return null;
+  return appSpecs.compose.map((component) => component.repotag).filter((repotag) => repotag);
+}
+
+/**
  * Get vetted repositories from official source
  * These apps bypass user-defined blocked repositories and ports
  * @returns {Promise<Array|null>} List of vetted repositories
@@ -418,57 +555,27 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
  * @returns {Promise<boolean>} True if images are compliant
  */
 async function checkApplicationImagesCompliance(appSpecs) {
-  const repos = await getBlockedRepositores();
+  const entries = await getBlocklist();
   const userBlockedRepos = await getUserBlockedRepositores();
 
-  if (!repos) {
+  if (!entries) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
   }
 
-  const pureImagesOrOrganisationsRepos = [];
-  repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
+  const repotags = imagesOf(appSpecs);
+  const networkReason = blockedReasonFor(entries, {
+    name: appSpecs.name,
+    owner: appSpecs.owner,
+    hash: appSpecs.hash,
+    images: repotags,
   });
-
-  // userBlockedRepos handling will be done separately below
-
-  // Check if app hash is blocked
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
+  if (networkReason) {
+    throw new Error(networkReason);
   }
 
-  // Check if app owner is blocked
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
-  }
+  const images = (repotags ?? []).map(repositoryOf);
+  const organisations = images.map(namespaceOf);
 
-  const images = [];
-  const organisations = [];
-
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-
-  images.forEach((image) => {
-    if (pureImagesOrOrganisationsRepos.includes(image)) {
-      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`);
-    }
-  });
-  organisations.forEach((org) => {
-    if (pureImagesOrOrganisationsRepos.includes(org)) {
-      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`);
-    }
-  });
   // Check if app is vetted - vetted apps bypass user blocks
   const appIsVetted = await isAppVetted(appSpecs);
   if (appIsVetted) {
@@ -498,59 +605,23 @@ async function checkApplicationImagesCompliance(appSpecs) {
  * @returns {Promise<boolean>} True if blocked
  */
 async function checkApplicationImagesBlocked(appSpecs) {
-  const repos = await getBlockedRepositores();
+  const entries = await getBlocklist();
   const userBlockedRepos = await getUserBlockedRepositores();
   let isBlocked = false;
-  if (!repos && !userBlockedRepos) {
+  if (!entries && !userBlockedRepos) {
     return isBlocked;
   }
-  const images = [];
-  const organisations = [];
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-  if (repos) {
-    // Check if app hash or owner is directly in the blocked repositories list
-    if (repos.includes(appSpecs.hash)) {
-      return `${appSpecs.hash} is not allowed to be spawned`;
-    }
-    if (repos.includes(appSpecs.owner)) {
-      return `${appSpecs.owner} is not allowed to run applications`;
-    }
+  const repotags = imagesOf(appSpecs);
+  const images = (repotags ?? []).map(repositoryOf);
+  const organisations = images.map(namespaceOf);
 
-    const pureImagesOrOrganisationsRepos = [];
-    repos.forEach((repo) => {
-      pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-    });
-
-    // blacklist works also for zelid and app hash (check processed list too)
-    if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-      return `${appSpecs.hash} is not allowed to be spawned`;
-    }
-    if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-      return `${appSpecs.owner} is not allowed to run applications`;
-    }
-
-    images.forEach((image) => {
-      if (pureImagesOrOrganisationsRepos.includes(image)) {
-        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`;
-      }
-    });
-    organisations.forEach((org) => {
-      if (pureImagesOrOrganisationsRepos.includes(org)) {
-        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`;
-      }
-    });
+  if (entries) {
+    isBlocked = blockedReasonFor(entries, {
+      name: appSpecs.name,
+      owner: appSpecs.owner,
+      hash: appSpecs.hash,
+      images: repotags,
+    }) ?? false;
   }
 
   // Check if app is vetted - vetted apps bypass user blocks
@@ -629,29 +700,48 @@ async function checkApplicationsCompliance(installedApps, removeAppLocally) {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    // Decrypt enterprise apps (version 8 with encrypted content)
+    const entries = await getBlocklist();
+    if (!entries) {
+      // The list could not be obtained. Removing on that would tear down every
+      // application on the node the first time the document was unreachable.
+      log.warn('Blocklist unavailable; leaving installed applications as they are this pass');
+      return;
+    }
+
+    const appsToRemove = new Map();
+
+    // Name, owner and hash are plaintext on the stored record, so a ban on any of
+    // them is answered for every installed application - including one whose
+    // specification this node cannot decrypt. They are asked before the decrypt
+    // for exactly that reason: an application dropped from the readable set must
+    // still be judged on what it is.
+    installedAppsRes.data.forEach((app) => {
+      const reason = blockedReasonFor(entries, {
+        name: app.name, owner: app.owner, hash: app.hash, images: null,
+      });
+      if (reason) appsToRemove.set(app.name, reason);
+    });
+
+    // Images are the part that genuinely needs the specification: an enterprise
+    // application carries its components inside the encrypted blob. One that
+    // cannot be read is deferred here, and says so - it is not cleared.
     const { readable: appsInstalled, unreadable } = await decryptEnterpriseApps(installedAppsRes.data);
     if (unreadable.length) {
-      // their repotags are inside the blob, so a blocked image in one cannot be
-      // seen here - it is not cleared, it is unexamined
       log.warn(`Cannot check blocked images for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
     }
-    const appsToRemoveNames = [];
+    appsInstalled.forEach((app) => {
+      if (appsToRemove.has(app.name)) return;
+      const reason = blockedReasonFor(entries, {
+        name: app.name, owner: app.owner, hash: app.hash, images: imagesOf(app),
+      });
+      if (reason) appsToRemove.set(app.name, reason);
+    });
+
+    // remove appsToRemove apps from locally running
     // eslint-disable-next-line no-restricted-syntax
-    for (const app of appsInstalled) {
-      // eslint-disable-next-line no-await-in-loop
-      const isAppBlocked = await checkApplicationImagesBlocked(app);
-      if (isAppBlocked) {
-        if (!appsToRemoveNames.includes(app.name)) {
-          appsToRemoveNames.push(app.name);
-        }
-      }
-    }
-    // remove appsToRemoveNames apps from locally running
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appName of appsToRemoveNames) {
+    for (const [appName, reason] of appsToRemove) {
       log.warn(`Application ${appName} is blacklisted, removing`);
-      log.warn(`REMOVAL REASON: Blacklisted image - ${appName} uses a blacklisted Docker image (imageManager)`);
+      log.warn(`REMOVAL REASON: Blocked by network policy - ${reason} (imageManager)`);
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
@@ -665,6 +755,8 @@ async function checkApplicationsCompliance(installedApps, removeAppLocally) {
 module.exports = {
   verifyRepository,
   getBlockedRepositores,
+  getBlocklist,
+  blockedReasonFor,
   getUserBlockedRepositores,
   getVettedRepositories,
   isAppVetted,

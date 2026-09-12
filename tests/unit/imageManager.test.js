@@ -1033,4 +1033,249 @@ describe('imageManager tests', () => {
       sinon.assert.calledWith(delayStub, 3 * 60 * 1000);
     });
   });
+
+  describe('blockedReasonFor tests', () => {
+    // An entry reaches the one field its kind names and no other. Both
+    // directions are asserted: blocking too much and blocking too little are
+    // indistinguishable from either side alone.
+    const namedGrafana = {
+      name: 'grafana', owner: '1SomeOwner', hash: 'a'.repeat(64), images: ['unrelated/image:latest'],
+    };
+    const publishedByGrafana = {
+      name: 'dashboards', owner: '1SomeOwner', hash: 'b'.repeat(64), images: ['grafana/dashboards:latest'],
+    };
+
+    it('a name entry blocks the application of that name', () => {
+      const reason = imageManager.blockedReasonFor([{ kind: 'name', value: 'grafana' }], namedGrafana);
+      expect(reason).to.equal('Application grafana is not allowed to run');
+    });
+
+    it('a name entry does NOT block an application whose image namespace is that word', () => {
+      const reason = imageManager.blockedReasonFor([{ kind: 'name', value: 'grafana' }], publishedByGrafana);
+      expect(reason).to.equal(null);
+    });
+
+    it('an org entry blocks every application publishing under that namespace', () => {
+      const reason = imageManager.blockedReasonFor([{ kind: 'org', value: 'grafana' }], publishedByGrafana);
+      expect(reason).to.contain('Organisation grafana is blocked');
+    });
+
+    it('an org entry does NOT block an application merely named that word', () => {
+      const reason = imageManager.blockedReasonFor([{ kind: 'org', value: 'grafana' }], namedGrafana);
+      expect(reason).to.equal(null);
+    });
+
+    it('a hash entry matches the hash and nothing else', () => {
+      const entries = [{ kind: 'hash', value: 'a'.repeat(64) }];
+      expect(imageManager.blockedReasonFor(entries, namedGrafana)).to.contain('is not allowed to be spawned');
+      expect(imageManager.blockedReasonFor(entries, publishedByGrafana)).to.equal(null);
+    });
+
+    it('an owner entry matches the owner and nothing else', () => {
+      const entries = [{ kind: 'owner', value: '1SomeOwner' }];
+      expect(imageManager.blockedReasonFor(entries, namedGrafana)).to.contain('is not allowed to run applications');
+      expect(imageManager.blockedReasonFor([{ kind: 'owner', value: 'grafana' }], namedGrafana)).to.equal(null);
+    });
+
+    it('an image entry matches the whole repository, not its namespace', () => {
+      expect(imageManager.blockedReasonFor([{ kind: 'image', value: 'grafana/dashboards' }], publishedByGrafana))
+        .to.contain('Image grafana/dashboards is blocked');
+      expect(imageManager.blockedReasonFor([{ kind: 'image', value: 'grafana' }], publishedByGrafana))
+        .to.equal(null);
+    });
+
+    it('a kind this release does not understand blocks nothing', () => {
+      // A newer document ships before the reader that understands it, so an
+      // unknown kind is inert rather than an error.
+      const entries = [{ kind: 'somethingNewer', value: 'grafana' }];
+      expect(imageManager.blockedReasonFor(entries, namedGrafana)).to.equal(null);
+      expect(imageManager.blockedReasonFor(entries, publishedByGrafana)).to.equal(null);
+    });
+
+    it('a legacy entry keeps its four-field meaning', () => {
+      // A flat-document entry is one string against the hash, the owner, the
+      // repository and the namespace. Narrowing it would stop enforcing bans
+      // that are in force.
+      const entries = [{ kind: 'legacy', value: 'grafana' }];
+      expect(imageManager.blockedReasonFor(entries, publishedByGrafana)).to.contain('Organisation grafana is blocked');
+      expect(imageManager.blockedReasonFor([{ kind: 'legacy', value: 'a'.repeat(64) }], namedGrafana))
+        .to.contain('is not allowed to be spawned');
+      expect(imageManager.blockedReasonFor([{ kind: 'legacy', value: '1SomeOwner' }], namedGrafana))
+        .to.contain('is not allowed to run applications');
+    });
+
+    it('answers the identity questions when the images cannot be read', () => {
+      // An enterprise application carries its components inside its encrypted
+      // blob; name, owner and hash sit on the stored record regardless.
+      const sealed = {
+        name: 'grafana', owner: '1SomeOwner', hash: 'a'.repeat(64), images: null,
+      };
+      expect(imageManager.blockedReasonFor([{ kind: 'name', value: 'grafana' }], sealed))
+        .to.equal('Application grafana is not allowed to run');
+      expect(imageManager.blockedReasonFor([{ kind: 'org', value: 'grafana' }], sealed)).to.equal(null);
+    });
+  });
+
+  describe('getBlocklist tests', () => {
+    const typed = [{ kind: 'name', value: 'dowz', reason: 'why', added: '2026-09-12' }];
+
+    it('prefers the typed document', async () => {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: typed });
+      axiosGet.resolves({ data: ['legacy-entry'] });
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.deep.equal(typed);
+    });
+
+    it('falls back to the flat document when the typed one is not typed', async () => {
+      // A response that is merely array-shaped - an error page, or the flat
+      // document served under the wrong name - must not read as "nothing is
+      // blocked".
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: ['not', 'typed'] });
+      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
+    });
+
+    it('falls back when the typed document is empty', async () => {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: [] });
+      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
+    });
+
+    it('falls back when the typed document is absent', async () => {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGet.withArgs(sinon.match(/blocklist\.json$/)).rejects(new Error('404'));
+      axiosGet.withArgs(sinon.match(/blockedrepositories\.json$/)).resolves({ data: ['blocked-org'] });
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.deep.equal([{ kind: 'legacy', value: 'blocked-org' }]);
+    });
+
+    it('returns null when neither document can be read', async () => {
+      // Null is "could not ask", which callers refuse or defer on. An empty
+      // list would answer "nothing is blocked" from an outage.
+      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('network down'));
+
+      const entries = await imageManager.getBlocklist();
+
+      expect(entries).to.equal(null);
+    });
+  });
+
+  describe('checkApplicationsCompliance identity tests', () => {
+    const sealed = {
+      name: 'dijikalaco',
+      version: 8,
+      owner: '1OrbitOwner',
+      hash: 'a'.repeat(64),
+      enterprise: 'base64blob',
+      compose: [],
+    };
+
+    // imageManager destructures decryptEnterpriseApps at load, so a stub only
+    // reaches it through a fresh require.
+    function reloadWithDecryption(decrypt) {
+      // eslint-disable-next-line global-require
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake(decrypt);
+      delete require.cache[require.resolve('../../ZelBack/src/services/appSecurity/imageManager')];
+      // eslint-disable-next-line global-require
+      return require('../../ZelBack/src/services/appSecurity/imageManager');
+    }
+
+    function stubBlocklist(entries) {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet');
+      if (entries === null) {
+        axiosGet.rejects(new Error('unreachable'));
+      } else {
+        axiosGet.withArgs(sinon.match(/blocklist\.json$/)).resolves({ data: entries });
+        axiosGet.resolves({ data: [] });
+      }
+      // eslint-disable-next-line global-require
+      const axios = require('axios');
+      sinon.stub(axios, 'get').resolves({ data: { status: 'success', data: [] } });
+      sinon.stub(serviceHelper, 'delay').resolves();
+    }
+
+    it('removes a blocked enterprise app whose specification cannot be decrypted', async () => {
+      // The components are sealed, so nothing about the images can be asked. The
+      // hash is on the record and decides on its own.
+      stubBlocklist([{
+        kind: 'hash', value: 'a'.repeat(64), reason: 'orbit', added: '2026-09-12',
+      }]);
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [sealed] });
+      const removeAppLocally = sinon.stub().resolves();
+      const manager = reloadWithDecryption(async () => ({ readable: [], unreadable: [sealed], inPlace: [sealed] }));
+
+      await manager.checkApplicationsCompliance(installedApps, removeAppLocally);
+
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'dijikalaco', null, false, true, true);
+    });
+
+    it('removes an undecryptable app blocked by name', async () => {
+      stubBlocklist([{
+        kind: 'name', value: 'dijikalaco', reason: 'orbit', added: '2026-09-12',
+      }]);
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [sealed] });
+      const removeAppLocally = sinon.stub().resolves();
+      const manager = reloadWithDecryption(async () => ({ readable: [], unreadable: [sealed], inPlace: [sealed] }));
+
+      await manager.checkApplicationsCompliance(installedApps, removeAppLocally);
+
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'dijikalaco', null, false, true, true);
+    });
+
+    it('leaves an undecryptable app alone when nothing about it is blocked', async () => {
+      stubBlocklist([{
+        kind: 'hash', value: 'b'.repeat(64), reason: 'other', added: '2026-09-12',
+      }]);
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [sealed] });
+      const removeAppLocally = sinon.stub().resolves();
+      const manager = reloadWithDecryption(async () => ({ readable: [], unreadable: [sealed], inPlace: [sealed] }));
+
+      await manager.checkApplicationsCompliance(installedApps, removeAppLocally);
+
+      sinon.assert.notCalled(removeAppLocally);
+    });
+
+    it('removes nothing when the blocklist cannot be obtained', async () => {
+      // An unreachable document must not tear down the node's applications.
+      stubBlocklist(null);
+      const blockedByHash = { ...sealed, enterprise: undefined, compose: [{ repotag: 'blocked/repo:latest' }] };
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [blockedByHash] });
+      const removeAppLocally = sinon.stub().resolves();
+      const manager = reloadWithDecryption(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps }));
+
+      await manager.checkApplicationsCompliance(installedApps, removeAppLocally);
+
+      sinon.assert.notCalled(removeAppLocally);
+    });
+
+    it('still blocks a readable app on its image', async () => {
+      stubBlocklist([{
+        kind: 'image', value: 'blocked/repo', reason: 'malware', added: '2026-09-12',
+      }]);
+      const readable = {
+        name: 'ReadableApp', version: 4, owner: '1Owner', hash: 'c'.repeat(64), compose: [{ repotag: 'blocked/repo:latest' }],
+      };
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [readable] });
+      const removeAppLocally = sinon.stub().resolves();
+      const manager = reloadWithDecryption(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps }));
+
+      await manager.checkApplicationsCompliance(installedApps, removeAppLocally);
+
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'ReadableApp', null, false, true, true);
+    });
+  });
 });
