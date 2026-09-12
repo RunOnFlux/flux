@@ -194,6 +194,13 @@ describe('A peer set lost to the network is counted; the node\'s own teardown is
       .filter((e) => e.event === 'peers:belowThreshold' && e.data.deliberate === false);
     expect(falls, 'no real collapse reached the node, so the absence below proves nothing').to.have.lengthOf(1);
 
+    // THE WHOLE RUN, not a window from now. assertNoEvent anchors at the current
+    // last-seen id, and the collapse this is about happened in the test before -
+    // so a DOS wrongly raised on one dip would already be in the buffer, behind
+    // the anchor, and a "from now" window would report it as absent.
+    const raised = node.getEventBuffer().filter((e) => e.event === 'peerSetStability:dos');
+    expect(raised, 'one collapse took the node out of service').to.have.lengthOf(0);
+    // And nothing arrives late either.
     await assertNoEvent(node, 'peerSetStability:dos', () => true, 15000);
   });
 
@@ -282,6 +289,11 @@ describe('Losing confirmation tears the peer set down and is not counted against
 
   it('does not take the node out of service for them', async function () {
     this.timeout(60000);
+    // Scanned over the whole run for the same reason as the block above: the
+    // teardowns happened in the previous test, so a DOS raised on them is behind
+    // any anchor taken here.
+    const raised = node.getEventBuffer().filter((e) => e.event === 'peerSetStability:dos');
+    expect(raised, 'our own teardowns took the node out of service').to.have.lengthOf(0);
     await assertNoEvent(node, 'peerSetStability:dos', () => true, 15000);
     const res = await node.getDOSState();
     expect(res.data.dosMessage ?? '', 'our own teardowns were counted as instability').to.not.contain('Peer set unstable');
