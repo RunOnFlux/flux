@@ -536,14 +536,30 @@ describe('bundles a node must refuse', function () {
   // failed, that line never ran and the NEXT test inherited a malformed map and failed
   // for a reason that had nothing to do with it. A fixture a test breaks is a fixture
   // the suite has to put back whatever the test does.
+  // AND IT WAITS FOR THE NODE TO TAKE IT. On a ticking fleet the republished good
+  // bundle is adopted a few seconds later, on the node's own schedule - so a test
+  // that read the held sequence and THEN published something bad could have the good
+  // one land in between and see the sequence move for a reason that has nothing to do
+  // with what it published. Settling here makes each test start from a node that is
+  // level with the stub, which is the state every assertion below assumes.
   afterEach(async function () {
-    this.timeout(30000);
-    await stub(env, '/policy', {
-      signer: 'pinned',
-      body: null,
-      available: true,
-      documents: { enterprisenodes: ENTERPRISE_MAP },
-    }).catch(() => {});
+    this.timeout(60000);
+    try {
+      await stub(env, '/policy', {
+        signer: 'pinned',
+        body: null,
+        available: true,
+        documents: { enterprisenodes: ENTERPRISE_MAP },
+      });
+      const served = (await stubState(env)).policySeq;
+      await waitFor(async () => (await db.policyBundle())?.seq === served, {
+        timeout: 45000,
+        label: `the node to settle on the restored seq ${served}`,
+      });
+    } catch {
+      // A hook that throws masks the failure of the test that preceded it. The next
+      // test's own settle assertion is what catches a fixture left behind.
+    }
   });
 
   // Publishing RESETS the stub's fetch counters (resignPolicy), so `ok > 0` means this
@@ -551,8 +567,10 @@ describe('bundles a node must refuse', function () {
   // something at some point. That is the half of "fetched and refused" the node's own log
   // cannot be asked for reliably, and the stub can.
   async function metAndRefused(publish, label) {
-    const before = (await db.policyBundle()).seq;
+    // Published FIRST, then the held sequence read. The other order leaves a window
+    // the width of one fetch in which the good bundle from afterEach could still land.
     await publish();
+    const before = (await db.policyBundle()).seq;
     await waitFor(async () => (await stubState(env)).policyFetches.ok > 0, {
       timeout: 90000,
       label: 'the node to fetch the bundle it must refuse',
