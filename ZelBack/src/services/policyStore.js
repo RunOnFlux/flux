@@ -333,19 +333,26 @@ async function refresh() {
  * -- being a little behind is not urgent, and the backstop tick covers it.
  */
 function notePeerAvailable(peerKey) {
-  // Two questions, decided by what this node holds.
+  // Two questions, decided by whether this node's policy is CONFIRMED - not by whether it
+  // holds any.
   //
-  // Holding NOTHING is the cold start: the whole ladder runs, because this peer may hold
-  // nothing either and the published source is the floor under a network that has no policy
-  // yet. Every arriving peer triggers it, since any one of them may be the first that can
-  // answer.
-  if (!current) {
+  // Unconfirmed is the cold start and the restart alike: a node with nothing, and a node
+  // that restored a bundle from disk, are in the same position. Disk proves a bundle was
+  // real, never that it is still the network's, so a restored node is behind until something
+  // says otherwise - and its peers may be equally stale, which makes the published source
+  // the floor under both. The whole ladder runs, on every arriving peer, since any one of
+  // them may be the first that can answer.
+  //
+  // Holding a bundle is NOT the same as being up to date, and using `current` here left a
+  // restarted node unable to reach the source at all: it held something, so it took the
+  // targeted rung, which by design cannot fetch.
+  if (!confirmed) {
     refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
     return;
   }
 
-  // Holding something needs a far smaller answer: is THIS peer ahead. One message, one
-  // reply, no source, so it runs on every arrival.
+  // Confirmed needs a far smaller answer: is THIS peer ahead. One message, one reply, no
+  // source, so it runs on every arrival.
   //
   // It has to be an ask rather than a wait, because being TOLD is a broadcast this node must
   // already be connected to hear. A peer that adopts in the seconds before it connects
