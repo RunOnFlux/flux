@@ -54,6 +54,66 @@ export const PRODUCTION = Object.freeze({
   // the window without shortening the tick is measuring the tick.
   peerSetDipWindowMinutes: 120,
   peerSetDipEvaluateMs: 60 * 1000,
+  // How many consecutive missed pongs kill a socket, and how often the ping that
+  // can miss goes out. Only the product of the two means anything.
+  wsMaxMissedPongs: 3,
+  wsPingIntervalMs: 15000,
+});
+
+/**
+ * How long before a node notices a peer that was UNPLUGGED rather than
+ * disconnected - the wait behind every DEGRADED and every partition.
+ *
+ * A missed pong per interval, dead after wsMaxMissedPongs of them, plus up to one
+ * more interval because the ping timer is not aligned to the moment the peer
+ * vanished. Held here rather than in a suite because it is the same derivation
+ * for all of them, and a suite computing it from the SHARED config while running
+ * its own override silently budgets for a fleet it is not on.
+ *
+ * BOTH values are required and there is NO production fallback, deliberately.
+ * Production's pair gives 15000 * (3+1) = 60s; the shared harness fleet gives
+ * 2000 * (2+1) = 6s. So a production default is not a safe approximation here,
+ * it is wrong by ten times - and wrong in the direction that never fails, since
+ * an over-long budget only makes the wait more tolerant. A caller that omits
+ * either half has made a mistake, and this is the only place it can be seen.
+ * @param {object} peers The EFFECTIVE peers config - the suite's override if it
+ *   has one, otherwise the shared fleet's.
+ * @returns {number} Milliseconds.
+ */
+export function peerDeathMs(peers) {
+  const interval = peers?.wsPingIntervalMs;
+  const misses = peers?.wsMaxMissedPongs;
+  if (typeof interval !== 'number' || typeof misses !== 'number') {
+    throw new Error(
+      'peerDeathMs needs both wsPingIntervalMs and wsMaxMissedPongs from the '
+      + `EFFECTIVE peers config, got ${JSON.stringify(peers)} - pass the suite's `
+      + 'override if it has one, else loadSharedConfig().peers.',
+    );
+  }
+  return interval * (misses + 1);
+}
+
+/**
+ * The peers config for a suite that PARTITIONS.
+ *
+ * partitionGroups returns only once the cross-group sockets are gone, and that
+ * wait is peer liveness: wsPingIntervalMs x wsMaxMissedPongs. The shared fleet
+ * config compresses BOTH halves - 2000ms and 2 misses - because most suites want
+ * a dead peer noticed in ~4s rather than production's ~45s.
+ *
+ * A partitioning suite wants the opposite of fast on the MISS COUNT. Three
+ * consecutive misses is a far safer signal on a loaded box than one slow round
+ * trip, which is production's reason for 3; at two, a node that stalls for two
+ * ping periods under parallel-gate load has its peers declared dead and the
+ * suite measures the stall instead of the partition.
+ *
+ * Stated as a PAIR because overriding only the interval silently keeps the
+ * shared 2 - the suite reads as "I left the miss count at production's 3" while
+ * running at two thirds of the margin it asked for. That is what five suites did.
+ */
+export const PARTITION_PEERS = Object.freeze({
+  wsPingIntervalMs: 3000,
+  wsMaxMissedPongs: PRODUCTION.wsMaxMissedPongs,
 });
 
 /**

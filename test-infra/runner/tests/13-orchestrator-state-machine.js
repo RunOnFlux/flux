@@ -12,15 +12,13 @@ import {
   clearAllNodeStatus, setNodeStatus, disableAllRpcFailure,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { loadSharedConfig } from '../framework/coupled-knobs.js';
+import { loadSharedConfig, peerDeathMs, PARTITION_PEERS } from '../framework/coupled-knobs.js';
 
 // How long a node takes to notice a peer that has been unplugged rather than
-// disconnected. Derived, because it is the thing every DEGRADED wait below is
-// really waiting for: a missed pong per interval, and a socket is declared dead
-// after `wsMaxMissedPongs` of them, plus up to one more interval of phase
-// because the timer is not aligned to the moment the peer vanished.
-const PEERS = loadSharedConfig().peers ?? {};
-const PEER_DEATH_MS = (PEERS.wsPingIntervalMs ?? 15000) * ((PEERS.wsMaxMissedPongs ?? 3) + 1);
+// disconnected - the thing every DEGRADED wait below is really waiting for.
+// Derived once in coupled-knobs, because a block that overrides the peers config
+// must budget from ITS config and not from the shared fleet's.
+const PEER_DEATH_MS = peerDeathMs(loadSharedConfig().peers);
 
 /**
  * Take every peer away from node 0, WAIT FOR IT TO NOTICE, and only then ask
@@ -463,8 +461,10 @@ describe('Orchestrator: the block budget starts again after the peer set goes', 
       nodes: 5,
       tickerAutostart: false,
       configOverrides: {
-        // dropEveryPeerAndAwaitDegraded waits out peer liveness here.
-        peers: { wsPingIntervalMs: 3000 },
+        // dropEveryPeerAndAwaitDegraded waits out peer liveness here, so this
+        // block states BOTH halves of it - the interval alone would inherit the
+        // shared fleet's compressed miss count.
+        peers: PARTITION_PEERS,
         fluxapps: { appSyncFallbackMinutes: 5, appSyncMinCompletions: 6 },
       },
     });
@@ -481,7 +481,7 @@ describe('Orchestrator: the block budget starts again after the peer set goes', 
 
   it('needs a whole fresh budget after a recovery, not one more block', async function () {
     this.timeout(300000);
-    await dropEveryPeerAndAwaitDegraded(env);
+    await dropEveryPeerAndAwaitDegraded(env, { detectMs: 3 * peerDeathMs(PARTITION_PEERS) });
     for (let i = 1; i < env.clients.length; i += 1) {
       // eslint-disable-next-line no-await-in-loop
       await env.reconnectNode(i);
