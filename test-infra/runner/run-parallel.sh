@@ -185,6 +185,37 @@ load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enou
 # suite instant-fail on subnet collisions) and after it (leave the box clean).
 # Scoped to harness names/labels only — never a blanket prune; assumes one gate
 # per box, which run-parallel has always required.
+# The sweep below is box-wide by necessity: it reaps what runs that CRASHED left
+# behind, and those carry run ids this run cannot know. That is survivable for a
+# dead run's leftovers and fatal for a LIVE one - it takes that run's containers,
+# every flux-test- network, and the /24 claims and boot lock its suites are still
+# holding. The locks are the half that bites even when a container filter is right,
+# so none of it can be softened; the whole sweep is gated instead.
+#
+# A claim directory names its owner's pid, and run-all.sh already reads a claim
+# whose pid is gone as stale - the same test separates a live run from leftovers.
+LOCK_ROOT="${E2E_BASE_LOCK_DIR:-/tmp/e2e-base-locks}"
+BOOT_LOCK="${E2E_BOOT_LOCK_DIR:-/tmp/e2e-boot-lock}"
+
+live_claims(){
+  local claim owner clone
+  for claim in "$LOCK_ROOT"/*; do
+    [ -d "$claim" ] || continue
+    owner="$(cat "$claim/pid" 2>/dev/null)"
+    [ -n "$owner" ] || continue
+    kill -0 "$owner" 2>/dev/null || continue          # stale claim from a dead run
+    clone="$(readlink "/proc/$owner/cwd" 2>/dev/null)"
+    printf '  %s.0/24 held by pid %s in %s\n' "${claim##*/}" "$owner" "${clone:-an unknown directory}"
+  done
+}
+
+# Which run labels are alive, so a refusal names something greppable rather than
+# leaving the reader to work out whose fleet they are looking at.
+live_run_labels(){
+  docker ps -q --filter label=flux-e2e-run 2>/dev/null \
+    | xargs -r docker inspect -f '{{index .Config.Labels "flux-e2e-run"}}' 2>/dev/null | sort -u | tr '\n' ' '
+}
+
 sweep_harness_leftovers(){
   # scope to OUR label (key presence, any run id) - org.testcontainers=true would
   # also kill unrelated testcontainers projects sharing the box
@@ -199,10 +230,29 @@ sweep_harness_leftovers(){
   docker ps -aq --filter label=flux-e2e-run | xargs -r docker rm -fv >/dev/null 2>&1
   docker network ls --format '{{.ID}} {{.Name}}' | grep ' flux-test-' | awk '{print $1}' | xargs -r docker network rm >/dev/null 2>&1
   docker volume ls -q --filter label=flux-e2e-run | xargs -r docker volume rm >/dev/null 2>&1
-  rm -rf /tmp/e2e-base-locks /tmp/e2e-boot-lock
+  rm -rf "$LOCK_ROOT" "$BOOT_LOCK"
 }
 
-sweep_harness_leftovers
+claims="$(live_claims)"
+if [ -n "$claims" ] && [ -z "${E2E_SWEEP_ANYWAY:-}" ]; then
+  {
+    echo "REFUSING TO RUN - another harness run is live on this box, and starting here would destroy it."
+    echo "$claims"
+    labels="$(live_run_labels)"; [ -n "$labels" ] && echo "  containers alive under run label(s): $labels"
+    echo
+    echo "run-parallel sweeps the box before it starts, so it needs the box to itself."
+    echo "Wait for that run to finish. A single suite (run-all.sh) CAN share the box - it"
+    echo "scopes every filter to its own run label - so only this runner has to wait."
+    echo "If those claims are known dead, E2E_SWEEP_ANYWAY=1 overrides this."
+  } >&2
+  exit 3
+fi
+[ -n "$claims" ] && echo "WARNING sweeping past a live claim because E2E_SWEEP_ANYWAY is set" >&2
+if [ -n "$(live_claims)" ]; then
+  log "SKIP    post-gate sweep - another run is live and this sweep is box-wide; leftovers fall to its successor"
+else
+  sweep_harness_leftovers
+fi
 
 # ---- capture sidecars (best-effort; killed on exit) ----
 # CAP1 records the PID of its root half so the trap can signal it directly.

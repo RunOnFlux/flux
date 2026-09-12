@@ -85,8 +85,6 @@ class ConfigManager extends EventEmitter {
           routerIP: '',
           pgpPrivateKey: '',
           pgpPublicKey: '',
-          blockedPorts: [],
-          blockedRepositories: [],
         },
       };
       return false;

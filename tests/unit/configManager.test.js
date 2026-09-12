@@ -13,8 +13,6 @@ const mockUserConfig = {
     routerIP: '192.168.1.1',
     pgpPrivateKey: 'test-private-key',
     pgpPublicKey: 'test-public-key',
-    blockedPorts: [8080, 9090],
-    blockedRepositories: ['blocked/repo1', 'blocked/repo2'],
   },
 };
 
@@ -101,8 +99,6 @@ describe('configManager tests', () => {
       expect(config.initial).to.have.property('routerIP');
       expect(config.initial).to.have.property('pgpPrivateKey');
       expect(config.initial).to.have.property('pgpPublicKey');
-      expect(config.initial).to.have.property('blockedPorts');
-      expect(config.initial).to.have.property('blockedRepositories');
     });
   });
 
@@ -122,14 +118,6 @@ describe('configManager tests', () => {
       expect(configManager.getConfigValue('initial.nonexistent')).to.be.undefined;
     });
 
-    it('should handle array values', () => {
-      configManager = require('../../ZelBack/src/services/utils/configManager');
-
-      const blockedPorts = configManager.getConfigValue('initial.blockedPorts');
-      expect(blockedPorts).to.be.an('array');
-      expect(blockedPorts).to.deep.equal([8080, 9090]);
-    });
-
     it('should handle deep nested paths', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
@@ -137,7 +125,7 @@ describe('configManager tests', () => {
       expect(configManager.getConfigValue('initial')).to.be.an('object');
 
       // Test two levels
-      expect(configManager.getConfigValue('initial.blockedRepositories')).to.be.an('array');
+      expect(configManager.getConfigValue('initial.apiport')).to.be.a('number');
     });
   });
 
@@ -182,12 +170,10 @@ describe('configManager tests', () => {
       const updatedConfig = JSON.parse(JSON.stringify(mockUserConfig));
       updatedConfig.initial.apiport = 16137;
       updatedConfig.initial.testnet = true;
-      updatedConfig.initial.blockedPorts = [3000, 4000, 5000];
       globalThis.userconfig = updatedConfig;
 
       expect(configManager.getConfigValue('initial.apiport')).to.equal(16137);
       expect(configManager.getConfigValue('initial.testnet')).to.equal(true);
-      expect(configManager.getConfigValue('initial.blockedPorts')).to.deep.equal([3000, 4000, 5000]);
     });
   });
 
@@ -285,8 +271,6 @@ describe('configManager tests', () => {
           routerIP: '',
           pgpPrivateKey: '',
           pgpPublicKey: '',
-          blockedPorts: [],
-          blockedRepositories: [],
         },
       };
 
@@ -384,14 +368,14 @@ describe('configManager tests', () => {
       expect(configManager.getConfigValue('initial.kadena')).to.be.undefined;
     });
 
-    it('should handle array modifications', () => {
+    it('should hand back the live object, not a copy', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
-      const blockedPorts = configManager.getConfigValue('initial.blockedPorts');
-      blockedPorts.push(6000);
+      const initial = configManager.getConfigValue('initial');
+      initial.routerIP = '10.0.0.1';
 
       // Should reflect the change since it's the same reference
-      expect(configManager.getConfigValue('initial.blockedPorts')).to.include(6000);
+      expect(configManager.getConfigValue('initial.routerIP')).to.equal('10.0.0.1');
     });
   });
 

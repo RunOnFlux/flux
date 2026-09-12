@@ -9,7 +9,5 @@ module.exports = {
     routerIP: '',
     pgpPrivateKey: '',
     pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
   },
 };
