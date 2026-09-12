@@ -3,6 +3,7 @@ const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutc
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const realPlacementFeasibility = require('../../ZelBack/src/services/appPlacement/placementFeasibility');
+const realImageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
 const { resetGlobalState } = require('./fixtures/globalState');
 
 describe('appSpawner tests', () => {
@@ -203,6 +204,11 @@ describe('appSpawner tests', () => {
         checkApplicationImagesCompliance: sinon.stub().resolves(),
         verifyRepository: sinon.stub().resolves(),
         isAppVetted: sinon.stub().resolves(false),
+        // No blocklist by default, so the candidate filter is inert unless a test
+        // supplies one. The matcher is the real implementation: a double of it
+        // would let a test pass on matching rules the node does not have.
+        getBlocklist: sinon.stub().resolves(opts.blocklist ?? null),
+        blockedReasonFor: realImageManager.blockedReasonFor,
       },
       '../appRequirements/hwRequirements': {
         checkAppRequirements: sinon.stub().resolves(),
@@ -547,6 +553,85 @@ describe('appSpawner tests', () => {
         await appSpawner.trySpawningGlobalApplication().catch(() => {});
         expect(infoLogged('selected to try to spawn')).to.be.true;
       });
+    });
+  });
+
+  describe('blocklist selection filter', () => {
+    function candidate(overrides = {}) {
+      return {
+        name: 'orbitapp',
+        hash: 'a'.repeat(64),
+        actual: 0,
+        required: 1,
+        nodes: [],
+        geolocation: [],
+        version: 8,
+        enterprise: true,
+        owner: '1OrbitOwner',
+        ...overrides,
+      };
+    }
+
+    function selectionLogged(substr) {
+      return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
+    }
+
+    function entry(kind, value) {
+      return [{ kind, value, reason: 'test', added: '2026-09-12' }];
+    }
+
+    it('does not select an app blocked by hash', async () => {
+      buildModule({ aggregateResult: [candidate()], blocklist: entry('hash', 'a'.repeat(64)) });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(selectionLogged('selected to try to spawn')).to.be.false;
+      expect(selectionLogged('No app currently to be processed')).to.be.true;
+    });
+
+    it('does not select an app blocked by name', async () => {
+      buildModule({ aggregateResult: [candidate()], blocklist: entry('name', 'orbitapp') });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(selectionLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('does not select an app whose owner is blocked', async () => {
+      buildModule({ aggregateResult: [candidate()], blocklist: entry('owner', '1OrbitOwner') });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(selectionLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('names the blocklist in the candidacy breakdown', async () => {
+      // The pass ends in "No app currently to be processed" whichever filter took
+      // the candidates, so the stage has to appear in the tally or a blocked pool
+      // is indistinguishable from an empty one.
+      buildModule({ aggregateResult: [candidate()], blocklist: entry('hash', 'a'.repeat(64)) });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      const tally = logStub.info.getCalls()
+        .map((c) => c.args[0])
+        .find((line) => typeof line === 'string' && line.includes('No app currently to be processed'));
+      expect(tally).to.contain('"afterBlocklist":0');
+    });
+
+    it('still selects an app the blocklist does not name', async () => {
+      buildModule({ aggregateResult: [candidate()], blocklist: entry('hash', 'b'.repeat(64)) });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(selectionLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('selects as usual when the blocklist cannot be obtained', async () => {
+      // An unreachable document must not stop the node spawning anything; the
+      // install-time compliance check is still ahead of it.
+      buildModule({ aggregateResult: [candidate()], blocklist: null });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(selectionLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('does not filter on an image entry here, where no repotag is projected', async () => {
+      // The aggregation carries no repotags, and an enterprise app has none in the
+      // clear, so an image ban cannot be judged at selection. Filtering on one
+      // would drop candidates on an unanswered question.
+      buildModule({ aggregateResult: [candidate()], blocklist: entry('image', 'blocked/repo') });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(selectionLogged('selected to try to spawn')).to.be.true;
     });
   });
 
