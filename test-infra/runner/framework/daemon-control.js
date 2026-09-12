@@ -214,12 +214,26 @@ export async function clearNodeStatus(ip) {
   return del(`/node-status/${ip}`);
 }
 
+// THE FOUR '/all' CONTROLS CHECK THEIR OWN ANSWER.
+//
+// Each of them was shadowed by the '/:ip' route registered above it in the stub
+// and reached that handler with ip='all', which set or deleted the literal key
+// 'all' and replied in the SUCCESS shape. A clear that cleared nothing looked
+// exactly like a clear that worked, and the suite using it failed a minute later
+// waiting for a node to come back. The stub now registers the literal routes
+// first and refuses ip='all'; these read the answer so that refusal cannot be
+// absorbed the way the silence was.
+function assertControlled(result, what) {
+  if (result && result.error) throw new Error(`${what} refused by the daemon stub: ${result.error}`);
+  return result;
+}
+
 export async function setAllNodeStatus(status) {
-  return post('/node-status/all', { status });
+  return assertControlled(await post('/node-status/all', { status }), 'setAllNodeStatus');
 }
 
 export async function clearAllNodeStatus() {
-  return del('/node-status/all');
+  return assertControlled(await del('/node-status/all'), 'clearAllNodeStatus');
 }
 
 export async function getNodeStatusOverrides() {
@@ -279,11 +293,11 @@ export async function disableRpcFailure(ip) {
 }
 
 export async function enableAllRpcFailure() {
-  return post('/rpc-fail/all');
+  return assertControlled(await post('/rpc-fail/all'), 'enableAllRpcFailure');
 }
 
 export async function disableAllRpcFailure() {
-  return del('/rpc-fail/all');
+  return assertControlled(await del('/rpc-fail/all'), 'disableAllRpcFailure');
 }
 
 // -- Request journal --
