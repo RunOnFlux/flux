@@ -78,6 +78,21 @@ class AppSyncOrchestrator {
   #offPeerEvent = null;
   #waitForNetworkState = null;
   #networkReady = false;
+  /**
+   * Whether the peer set is up RIGHT NOW, mirroring FluxPeerManager's latch.
+   *
+   * A level, not a one-way latch. It used to be set on peerThresholdReached
+   * and cleared nowhere, which was survivable while nothing but "has the sync
+   * ever been allowed to start" read it - and is not, now that the block
+   * fallback is gated on it. A latch that never falls cannot say a peer set
+   * was lost, and the whole point of the gate is that it was.
+   *
+   * It tracks the HYSTERETIC pair, because that is the pair the two events it
+   * rides on are emitted from: up at appSyncPeerThreshold (12), down at
+   * appSyncDegradedThreshold (4). Not a raw count - a node oscillating between
+   * 5 and 11 peers is the case the hysteresis exists to absorb, and a gate
+   * that reset on any dip below 12 would never let such a node finish.
+   */
   #peersReady = false;
   #explorerSynced = false;
   #hashSyncComplete = false;
@@ -190,6 +205,7 @@ class AppSyncOrchestrator {
     };
     this.#peersBelowHandler = (count) => {
       log.info(`AppSyncOrchestrator - Peers below threshold (${count} peers)`);
+      this.#peersReady = false;
       this.#onPeersDegraded();
     };
     // Every join, because a peer arriving while the pool is short is what can
@@ -671,20 +687,19 @@ class AppSyncOrchestrator {
   async #reconcilePass() {
     if (this.#stateSyncComplete) return;
     if (this.#syncBudgetSpent) return;
-    // Has the sync ever been allowed to start. A latch, and never cleared:
-    // before the threshold is first crossed there is nobody worth asking.
+    // Is the peer set up. Before the threshold is first crossed there is
+    // nobody worth asking, and once it has fallen below the degraded level
+    // there is nobody worth asking again.
     if (!this.#networkReady || !this.#peersReady) return;
     // Are there enough peers to trust an answer RIGHT NOW. A level, and the
     // reason the latch is not enough on its own: DEGRADED is this node's own
     // verdict that it has too few peers for gossip to be reliable, so a survey
     // gathered from them is not one to complete a sync on.
     //
-    // Only the gathering. Authority already earned is not revoked here: a node
-    // past its block fallback stays authoritative through a degrade, because
-    // losing peers does not erase what it has already learned and it holds a
-    // full location lifetime's worth of view. What this stops is a node that
-    // has NOT earned it taking a short cut to it through the few peers it has
-    // left.
+    // Only the gathering. What this stops is a node that has not earned
+    // authority taking a short cut to it through the few peers it has left.
+    // Authority itself is revoked by #onPeersDegraded, which zeroes the block
+    // counter along with everything else a degrade invalidates.
     //
     // Recovery needs nothing here: crossing the threshold again moves the
     // state to RESYNCING before #onPeersReady reconciles.
@@ -781,6 +796,23 @@ class AppSyncOrchestrator {
   }
 
   #onPeersDegraded() {
+    // ZEROED, and before the state check, because this is not a state
+    // transition - it is the counter losing its meaning. #blocksSinceSyncStarted
+    // is a claim about time spent in a position to hear announcements, and the
+    // peer set has just gone, so credit earned before the gap does not add to
+    // credit earned after it. The state check below only admits READY and
+    // SYNCING; a node in RESYNCING that loses its peers again changes no state
+    // at all and has exactly the same false credit to lose.
+    //
+    // It also stops the node answering peers' state-sync requests until it has
+    // earned that again, and that is a correction rather than a price. What the
+    // fallback buys is the claim that every holder of a running-app location has
+    // had time to announce itself TO THIS NODE; a node below
+    // appSyncDegradedThreshold (4 peers) was not hearing them, so answering
+    // anyway served a view it no longer had. Everything else this method does
+    // already takes that view - it drops #hashSyncComplete, #dbRebuilt,
+    // globalState.dbReady and #stateSyncComplete.
+    this.#blocksSinceSyncStarted = 0;
     if (this.#state === STATES.READY || this.#state === STATES.SYNCING) {
       this.#setState(STATES.DEGRADED);
       this.#hashSyncComplete = false;
@@ -789,6 +821,7 @@ class AppSyncOrchestrator {
       this.#resetSyncState();
       log.warn('AppSyncOrchestrator - Degraded, pausing spawner');
     }
+    this.#publishStateSyncAuthority();
   }
 
   #resetSyncState() {
@@ -823,7 +856,16 @@ class AppSyncOrchestrator {
       }
     }
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY || this.#state === STATES.RESYNCING) {
-      this.#blocksSinceSyncStarted += count;
+      // ONLY WHILE THERE ARE PEERS. The fallback is a bound on a sync attempt
+      // that is not finishing; it was also, silently, a bound on having nobody
+      // to attempt with, and those are not the same thing. A node that asked
+      // and got no answer has waited; a node that asked nobody has not.
+      //
+      // This is the whole of the invariant: every gate #checkReadiness waives
+      // is waived by this counter, so a counter that cannot advance without
+      // peers is a node that cannot reach READY without them. There is no
+      // separate peer condition for a later change to forget.
+      if (this.#peersReady) this.#blocksSinceSyncStarted += count;
       this.#publishStateSyncAuthority();
       this.#checkReadiness();
       this.#checkHashRetry(blockHeight);
@@ -957,6 +999,12 @@ class AppSyncOrchestrator {
   // a running-app location record, so it is the point at which every holder has
   // had to announce itself at least once: wait it out and what this node holds
   // is a full view, whether or not a sync ever completed.
+  //
+  // The announcements have to have been able to ARRIVE for that to be true,
+  // which is why the counter behind it only advances while the peer threshold
+  // is met (#onBlocksProcessed) and is zeroed when it is lost
+  // (#onPeersDegraded). It is therefore 125 CONTINUOUS minutes with peers, not
+  // 125 minutes of uptime.
   //
   // There used to be a second, shorter value for enterprise nodes, halved in
   // the manner of the spawner's enterprise deferrals. Those are a priority -

@@ -898,6 +898,50 @@ describe('FluxPeerManager tests', () => {
       ]);
     });
 
+    // THE BAND BETWEEN THE TWO THRESHOLDS IS LOAD-BEARING, and nothing said so.
+    // The orchestrator's block fallback now only advances while the peer set is
+    // up and is zeroed when it is lost, and it learns both from these two edges
+    // alone. If a fall from 12 to 5 emitted peersBelowThreshold, a node
+    // oscillating inside the band would reset its budget continuously and could
+    // never reach readiness at all - which is the failure the hysteresis exists
+    // to prevent and which no test here would have caught.
+    it('emits neither edge while the count moves inside the hysteresis band', () => {
+      const up = [];
+      const down = [];
+      manager.on('peerThresholdReached', (count) => up.push(count));
+      manager.on('peersBelowThreshold', (count) => down.push(count));
+
+      // appSyncPeerThreshold 12 up, appSyncDegradedThreshold 4 down.
+      for (let i = 1; i <= 12; i += 1) {
+        manager.add(createMockWs(`10.0.0.${i}`, '16127'), `10.0.0.${i}`, '16127', { source: PEER_SOURCE.RANDOM });
+      }
+      expect(up, 'the rise fires at the threshold').to.deep.equal([12]);
+
+      // 12 -> 5: seven peers gone, every count in the band, no edge either way.
+      for (let i = 12; i >= 6; i -= 1) {
+        manager.remove(`10.0.0.${i}:16127`, 1006);
+      }
+      expect(manager.getNumberOfPeers()).to.equal(5);
+      expect(down, 'a fall to 5 is inside the band and must announce nothing').to.deep.equal([]);
+
+      // 5 -> 11 and back to 5: still no edge, because 11 is short of the rise.
+      for (let i = 6; i <= 11; i += 1) {
+        manager.add(createMockWs(`10.0.0.${i}`, '16127'), `10.0.0.${i}`, '16127', { source: PEER_SOURCE.RANDOM });
+      }
+      expect(manager.getNumberOfPeers()).to.equal(11);
+      for (let i = 11; i >= 6; i -= 1) {
+        manager.remove(`10.0.0.${i}:16127`, 1006);
+      }
+      expect(up, 'eleven peers is not the rise').to.deep.equal([12]);
+      expect(down, 'churn inside the band announced a loss').to.deep.equal([]);
+
+      // 5 -> 3 crosses the fall, and only then.
+      manager.remove('10.0.0.5:16127', 1006);
+      expect(down, 'four peers is the threshold, not below it').to.deep.equal([]);
+      manager.remove('10.0.0.4:16127', 1006);
+      expect(down, 'the fall fires below the degraded threshold').to.deep.equal([3]);
+    });
+
     // The counterpart of peerConnected, and the reason a sync waiting on this
     // peer does not have to wait out a deadline to learn the answer is not
     // coming.
