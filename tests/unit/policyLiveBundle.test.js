@@ -29,7 +29,8 @@ const { verifyBundle } = require('../../ZelBack/src/services/utils/policySignatu
 //   curl -s https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/signed/policy-signed.json \
 //     -o tests/unit/fixtures/policy/policy-signed.live.json
 //
-// Recorded 2026-09-11 from seq 1, the first production signing run.
+// Recorded 2026-09-12 from seq 2, the signing run that added the typed `blocklist`
+// document. Seq 1 was the first production run and carried four documents.
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'policy', 'policy-signed.live.json');
 
@@ -49,7 +50,7 @@ describe('the live published policy bundle', () => {
     expect(payload, 'the real bundle verifies under the real keys').to.not.equal(null);
   });
 
-  it('carries the four documents the readers ask for, by the names they use', () => {
+  it('carries the five documents the readers ask for, by the names they use', () => {
     const payload = verifyBundle(raw, { publicKeys: config.policy.publicKeys });
     // These strings are what enterpriseConfig, imageManager and
     // appTamperingBlocklistService pass to getDocument. A document renamed on the
@@ -57,6 +58,7 @@ describe('the live published policy bundle', () => {
     // would stop hosting enterprise apps and stop registering anything, quietly.
     expect(Object.keys(payload.documents).sort()).to.deep.equal([
       'blockedrepositories',
+      'blocklist',
       'enterprisenodes',
       'tamperingblockednodes',
       'vettedrepositories',
@@ -66,6 +68,17 @@ describe('the live published policy bundle', () => {
   it('carries documents of the shapes the readers require', () => {
     const { documents } = verifyBundle(raw, { publicKeys: config.policy.publicKeys });
     expect(documents.blockedrepositories, 'blocked repositories is a list').to.be.an('array');
+    // THE TYPED DOCUMENT'S SHAPE, asserted against the real published bundle rather than
+    // only against a fixture the harness signs itself. imageManager.getBlocklist refuses a
+    // typed document whose elements are not all {kind, value} strings - it reads a bundle
+    // that contradicts itself as "cannot decide" rather than guessing. If the publisher
+    // ever emits an entry of another shape, every node would stop deciding, and this is
+    // where that shows up before it ships rather than after.
+    expect(documents.blocklist, 'the typed blocklist is a list').to.be.an('array');
+    expect(
+      documents.blocklist.every((e) => e && typeof e.kind === 'string' && typeof e.value === 'string'),
+      'every published blocklist entry is a typed {kind, value} pair',
+    ).to.equal(true);
     expect(documents.vettedrepositories).to.be.an('array');
     expect(documents.tamperingblockednodes).to.be.an('array');
     // enterpriseConfig.isValidNodeOwnerMap: a plain object whose every value is an array

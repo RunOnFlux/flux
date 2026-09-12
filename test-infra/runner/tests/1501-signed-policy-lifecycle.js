@@ -243,8 +243,9 @@ describe('the signed policy bundle on a single node', function () {
       const payload = JSON.parse(Buffer.from(envelope.payload_b64, 'base64').toString('utf8'));
       expect(payload.seq).to.equal(served.policySeq);
       expect(Object.keys(payload.documents).sort()).to.deep.equal([
-        'blockedrepositories', 'enterprisenodes', 'tamperingblockednodes', 'vettedrepositories',
-      ]);
+        'blocklist', 'blockedrepositories', 'enterprisenodes', 'tamperingblockednodes',
+        'vettedrepositories',
+      ].sort());
     });
 
     it('the readers see the document the bundle carried', async function () {
