@@ -48,8 +48,6 @@ const adminConfig = {
     routerIP: '',
     pgpPrivateKey: '',
     pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
   },
 };
 
@@ -2456,8 +2454,6 @@ describe('fluxService tests', () => {
           routerIP: '192.168.1.50',
           pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
           pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
@@ -2553,8 +2549,6 @@ describe('fluxService tests', () => {
           routerIP: '${adminConfig.initial.routerIP || ''}',
           pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
           pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
@@ -2562,210 +2556,6 @@ describe('fluxService tests', () => {
       await fluxService.adjustAPIPort(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
-    });
-  });
-
-  describe('blockedPorts tests', () => {
-    let verifyPrivilegeStub;
-    let originalUserConfig;
-
-    beforeEach(() => {
-      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      // Reset the shared writeFile stub for each test
-      fsPromisesStubs.writeFile.resetHistory();
-      // Mock userconfig to match test expectations
-      originalUserConfig = globalThis.userconfig;
-      globalThis.userconfig = adminConfig;
-    });
-
-    afterEach(() => {
-      sinon.restore();
-      // Restore original userconfig
-      globalThis.userconfig = originalUserConfig;
-    });
-
-    it('should return error when unauthorized ', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(false);
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-      await fluxService.adjustBlockedPorts(undefined, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-
-    it('should return error if blockedPorts is not an array', async () => {
-      const postData = { blockedPorts: '12' };
-      const mockRes = {
-        json: sinon.fake(),
-        status: sinon.stub().returnsThis(),
-      };
-      const mockReq = {
-        body: postData,
-        method: 'POST',
-      };
-      const expectedResponse = {
-        status: 'error',
-        data: {
-          code: undefined,
-          message: 'Blocked Ports is not a valid array',
-          name: 'Error',
-        },
-      };
-
-      verifyPrivilegeStub.returns(true);
-      await fluxService.adjustBlockedPorts(mockReq, mockRes);
-      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
-    });
-
-    it('should return a message when blockedPorts is proper and is adjusted ', async () => {
-      const postData = { blockedPorts: [12, 32] };
-      const mockRes = {
-        json: sinon.fake(),
-        status: sinon.stub().returnsThis(),
-      };
-      const mockReq = {
-        body: postData,
-        method: 'POST',
-      };
-      const expectedResponse = {
-        status: 'success',
-        data: {
-          code: undefined,
-          message: 'User Blocked Ports adjusted',
-          name: undefined,
-        },
-      };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-            initial: {
-              ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${adminConfig.initial.zelid}',
-              kadena: '${adminConfig.initial.kadena || ''}',
-              testnet: ${adminConfig.initial.testnet || false},
-              development: ${adminConfig.initial.development || false},
-              apiport: ${Number(adminConfig.initial.apiport)},
-              routerIP: '${adminConfig.initial.routerIP || ''}',
-              pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-              pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-              blockedPorts: [12,32],
-              blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-            }
-          }`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
-
-      verifyPrivilegeStub.returns(true);
-      await fluxService.adjustBlockedPorts(mockReq, mockRes);
-      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
-    });
-  });
-
-  describe('blockedRepositories tests', () => {
-    let verifyPrivilegeStub;
-    let originalUserConfig;
-
-    beforeEach(() => {
-      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      // Reset the shared writeFile stub for each test
-      fsPromisesStubs.writeFile.resetHistory();
-      // Mock userconfig to match test expectations
-      originalUserConfig = globalThis.userconfig;
-      globalThis.userconfig = adminConfig;
-    });
-
-    afterEach(() => {
-      sinon.restore();
-      // Restore original userconfig
-      globalThis.userconfig = originalUserConfig;
-    });
-
-    it('should return error when unauthorized ', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(false);
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-      await fluxService.adjustBlockedRepositories(undefined, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-
-    it('should return error if blockedRepositories is not an array', async () => {
-      const postData = { blockedRepositories: 'lol/test' };
-      const mockRes = {
-        json: sinon.fake(),
-        status: sinon.stub().returnsThis(),
-      };
-      const mockReq = {
-        body: postData,
-        method: 'POST',
-      };
-      const expectedResponse = {
-        status: 'error',
-        data: {
-          code: undefined,
-          message: 'Blocked Repositories is not a valid array',
-          name: 'Error',
-        },
-      };
-
-      verifyPrivilegeStub.returns(true);
-      await fluxService.adjustBlockedRepositories(mockReq, mockRes);
-      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
-    });
-
-    it('should return a message when blockedRepositories is proper and is adjusted', async () => {
-      const postData = { blockedRepositories: ['blabla/test', 'ban/this'] };
-      const mockRes = {
-        json: sinon.fake(),
-        status: sinon.stub().returnsThis(),
-      };
-      const mockReq = {
-        body: postData,
-        method: 'POST',
-      };
-      const expectedResponse = {
-        status: 'success',
-        data: {
-          code: undefined,
-          message: 'User Blocked Repositories adjusted',
-          name: undefined,
-        },
-      };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-            initial: {
-              ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${adminConfig.initial.zelid}',
-              kadena: '${adminConfig.initial.kadena || ''}',
-              testnet: ${adminConfig.initial.testnet || false},
-              development: ${adminConfig.initial.development || false},
-              apiport: ${Number(adminConfig.initial.apiport)},
-              routerIP: '${adminConfig.initial.routerIP || ''}',
-              pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-              pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-              blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
-              blockedRepositories: ['blabla/test','ban/this'],
-            }
-          }`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
-
-      verifyPrivilegeStub.returns(true);
-      await fluxService.adjustBlockedRepositories(mockReq, mockRes);
-      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
       sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
     });
   });
@@ -2834,8 +2624,6 @@ describe('fluxService tests', () => {
     routerIP: '${adminConfig.initial.routerIP}',
     pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
     pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-    blockedPorts: [],
-    blockedRepositories: [],
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');

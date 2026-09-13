@@ -9,7 +9,5 @@ module.exports = {
     routerIP: process.env.FLUX_ROUTER_IP || '',
     pgpPrivateKey: '',
     pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
   },
 };

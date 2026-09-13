@@ -286,14 +286,8 @@ module.exports = (app) => {
   app.get('/flux/routerip', cache('1 day'), asyncRoute((req, res) => {
     return fluxService.getRouterIP(req, res);
   }));
-  app.get('/flux/blockedports', cache('1 day'), asyncRoute((req, res) => {
-    return fluxService.getBlockedPorts(req, res);
-  }));
   app.get('/flux/apiport', cache('1 day'), asyncRoute((req, res) => {
     return fluxService.getAPIPort(req, res);
-  }));
-  app.get('/flux/blockedrepositories', cache('1 day'), asyncRoute((req, res) => {
-    return fluxService.getBlockedRepositories(req, res);
   }));
   app.get('/flux/enterpriseappowners', cache('1 hour'), asyncRoute((req, res) => {
     return fluxService.getEnterpriseAppOwners(req, res);
@@ -1040,14 +1034,8 @@ module.exports = (app) => {
   app.get('/flux/adjustrouterip/:routerip?', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
     return fluxService.adjustRouterIP(req, res);
   }));
-  app.post('/flux/adjustblockedports', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
-    return fluxService.adjustBlockedPorts(req, res);
-  }));
   app.get('/flux/adjustapiport/:apiport?', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
     return fluxService.adjustAPIPort(req, res);
-  }));
-  app.post('/flux/adjustblockedrepositories', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
-    return fluxService.adjustBlockedRepositories(req, res);
   }));
   app.get('/flux/reindexdaemon', asyncRoute((req, res) => {
     return fluxService.reindexDaemon(req, res);

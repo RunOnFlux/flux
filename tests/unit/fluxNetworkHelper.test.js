@@ -10,8 +10,6 @@ globalThis.userconfig = {
     routerIP: '',
     pgpPrivateKey: '',
     pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
   },
 };
 
@@ -1061,8 +1059,6 @@ describe('fluxNetworkHelper tests', () => {
           routerIP: '',
           pgpPrivateKey: '',
           pgpPublicKey: '',
-          blockedPorts: [],
-          blockedRepositories: [],
         },
       };
     });
@@ -1153,8 +1149,6 @@ describe('fluxNetworkHelper tests', () => {
           routerIP: '',
           pgpPrivateKey: '',
           pgpPublicKey: '',
-          blockedPorts: [],
-          blockedRepositories: [],
         },
       };
 

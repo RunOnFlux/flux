@@ -344,6 +344,27 @@ async function trySpawningGlobalApplication() {
       const nameSet = () => new Set(globalAppNamesLocation.map((app) => app.name));
       const stages = [['found', nameSet()]];
 
+      // A blocked application is short of instances forever - it has none and can
+      // never be given one - and the aggregation above asks only whether an
+      // application is short. Without this filter it is drawn, refused at the
+      // compliance check below, and drawn again each time this node's error cache
+      // expires. Measured on 2026-09-12, blocked applications were 72 of the 173
+      // the network reported short.
+      //
+      // Only what an application IS can be judged here: the aggregation projects
+      // no repotags, and an enterprise application carries none in the clear, so
+      // an image or namespace ban remains the install-time check's to make.
+      const blocklist = await imageManager.getBlocklist();
+      if (blocklist) {
+        globalAppNamesLocation = globalAppNamesLocation.filter(
+          (app) => !imageManager.blockedReasonFor(blocklist, {
+            name: app.name, owner: app.owner, hash: app.hash, images: null,
+          }),
+        );
+      }
+      survivors.afterBlocklist = globalAppNamesLocation.length;
+      stages.push(['afterBlocklist', nameSet()]);
+
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
         && !globalState.spawnErrorsLongerAppCache.has(app.hash)
@@ -521,27 +542,8 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
-    // Get app ports early - needed for both user-blocked check and public availability check
+    // Needed by the public availability check below.
     const appPorts = appUtilities.getAppPorts(appSpecifications);
-
-    // EARLY CHECK: Verify app doesn't use user-blocked ports before expensive Docker Hub operations
-    // Skip this check for vetted apps
-    const appIsVetted = await imageManager.isAppVetted(appSpecifications);
-    if (!appIsVetted) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (let i = 0; i < appPorts.length; i += 1) {
-        const port = appPorts[i];
-        const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
-        if (isUserBlocked) {
-          log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} uses user-blocked port ${port}. Adding to error cache.`);
-          globalState.spawnErrorsLongerAppCache.set(appHash, '');
-          // eslint-disable-next-line no-await-in-loop
-          return shortDelayTime;
-        }
-      }
-    } else {
-      log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} is vetted. Bypassing user-blocked ports check.`);
-    }
 
     // verify app compliance
     await imageManager.checkApplicationImagesCompliance(appSpecifications).catch((error) => {

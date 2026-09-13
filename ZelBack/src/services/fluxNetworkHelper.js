@@ -241,27 +241,6 @@ function isPortEnterprise(port) {
 }
 
 /**
- * To get if port belongs to user blocked range
- * @returns {boolean} Returns true if port is user blocked
- */
-function isPortUserBlocked(port) {
-  try {
-    let blockedPorts = userconfig.initial.blockedPorts || [];
-    blockedPorts = serviceHelper.ensureObject(blockedPorts);
-    let portBanned = false;
-    blockedPorts.forEach((portOrInterval) => {
-      if (portOrInterval === +port) {
-        portBanned = true;
-      }
-    });
-    return portBanned;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
-}
-
-/**
  * To get if port belongs to banned range
  * @returns {boolean} Returns true if port is banned
  */
@@ -1503,8 +1482,6 @@ async function adjustExternalIP(ip) {
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
-    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
   }
 }`;
 
@@ -1645,24 +1622,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
 
   if (localSocketAddress === null) return false;
 
-  let userBlockedPorts = userconfig.initial.blockedPorts || [];
-  userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
-  if (Array.isArray(userBlockedPorts)) {
-    if (userBlockedPorts.length > 100) {
-      dosState += 11;
-      setDosMessage('User blocked ports above 100 limit');
-      return false;
-    }
-  }
-  let userBlockedRepositories = userconfig.initial.blockedRepositories || [];
-  userBlockedRepositories = serviceHelper.ensureObject(userBlockedRepositories);
-  if (Array.isArray(userBlockedRepositories)) {
-    if (userBlockedRepositories.length > 10) {
-      dosState += 11;
-      setDosMessage('User blocked repositories above 10 limit');
-      return false;
-    }
-  }
   const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
   if (!fluxBenchVersionAllowed) {
     return false;
@@ -2707,7 +2666,6 @@ module.exports = {
   isPortEnterprise,
   isPortBanned,
   isPortUPNPBanned,
-  isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
   removeDockerContainerAccessToNonRoutable,
   getMaxNumberOfIpChanges,
