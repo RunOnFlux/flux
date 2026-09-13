@@ -11,8 +11,6 @@ const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = re
 const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
 
-// Cache for blocked repositories
-
 /**
  * Classify error type and determine appropriate cache TTL
  * Uses structured error metadata from imageVerifier when available
@@ -281,7 +279,10 @@ function blockedReasonFor(entries, subject) {
   const matchedImage = (value) => repositories.find((repository) => repository === value);
   const matchedNamespace = (value) => namespaces.find((namespace) => namespace === value);
 
-  const found = entries.map((entry) => {
+  // One entry's verdict. Named rather than inlined so the loop below can stop at
+  // the first refusal: a subject is refused for ONE stated reason, and the entries
+  // after it decide nothing.
+  const reasonFor = (entry) => {
     const { value } = entry;
     switch (entry.kind) {
       case 'hash':
@@ -312,9 +313,14 @@ function blockedReasonFor(entries, subject) {
         // signed bundle is designed to roll out.
         return null;
     }
-  }).find((reason) => reason);
+  };
 
-  return found ?? null;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const entry of entries) {
+    const reason = reasonFor(entry);
+    if (reason) return reason;
+  }
+  return null;
 }
 
 /**
@@ -449,7 +455,6 @@ async function checkApplicationImagesCompliance(appSpecs) {
   if (networkReason) {
     throw new Error(networkReason);
   }
-
 
   return true;
 }
