@@ -96,7 +96,13 @@ _scan_and_claim() {            # sets CLAIMED_BASE ('' if the pool is exhausted)
         rm -rf "$LOCK_ROOT/$b"                            # stale claim from a dead run — reclaim
       fi
       if mkdir "$LOCK_ROOT/$b" 2>/dev/null; then
-        echo "$$" > "$LOCK_ROOT/$b/pid"; CLAIMED_BASE="$b"; return 0
+        # The run label as well as the pid. A gate-level sweep reaps by run label
+        # and the claim is the only place a live run's label can be read from
+        # outside it - without it the sweep cannot tell a leftover from a fleet
+        # that is still using its containers.
+        echo "$$" > "$LOCK_ROOT/$b/pid"
+        echo "$RUN_LABEL" > "$LOCK_ROOT/$b/run-label"
+        CLAIMED_BASE="$b"; return 0
       fi
     done
   done
@@ -115,8 +121,9 @@ release_base() { [ -n "${CLAIMED_BASE:-}" ] && rm -rf "${LOCK_ROOT:?}/$CLAIMED_B
 # networks, or volumes. The syncthing-stub now mounts each node's appdata volume,
 # so a stranded stub would also pin those volumes — clean both. Scoped to our own
 # RUN_LABEL and guarded non-empty (never a blanket sweep), so a concurrent run-all
-# is untouched; a true SIGKILL/power-loss still falls through to run-parallel's
-# bare-key pre-gate sweep or the manual pre-run clean.
+# is untouched; a true SIGKILL/power-loss leaves the claim behind with a dead pid,
+# and run-parallel's sweep reaps this run's objects because its label is no longer
+# one a live process holds.
 cleanup_on_exit() {
   if [ -n "${RUN_LABEL:-}" ]; then
     docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -fv >/dev/null 2>&1
