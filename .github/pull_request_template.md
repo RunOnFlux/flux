@@ -1,7 +1,7 @@
 # Application whitelist
 
 - There is no application whitelist. It was retired: nothing has enforced `helpers/repositories.json` since the method that read it was written without a caller in July 2024, `/apps/whitelistedrepositories` returns an empty list unconditionally, and the file has now been deleted.
-- What the network does enforce is a blocklist, and it does not live here. Images, app owners and app hashes that may not run are listed in `blockedrepositories.json` in [RunOnFlux/fluxos-network-policy](https://github.com/RunOnFlux/fluxos-network-policy), which every node fetches directly - so a change there takes effect without a release, and a pull request on this repository cannot alter it.
+- What the network does enforce is a blocklist, and it does not live here. Images, app owners and app hashes that may not run are published in [RunOnFlux/fluxos-network-policy](https://github.com/RunOnFlux/fluxos-network-policy) as part of a signed policy bundle, which reaches nodes from their peers - so a change there takes effect without a release, and a pull request on this repository cannot alter it.
 
 # What do you want to Run On Flux?
 
