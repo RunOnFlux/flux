@@ -12,7 +12,7 @@ const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const log = require('../lib/log');
 const IOUtils = require('./IOUtils');
-const { sanitizePath } = require('./utils/pathSecurity');
+const { sanitizePath, validateFilename } = require('./utils/pathSecurity');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const dirpath = path.join(__dirname, '../../../');
@@ -809,11 +809,13 @@ async function fluxShareUpload(req, res) {
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       hashAlgorithm: false,
       keepExtensions: true,
+      // The browser uploads each file under its own name as the multipart field
+      // name, and that name becomes a path component. Held to the rule every
+      // other file endpoint applies, so that what upload can create the rest of
+      // FluxShare can address. Formidable joins the result to uploadDir itself
+      // and refuses a join that leaves it.
       // eslint-disable-next-line no-unused-vars
-      filename: (name, ext, part, form) => {
-        const { originalFilename } = part;
-        return originalFilename;
-      },
+      filename: (name, ext, part, form) => validateFilename(part.originalFilename),
     };
 
     const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
@@ -829,11 +831,6 @@ async function fluxShareUpload(req, res) {
     const form = formidable(options);
 
     form
-      // eslint-disable-next-line no-unused-vars
-      .on('fileBegin', (name, file) => {
-        // eslint-disable-next-line no-param-reassign
-        file.filepath = `${uploadDir}/${name}`;
-      })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
