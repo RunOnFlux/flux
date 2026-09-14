@@ -39,8 +39,6 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
-        activePaymentRequests: 'activepaymentrequests',
-        completedPayments: 'completedpayments',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',

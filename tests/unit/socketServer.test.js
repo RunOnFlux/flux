@@ -173,10 +173,30 @@ describe('FluxSocketServer tests', () => {
     });
   });
 
+  // The websocket routes a node answers, as a whole list rather than a set of
+  // absences. A node used to carry a payment callback here that any caller could
+  // complete for any payment id it held, and it asserted a payment nothing ever
+  // checked against a chain - registration payments are confirmed by every node
+  // reading the blockchain itself, which is why nothing was left depending on
+  // it. Pinned whole because an assertion that one route is missing holds just
+  // as well over a handler table that failed to build.
+  describe('the websocket routes a node answers', () => {
+    it('is exactly this list', () => {
+      // eslint-disable-next-line global-require
+      const { socketHandlers } = require('../../ZelBack/src/lib/socketHandlers');
+
+      expect(Object.keys(socketHandlers).sort()).to.deep.equal([
+        '/ws/flux',
+        '/ws/flux/:port',
+        '/ws/id/:loginphrase',
+        '/ws/sign/:message',
+      ]);
+    });
+  });
+
   describe('admitUpgrade', () => {
     const load = (acceptingConnections) => proxyquire('../../ZelBack/src/lib/socketHandlers', {
       '../services/idService': { wsRespondLoginPhrase: sinon.stub(), wsRespondSignature: sinon.stub() },
-      '../services/paymentService': { wsRespondPayment: sinon.stub() },
       '../services/utils/peerState': {
         peerManager: { acceptingConnections, validateAndAddInbound: sinon.stub() },
       },
@@ -205,7 +225,6 @@ describe('FluxSocketServer tests', () => {
 
       expect(admitUpgrade({ url: '/ws/id/somephrase' })).to.equal(null);
       expect(admitUpgrade({ url: '/ws/sign/somemessage' })).to.equal(null);
-      expect(admitUpgrade({ url: '/ws/payment/someid' })).to.equal(null);
       expect(admitUpgrade({ url: '/ws/fluxsomethingelse' }), 'matched a route by prefix alone').to.equal(null);
     });
   });

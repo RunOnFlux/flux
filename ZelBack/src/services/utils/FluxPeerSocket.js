@@ -51,7 +51,7 @@ const CLOSE_CODES = Object.freeze({
   // Dead connection (keepalive failure)
   DEAD_CONNECTION: 4011,
 
-  // Auth failures (paymentService, idService)
+  // Auth failures (idService)
   AUTH_FAILURE_1: 4012,
   AUTH_FAILURE_2: 4013,
   AUTH_FAILURE_3: 4014,

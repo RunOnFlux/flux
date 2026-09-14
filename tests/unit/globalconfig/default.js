@@ -32,8 +32,6 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
-        activePaymentRequests: 'activepaymentrequests',
-        completedPayments: 'completedpayments',
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
