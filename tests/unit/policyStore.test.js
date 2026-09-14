@@ -458,165 +458,125 @@ describe('policyStore', () => {
     });
   });
 
-  describe('the peer rung at boot', () => {
-    // policyStore is started before discovery (serviceManager.js:505 vs :560), so the boot
-    // refresh asks an empty peer set and falls through to the backstop. Until a peer
-    // connection told the store to ask again, the FIRST time peers were ever asked was the
-    // 24-hour tick -- so a node that booted while the source was unreachable held no policy
-    // for a day, beside neighbours that had it.
-    it('asks again when a peer first appears, having had none to ask at boot', async () => {
+  describe('a peer arriving', () => {
+    // policyStore starts before discovery (serviceManager.js:505 vs :560), so the boot
+    // refresh asks an empty peer set and falls through to the source. Telling the store when
+    // a peer appears is what makes peers-first true at boot rather than only at the tick.
+    //
+    // A PEER EVENT MUST NEVER REACH THE SOURCE. It says something about that peer and
+    // nothing about github, and it fires once per arrival on a node filling its peer set -
+    // at which point the broadcast rung is shut anyway, because peerCountIfAboveThreshold
+    // reads 0 below appSyncPeerThreshold. So a ladder run here fell straight through to the
+    // source, on every arrival, on every node, including a fleet coming back from a release
+    // moments after start() had declined to fetch for exactly that reason.
+
+    it('asks the peer that arrived, whether or not it holds anything', async () => {
       const { module } = load();
-      const request = sinon.stub().resolves();
-      module.setPeerTransport({ request, announce: sinon.stub().resolves() });
-      // boot: no peers exist yet, the source is unreachable, nothing is obtained
+      const requestFrom = sinon.stub().resolves();
+      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
       expect(module.isReady(), 'boot obtained nothing').to.equal(false);
-      const asksAtBoot = request.callCount;
 
-      module.notePeerAvailable();
+      module.notePeerAvailable('198.18.0.11:16127');
       await new Promise(setImmediate);
-      expect(request.callCount, 'a peer appearing produces an ask').to.be.greaterThan(asksAtBoot);
+
+      expect(requestFrom.callCount, 'holding nothing is a reason to ask, not a reason to fetch').to.equal(1);
+      expect(requestFrom.firstCall.args[0]).to.equal('198.18.0.11:16127');
     });
 
-    it('asks on every new peer while it holds nothing', async () => {
-      const { module } = load();
-      const request = sinon.stub().resolves();
-      module.setPeerTransport({ request, announce: sinon.stub().resolves() });
+    it('asks each arriving peer while it holds nothing, and reaches the source for none of them', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module } = load({ serviceHelper: { axiosGet } });
+      const requestFrom = sinon.stub().resolves();
+      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
-      const asksAtBoot = request.callCount;
+      const fetchesAtBoot = axiosGet.callCount;
 
-      // Each is awaited so the previous refresh has settled: the point being proven is
-      // that a node holding nothing keeps asking, not how concurrent asks collapse.
-      module.notePeerAvailable();
+      module.notePeerAvailable('198.18.0.11:16127');
       await new Promise(setImmediate);
-      const afterFirst = request.callCount;
-      module.notePeerAvailable();
+      module.notePeerAvailable('198.18.0.12:16127');
       await new Promise(setImmediate);
-      expect(afterFirst).to.be.greaterThan(asksAtBoot);
-      expect(request.callCount, 'still nothing held, so still worth asking').to.be.greaterThan(afterFirst);
+
+      expect(requestFrom.callCount, 'still nothing held, so still worth asking').to.equal(2);
+      expect(axiosGet.callCount, 'and the source was not asked once').to.equal(fetchesAtBoot);
     });
 
-    it('runs the whole ladder for a RESTORED bundle, which is not confirmation', async () => {
-      // A node that restored from disk holds a bundle and is still behind until something
-      // says otherwise: disk proves the bundle was real, never that it is still the
-      // network's. Its peers may be equally stale, so the published source is the floor
-      // under it exactly as under a node holding nothing.
-      //
-      // Gating on "holds something" instead left a restarted node unable to reach the source
-      // at all - it took the targeted rung, which by design cannot fetch - so it sat on
-      // whatever it had until its next backstop tick.
+    it('a RESTORED node asks the peer rather than the source', async () => {
+      // This is the release wave. start() declines to fetch because the node restored
+      // something - and then a peer connects seconds later. Running the ladder here made
+      // every node in the fleet fetch anyway, moments after the guard that exists to stop
+      // exactly that. The peer is the right thing to ask: it may hold something newer, and
+      // if the whole fleet is equally stale the PHASED TICK is what breaks the tie, spread
+      // across the period so that one node looks rather than all of them.
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module } = load({
         serviceHelper: { axiosGet },
-        repo: {
-          readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
-          writeBundle: sinon.stub().resolves(true),
-        },
+        repo: { readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }), writeBundle: sinon.stub().resolves(true) },
       });
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({
-        request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves(),
-      });
+      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
       await module.restore();
       expect(module.getSeq(), 'restored, so it holds something').to.equal(4);
-
       const fetchesBefore = axiosGet.callCount;
+
       module.notePeerAvailable('198.18.0.11:16127');
       await new Promise(setImmediate);
       await new Promise(setImmediate);
 
-      expect(axiosGet.callCount, 'restored, so the source is still in reach')
-        .to.be.greaterThan(fetchesBefore);
+      expect(requestFrom.callCount, 'the arriving peer is asked').to.equal(1);
+      expect(axiosGet.callCount, 'and the source is left to the tick').to.equal(fetchesBefore);
       module.stop();
     });
 
-    it('reaches the source after a restart even when a peer has already confirmed it', async () => {
-      // THE WHOLE FLEET RESTARTED TOGETHER. Every node restores the same stale bundle, so
-      // every peer answers "not ahead" - true, and useless. That answer marks the node
-      // confirmed within milliseconds, and if confirmation gated the ladder, nothing would
-      // ever reach the published source: a newly published document would wait for a
-      // backstop tick up to a day out, and a blocklist naming a running application would
-      // not arrive at all.
-      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+    it('a peer that has already confirmed it does not stop the next peer being asked', async () => {
+      // The whole fleet restarted together: every node restores the same stale bundle and
+      // every peer answers "not ahead", which is true and useless. That settles confirmation
+      // in milliseconds, and it must not settle ASKING - a peer arriving later may be the one
+      // that has moved on.
       const { module } = load({
-        serviceHelper: { axiosGet },
-        repo: {
-          readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
-          writeBundle: sinon.stub().resolves(true),
-        },
+        repo: { readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }), writeBundle: sinon.stub().resolves(true) },
       });
-      module.setPeerTransport({
-        request: sinon.stub().resolves(),
-        requestFrom: sinon.stub().resolves(),
-        announce: sinon.stub().resolves(),
-      });
+      const requestFrom = sinon.stub().resolves();
+      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
       await module.restore();
-
-      // A peer at the same sequence settles it before any arrival is noted.
       module.notePeerSeq(4, '198.18.0.11:16127');
-      const fetchesBefore = axiosGet.callCount;
 
-      module.notePeerAvailable('198.18.0.11:16127');
-      await new Promise(setImmediate);
+      module.notePeerAvailable('198.18.0.12:16127');
       await new Promise(setImmediate);
 
-      expect(axiosGet.callCount, 'a level peer must not close the road to the source')
-        .to.be.greaterThan(fetchesBefore);
+      expect(requestFrom.callCount, 'a level peer must not close the road to the next one').to.equal(1);
+      expect(requestFrom.firstCall.args[0]).to.equal('198.18.0.12:16127');
       module.stop();
     });
 
-    it('asks the peer that arrived, not the whole set, once it holds something', async () => {
-      // A node that already holds policy has one question - is THIS peer ahead - and puts it
-      // to that peer alone. A broadcast here would have to be rationed, and a rationed ask
-      // cannot serve a node that is merely behind.
-      const { module } = load({
-        serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) },
-      });
+    it('asks the peer that arrived, not the whole set', async () => {
+      // A broadcast here would have to be rationed, and a rationed ask cannot serve a node
+      // that is merely behind.
+      const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
       const request = sinon.stub().resolves();
       const requestFrom = sinon.stub().resolves();
       module.setPeerTransport({ request, requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
-      expect(module.getSeq()).to.equal(4);
-      // The first arrival after boot spends the once-per-boot ladder; the targeted rung is
-      // what every arrival AFTER it takes.
-      module.notePeerAvailable('198.18.0.99:16127');
-      await new Promise(setImmediate);
-      await new Promise(setImmediate);
       const broadcastsAtBoot = request.callCount;
 
       module.notePeerAvailable('198.18.0.11:16127');
       await new Promise(setImmediate);
 
-      expect(requestFrom.calledOnce, 'the arriving peer was asked directly').to.equal(true);
-      expect(requestFrom.firstCall.args[0]).to.equal('198.18.0.11:16127');
-      expect(requestFrom.firstCall.args[1], 'and told what we hold').to.equal(4);
-      expect(request.callCount, 'no broadcast to the whole set').to.equal(broadcastsAtBoot);
+      expect(requestFrom.callCount, 'one targeted ask').to.equal(1);
+      expect(request.callCount, 'and no broadcast').to.equal(broadcastsAtBoot);
     });
 
     it('keeps asking as peers arrive, rather than once since boot', async () => {
-      // Every arrival is asked, for as long as the node holds policy. Being told is not an
-      // alternative: a peer that adopts in the seconds before it connects announces to
-      // nobody, and nothing afterwards revisits it.
-      const { module } = load({
-        serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) },
-      });
+      const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({
-        request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves(),
-      });
+      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
 
-      // The first arrival after boot spends the once-per-boot ladder; the targeted rung is
-      // what every arrival AFTER it takes.
-      module.notePeerAvailable('198.18.0.99:16127');
-      await new Promise(setImmediate);
-      await new Promise(setImmediate);
-
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable('198.18.0.12:16127');
       await new Promise(setImmediate);
       module.notePeerAvailable('198.18.0.13:16127');
       await new Promise(setImmediate);
@@ -625,51 +585,16 @@ describe('policyStore', () => {
       expect(requestFrom.secondCall.args[0]).to.equal('198.18.0.13:16127');
     });
 
-    it('never reaches the published source on the targeted rung', async () => {
-      // The source is rate-limited and shared by the whole fleet, so anything that can reach
-      // it must run on the backstop's timer. This rung runs on every arrival, so it must not
-      // be able to reach it at all.
-      const axiosGet = sinon.stub().resolves({ data: bundle(4) });
-      const { module } = load({ serviceHelper: { axiosGet } });
-      const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({
-        request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves(),
-      });
-      await module.start();
-      module.stop();
-      // The first arrival after boot spends the once-per-boot ladder; the targeted rung is
-      // what every arrival AFTER it takes.
-      module.notePeerAvailable('198.18.0.99:16127');
-      await new Promise(setImmediate);
-      await new Promise(setImmediate);
-      const fetchesAtBoot = axiosGet.callCount;
-
-      module.notePeerAvailable('198.18.0.11:16127');
-      await new Promise(setImmediate);
-
-      expect(axiosGet.callCount, 'the source was not asked').to.equal(fetchesAtBoot);
-    });
-
     it('settles a targeted ask on the answer, not on the clock', async () => {
-      // Every peer answers - a bundle if ahead, its sequence if not, null if it holds
-      // nothing - so the ask ends on the reply. A second ask while one is outstanding adds
-      // nothing; a peer that has answered is askable again.
-      const { module } = load({
-        serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) },
-      });
-      // The send is held open so the first ask is still outstanding when the second arrives;
-      // otherwise it completes within the tick and there is no overlap to assert on.
+      // Every peer answers - respondWithPolicy replies in all three states - so silence means
+      // only "not there". A second ask while one is outstanding adds nothing; a peer that has
+      // answered is askable again.
+      const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
       let deliver;
       const requestFrom = sinon.stub().returns(new Promise((resolve) => { deliver = resolve; }));
-      module.setPeerTransport({
-        request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves(),
-      });
+      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
-
-      module.notePeerAvailable('198.18.0.99:16127');
-      await new Promise(setImmediate);
-      await new Promise(setImmediate);
 
       module.notePeerAvailable('198.18.0.11:16127');
       await new Promise(setImmediate);
@@ -677,7 +602,6 @@ describe('policyStore', () => {
       await new Promise(setImmediate);
       expect(requestFrom.callCount, 'one outstanding ask per peer').to.equal(1);
 
-      // The peer answers "not ahead". That ends the ask without waiting out the window.
       deliver();
       await new Promise(setImmediate);
       module.notePeerSeq(4, '198.18.0.11:16127');
@@ -688,40 +612,29 @@ describe('policyStore', () => {
       expect(requestFrom.callCount, 'answered, so askable again').to.equal(2);
     });
 
-    it('collapses a burst of arriving peers into exactly one refresh', async () => {
+    it('a burst of sixteen arriving peers reaches the source not once', async () => {
       // Sixteen peers connecting in a second must not become sixteen requests to the
-      // published source. That is the fleet-wide stampede this design exists to avoid,
-      // arriving by the back door.
-      //
-      // The boot fetch is allowed to FAIL and finish first, so the count measured here is
-      // only what the peers caused. Measuring from zero would let this pass on the boot
-      // fetch alone -- green whether or not a peer does anything at all.
-      let resolveFetch;
-      const axiosGet = sinon.stub();
-      axiosGet.onFirstCall().rejects(new Error('offline'));
-      axiosGet.returns(new Promise((resolve) => { resolveFetch = resolve; }));
+      // published source. It used to become at least one, and on a node still holding
+      // nothing, one per arrival. The boot fetch is allowed to fail and finish first, so what
+      // is measured here is only what the peers caused.
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
       const { module } = load({ serviceHelper: { axiosGet } });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves() });
+      const requestFrom = sinon.stub().resolves();
+      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
 
       await module.start();
       module.stop();
       expect(module.isReady(), 'boot obtained nothing').to.equal(false);
       const afterBoot = axiosGet.callCount;
 
-      for (let i = 0; i < 16; i += 1) module.notePeerAvailable();
+      for (let i = 0; i < 16; i += 1) module.notePeerAvailable(`198.18.0.${i + 20}:16127`);
       await new Promise(setImmediate);
       await new Promise(setImmediate);
-      expect(
-        axiosGet.callCount - afterBoot,
-        'sixteen peers, one fetch: more than one is the stampede, none means the peers did nothing',
-      ).to.equal(1);
 
-      resolveFetch({ data: bundle(9) });
-      await new Promise(setImmediate);
-      expect(module.getSeq()).to.equal(9);
+      expect(axiosGet.callCount - afterBoot, 'sixteen arrivals, no fetch').to.equal(0);
+      expect(requestFrom.callCount, 'and all sixteen were asked directly').to.equal(16);
     });
   });
-
   describe('spreading a change', () => {
     it('announces a sequence it has adopted', async () => {
       const announce = sinon.stub().resolves();

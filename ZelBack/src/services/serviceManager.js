@@ -528,35 +528,28 @@ async function startFluxFunctions() {
     });
     // The peer rung is useless at this point in boot -- discovery has not started yet (it
     // is fifty lines below), so the refresh below has no peer set and goes straight to the
-    // published source. Telling the store when one appears is what makes peers-first true
+    // published source. Telling the store when a peer appears is what makes peers-first true
     // at boot rather than only at the 24-hour tick, and it is the whole difference between
     // a node that boots while github is down getting policy from the neighbour beside it
     // and getting none for a day.
     //
-    // BOTH EDGES, because the threshold one is LATCHED and cannot carry this on its own.
+    // PER JOIN, not on the threshold edge. peerThresholdReached fires when the count first
+    // crosses appSyncPeerThreshold and then never again unless the set has since fallen
+    // below appSyncDegradedThreshold. For a node that holds NO policy that is the wrong
+    // signal: it asks once, its peers have nothing either, and when one of them later
+    // obtains a bundle nothing tells this node to ask again - its peer set never collapsed,
+    // so the edge never re-arms. Measured on a three-node fleet: node 1 asked at 08:16:09,
+    // node 0 adopted at 08:16:54, and node 1 held nothing thereafter. Every join re-arms it,
+    // and the join that crosses the threshold is one of them, so the edge adds nothing.
     //
-    // peerThresholdReached fires when the count first crosses appSyncPeerThreshold and
-    // then never again unless the set has since fallen below appSyncDegradedThreshold.
-    // For a node that holds NO policy that is the wrong signal: it asks once at boot,
-    // its peers have nothing either, and when one of them later obtains a bundle nothing
-    // tells this node to ask again. Its peer set never collapsed, so the edge never
-    // re-arms, and the only road left is a backstop tick up to 24 hours away - the exact
-    // gap peers-first was chosen to close. Measured on a three-node fleet: node 1 asked
-    // at 08:16:09, node 0 adopted at 08:16:54, and node 1 held nothing thereafter.
+    // The key is the whole point: notePeerAvailable asks THAT peer and never the source.
+    // A broadcast would have to be rationed, and a rationed ask cannot serve a node that is
+    // merely behind. Reaching the source stays with boot-on-an-empty-store and the phased
+    // tick, which is what keeps it a seed - across the fleet those ticks are spread by node
+    // identity, so some node is always the next to look, and what it finds it announces.
     //
-    // Asking per JOIN is safe rather than chatty, and notePeerAvailable decides which ask.
-    // A node holding nothing runs the whole ladder; refreshOnce is single-flight, so a burst
-    // of joins as the pool fills coalesces into one refresh rather than one per peer. A node
-    // that already holds policy asks that peer alone and never reaches the source, so the
-    // per-join path costs one message and one reply however often peers arrive.
-    //
-    // The key is what makes the second form possible: a broadcast would have to be rationed,
-    // and a rationed ask cannot serve a node that is merely behind.
-    //
-    // The orchestrator next door draws exactly this distinction for its sync pool, and
-    // for the same reason: a latched edge says nothing about a pool that has changed
-    // since it fired.
-    peerManager.on('peerThresholdReached', () => policyStore.notePeerAvailable());
+    // The orchestrator next door draws the same distinction for its sync pool, and for the
+    // same reason: a latched edge says nothing about a pool that has changed since it fired.
     peerManager.on('peerConnected', (key) => policyStore.notePeerAvailable(key));
     policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
