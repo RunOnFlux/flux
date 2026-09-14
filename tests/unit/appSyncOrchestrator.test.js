@@ -1193,6 +1193,48 @@ describe('AppSyncOrchestrator', () => {
       expect(orchestrator.state, 'peer churn short of the degraded threshold reset the budget').to.equal(mod.STATES.READY);
     });
 
+    // A node that never reaches the threshold crosses neither peer edge, so the
+    // budget standing still is the only symptom it has. Said once when it starts
+    // and once when it stops, in both directions: a node that repeats it every
+    // block is reporting a condition that has not changed, and one that says it
+    // only once has nothing to say when the condition lifts.
+    it('announces a stalled readiness budget on its edges, and only there', async () => {
+      const { orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      await clock.tickAsync(0);
+
+      const stalls = () => logStub.warn.getCalls()
+        .filter((c) => /Readiness budget not advancing/.test(c.args[0])).length;
+      const resumes = () => logStub.info.getCalls()
+        .filter((c) => /readiness budget is advancing again/.test(c.args[0])).length;
+
+      // Never above the threshold: no peer event has fired and none will.
+      await driveBlocks(2555000, 40);
+      expect(stalls(), 'the stall was not reported, or was reported per block').to.equal(1);
+      expect(resumes()).to.equal(0);
+
+      peersUp();
+      await clock.tickAsync(0);
+      await driveBlocks(2555040, 5);
+      expect(resumes(), 'the budget resumed without saying so, or said so repeatedly').to.equal(1);
+      expect(stalls(), 'the stall was re-reported while peers were up').to.equal(1);
+
+      // And it arms again, or a node that recovers once is silent ever after.
+      // Asserted from RESYNCING rather than DEGRADED: a degraded node does not
+      // process blocks at all, and its own transition already says why it is
+      // held. RESYNCING with the peers gone again is the state that accrues
+      // nothing and announces nothing on its own.
+      peerEmitter.emit('peersBelowThreshold', 2);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      peerEmitter.emit('peersBelowThreshold', 2);
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555045, 5);
+      expect(stalls(), 'a second stall went unreported').to.equal(2);
+      expect(resumes()).to.equal(1);
+    });
+
     // A node past the fallback was answering peers' state-sync requests, and a
     // degrade takes that back. Not a loss - the claim the fallback buys is that
     // every holder of a running-app location has had time to announce itself TO

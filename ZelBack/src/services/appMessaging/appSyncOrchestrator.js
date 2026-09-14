@@ -94,6 +94,16 @@ class AppSyncOrchestrator {
    * that reset on any dip below 12 would never let such a node finish.
    */
   #peersReady = false;
+  /**
+   * Whether the readiness budget is standing still for want of peers.
+   *
+   * Carried so the condition can be announced on its edges rather than on every
+   * block. The two peer events each log their own crossing, but a node that has
+   * never reached the threshold fires neither and simply never accrues - the
+   * one road to READY quietly shut, with nothing anywhere saying so.
+   * @type {boolean}
+   */
+  #budgetStalled = false;
   #explorerSynced = false;
   #hashSyncComplete = false;
   #dbRebuilt = false;
@@ -865,7 +875,21 @@ class AppSyncOrchestrator {
       // is waived by this counter, so a counter that cannot advance without
       // peers is a node that cannot reach READY without them. There is no
       // separate peer condition for a later change to forget.
-      if (this.#peersReady) this.#blocksSinceSyncStarted += count;
+      if (this.#peersReady) {
+        this.#blocksSinceSyncStarted += count;
+        if (this.#budgetStalled) {
+          this.#budgetStalled = false;
+          log.info('AppSyncOrchestrator - Peer threshold met, the readiness budget is advancing again');
+        }
+      } else if (!this.#budgetStalled) {
+        // SAID ON THE EDGE, in both directions. A node below the threshold
+        // cannot reach READY at all, and for a node that has never been above it
+        // that is the only symptom there is: no peer event has fired, so the
+        // only other account of it is a budget that does not move. Repeating it
+        // every block would report a condition that has not changed.
+        this.#budgetStalled = true;
+        log.warn('AppSyncOrchestrator - Readiness budget not advancing: the peer set is below appSyncPeerThreshold, so this node cannot reach READY');
+      }
       this.#publishStateSyncAuthority();
       this.#checkReadiness();
       this.#checkHashRetry(blockHeight);
