@@ -1037,12 +1037,6 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // FDM names node 1 the primary, which is what masterSlaveApps reads.
     await electMaster('primaryapp', subnet.nodeIp(TARGET));
 
-    // Anchored before anything provokes the stand-down, so the transition
-    // asserted below is read from the buffer rather than raced for. Seeding and
-    // election publish desired-state changes of their own, and this is what
-    // separates them from the one this test is about.
-    const anchor = env.clients[TARGET - 1].getLastEventId();
-
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
       { timeout: 120000, label: 'the settling window starts' });
@@ -1085,7 +1079,12 @@ describe('Residential node evacuation: standing down as the elected primary', fu
       'reconciler:desiredChanged',
       (d) => d.identifier === 'primaryapp_primaryapp' && d.state === 'stopped',
       180000,
-      { afterId: anchor },
+      // ANCHORED ON THE VERDICT, because the stand-down is what this transition
+      // has to have been caused by. The install stops the component too, with
+      // its own reason, and that lands whenever the local lifecycle gets there -
+      // after the location count this test waits on, which is a database
+      // reading. Anchoring anywhere before the decision picks that one up.
+      { afterId: verdict.id },
     );
     expect(desired.data.reason, 'the component stopped for some reason other than standing down')
       .to.contain('standing down');
