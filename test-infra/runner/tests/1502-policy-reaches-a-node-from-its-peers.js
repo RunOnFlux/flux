@@ -471,3 +471,70 @@ describe('a fleet that has never obtained policy', function () {
     expect(new Set(seqs).size, 'the fleet converged on one sequence').to.equal(1);
   });
 });
+
+describe('a node whose source answered with something that did not verify', function () {
+  // A source that REFUSES and a source that answers with the wrong bytes are different
+  // failures, and only the second one can be mistaken for the publisher. A captive portal,
+  // a transparent proxy and an injected ISP page all return 200 with a body; so does a
+  // signer the fleet does not pin. None of them is the network speaking.
+  //
+  // What this covers is what the node does NEXT. Refusing the bundle was never in doubt -
+  // suite 1501 proves that on a single node. The question is whether the refusal left the
+  // node able to accept a real bundle afterwards, and act on it.
+  let env;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    // Set through createTestEnv rather than afterwards, for the same reason the block above
+    // gives: policy is resolved once at boot, and a fleet that obtained a good bundle first
+    // would be testing a node that never met the failure.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 3, policy: { available: true, signer: 'rogue' },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('refuses it, and holds nothing', async function () {
+    this.timeout(120000);
+    const held = await Promise.all([0, 1, 2].map(heldSeq));
+    expect(held, 'a valid signature from an untrusted signer is not policy').to.deep.equal([null, null, null]);
+    // It ANSWERED, which is the half that matters here - the fleet met a body, not silence.
+    expect((await stubState(env)).policyFetches.ok, 'the fleet did fetch it').to.be.greaterThan(0);
+  });
+
+  it('still opens its gate when a peer later hands it a real bundle', async function () {
+    this.timeout(360000);
+    // Node 1 is restarted and node 0 is NOT, and that asymmetry is the entire test. A
+    // restart builds a fresh process and clears whatever the failed fetch left behind, so
+    // a node that is restarted cannot show this defect - only one that met the bad answer
+    // and is still running can. Node 1 is therefore the courier, and node 0 is the subject.
+    await stub(env, '/policy', { available: true, signer: 'pinned' });
+    await restartAndRepeer(env, 1);
+
+    await waitFor(async () => (await heldSeq(1)) !== null, {
+      timeout: 150000,
+      label: 'node 1 to obtain a real bundle now the source is signing with a pinned key',
+    });
+
+    await waitFor(async () => (await heldSeq(0)) !== null, {
+      timeout: 150000,
+      label: 'node 0 to take the bundle from its peer',
+    });
+
+    // Holding it is not the property. Acquisition is downstream of confirmation, and a node
+    // that adopted a bundle while unable to confirm holds exactly the right policy and will
+    // never install anything again - a failure that is invisible in the database and only
+    // shows here.
+    await waitFor(
+      () => env.nodeLogCount(0, 'Checking for apps that are missing instances') > 0,
+      { timeout: 180000, interval: 3000, label: 'node 0 to get past the policy gate' },
+    );
+  });
+});

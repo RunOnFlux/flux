@@ -139,6 +139,21 @@ function getArtifact(name) {
 }
 
 /**
+ * Open the acquisition gate when, and only when, BOTH facts hold.
+ *
+ * Holding a bundle and having established that nobody is ahead of it are independent, and
+ * they arrive in either order: a restored node holds one and waits for the other, a cold
+ * node confirmed by an empty peer set has the other and waits for one. The gate is derived
+ * from the pair rather than written by whichever arrives second, because a latch on one of
+ * them records the CONJUNCTION in a variable that only tracks one term - and then the term
+ * it does not track can never open it. Recomputing costs nothing and cannot be ordered
+ * wrongly.
+ */
+function refreshGate() {
+  globalState.policyReady = Boolean(confirmed && current);
+}
+
+/**
  * No reachable peer is ahead of this node, so it may act on what it holds.
  *
  * Called when a peer answers with a sequence at or below ours, or when anything is
@@ -146,19 +161,23 @@ function getArtifact(name) {
  * "nobody I can reach is ahead of me" does not depend on where their copy came from. What
  * it cannot tell you is whether the WIDER network has moved on - an isolated segment
  * cannot detect that from the inside, and the backstop tick is what corrects it.
+ *
+ * Says nothing about whether this node HOLDS anything: an empty node whose peers are all
+ * level with it is genuinely not behind them, it just has nothing to act on yet. That pair
+ * is what refreshGate() resolves.
  * @param {string} source What established it, for the log.
  */
 function markConfirmed(source) {
   if (confirmed) return;
   confirmed = true;
-  if (!current) return;
-  globalState.policyReady = true;
-  log.info(`policyStore - seq ${current.seq}: no reachable peer is ahead (${source})`);
+  refreshGate();
+  log.info(`policyStore - seq ${getSeq()}: no reachable peer is ahead (${source})`);
 }
 
 function adopt(raw, payload, source) {
   current = payload;
   currentRaw = raw;
+  refreshGate();
   log.info(`policyStore - adopted seq ${payload.seq} from ${source}`);
   // Adopting settles it too: this bundle came from outside this node, moments ago.
   markConfirmed(`adoption from ${source}`);
@@ -175,6 +194,12 @@ function adopt(raw, payload, source) {
     .catch((error) => log.warn(`policyStore - could not persist bundle: ${error.message}`));
 }
 
+// What a candidate turned out to be. Three outcomes, not two: a body that did not verify
+// and a body that verified and carried the sequence already held are both "nothing was
+// adopted", and they mean opposite things about the source. Collapsing them to `false` is
+// what let an unverified answer stand in for the publisher - see refresh().
+const VERDICT = Object.freeze({ ADOPTED: 'adopted', LEVEL: 'level', REJECTED: 'rejected' });
+
 /**
  * Verify a candidate and adopt it if it beats what this node holds.
  *
@@ -187,10 +212,10 @@ function consider(raw, source) {
     minSeq: getSeq(),
     onReject: (reason) => log.warn(`policyStore - rejected bundle from ${source}: ${reason}`),
   });
-  if (!payload) return false;
-  if (current && payload.seq === current.seq) return false; // valid, but nothing new
+  if (!payload) return VERDICT.REJECTED;
+  if (current && payload.seq === current.seq) return VERDICT.LEVEL; // valid, but nothing new
   adopt(raw, payload, source);
-  return true;
+  return VERDICT.ADOPTED;
 }
 
 /** The published source. Last in the ladder, and the only step that leaves the network. */
@@ -227,8 +252,13 @@ async function restore() {
   if (!payload) return false;
   current = payload;
   currentRaw = stored.raw;
-  // Deliberately NOT opening the gate. Disk proves the bundle is real, never that it is
-  // still the network's - see `confirmed`.
+  // Through the derivation like every other write to either fact, NOT because this opens
+  // the gate - disk proves the bundle is real, never that it is still the network's, and
+  // `confirmed` is false here on any ordinary boot, so this is a no-op. It is here because
+  // a peer can answer while start() is still awaiting this: markConfirmed would then have
+  // set `confirmed` with the store still empty, and a restore that wrote `current` without
+  // re-deriving would strand the gate exactly as the old latch did. See `confirmed`.
+  refreshGate();
   log.info(`policyStore - restored seq ${payload.seq} from disk, pending confirmation`);
   return true;
 }
@@ -243,7 +273,7 @@ async function restore() {
  * @returns {boolean} Whether it was adopted.
  */
 function offerBundle(raw, peerKey) {
-  const adopted = consider(raw, 'peer');
+  const adopted = consider(raw, 'peer') === VERDICT.ADOPTED;
   if (adopted && peerAnswered) peerAnswered();
   settlePeerAsk(peerKey);
   return adopted;
@@ -319,13 +349,18 @@ async function refresh() {
 
   const raw = await fetchFromBackstop();
   if (!raw) return false;
-  const adopted = consider(raw, 'backstop');
-  // The source answered. Even when it carried the sequence we already had - which is the
-  // ordinary case - that is the publisher itself, which is the one answer that DOES mean
-  // current rather than merely not-behind-my-neighbours.
-  // consider() returns false for "valid, but nothing new", which is not a failure.
-  markConfirmed('the published source');
-  return adopted;
+  const verdict = consider(raw, 'backstop');
+  // The source answered, and what it said VERIFIED. Even when it carried the sequence we
+  // already had - which is the ordinary case - that is the publisher itself, which is the
+  // one answer that DOES mean current rather than merely not-behind-my-neighbours.
+  //
+  // A body that did not verify is not the publisher answering, whatever the status code
+  // was. A captive portal, a transparent proxy and an injected ISP page all return 200
+  // with bytes, and treating those as confirmation opens the acquisition gate on policy
+  // the network may have moved past - which is the one thing this module exists to
+  // refuse. Only the signature can tell the publisher from whatever answered for it.
+  if (verdict !== VERDICT.REJECTED) markConfirmed('the published source');
+  return verdict === VERDICT.ADOPTED;
 }
 
 /**
@@ -538,7 +573,7 @@ function reset() {
   pendingPeerAsks.clear();
   ladderRunSinceBoot = false;
   confirmed = false;
-  globalState.policyReady = false;
+  refreshGate();
 }
 
 module.exports = {
