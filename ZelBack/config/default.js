@@ -382,6 +382,12 @@ module.exports = {
       7: isDevelopment ? 1390000 : 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope), staticip
       8: isDevelopment ? 1921500 : 1932380, // v8, brings enterprise apps using arcaneOS features to run these apps. // Around June 23th
     },
+    // Flux storage is the only host a storage link may address. The node
+    // dereferences F_S_ENV and F_S_CMD with its own signed identity before it
+    // starts a container, so the target is not the specification author's to
+    // choose. Overridden by the unit and harness configs to reach a local
+    // stand-in.
+    storageHost: 'storage.runonflux.io',
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
     addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',

@@ -108,6 +108,7 @@ module.exports = {
     minConfirmingPeers: 1,
   },
   fluxapps: {
+    storageHost: 'storage.runonflux.io',
     minOutgoing: 4,
     minIncoming: 2,
     minUniqueIpsOutgoing: 3,

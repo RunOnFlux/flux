@@ -1921,7 +1921,7 @@ describe('dockerService tests', () => {
       const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
       const nodeApp = {
         ...baseNodeApp,
-        enviromentParameters: ['F_S_ENV=https://storage.example/env'],
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io/v1/env/123'],
         containerPorts: [],
         ports: [],
         version: 3,
@@ -1932,6 +1932,48 @@ describe('dockerService tests', () => {
 
       sinon.assert.notCalled(fetch);
       sinon.assert.notCalled(dockerStub);
+    });
+
+    // The link decides where a node sends a request carrying its own signature,
+    // so it is checked before the request is built rather than trusted because
+    // the specification was signed by its owner. Anyone who can register an app
+    // writes this field.
+    it('refuses to fetch parameters from anywhere but Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=http://169.254.169.254/latest/meta-data/'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // The host is the whole of the check, so a storage answering 302 would
+    // otherwise choose the node's next request for it.
+    it('does not follow a redirect away from Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io/v1/env/123'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal('https://storage.runonflux.io/v1/env/123');
+      expect(fetch.firstCall.args[1].maxRedirects).to.equal(0);
     });
 
     it('should create an app given proper parameters for specs version > 1', async () => {
