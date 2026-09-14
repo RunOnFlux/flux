@@ -183,8 +183,20 @@ async function respondWithPolicy(msgObj, peer) {
       // is the difference between "my peers agree I am current" and "my peers are
       // asleep", which silence cannot express - and a node that cannot tell those apart
       // has no way to know whether the policy it restored from disk is still the
-      // network's. A peer that lies low is ignored (we only act on a HIGHER claim); a
-      // peer that lies high costs one request and a refused bundle.
+      // network's.
+      //
+      // A PEER THAT LIES LOW IS ACTED ON: policyStore.notePeerSeq takes a sequence at or
+      // below its own as confirmation, and that opens the acquisition gate. It is safe
+      // for a reason that has nothing to do with trusting the claim - a peer that is
+      // genuinely ahead does not send one. It sends the BUNDLE, on the line below, which
+      // is signed and checked. Being ahead is proven; only being level is asserted.
+      //
+      // So a liar can bring confirmation forward by however long the real bundle takes to
+      // arrive, and nothing else: the ask goes to every peer, and any peer that is ahead
+      // answers with the thing that overrules the lie. For the lie to stand, every peer
+      // would have to be at or below this node - which is the network being level, and
+      // confirmation being correct. A peer that lies high costs one request and a
+      // refused bundle.
       await sendSignedMessage({ type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq() }, peer);
       return;
     }
