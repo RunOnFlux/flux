@@ -115,6 +115,7 @@ module.exports = {
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
+    storageHost: 'storage.runonflux.io',
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
     restartBurstCount: 5,

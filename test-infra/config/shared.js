@@ -76,6 +76,7 @@ module.exports = {
     baseUrl: 'http://198.18.0.6:3000',
   },
   fluxapps: {
+    storageHost: 'storage.runonflux.io',
     minOutgoing: 4,
     minIncoming: 2,
     minUniqueIpsOutgoing: 3,
