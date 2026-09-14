@@ -126,10 +126,20 @@ async function respondWithAppMessage(msgObj, peer) {
 /**
  * Answer a peer asking for network policy newer than the sequence it holds.
  *
- * Answered only when this node holds something strictly newer. Silence is the answer for
- * "nothing newer", because a reply saying so would be a claim the asker cannot check -- and
- * one a hostile peer would send to keep it where it is. What the asker CAN check is a signed
- * bundle, so that is the only thing worth sending.
+ * EVERY ask is answered, in one of three ways, because a peer that says nothing is
+ * indistinguishable from a peer that is not there:
+ *
+ *   the bundle    this node holds something strictly newer
+ *   seq: <mine>   it holds policy and is not ahead of the asker
+ *   seq: null     it holds no policy at all
+ *
+ * Only the first is checkable. The other two are claims the asker cannot verify, and it
+ * acts on them anyway - see policyStore.notePeerSeq for exactly what that buys and what it
+ * costs. Silence was the older answer here, on the grounds that an unverifiable claim is
+ * worth nothing; the reason it was wrong is that it leaves the asker unable to tell "my
+ * peers agree I am current" from "my peers are asleep", and a node that cannot tell those
+ * apart has no way to know whether the policy it restored from disk is still the
+ * network's. A malformed or wrong-version ask is still answered with silence.
  *
  * The bundle is served as the bytes this node verified, not a re-serialisation: the signature
  * covers those bytes and nothing else.
