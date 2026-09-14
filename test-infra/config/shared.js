@@ -211,7 +211,6 @@ module.exports = {
     connectionBackoffMs: [2000, 5000, 10000, 15000],
     nodeMonitorIntervalMs: 10000,
     spawnDeferrals: {
-      targetedNodesMs: { enterprise: 150, standard: 300 },
       staticIpMs: { enterprise: 200, standard: 400 },
       datacenterMs: { enterprise: 250, standard: 500 },
       capacityGap: {

@@ -132,8 +132,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.spawnDeferrals.datacenterMs.standard` | 3420000 | 500 | 6840.0x |
 | `fluxapps.spawnDeferrals.staticIpMs.enterprise` | 1620000 | 200 | 8100.0x |
 | `fluxapps.spawnDeferrals.staticIpMs.standard` | 3420000 | 400 | 8550.0x |
-| `fluxapps.spawnDeferrals.targetedNodesMs.enterprise` | 1800000 | 150 | 12000.0x |
-| `fluxapps.spawnDeferrals.targetedNodesMs.standard` | 3420000 | 300 | 11400.0x |
 | `fluxapps.spawnDelayMultiplier` | 1 | 0.002 | 500.0x |
 | `fluxapps.spawnReconfirmDelayMs` | 7500000 | 30000 | 250.0x |
 | `fluxapps.syncResponseThrottleMs` | 300000 | 10000 | 30.0x |
