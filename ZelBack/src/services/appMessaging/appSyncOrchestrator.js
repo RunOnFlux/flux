@@ -687,23 +687,23 @@ class AppSyncOrchestrator {
   async #reconcilePass() {
     if (this.#stateSyncComplete) return;
     if (this.#syncBudgetSpent) return;
-    // Is the peer set up. Before the threshold is first crossed there is
-    // nobody worth asking, and once it has fallen below the degraded level
-    // there is nobody worth asking again.
-    if (!this.#networkReady || !this.#peersReady) return;
-    // Are there enough peers to trust an answer RIGHT NOW. A level, and the
-    // reason the latch is not enough on its own: DEGRADED is this node's own
-    // verdict that it has too few peers for gossip to be reliable, so a survey
-    // gathered from them is not one to complete a sync on.
+    // IS THE PEER SET UP, and one level answers both halves of that. Before the
+    // threshold is first crossed there is nobody worth asking; once the count
+    // has fallen below the degraded level this node has judged its own gossip
+    // unreliable, and a survey gathered from what it has left is not one to
+    // complete a sync on. #peersReady falls on that edge before the state does,
+    // so DEGRADED needs no check of its own here - and every other consumer of
+    // the level gets the same answer without carrying its own copy of the
+    // condition, which is the point of reading a level rather than a state.
     //
     // Only the gathering. What this stops is a node that has not earned
     // authority taking a short cut to it through the few peers it has left.
     // Authority itself is revoked by #onPeersDegraded, which zeroes the block
     // counter along with everything else a degrade invalidates.
     //
-    // Recovery needs nothing here: crossing the threshold again moves the
-    // state to RESYNCING before #onPeersReady reconciles.
-    if (this.#state === STATES.DEGRADED) return;
+    // Recovery needs nothing here: crossing the threshold again raises the
+    // level and moves the state to RESYNCING before #onPeersReady reconciles.
+    if (!this.#networkReady || !this.#peersReady) return;
 
     // Counted once, before the key fetch, and it can only be too LOW by the
     // time that returns: nothing opens a request but this pass, and the guard
