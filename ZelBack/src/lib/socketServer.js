@@ -29,7 +29,7 @@ class FluxWebsocketServer {
       // Both stay as the peer's choice. Pinning a number here rejects the
       // handshake outright - with a 400, not a fallback to uncompressed - for
       // any client that offers a smaller window than ours, and browsers reach
-      // this server too (/ws/id, /ws/sign, /ws/payment). Peers running this
+      // this server too (/ws/id, /ws/sign). Peers running this
       // build offer 13 themselves, so negotiation still settles there.
       clientMaxWindowBits: true,
       serverMaxWindowBits: true,

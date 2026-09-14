@@ -9,7 +9,6 @@ const daemonServiceUtilityRpcs = require('./services/daemonService/daemonService
 const daemonServiceControlRpcs = require('./services/daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
-const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxshareService = require('./services/fluxshareService');
@@ -1071,12 +1070,6 @@ module.exports = (app) => {
   }));
 
   // Payment request routes
-  app.get('/payment/paymentrequest', asyncRoute((req, res) => {
-    return paymentService.paymentRequest(req, res);
-  }));
-  app.post('/payment/verifypayment', asyncRoute((req, res) => {
-    return paymentService.verifyPayment(req, res);
-  }));
 
   app.post('/daemon/createrawtransaction', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.createRawTransactionPost(req, res);
