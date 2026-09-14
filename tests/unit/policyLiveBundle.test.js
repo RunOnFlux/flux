@@ -65,6 +65,28 @@ describe('the live published policy bundle', () => {
     ]);
   });
 
+  it('names the iplocation artifact the way the consumer reads it', () => {
+    // ipLocationSync fetches this by `file` and refuses bytes that do not hash to `sha256`
+    // or run to `bytes`. Those three field NAMES are an agreement with a program in another
+    // repository (scripts/sign-policy.js), and a rename on that side does not fail loudly
+    // here - getArtifact returns an object, the field reads undefined, and the node either
+    // fetches nothing or refuses everything. Asserted against the real published bundle
+    // because the harness stub had this exact disagreement (`name` for `file`, no `bytes`)
+    // and every suite stayed green through it.
+    const { artifacts } = verifyBundle(raw, { publicKeys: config.policy.publicKeys });
+    const entry = artifacts['iplocation.bin.gz'];
+    expect(entry, 'the published bundle names the iplocation artifact').to.be.an('object');
+    expect(entry.file, 'the file to fetch').to.be.a('string');
+    expect(entry.sha256, 'the digest it must produce').to.match(/^[0-9a-f]{64}$/);
+    expect(entry.bytes, 'the size it must run to').to.be.a('number').and.to.be.greaterThan(0);
+
+    // CONTENT-ADDRESSED, and that is what makes "do I already hold it" answerable without
+    // asking the server. A publisher that went back to a mutable name would leave every node
+    // re-downloading 4.8 MB on every refresh and unable to tell a stale copy from a current
+    // one.
+    expect(entry.file, 'the name carries the digest').to.equal(`iplocation-${entry.sha256}.bin.gz`);
+  });
+
   it('carries documents of the shapes the readers require', () => {
     const { documents } = verifyBundle(raw, { publicKeys: config.policy.publicKeys });
     expect(documents.blockedrepositories, 'blocked repositories is a list').to.be.an('array');

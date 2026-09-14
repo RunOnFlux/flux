@@ -4,10 +4,11 @@
 // which already registers this same artifact and takes over when it rebases
 // onto this branch. To make that handover seamless, this module mirrors the
 // store's artifact contract exactly: same registry key, same GridFS bucket and
-// record shape (policyArtifactRepository, shared verbatim), same conditional
-// requests, and the same rejection rule - bytes the reader throws on are never
-// cached and never displace a good stored copy. The policy store will restore
-// the cache this module populated; no node refetches across the transition.
+// record shape (policyArtifactRepository, shared verbatim), the same signed
+// statement deciding which bytes are the table, and the same rejection rule -
+// bytes the reader throws on are never cached and never displace a good stored
+// copy. The policy store will restore the cache this module populated; no node
+// refetches across the transition.
 //
 // AT REBASE: delete this module and its serviceManager start call, and wire
 //   policyStore.onArtifact('ipLocationTable', (bytes) => ipLocationStore.setArtifact(bytes));
@@ -16,10 +17,12 @@
 // re-ingests when the artifact's generated timestamp differs from the marker's.
 
 const config = require('config');
+const crypto = require('crypto');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const policyArtifactRepository = require('../appDatabase/policyArtifactRepository');
+const policyStore = require('../policyStore');
 const ipLocationStore = require('./ipLocationStore');
 
 const ARTIFACT_NAME = 'ipLocationTable'; // registry key, shared with policyStore
@@ -27,9 +30,13 @@ const ARTIFACT_FILE = 'iplocation.bin.gz';
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RETRY_INTERVAL_MS = 10 * 60 * 1000; // only while the node holds no table at all
 const MAX_RETRY_ATTEMPTS = 5; // 10m, 20m, 40m, 80m, 160m - then the daily refresh
-const FETCH_TIMEOUT_MS = 120 * 1000; // 4.2 MB over slow uplinks; never gates boot
+const FETCH_TIMEOUT_MS = 120 * 1000; // 4.8 MB over slow uplinks; never gates boot
 
-let etag = null;
+// The sha256 of the bytes this node currently holds, and the ONLY thing consulted to decide
+// whether a refresh has anything to do. The signed bundle names the digest the current table
+// must have, so "do I already hold it" is a string comparison against a signed value rather
+// than a question put to the server that would be serving the answer.
+let heldSha = null;
 let refreshInterval = null;
 let retryTimer = null;
 let retryAttempt = 0;
@@ -56,41 +63,72 @@ function refreshNodeLocations() {
   return nodeLocationPass;
 }
 
+/** Lower-case hex sha256, the form the signed bundle names artifacts by. */
+function sha256Hex(bytes) {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
+
 /**
- * Fetch the artifact if it changed, install it, and cache it. A malformed
- * response is rejected by the reader's parse and never written to the cache;
- * an unchanged artifact costs a 304 and no body.
+ * Fetch the artifact the signed bundle names, verify it, install it, and cache it.
+ *
+ * THE BUNDLE IS WHAT SAYS WHICH BYTES ARE THE TABLE. It carries a content-addressed file
+ * name and the sha256 that file must hash to, under the fleet's pinned keys - so this fetch
+ * is checked against a signed statement rather than trusted because of where it came from.
+ * Without that the largest artifact on the network, four point eight megabytes that decide
+ * every node's geolocation and therefore where apps may be placed, would be the one piece of
+ * policy taken on the publisher's word.
+ *
+ * A node holding no bundle does not fetch. There is nothing to verify against, and installing
+ * an unverified table is the thing this exists to stop; the retry below brings it back once
+ * policy arrives.
+ *
+ * The digest also replaces the conditional request. A content-addressed name changes when the
+ * content does, so holding the named digest IS "unchanged" - decided locally, against a signed
+ * value, instead of by an ETag the server could answer anything to.
  * @returns {Promise<boolean>} true when a new table was installed.
  */
 async function refresh() {
-  const url = `${config.policy.baseUrl}/${ARTIFACT_FILE}`;
+  const want = policyStore.getArtifact(ARTIFACT_FILE);
+  if (!want || !want.file || !want.sha256) {
+    log.info('ipLocationSync - no signed statement for the iplocation table yet, not fetching');
+    return false;
+  }
+  if (heldSha === want.sha256) return false;
+
+  const url = `${config.policy.signedBaseUrl}/${want.file}`;
   try {
-    const options = {
+    const res = await serviceHelper.axiosGet(url, {
       timeout: FETCH_TIMEOUT_MS,
       responseType: 'arraybuffer',
-      // axios rejects everything outside 2xx; 304 is the expected answer for
-      // an unchanged artifact and must come back as a response
-      validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
-    };
-    if (etag) options.headers = { 'If-None-Match': etag };
-    const res = await serviceHelper.axiosGet(url, options);
-    if (res.status === 304) return false;
+      // The declared size is a ceiling as well as an expectation: it stops a source that
+      // answers with something enormous costing this node the memory before the digest can
+      // reject it.
+      maxContentLength: want.bytes || undefined,
+    });
     const bytes = Buffer.from(res.data);
-    const served = (res.headers && (res.headers.etag ?? res.headers.ETag)) ?? null;
+
+    if (want.bytes && bytes.length !== want.bytes) {
+      throw new Error(`artifact is ${bytes.length} bytes, bundle says ${want.bytes}`);
+    }
+    const got = sha256Hex(bytes);
+    if (got !== want.sha256) {
+      throw new Error(`artifact hashes to ${got}, bundle says ${want.sha256}`);
+    }
+
     try {
       // before the cache write, so a malformed artifact never displaces a good stored copy
       await ipLocationStore.setArtifact(bytes);
     } catch (error) {
-      // Remember the etag of bytes this build cannot read, so the next attempt
-      // is a 304 rather than another full download of the same broken
-      // artifact. A corrected publication carries a new etag and is fetched.
-      etag = served;
+      // Remember the digest of bytes this build cannot read, so the next attempt does not
+      // download the same rejected artifact again. A corrected publication is a different
+      // digest and is fetched.
+      heldSha = want.sha256;
       throw error;
     }
-    etag = served;
-    await policyArtifactRepository.writeArtifactBytes(ARTIFACT_NAME, bytes, etag)
+    heldSha = want.sha256;
+    await policyArtifactRepository.writeArtifactBytes(ARTIFACT_NAME, bytes)
       .catch((error) => log.warn(`ipLocationSync - failed to cache artifact: ${error.message}`));
-    log.info('ipLocationSync - iplocation table refreshed');
+    log.info(`ipLocationSync - iplocation table refreshed, verified against the signed bundle (${want.sha256.slice(0, 12)})`);
     // a new baseline invalidates every node location document
     refreshNodeLocations();
     return true;
@@ -159,26 +197,25 @@ async function restoreCachedTable() {
     if (adopted) {
       // The rows are already in mongo under the marker's baseline; re-ingesting
       // the same two million of them to learn what the marker already says buys
-      // nothing. The etag still comes from the record so the daily refresh is a
-      // conditional request rather than a full download.
-      etag = record?.etag ?? null;
+      // nothing. The digest still comes from the record, so a refresh that finds
+      // the bundle naming what we hold does not download it again.
+      heldSha = record?.sha256 ?? null;
       refreshNodeLocations();
     } else {
       const bytes = record ? await policyArtifactRepository.readArtifactBytes(record.fileId) : null;
       if (bytes) {
         try {
           await ipLocationStore.setArtifact(bytes);
-          ({ etag } = record);
+          ({ sha256: heldSha } = record);
           log.info('ipLocationSync - iplocation table restored from cache');
           refreshNodeLocations();
         } catch (error) {
-          // A stored copy this build cannot read must not leave the next
-          // refresh answering 304 for bytes we are not actually holding - drop
-          // the etag so the refetch is unconditional. This is also the upgrade
-          // path: a node that cached the previous JSON artifact holds bytes
-          // whose magic this reader rejects, and the unconditional refetch
-          // below is what brings it the binary one.
-          etag = null;
+          // A stored copy this build cannot read must not leave the next refresh
+          // believing it holds the named table - drop the digest so the refetch
+          // happens. This is also the upgrade path: a node that cached the
+          // previous JSON artifact holds bytes whose magic this reader rejects,
+          // and the refetch below is what brings it the verified binary one.
+          heldSha = null;
           log.error(`ipLocationSync - stored iplocation table rejected, will refetch: ${error.message}`);
         }
       }
@@ -220,7 +257,7 @@ function stopSync() {
   retryAttempt = 0;
   started = false;
   restored = false;
-  etag = null;
+  heldSha = null;
 }
 
 module.exports = {

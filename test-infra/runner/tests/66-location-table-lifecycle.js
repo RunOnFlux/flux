@@ -372,6 +372,39 @@ describe('the location table survives restarts and refuses bad publications', fu
       'nothing was ingested over the good table').to.equal(1);
   });
 
+  it('refuses an artifact served under the signed name whose bytes are not the signed ones', async function () {
+    this.timeout(300000);
+    // THE CASE THE SIGNATURE IS FOR. The bundle is untouched and still verifies; the file
+    // name asked for is the one it signed; the response is 200 and exactly the declared
+    // length. Only the digest of the body disagrees - which is what a compromised mirror,
+    // a cache poisoned in front of the publisher, or a branch someone pushed to looks
+    // like. Nothing upstream of the node can catch it, and until the bundle's hash was
+    // checked nothing did: the bytes went straight into the table that decides every
+    // node's location and therefore where apps may be placed.
+    const published = await publish({ domains: 2 });
+    expect(published.rowCount, 'a real artifact was published first').to.be.a('number');
+
+    const tampered = await publish({ tamper: true });
+    expect(tampered.tampered).to.equal(true);
+    expect(tampered.servedUnder, 'served under the name the bundle signed').to.match(/^iplocation-[0-9a-f]{64}\.bin\.gz$/);
+
+    await restartAndSettle(REJECT_NODE);
+    // It DOWNLOADED it - this is a refusal, not a node that never looked.
+    await waitFor(async () => (await fetchCounts()).ok >= 1, {
+      timeout: 180000, interval: 2000, label: 'the restarted node downloads the tampered artifact',
+    });
+    await waitFor(() => env.nodeHasLog(REJECT_NODE, /ipLocationSync - failed to refresh.*hashes to/), {
+      timeout: 30000, interval: 1000, label: 'the digest check refuses it, naming the disagreement',
+    });
+
+    const answer = await tableAnswer(env.clients[REJECT_NODE], 3);
+    expect(answer.tableAvailable, 'the node still has a table').to.equal(true);
+    expect(answer.tableGenerated, 'still the baseline it ingested at boot').to.equal(baselineGenerated);
+    expect(answer.domainCount, 'the forged table never reached placement').to.equal(BASELINE_DOMAINS);
+    expect(env.nodeLogCount(REJECT_NODE, /ipLocationStore - baseline installed/),
+      'nothing was ingested over the good table').to.equal(1);
+  });
+
   it('refuses a truncated baseline on the row floor and keeps the one it has', async function () {
     this.timeout(300000);
     // A structurally perfect artifact carrying only the fleet's own rows. Every
@@ -404,17 +437,21 @@ describe('the location table survives restarts and refuses bad publications', fu
 
   it('keeps the table it has when the artifact disappears entirely', async function () {
     this.timeout(300000);
-    // Both representations 404 from here on: the publication is gone, which is
-    // what a node sees during a publisher outage or a botched release.
+    // The publication is gone, which is what a node sees during a publisher outage or a
+    // botched release. The signed bundle then names no artifact at all - and a node that
+    // has nothing to verify against does not go looking, so it makes NO request rather
+    // than a request that 404s. That is the whole difference the digest buys here: the
+    // bundle, not the server, is what says whether there is a table to fetch.
     await publish({ artifact: null });
 
     await restartAndSettle(REFRESH_NODE);
-    await waitFor(async () => (await fetchCounts()).missing >= 1, {
-      timeout: 180000, interval: 2000, label: 'the restarted node finds no artifact to fetch',
+    await waitFor(() => env.nodeHasLog(REFRESH_NODE, /ipLocationSync - no signed statement for the iplocation table/), {
+      timeout: 180000, interval: 2000, label: 'the restarted node finds nothing named and says so',
     });
 
     const counts = await fetchCounts();
     expect(counts.ok, 'there was nothing to download').to.equal(0);
+    expect(counts.missing, 'and it did not go asking for something the bundle does not name').to.equal(0);
     // its second restart, and its second adopt: the rows outlive the process
     // whether or not the publisher is there to confirm them
     await waitFor(() => env.nodeLogCount(REFRESH_NODE, /ipLocationStore - adopted the stored baseline/) === 2, {
