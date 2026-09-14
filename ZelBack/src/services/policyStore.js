@@ -81,15 +81,16 @@ const PEER_WINDOW_MS = config.policy.peerWindowMs;
 // woken rather than polling for it.
 let peerAnswered = null;
 
-// Whether the whole ladder has run since this process started.
-//
-// A restart is the one moment a node is certain to be behind and cannot tell: it restored
-// a bundle, so it holds something, and its peers may hold the same stale thing. Peer
+// A RESTART is the one moment a node is certain to be behind and cannot tell: it restored a
+// bundle, so it holds something, and its peers may hold the same stale thing. Peer
 // confirmation cannot decide it - a peer at the same sequence answers "not ahead", which is
-// true and useless, and it is what a whole fleet restarted together says to itself. So the
-// ladder runs once per boot regardless of what any peer says, and the published source is
-// what breaks the tie.
-let ladderRunSinceBoot = false;
+// true and useless, and it is what a whole fleet restarted together says to itself.
+//
+// What breaks that tie is the phased tick, not a per-boot ladder run. Ticks are spread over
+// the period by node identity, so across the fleet one node is always the next to look - and
+// whatever it finds it announces, which is how the answer reaches everyone that restarted
+// beside it. A ladder run per boot breaks the same tie by having EVERY node ask the source,
+// moments after the release-wave guard in start() declined to.
 
 // One resolver per peer asked directly, keyed by ip:port.
 //
@@ -98,10 +99,15 @@ let ladderRunSinceBoot = false;
 // for a peer that has gone away rather than the mechanism.
 const pendingPeerAsks = new Map();
 
-// One refresh at a time. Without this, a node that gains sixteen peers in a second would
-// start sixteen refreshes, each of which can reach the backstop -- the fleet-wide lockstep
-// stampede against the published source that this design exists to avoid, arriving by the
-// back door. A caller that asks while one is running waits for that one.
+// One refresh at a time. The callers are boot-with-an-empty-store and this node's own tick,
+// which can overlap only when a boot fetch is still outstanding as the first tick falls due -
+// rare, and two concurrent fetches of the same bundle is exactly the lockstep traffic against
+// the published source this design exists to avoid. A caller that asks while one is running
+// waits for that one.
+//
+// It used to be load-bearing rather than tidy, because a peer arriving ran a refresh and a
+// node filling its peer set ran sixteen. Peer arrivals ask the peer now and never the source,
+// so the burst it was written for cannot happen.
 let refreshInFlight = null;
 
 
@@ -364,46 +370,28 @@ async function refresh() {
 }
 
 /**
- * There is now a peer set worth asking.
+ * A peer has connected. Ask it whether it is ahead of us.
  *
- * The boot refresh cannot use the peer rung: policyStore is started before discovery, so
- * when it asks, this node has no peers and the broadcast reaches nobody. Without this, the
- * first time peers are ever asked is the 24-hour backstop tick -- so a node that booted
- * while the published source was unreachable holds no policy for a day, with neighbours
- * beside it that have it. That is the gap peers-first was chosen to close, and it was open.
+ * One message, one reply, and it NEVER reaches the published source. A peer connecting says
+ * something about that peer and nothing about github, so a peer event must not cause a fetch:
+ * a node ramping to its full peer set generates one of these per arrival, and at boot the
+ * broadcast rung is shut anyway (peerCountIfAboveThreshold reads 0 below appSyncPeerThreshold),
+ * so a ladder run here fell straight through to the source. Every arrival, on every node,
+ * including the fleet coming back from a release - which is the stampede the phased tick
+ * exists to prevent.
  *
- * Driven by peerManager's threshold edge rather than by every connection: one ask when the
- * peer set becomes usable, not sixteen as it fills. While this node holds NOTHING a later
- * crossing is another chance and gets another ask; once it holds something, one is enough
- * -- being a little behind is not urgent, and the backstop tick covers it.
+ * This is the rung that closes the real gap. A peer announces what it adopts, but only to
+ * nodes it is connected to AT THAT MOMENT - so a peer that obtained policy before it met us
+ * announced to somebody else, and nothing afterwards revisits it. Asking on arrival is what
+ * covers that, and it works just as well when this node holds nothing: it asks for anything
+ * above seq 0.
+ *
+ * Reaching the source is left to the two places that should: boot with an empty store, and
+ * this node's own phased tick. Across the fleet those ticks are what makes github a seed -
+ * spread over the period by identity, some node is always the one that looks.
+ * @param {string} peerKey ip:port of the peer that connected.
  */
 function notePeerAvailable(peerKey) {
-  // Holding NOTHING: the whole ladder, on every arriving peer. Any one of them may be the
-  // first that can answer, and the published source is the floor under a network that has no
-  // policy yet.
-  if (!current) {
-    ladderRunSinceBoot = true;
-    refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
-    return;
-  }
-
-  // Holding a RESTORED bundle: the ladder once, before any peer is allowed to settle the
-  // question. Confirmation cannot be the gate here, because a peer at the same sequence
-  // confirms in milliseconds and is exactly as stale - which is what a fleet restarted
-  // together tells itself, so nothing would ever reach the source and a newly published
-  // document would wait for a backstop tick up to a day out.
-  if (!ladderRunSinceBoot) {
-    ladderRunSinceBoot = true;
-    refreshOnce().catch((error) => log.warn(`policyStore - peer-triggered refresh failed: ${error.message}`));
-    return;
-  }
-
-  // Past that, a far smaller answer is enough: is THIS peer ahead. One message, one reply,
-  // no source, so it runs on every arrival.
-  //
-  // It has to be an ask rather than a wait, because being TOLD is a broadcast this node must
-  // already be connected to hear. A peer that adopts in the seconds before it connects
-  // announces to nobody, and nothing afterwards revisits it.
   if (!peerKey || !peerRequestFrom) return;
   askPeer(peerKey).catch((error) => log.warn(`policyStore - peer ask failed: ${error.message}`));
 }
@@ -571,7 +559,6 @@ function reset() {
   peerAnswered = null;
   refreshInFlight = null;
   pendingPeerAsks.clear();
-  ladderRunSinceBoot = false;
   confirmed = false;
   refreshGate();
 }
