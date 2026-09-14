@@ -1193,21 +1193,22 @@ async function removeAppLocallyApi(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
-    let { global } = req.params;
-    global = global || req.query.global || false;
-    global = serviceHelper.ensureBoolean(global);
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
 
     if (appname.includes('_')) {
       throw new Error('Components cannot be removed manually');
     }
 
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
+
     let { force } = req.params;
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
 
     // The node operator is deliberately NOT here. Hosting an app is not owning it:
     // an operator who can remove one can script the removal against every install

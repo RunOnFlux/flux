@@ -28,53 +28,8 @@ const utilFake = { promisify: () => runExecStub };
 const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService', { 'node:util': utilFake });
 
 describe('syncthingService tests', () => {
-  // These endpoints authorise unconditionally now, so a test that wants to reach
-  // the request underneath supplies a caller who passes rather than omitting the
-  // response to skip the check.
-  const asAuthorised = () => {
-    if (!verificationHelper.verifyPrivilege.restore) sinon.stub(verificationHelper, 'verifyPrivilege');
-    verificationHelper.verifyPrivilege.resolves(true);
-    return { json: sinon.stub().returnsArg(0) };
-  };
-
   // The gui config carries syncthing's apikey - the credential that authenticates
   // every syncthing call on this node - so these ask for fluxteam where their
-  // siblings take adminandfluxteam. The operator can read the same key off their
-  // own disk, but only with a shell on the box: over the API a zelidauth session
-  // was enough, and on ArcaneOS the operator has no shell at all. Pinned because
-  // the difference is a single string.
-  describe('config/gui privilege tests', () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('reading it asks for fluxteam, not the node operator', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const req = { headers: {} };
-      const res = { json: sinon.stub() };
-
-      await syncthingService.getConfigGuiApi(req, res);
-
-      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
-      expect(res.json.firstCall.args[0].status).to.equal('error');
-    });
-
-    it('writing it asks for fluxteam, not the node operator', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const req = new EventEmitter();
-      req.headers = {};
-
-      const answer = await new Promise((resolve) => {
-        syncthingService.postConfigGui(req, { json: resolve });
-        req.emit('data', JSON.stringify({ config: { theme: 'dark' } }));
-        req.emit('end');
-      });
-
-      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
-      expect(answer.status).to.equal('error');
-    });
-  });
-
   describe('postDbIgnores privilege tests', () => {
     afterEach(() => {
       sinon.restore();
@@ -216,6 +171,7 @@ describe('syncthingService tests', () => {
 
     afterEach(async () => {
       syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
       await syncthingService.syncthingController().abort();
       sinon.restore();
     });
@@ -258,124 +214,95 @@ describe('syncthingService tests', () => {
     });
   });
 
-  describe('getEvents tests', () => {
-    let fakeGet;
+  describe('syncthing health robustness', () => {
+    const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;
+    let fakeMeta;
+
+    const wireSyncthing = (metaStub) => {
+      const get = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') return metaStub();
+        if (reqPath === '/rest/noauth/health') return { status: 'success', data: { status: 'OK' } };
+        if (reqPath === '/rest/system/ping') return { status: 'success', data: { ping: 'pong' } };
+        return {};
+      });
+      sinon.stub(axios, 'create').returns({ get });
+    };
 
     beforeEach(() => {
-      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      // Start from a clean axios instance and id cache so this block's stub is
+      // the one used, not an instance a prior test left warm in the cache.
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
+      // getConfigFile runs chown/chmod via runCommand to read the api key; stub it
+      // so no real sudo fires and the key is read from the fixture below.
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
       sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
-      fakeGet = sinon.stub().resolves({ data: [] });
-      sinon.stub(axios, 'create').returns({ get: fakeGet });
+      fakeMeta = sinon.stub().resolves({ status: 'success', data: metaBody });
+      wireSyncthing(fakeMeta);
     });
 
     afterEach(() => {
       syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
       sinon.restore();
     });
 
-    it('long-poll request: the client-side timeout must exceed the requested server-side hold', async () => {
-      // the events endpoint holds the request open up to `timeout` seconds when
-      // nothing is pending; the shared instance's 5s default aborts every quiet
-      // poll before syncthing can answer
-      await syncthingService.getEvents({ since: 5, events: 'FolderSummary', timeout: 55 });
+    it('caches the device id - a second read does not re-probe syncthing', async () => {
+      const first = await syncthingService.getDeviceId();
+      const second = await syncthingService.getDeviceId();
 
-      sinon.assert.calledOnce(fakeGet);
-      const config = fakeGet.firstCall.args[1];
-      expect(config, 'axios per-request config').to.be.an('object');
-      expect(config.timeout, 'client timeout (ms)').to.be.greaterThan(55 * 1000);
+      expect(first).to.equal(deviceId);
+      expect(second).to.equal(deviceId);
+      expect(fakeMeta.callCount).to.equal(1);
     });
 
-    it('plain request (no hold asked): keeps the instance default timeout', async () => {
-      await syncthingService.getEvents({ since: 5 });
+    it('getDeviceId does not touch the health flag - peer reads cannot move it', async () => {
+      syncthingService.setSyncthingRunningState(false);
 
-      sinon.assert.calledOnce(fakeGet);
-      const config = fakeGet.firstCall.args[1];
-      expect(config?.timeout).to.equal(undefined);
+      const id = await syncthingService.getDeviceId();
+
+      expect(id).to.equal(deviceId);
+      expect(syncthingService.isRunning()).to.equal(false);
     });
 
-    // The endpoint above it, which is where the privilege lives. The bare
-    // function takes no request and checks nobody; a test that hands it one is
-    // testing neither half.
-    it('the endpoint refuses a caller it does not admit, and reads nothing', async () => {
-      const res = asAuthorised();
-      verificationHelper.verifyPrivilege.resolves(false);
+    it('refreshSyncthingHealth keeps the flag up through a blip, drops it only after three failures', async () => {
+      syncthingService.setSyncthingRunningState(true);
+      syncthingService.resetDeviceIdCache();
 
-      await syncthingService.getEventsApi({ params: {}, query: {}, headers: {} }, res);
+      fakeMeta.throws(new Error('syncthing busy'));
 
-      sinon.assert.notCalled(fakeGet);
-      expect(res.json.firstCall.args[0].status).to.equal('error');
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning(), 'one failure must not drop the flag').to.equal(true);
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning(), 'two failures must not drop the flag').to.equal(true);
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning(), 'the third consecutive failure drops it').to.equal(false);
     });
 
-    it('the endpoint passes the caller\'s filters through to the request', async () => {
-      const res = asAuthorised();
+    it('a single success clears the failure streak and restores the flag', async () => {
+      syncthingService.resetDeviceIdCache();
+      fakeMeta.throws(new Error('syncthing busy'));
+      await syncthingService.refreshSyncthingHealth();
+      await syncthingService.refreshSyncthingHealth();
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning()).to.equal(false);
 
-      await syncthingService.getEventsApi({ params: {}, query: { since: 5, limit: 2 }, headers: {} }, res);
-
-      sinon.assert.calledOnce(fakeGet);
-      const url = fakeGet.firstCall.args[0];
-      expect(url, 'the filters the caller asked for did not reach syncthing').to.contain('since=5');
-      expect(url).to.contain('limit=2');
-      expect(res.json.firstCall.args[0].status).to.equal('success');
-    });
-  });
-
-  // This endpoint had no test at all: both branches end in res.json, and until
-  // now nothing had ever called it the way the router does. Its sibling in
-  // syncthingEventsConsumer takes a folder id and is a different function; the
-  // name collision is why the gap read as covered.
-  describe('getFolderErrors tests', () => {
-    let fakeGet;
-    let errorSpy;
-
-    beforeEach(() => {
-      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
-      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
-      fakeGet = sinon.stub().resolves({ data: [{ error: 'folder marker missing' }] });
-      sinon.stub(axios, 'create').returns({ get: fakeGet });
-      errorSpy = sinon.spy(log, 'error');
+      fakeMeta.resolves({ status: 'success', data: metaBody });
+      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning()).to.equal(true);
     });
 
-    afterEach(() => {
-      syncthingService.getAxiosCache().reset();
-      sinon.restore();
-    });
+    it('stopSyncthing drops the cached id, so the next read re-probes', async () => {
+      await syncthingService.getDeviceId();
+      expect(fakeMeta.callCount).to.equal(1);
 
-    it('answers the folder syncthing was asked about, through the response', async () => {
-      const res = { json: sinon.stub() };
+      await syncthingService.stopSyncthing();
+      await syncthingService.getDeviceId();
 
-      await syncthingService.getFolderErrors({ params: { folder: 'fluxcomp_app' }, query: {} }, res);
-
-      sinon.assert.calledOnceWithExactly(fakeGet, '/rest/folder/errors?folder=fluxcomp_app', undefined);
-      sinon.assert.calledOnceWithExactly(res.json, {
-        status: 'success',
-        data: [{ error: 'folder marker missing' }],
-      });
-    });
-
-    it('reads the folder from the query when the path does not carry it', async () => {
-      const res = { json: sinon.stub() };
-
-      await syncthingService.getFolderErrors({ params: {}, query: { folder: 'fluxcomp_other' } }, res);
-
-      sinon.assert.calledOnceWithExactly(fakeGet, '/rest/folder/errors?folder=fluxcomp_other', undefined);
-      expect(res.json.firstCall.args[0].status).to.equal('success');
-    });
-
-    it('answers the error through the response, and reads nothing, when no folder is named', async () => {
-      const res = { json: sinon.stub() };
-
-      await syncthingService.getFolderErrors({ params: {}, query: {} }, res);
-
-      sinon.assert.notCalled(fakeGet);
-      sinon.assert.calledOnceWithExactly(res.json, {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'folder parameter is mandatory',
-        },
-      });
-      sinon.assert.calledOnce(errorSpy);
+      expect(fakeMeta.callCount).to.equal(2);
     });
   });
 

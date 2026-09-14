@@ -4771,6 +4771,41 @@ describe('advancedWorkflows tests', () => {
       globalState.reinstallationOfOldAppsInProgress = false;
     });
 
+    // TWO PASSES ON ONE APP DESTROY IT. The scanner starts this fire-and-forget
+    // on a block, so a pass that outlives the gap between blocks is run again on
+    // top of itself. Observed on a node: the first pass had soft-uninstalled the
+    // component and was sleeping out composedDelay; the second asked docker to
+    // remove the container the first was already removing, got `(HTTP code 409)
+    // removal of container ... is already in progress`, and its error cleanup
+    // force-removed the whole app - so the first pass woke to "Another
+    // application is undergoing removal" and the app stayed deleted.
+    //
+    // Every neighbour already stands aside on this flag (forceAppRemovals does);
+    // the gap was this function not standing aside for itself.
+    it('declines a second pass while one is already running', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.reinstallationOfOldAppsInProgress = true;
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.called,
+        'a second reinstall pass tore down a component the running pass owns',
+      ).to.be.false;
+    });
+
+    it('runs when no other pass holds the flag', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.reinstallationOfOldAppsInProgress = false;
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.calledOnce,
+        'the guard refused a pass that was the only one running',
+      ).to.be.true;
+    });
+
     it('tears the component down under the bare app name', async () => {
       const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
 
