@@ -1,6 +1,14 @@
 const { expect } = require('chai');
+const crypto = require('crypto');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+
+const sha = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+// What the stub source serves and what the signed bundle vouches for. They agree here, and
+// the tests that matter are the ones that make them disagree.
+const BYTES = Buffer.from('gzipped bytes');
+const SHA = sha(BYTES);
+const FILE = `iplocation-${SHA}.bin.gz`;
 
 // The background refresh and the node location pass are deliberately not
 // awaited by their callers, so let their promise chains settle before asserting.
@@ -9,13 +17,17 @@ const settle = () => new Promise(setImmediate);
 describe('ipLocationSync tests', () => {
   let ipLocationSync;
   let axiosGetStub;
+  let policyStoreStub;
   let repositoryStub;
   let storeStub;
   let fluxListStub;
   let logStub;
 
   function buildModule() {
-    axiosGetStub = sinon.stub().resolves({ status: 200, data: Buffer.from('gzipped bytes'), headers: { etag: '"v1"' } });
+    axiosGetStub = sinon.stub().resolves({ status: 200, data: BYTES });
+    policyStoreStub = {
+      getArtifact: sinon.stub().returns({ file: FILE, sha256: SHA, bytes: BYTES.length }),
+    };
     repositoryStub = {
       getArtifactRecord: sinon.stub().resolves(null),
       readArtifactBytes: sinon.stub().resolves(null),
@@ -34,6 +46,7 @@ describe('ipLocationSync tests', () => {
       '../serviceHelper': { axiosGet: axiosGetStub },
       '../fluxCommunicationUtils': { deterministicFluxList: fluxListStub },
       '../appDatabase/policyArtifactRepository': repositoryStub,
+      '../policyStore': policyStoreStub,
       './ipLocationStore': storeStub,
       '../../lib/log': logStub,
     });
@@ -50,25 +63,59 @@ describe('ipLocationSync tests', () => {
     return ipLocationSync.stopSync();
   });
 
-  it('fetches the binary artifact, installs and caches it with its etag', async () => {
+  it('fetches the file the signed bundle names, from the signed source, and caches it', async () => {
     const replaced = await ipLocationSync.refresh();
     expect(replaced).to.equal(true);
-    expect(axiosGetStub.firstCall.args[0]).to.have.string('/iplocation.bin.gz');
+    // The CONTENT-ADDRESSED name, not the mutable one. Asking for the digest is what makes
+    // "served the wrong bytes" a 404 rather than a verification failure.
+    expect(axiosGetStub.firstCall.args[0]).to.have.string(`/${FILE}`);
+    expect(axiosGetStub.firstCall.args[0]).to.have.string('signed');
     expect(storeStub.setArtifact.calledOnce).to.equal(true);
-    expect(repositoryStub.writeArtifactBytes.calledOnceWith('ipLocationTable', sinon.match.instanceOf(Buffer), '"v1"')).to.equal(true);
+    expect(repositoryStub.writeArtifactBytes.calledOnceWith('ipLocationTable', sinon.match.instanceOf(Buffer))).to.equal(true);
     const options = axiosGetStub.firstCall.args[1];
     expect(options.responseType).to.equal('arraybuffer');
     expect(options.timeout).to.equal(120000);
-    expect(options.headers).to.equal(undefined); // no etag yet - unconditional
+    expect(options.maxContentLength, 'the declared size is a ceiling too').to.equal(BYTES.length);
   });
 
-  it('sends If-None-Match once an etag is held and treats 304 as no-op', async () => {
-    await ipLocationSync.refresh();
-    axiosGetStub.resolves({ status: 304, data: null, headers: {} });
+  it('refuses bytes that do not hash to what the bundle signed', async () => {
+    // The whole point. A source that answers 200 with something else - a compromised branch,
+    // a proxy, a mirror serving a stale table - must not reach the store.
+    // The same LENGTH deliberately, so it is the digest that refuses it and not the size
+    // check standing in front - a test that cannot tell which guard fired proves neither.
+    axiosGetStub.resolves({ status: 200, data: Buffer.from('GZIPPED BYTES') });
     const replaced = await ipLocationSync.refresh();
     expect(replaced).to.equal(false);
-    expect(axiosGetStub.secondCall.args[1].headers).to.eql({ 'If-None-Match': '"v1"' });
-    expect(storeStub.setArtifact.calledOnce).to.equal(true); // not called again
+    expect(storeStub.setArtifact.called, 'nothing unverified reaches the store').to.equal(false);
+    expect(repositoryStub.writeArtifactBytes.called).to.equal(false);
+    expect(logStub.warn.args.some((a) => a[0].includes('hashes to'))).to.equal(true);
+  });
+
+  it('refuses bytes whose length disagrees with the bundle', async () => {
+    const shorter = BYTES.subarray(0, BYTES.length - 1);
+    policyStoreStub.getArtifact.returns({ file: FILE, sha256: sha(shorter), bytes: BYTES.length });
+    axiosGetStub.resolves({ status: 200, data: shorter });
+    const replaced = await ipLocationSync.refresh();
+    expect(replaced, 'a correct digest does not excuse the wrong size').to.equal(false);
+    expect(storeStub.setArtifact.called).to.equal(false);
+  });
+
+  it('does not fetch at all while no signed statement names the table', async () => {
+    // Holding no bundle means holding nothing to check against, and an unverified table is
+    // exactly what this exists to refuse. The retry brings it back once policy arrives.
+    policyStoreStub.getArtifact.returns(null);
+    const replaced = await ipLocationSync.refresh();
+    expect(replaced).to.equal(false);
+    expect(axiosGetStub.called, 'nothing was fetched').to.equal(false);
+    expect(storeStub.setArtifact.called).to.equal(false);
+  });
+
+  it('does not refetch a table whose digest it already holds', async () => {
+    await ipLocationSync.refresh();
+    const replaced = await ipLocationSync.refresh();
+    expect(replaced).to.equal(false);
+    expect(axiosGetStub.calledOnce, 'the second refresh asked the source nothing').to.equal(true);
+    expect(storeStub.setArtifact.calledOnce).to.equal(true);
     expect(repositoryStub.writeArtifactBytes.calledOnce).to.equal(true);
   });
 
@@ -80,14 +127,13 @@ describe('ipLocationSync tests', () => {
     expect(logStub.warn.args.some((a) => a[0].includes('keeping current table'))).to.equal(true);
   });
 
-  it('restores from the cache at start and refreshes conditionally', async () => {
-    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+  it('restores from the cache at start, and downloads nothing it already holds', async () => {
+    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: SHA, fetchedAt: 1 });
     repositoryStub.readArtifactBytes.resolves(Buffer.from('stored bytes'));
-    axiosGetStub.resolves({ status: 304, data: null, headers: {} });
     await ipLocationSync.startSync();
     expect(repositoryStub.sweepOrphanedArtifacts.calledOnceWith('ipLocationTable')).to.equal(true);
     expect(storeStub.setArtifact.calledOnce).to.equal(true);
-    expect(axiosGetStub.firstCall.args[1].headers).to.eql({ 'If-None-Match': '"stored"' });
+    expect(axiosGetStub.called, 'the stored digest is the one the bundle names').to.equal(false);
   });
 
   describe('restoreCachedTable - the half that only needs mongo', () => {
@@ -97,7 +143,7 @@ describe('ipLocationSync tests', () => {
       // it is no longer the cheap half.
       storeStub.adoptPersistedStatus.resolves(true);
       storeStub.status.returns({ ready: true, generated: '2026-07-31T00:00:00Z', rowCount: 2126447 });
-      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: SHA, fetchedAt: 1 });
 
       await ipLocationSync.restoreCachedTable();
       await settle();
@@ -106,20 +152,19 @@ describe('ipLocationSync tests', () => {
       expect(axiosGetStub.called).to.equal(false);
     });
 
-    it('leaves the etag ready, so the fetch half opens with a conditional request', async () => {
+    it('leaves the digest ready, so the fetch half has nothing to download', async () => {
       storeStub.adoptPersistedStatus.resolves(true);
       storeStub.status.returns({ ready: true, generated: '2026-07-31T00:00:00Z', rowCount: 2126447 });
-      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
-      axiosGetStub.resolves({ status: 304, data: null, headers: {} });
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: SHA, fetchedAt: 1 });
 
       await ipLocationSync.restoreCachedTable();
       await ipLocationSync.startSync();
 
-      expect(axiosGetStub.firstCall.args[1].headers).to.eql({ 'If-None-Match': '"stored"' });
+      expect(axiosGetStub.called, 'it already holds the digest the bundle names').to.equal(false);
     });
 
     it('is not repeated by startSync', async () => {
-      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: SHA, fetchedAt: 1 });
       repositoryStub.readArtifactBytes.resolves(Buffer.from('stored bytes'));
       axiosGetStub.resolves({ status: 304, data: null, headers: {} });
 
@@ -132,7 +177,7 @@ describe('ipLocationSync tests', () => {
 
     it('still restores when startSync is the only caller', async () => {
       // serviceManager runs both, but nothing may depend on that ordering.
-      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: SHA, fetchedAt: 1 });
       repositoryStub.readArtifactBytes.resolves(Buffer.from('stored bytes'));
       axiosGetStub.resolves({ status: 304, data: null, headers: {} });
 
@@ -143,23 +188,22 @@ describe('ipLocationSync tests', () => {
   });
 
   it('adopts the stored ingest and does not re-ingest the cached bytes', async () => {
-    // the rows are already in mongo under the marker's baseline; the etag still
-    // comes from the record so the daily refresh is a conditional request
+    // the rows are already in mongo under the marker's baseline; the digest still comes from
+    // the record, so the daily refresh finds it already holds what the bundle names
     storeStub.adoptPersistedStatus.resolves(true);
     storeStub.status.returns({ ready: true, generated: '2026-07-31T00:00:00Z', rowCount: 2126447 });
-    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: SHA, fetchedAt: 1 });
     repositoryStub.readArtifactBytes.resolves(Buffer.from('stored bytes'));
-    axiosGetStub.resolves({ status: 304, data: null, headers: {} });
 
     await ipLocationSync.startSync();
 
     expect(repositoryStub.readArtifactBytes.called).to.equal(false);
     expect(storeStub.setArtifact.called).to.equal(false);
-    expect(axiosGetStub.firstCall.args[1].headers).to.eql({ 'If-None-Match': '"stored"' });
+    expect(axiosGetStub.called, 'nothing to download').to.equal(false);
   });
 
   it('drops the etag when the stored copy is rejected, so the refetch is unconditional', async () => {
-    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: SHA, fetchedAt: 1 });
     repositoryStub.readArtifactBytes.resolves(Buffer.from('junk'));
     storeStub.setArtifact.onFirstCall().rejects(new Error('iplocation artifact: bad magic'));
     await ipLocationSync.startSync();
@@ -173,15 +217,14 @@ describe('ipLocationSync tests', () => {
     // a node that ran the previous build cached the JSON artifact; this reader
     // throws on its magic, and the unconditional refetch brings the binary one
     storeStub.adoptPersistedStatus.resolves(false); // no ingest has ever run here
-    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"json-era"', fetchedAt: 1 });
+    repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', sha256: 'a'.repeat(64), fetchedAt: 1 });
     repositoryStub.readArtifactBytes.resolves(Buffer.from('{"format":1,"v4":[]}'));
     storeStub.setArtifact.onFirstCall().rejects(new Error('iplocation artifact: bad magic'));
 
     await ipLocationSync.startSync();
     await settle();
 
-    expect(axiosGetStub.firstCall.args[0]).to.have.string('/iplocation.bin.gz');
-    expect(axiosGetStub.firstCall.args[1].headers).to.equal(undefined);
+    expect(axiosGetStub.firstCall.args[0]).to.have.string(`/${FILE}`);
     expect(storeStub.setArtifact.calledTwice).to.equal(true);
     expect(repositoryStub.writeArtifactBytes.calledOnce).to.equal(true);
   });
@@ -246,12 +289,13 @@ describe('ipLocationSync tests', () => {
     }
   });
 
-  it('remembers the etag of bytes it could not read, so the retry is a 304', async () => {
+  it('remembers the digest of bytes it could not read, so the retry does not fetch them again', async () => {
+    // A published artifact this build cannot parse never clears. Downloading it on every
+    // refresh would have the whole fleet re-fetching the same unreadable file for ever.
     storeStub.setArtifact.rejects(new Error('unsupported format version 3'));
     await ipLocationSync.refresh();
-    axiosGetStub.resolves({ status: 304, data: Buffer.alloc(0), headers: {} });
     await ipLocationSync.refresh();
-    expect(axiosGetStub.secondCall.args[1].headers['If-None-Match']).to.equal('"v1"');
+    expect(axiosGetStub.calledOnce, 'the same rejected digest is not downloaded twice').to.equal(true);
   });
 
   describe('node location maintenance', () => {

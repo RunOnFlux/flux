@@ -366,6 +366,11 @@ function imageSyncthingVersion() {
 }
 
 const state = {
+  // Bytes served INSTEAD of the signed artifact, under the signed artifact's own name. A
+  // mirror or CDN answering correctly-named requests with the wrong content, which is the
+  // one attack a content-addressed name cannot prevent on its own - only the digest check
+  // at the consumer can. null means serve the real thing.
+  ipLocationTampered: null,
   blocklist: [],
   blockedRepositories: [],
   vettedRepositories: [],
@@ -508,11 +513,17 @@ function resignPolicy({ bumpSeq = true } = {}) {
     // "the current table", so the bundle names the hash a fetch should produce. Derived from
     // the bytes actually served rather than restated, which is the only way it stays true
     // across a POST /iplocation.
+    // THE FIELD IS `file`, AND `bytes` IS PART OF IT. Both match scripts/sign-policy.js in
+    // fluxos-network-policy, which is the only publisher a node will ever meet. This entry
+    // read `name` and carried no size, so a consumer reading the real shape got undefined on
+    // every harness fleet while working in production - green suites over a stub that had
+    // quietly agreed with nobody.
     artifacts: state.ipLocationBinary
       ? {
         [IPLOCATION_BINARY_FILE]: {
-          name: `iplocation-${sha256Hex(state.ipLocationBinary)}.bin.gz`,
+          file: `iplocation-${sha256Hex(state.ipLocationBinary)}.bin.gz`,
           sha256: sha256Hex(state.ipLocationBinary),
+          bytes: state.ipLocationBinary.length,
         },
       }
       : {},
@@ -632,6 +643,27 @@ app.get(IPLOCATION_BINARY_ROUTE, (req, res) => {
   }
   countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok');
   res.type('application/octet-stream').send(state.ipLocationBinary);
+});
+
+// The content-addressed artifact the signed bundle names. A verifying consumer fetches THIS
+// rather than the mutable name above, and the name it asks for is the hash it will check, so
+// serving anything else here is served-under-the-wrong-name and must 404 rather than hand
+// back bytes that will fail verification and look like corruption.
+app.get('/iplocation-:sha.bin.gz', (req, res) => {
+  if (!state.ipLocationBinary) {
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing');
+    res.status(404).json({ error: 'no artifact configured' });
+    return;
+  }
+  if (req.params.sha !== sha256Hex(state.ipLocationBinary)) {
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing');
+    res.status(404).json({ error: 'no artifact with that digest' });
+    return;
+  }
+  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok');
+  // The name asked for is the one the bundle signed; the BODY is not. Only the consumer's
+  // own digest check can catch that, which is the point of serving it.
+  res.type('application/octet-stream').send(state.ipLocationTampered ?? state.ipLocationBinary);
 });
 
 // GitHub API endpoints
@@ -852,6 +884,31 @@ control.post('/iplocation', (req, res) => {
   // here a healthy node is expected to refuse.
   // Whichever it is, both /iplocation.json and /iplocation.bin.gz follow it,
   // and the fetch counters start again from zero.
+  // { tamper: true } leaves the published artifact and its signed digest alone and serves
+  // DIFFERENT bytes under the signed name. Nothing else changes - same bundle, same
+  // sequence, same file name - so a node that installs it has skipped the digest check.
+  if (req.body.tamper === true) {
+    if (!state.ipLocationBinary) {
+      res.status(400).json({ error: 'nothing published to tamper with' });
+      return;
+    }
+    const tampered = Buffer.from(state.ipLocationBinary);
+    // Same LENGTH, so the size check cannot be what rejects it and the digest is the only
+    // thing standing between the node and a forged location table.
+    tampered[tampered.length - 1] ^= 0xff;
+    state.ipLocationTampered = tampered;
+    // Serving different bytes is a new question for the fleet, exactly as a publication is,
+    // so the answers to it are counted from zero. Without this a suite asserting "it
+    // downloaded the tampered one" could be satisfied by a fetch of the clean one that
+    // happened before the swap.
+    state.ipLocationFetches = {
+      [IPLOCATION_JSON_ROUTE]: newRouteCounters(),
+      [IPLOCATION_BINARY_ROUTE]: newRouteCounters(),
+    };
+    res.json({ ok: true, tampered: true, bytes: tampered.length, servedUnder: `iplocation-${sha256Hex(state.ipLocationBinary)}.bin.gz` });
+    return;
+  }
+  state.ipLocationTampered = null;
   const pad = req.body.pad !== false;
   let regions = null; // a caller-supplied artifact has no assignment to report
   if (Object.prototype.hasOwnProperty.call(req.body, 'artifact')) {
@@ -964,6 +1021,7 @@ control.post('/reset', (req, res) => {
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
   artifacts.clear();
+  state.ipLocationTampered = null;
   serveIpLocation(buildIpLocationArtifact(1));
   // Back to a good bundle from a trusted signer. The sequence is NOT reset: a node that has
   // already adopted one refuses anything at or below it, and a reset between suites sharing
