@@ -216,40 +216,6 @@ describe('policy reaching a node from its peers', function () {
     await stub(env, '/policy', { available: true });
   });
 
-  it('a node behind its peers catches up from them when it regains one', async function () {
-    this.timeout(300000);
-    // The other trigger. Test 2 is a node being TOLD; this is a node ASKING - the rung
-    // that runs when a peer appears, rather than when an announcement lands.
-    //
-    // Exactly one node reaches the source: node 1 is restarted while it is answering, and
-    // a restarted node has no peers during its boot refresh, so it fetches. Node 2 is not
-    // restarted and its own backstop tick is a day away, so the only thing that can move
-    // it is node 1 coming back.
-    const { seq } = await stub(env, '/blocked-repos', ['spread/by-peers:v1']);
-    await restartAndRepeer(env, TOLD_NODE);
-    await waitFor(async () => (await heldSeq(TOLD_NODE)) === seq, {
-      timeout: 150000,
-      label: `node ${TOLD_NODE} to adopt seq ${seq} from the source`,
-    });
-
-    // Everything from here must happen without the source being asked again. The mark is
-    // taken after the one node that was meant to fetch has finished fetching.
-    const okAfterFetch = (await stubState(env)).policyFetches.ok;
-    await waitFor(async () => (await heldSeq(2)) === seq, {
-      timeout: 150000,
-      label: `node 2 to catch up to seq ${seq} from the peer that has it`,
-    });
-    expect((await stubState(env)).policyFetches.ok, 'the source served nothing after that one fetch')
-      .to.equal(okAfterFetch);
-
-    // And what it caught up to is the document, not just the number.
-    const stored = await dbClient(3).policyBundle();
-    const payload = JSON.parse(
-      Buffer.from(JSON.parse(stored.raw).payload_b64, 'base64').toString('utf8'),
-    );
-    expect(payload.documents.blockedrepositories).to.deep.equal(['spread/by-peers:v1']);
-  });
-
   it('answers two nodes asking the same question, not just the first', async function () {
     this.timeout(300000);
     // THE PROPERTY A SINGLE ASKER CANNOT SHOW. Messages are deduplicated on the payload
@@ -536,5 +502,87 @@ describe('a node whose source answered with something that did not verify', func
       () => env.nodeLogCount(0, 'Checking for apps that are missing instances') > 0,
       { timeout: 180000, interval: 3000, label: 'node 0 to get past the policy gate' },
     );
+  });
+});
+
+describe('a fleet where only the source has the new policy', function () {
+  // THE STALE-FLEET CASE, and the only one peers cannot resolve between them. Every node
+  // holds the same sequence, so every node answers every other "I am not ahead of you" -
+  // true, useless, and indistinguishable from the fleet being current. Something has to
+  // reach the published source.
+  //
+  // IN PRODUCTION THAT IS THE PHASED TICK, not a fetch at boot. Each node's slot is
+  // sha256(collateral) mod the period, so the ticks are spread uniformly across it: 6,370
+  // nodes on a 24-hour period is one node looking every ~13 seconds, and whatever it finds
+  // it announces to its peers. No node has to check for itself, and none does - a boot
+  // fetch on every node is the release-wave stampede the phasing exists to prevent.
+  //
+  // A three-node fleet has no "rest of the fleet": the same 24-hour period is one look
+  // every eight hours, so nothing corrects it inside a test. SO THE TICK IS COMPRESSED ON
+  // ONE NODE, which is what production has and what this fleet otherwise cannot: the other
+  // two are left at the full period, so what reaches THEM can only have come from a peer.
+  // Suite 1601 draws the same distinction for the same reason.
+  //
+  // Its own fleet rather than a knob on the one above, because a node polling in the
+  // background makes "the source served nothing" false for every test that shares it - and
+  // those assertions are how the peer-to-peer path is proved at all.
+  const SOURCE_NODE = 0;
+  let env;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      nodeConfigOverrides: { [SOURCE_NODE]: { policy: { refreshIntervalMs: 15000 } } },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('one node reaches the source on its tick, and the rest learn it from that peer', async function () {
+    this.timeout(300000);
+    const before = await Promise.all([0, 1, 2].map(heldSeq));
+    expect(new Set(before).size, 'the fleet starts level').to.equal(1);
+
+    const { seq } = await stub(env, '/blocked-repos', ['spread/by-peers:v1']);
+    expect(seq, 'the source now holds something the whole fleet is behind').to.be.greaterThan(before[0]);
+
+    // Node 0's slot comes round every 15s, so it is the one that looks. Nothing else in
+    // this fleet can reach the source inside the test window.
+    await waitFor(async () => (await heldSeq(SOURCE_NODE)) === seq, {
+      timeout: 150000,
+      label: `node ${SOURCE_NODE} to adopt seq ${seq} on its tick`,
+    });
+
+    // Everything from here must happen without the source being asked again. The mark is
+    // taken after the one node that ticks has finished fetching.
+    const okAfterFetch = (await stubState(env)).policyFetches.ok;
+    await waitFor(
+      async () => (await Promise.all([1, 2].map(heldSeq))).every((held) => held === seq),
+      { timeout: 150000, label: `nodes 1 and 2 to catch up to seq ${seq} from the peer that has it` },
+    );
+
+    // They did NOT go to the source. Their own period is the full 24 hours, so a fetch here
+    // would mean something other than the peer rung moved them - which is the whole claim.
+    expect((await stubState(env)).policyFetches.ok, 'the two nodes left on the full period fetched nothing')
+      .to.equal(okAfterFetch);
+
+    // And what they caught up to is the document, not just the number.
+    for (const index of [1, 2]) {
+      // eslint-disable-next-line no-await-in-loop
+      const stored = await dbClient(index + 1).policyBundle();
+      const payload = JSON.parse(
+        Buffer.from(JSON.parse(stored.raw).payload_b64, 'base64').toString('utf8'),
+      );
+      expect(payload.documents.blockedrepositories, `node ${index} holds the document`)
+        .to.deep.equal(['spread/by-peers:v1']);
+    }
   });
 });
