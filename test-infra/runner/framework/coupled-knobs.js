@@ -49,7 +49,81 @@ export const PRODUCTION = Object.freeze({
   residentialQueueStepMs: 40 * 60 * 1000,
   locationTtlS: 7500,
   sigtermExpiryS: 420,
+  // The peer-flap DOS: how far back the tally looks, and how often the sweep
+  // that releases it runs. One decision at two scales - a suite that shortens
+  // the window without shortening the tick is measuring the tick.
+  peerSetDipWindowMinutes: 120,
+  peerSetDipEvaluateMs: 60 * 1000,
+  // How many consecutive missed pongs kill a socket, and how often the ping that
+  // can miss goes out. Only the product of the two means anything.
+  wsMaxMissedPongs: 3,
+  wsPingIntervalMs: 15000,
 });
+
+/**
+ * How long before a node notices a peer that was UNPLUGGED rather than
+ * disconnected - the wait behind every DEGRADED and every partition.
+ *
+ * A missed pong per interval, dead after wsMaxMissedPongs of them, plus up to one
+ * more interval because the ping timer is not aligned to the moment the peer
+ * vanished. Held here rather than in a suite because it is the same derivation
+ * for all of them, and a suite computing it from the SHARED config while running
+ * its own override silently budgets for a fleet it is not on.
+ *
+ * BOTH values are required and there is NO production fallback, deliberately.
+ * Production's pair gives 15000 * (3+1) = 60s; the shared harness fleet gives
+ * 2000 * (2+1) = 6s. So a production default is not a safe approximation here,
+ * it is wrong by ten times - and wrong in the direction that never fails, since
+ * an over-long budget only makes the wait more tolerant. A caller that omits
+ * either half has made a mistake, and this is the only place it can be seen.
+ * @param {object} peers The EFFECTIVE peers config - the suite's override if it
+ *   has one, otherwise the shared fleet's.
+ * @returns {number} Milliseconds.
+ */
+export function peerDeathMs(peers) {
+  const interval = peers?.wsPingIntervalMs;
+  const misses = peers?.wsMaxMissedPongs;
+  if (typeof interval !== 'number' || typeof misses !== 'number') {
+    throw new Error(
+      'peerDeathMs needs both wsPingIntervalMs and wsMaxMissedPongs from the '
+      + `EFFECTIVE peers config, got ${JSON.stringify(peers)} - pass the suite's `
+      + 'override if it has one, else loadSharedConfig().peers.',
+    );
+  }
+  return interval * (misses + 1);
+}
+
+/**
+ * The peers config for a suite that PARTITIONS.
+ *
+ * partitionGroups returns only once the cross-group sockets are gone, and that
+ * wait is peer liveness: wsPingIntervalMs x wsMaxMissedPongs. The shared fleet
+ * config compresses BOTH halves - 2000ms and 2 misses - because most suites want
+ * a dead peer noticed in ~4s rather than production's ~45s.
+ *
+ * A partitioning suite wants the opposite of fast on the MISS COUNT. Three
+ * consecutive misses is a far safer signal on a loaded box than one slow round
+ * trip, which is production's reason for 3; at two, a node that stalls for two
+ * ping periods under parallel-gate load has its peers declared dead and the
+ * suite measures the stall instead of the partition.
+ *
+ * Stated as a PAIR because overriding only the interval silently keeps the
+ * shared 2 - the suite reads as "I left the miss count at production's 3" while
+ * running at two thirds of the margin it asked for. That is what five suites did.
+ */
+export const PARTITION_PEERS = Object.freeze({
+  wsPingIntervalMs: 3000,
+  wsMaxMissedPongs: PRODUCTION.wsMaxMissedPongs,
+});
+
+/**
+ * How many sweeps fit in one window. Production's ratio, which a compressed
+ * fleet has to keep.
+ * @returns {number}
+ */
+export function peerSetSweepsPerWindow() {
+  return (PRODUCTION.peerSetDipWindowMinutes * 60 * 1000) / PRODUCTION.peerSetDipEvaluateMs;
+}
 
 // What one node boot costs, measured: a suite-19 fixture pinning 300s of
 // downtime was read by the node as 316s, on cindy under a MAXN=6 gate - so this
@@ -119,6 +193,19 @@ export function productionQueueRatio() {
 // once make a late pass ordinary, and the ticket then never matures at all.
 // Absolute jitter does not compress with the clocks.
 export const TICKET_GAP_STEPS = 2;
+
+// WHAT A DEPARTURE COSTS between the holder committing to it and the other
+// holders being able to see it: stopping the container, removing the app, and
+// the announcement reaching them. Named for the honest case - an image that
+// HANDLES SIGTERM and exits on it - because that is the only case a fleet may
+// be sized against. Measured at ~430ms of removal and announcement on chud
+// (2026-09-06); carried at 1500 so the bound is not sitting on the measurement.
+//
+// An image that ignores the signal does not cost a little more, it costs
+// docker's whole stop grace - ten seconds by default, and unavoidably so for a
+// PID 1 with no handler, since Linux discards unhandled signals there. That is
+// not a number to widen this constant to. It is an image to replace.
+export const DEPARTURE_ANNOUNCE_MS = 1500;
 
 export function derivedQueueStepMs(fluxapps) {
   const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
@@ -251,6 +338,49 @@ export function assertDepartureOutlivesTicket(fluxapps) {
 }
 
 /**
+ * Refuse a fleet where the second holder decides before the first is visible.
+ *
+ * One-at-a-time is a race, not a lock. A node acts on its queue ticket at the
+ * next give-up pass, so two adjacent positions decide as little as one step
+ * minus one pass apart - the step separates them, the pass grid claws some of
+ * it back - and if the first departure has not been announced by then, the
+ * second still reads the app as fully stocked and hands it back as well.
+ *
+ *   step - pass > DEPARTURE_ANNOUNCE_MS
+ *
+ * Production clears this by three orders of magnitude, which is why the bound
+ * was never written down until a compressed fleet failed it.
+ *
+ * WHAT THIS DOES NOT BUY. It would not have caught the fault that prompted it.
+ * The arithmetic passed; the cost was hiding in the image, which ignored SIGTERM
+ * and so paid docker's full grace rather than the value above. This keeps the
+ * pacing from drifting under the bound - the image is the other half, and no
+ * assertion here can see it.
+ * @param {object} fluxapps Effective fluxapps config for the fleet.
+ * @throws {Error} When the two decisions can land closer than a departure takes.
+ */
+export function assertDepartureIsVisibleInTime(fluxapps) {
+  const step = fluxapps.residentialQueueStepMs;
+  if (!step) return;
+  const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
+  const separation = step - pass;
+  if (separation > DEPARTURE_ANNOUNCE_MS) return;
+  throw new Error(
+    'coupled-knobs: a departure cannot be announced before the next holder decides.\n'
+    + `  step       ${step}ms\n`
+    + `  pass       ${Math.round(pass)}ms\n`
+    + `  separation ${Math.round(separation)}ms  -> the closest two holders' decisions can land\n`
+    + `  needed     > ${DEPARTURE_ANNOUNCE_MS}ms  -> what a departure costs to become visible\n`
+    + '  Below this two holders of one app both hand it back, because the second reads the\n'
+    + '  app as fully stocked. Raise the step with derivedQueueStepMs(fluxapps).\n'
+    + '  If the pacing already clears this and two holders still depart together, the cost\n'
+    + '  is in the IMAGE: a container that ignores SIGTERM pays docker\'s full stop grace\n'
+    + '  (ten seconds, and always, for a PID 1 with no handler) instead of the value above.\n'
+    + '  Seed it with pushTestApp, which installs a handler, rather than pushImage.',
+  );
+}
+
+/**
  * Every coupled-knob rule this harness enforces, in one call.
  * @param {object} fluxapps Effective fluxapps config for the fleet.
  * @throws {Error} When any relationship does not hold.
@@ -264,7 +394,14 @@ export function assertCoupledRatios(fluxapps) {
   const pass = giveUpPassMs(fluxapps, blockCost);
   const ratio = fluxapps.residentialQueueStepMs / pass;
   const required = productionQueueRatio();
-  if (ratio >= required) return;
+  // The ratio first, and the absolute floor after it. A step below the ratio is
+  // also below the floor, and the ratio is the coarser fault with the more
+  // useful message; the floor is what a fleet can still miss while holding
+  // production's shape.
+  if (ratio >= required) {
+    assertDepartureIsVisibleInTime(fluxapps);
+    return;
+  }
   throw new Error(
     'coupled-knobs: residentialQueueStepMs is too short for this fleet\'s give-up pass.\n'
     + `  pass    ${Math.round(pass)}ms  (removeFluxAppsPeriod ${fluxapps.removeFluxAppsPeriod}`

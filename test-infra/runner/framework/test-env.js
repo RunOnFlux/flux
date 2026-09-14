@@ -21,7 +21,7 @@ import {
 } from './infra-death.js';
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
-import { derivePeerThresholds } from './peer-topology.js';
+import { derivePeerThresholds, ringArc, dialerCount } from './peer-topology.js';
 import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
@@ -788,7 +788,44 @@ export async function createTestEnv({
       nodeConfigOverrides[index] ?? null,
     );
   }
-  const mergedNodeOverrides = { ...nodeConfigOverrides, ...syncedOverrides };
+
+  // A FLEET TOO SMALL TO PEER CANNOT USE THE PEER-GATED FALLBACK.
+  //
+  // The block fallback only advances while the peer count is above
+  // appSyncPeerThreshold and resets when it falls below appSyncDegradedThreshold
+  // (appSyncOrchestrator), which is the whole of "a peerless node must not
+  // spawn". A one-node fleet has no peers at all and a two-node ring gives each
+  // node one, so neither can ever cross the threshold - and in such a fleet the
+  // fallback is not slow, it is unreachable, so nothing ever leaves SYNCING.
+  //
+  // Zero is the honest value there rather than a workaround. The fallback asks
+  // "have you had long enough to hear from everyone", and a node with nobody to
+  // hear from cannot answer it - which is the same reason establishedNodes above
+  // exists and the same value it uses.
+  //
+  // Counted against EVERY other fleet member, stubs included, so the guard errs
+  // towards not firing: a stub that does carry a connection is counted as one.
+  // A suite that declares its own appSyncFallbackMinutes is testing this budget
+  // and keeps what it asked for.
+  const reachablePeers = nodes <= 1
+    ? 0
+    : Math.min(nodes - 1, 2 * ringArc(dialerCount(nodes, stubPeers.length + deferredNodes)));
+  const peerlessOverrides = {};
+  for (let index = 0; index < nodes; index += 1) {
+    const declaredFallback = nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
+      ?? configOverrides?.fluxapps?.appSyncFallbackMinutes;
+    if (declaredFallback !== undefined) continue;
+    const threshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
+      ?? configOverrides?.fluxapps?.appSyncPeerThreshold
+      ?? sharedFluxapps.appSyncPeerThreshold;
+    if (reachablePeers >= threshold) continue;
+    peerlessOverrides[index] = mergeConfigs(
+      { fluxapps: { appSyncFallbackMinutes: 0 } },
+      nodeConfigOverrides[index] ?? null,
+    );
+  }
+
+  const mergedNodeOverrides = { ...nodeConfigOverrides, ...peerlessOverrides, ...syncedOverrides };
   // Only a legacy node ever installs its own packages, so unseeding a fleet without
   // one strips nothing and tests nothing. Refused rather than ignored: a flag that
   // silently does nothing reads as covered.

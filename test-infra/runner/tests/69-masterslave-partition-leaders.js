@@ -14,6 +14,7 @@ import {
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PARTITION_PEERS } from '../framework/coupled-knobs.js';
 
 // A g: app whose holders end up on opposite sides of a partition, with the syncthing
 // seed at a non-zero election index (see 68 for why that arrangement needs building).
@@ -76,10 +77,11 @@ describe('a g: app with holders on both sides of a partition', function () {
       configOverrides: {
         // partitionGroups only returns once the cross-group sockets are gone - until
         // then traffic is queued in TCP, not lost. That wait IS peer liveness, 45s on
-        // production defaults; compressed here like every other cadence in this suite.
-        // wsMaxMissedPongs stays at 3: three consecutive misses is a far safer signal
-        // on a loaded box than one slow round-trip.
-        peers: { wsPingIntervalMs: 3000 },
+        // production defaults. Both halves are stated together in PARTITION_PEERS:
+        // naming only the interval inherits the shared fleet's compressed miss count
+        // of 2, and three consecutive misses is a far safer signal on a loaded box
+        // than one slow round-trip.
+        peers: PARTITION_PEERS,
         fluxapps: {
           minOutgoing: 2,
           minIncoming: 1, // each side of the partition is three nodes
