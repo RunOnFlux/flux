@@ -633,6 +633,19 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 // The test for this list is NOT "is it relayed" - fluxpolicyseq is relayed by nobody and is
 // still news, spread by each adopter announcing to its own peers. It is "does the sender's
 // identity change what the message means".
+//
+// THE CACHE WAS NEVER WHAT BOUNDED THESE, so removing them from it takes no bound away.
+// messageCache keys on the payload, which a peer sending a question controls: varying the
+// hash on a fluxapprequest defeats it in one line. What it suppressed was accidental
+// duplicates, which is the job it is for. The per-peer bound is FluxPeerSocket's inbound
+// token bucket - lruRateLimit(ip:port, 120), applied to every frame before dispatch.
+//
+// That bucket counts messages, not bytes, and a ~60-byte fluxpolicyrequest draws the whole
+// bundle back. It is still not a reflection vector: these arrive on an established
+// websocket, so the sender cannot be spoofed and receives every byte it asks for. A peer
+// can make this node serve it quickly; it cannot make this node serve anyone else. If a
+// byte budget is ever wanted it belongs in lruRateLimit, covering every type, not in a
+// second counter here.
 const DIRECTED_TYPES = Object.freeze(['fluxapprequest', 'fluxpolicyrequest']);
 
 /**
