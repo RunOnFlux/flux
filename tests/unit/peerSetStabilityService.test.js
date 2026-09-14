@@ -175,9 +175,8 @@ describe('peerSetStabilityService', () => {
       expect(sticky, 'the slot was not given back').to.equal(null);
     });
 
-    // A node that is out of service loses confirmation, drops every peer, and
-    // then cannot dip because it has none. Quiet is what that node looks like,
-    // and it is not evidence of anything.
+    // A node with no peers cannot dip - the fall edge fires only from above the
+    // rise threshold - so its quiet is quiet for want of anything to observe.
     it('does not release a node whose peer set never came back', () => {
       dosTheNode();
       peerEmitter.emit('peersBelowThreshold', 0, { deliberate: false });
@@ -185,6 +184,31 @@ describe('peerSetStabilityService', () => {
       clock.tick(service.WINDOW_MS * 2);
 
       expect(service.isDosActive(), 'a node with no peers at all was declared stable').to.equal(true);
+    });
+
+    // A teardown this node performed on itself is not a collapse, so it never
+    // reaches the tally - and the minutes it spent with no peers are still
+    // minutes it had nothing to be stable with. Releasing on a window with that
+    // hole in it credits the node for time it did not serve.
+    it('does not credit a window the node broke with its own teardown', () => {
+      dosTheNode();
+      const beforeTheHole = service.WINDOW_MS - 10 * 60 * 1000;
+      clock.tick(beforeTheHole);
+
+      peerEmitter.emit('peersBelowThreshold', 0, { deliberate: true });
+      peerEmitter.emit('peerThresholdReached', 12);
+
+      // Past the window measured from the collapses, which is what a release
+      // keyed on the tally alone would have used.
+      clock.tick(service.WINDOW_MS - beforeTheHole + service.EVALUATE_INTERVAL_MS);
+      expect(service.dipCount(), 'the teardown was counted as a collapse').to.equal(0);
+      expect(service.isDosActive(), 'released on a window the peer set was not up for').to.equal(true);
+
+      // And it does come back, once the run of peered time is whole. Without
+      // this the assertion above is satisfied by a DOS that never lifts.
+      clock.tick(service.WINDOW_MS);
+
+      expect(service.isDosActive(), 'never released, even after a full window with the set up').to.equal(false);
     });
   });
 

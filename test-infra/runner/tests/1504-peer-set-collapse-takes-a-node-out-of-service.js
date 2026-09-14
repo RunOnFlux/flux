@@ -391,9 +391,9 @@ describe('Coming back needs the peer set up, not merely quiet', function () {
     await env?.teardown();
   });
 
-  // A node out of service loses confirmation, drops every peer and then cannot
-  // dip because it has none. Quiet is exactly what that node looks like, and
-  // releasing on quiet would let it back in having demonstrated nothing.
+  // A node with no peers cannot dip - the fall edge fires only from above the
+  // rise threshold - so its quiet is quiet for want of anything to observe, and
+  // releasing on it would let the node back in having demonstrated nothing.
   it('holds the DOS while the node still has no peers, past the whole window', async function () {
     this.timeout(600000);
     // Longer than the window by a clear margin, so a release keyed on "no dips
@@ -412,6 +412,8 @@ describe('Coming back needs the peer set up, not merely quiet', function () {
     const anchor = node.getLastEventId();
     await restorePeerSet(env);
 
+    // Two windows: one the node has to spend with its peer set up before the
+    // rule will release it, and one of slack for a loaded box.
     await waitForPeerSetDosReleased(node, knobs.windowMs * 2, { afterId: anchor });
 
     const res = await node.getDOSState();

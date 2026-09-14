@@ -23,6 +23,11 @@
  * nodeStatusMonitor. Counting our own teardown would punish that node twice for
  * one fault. A restart does not count either: the rise latch starts false, so
  * the fall edge cannot fire on the way up.
+ *
+ * NOT COUNTED IS NOT CREDITED. A teardown is left out of the tally and still
+ * breaks the run of peered time the release asks for, because those minutes are
+ * minutes the node had nothing to be stable with. The two questions are
+ * different: one is what the node did wrong, the other is what it has shown.
  */
 
 const config = require('config');
@@ -56,7 +61,15 @@ const EVALUATE_INTERVAL_MS = config.fluxapps.peerSetDipEvaluateMs ?? 60 * 1000;
  * @type {number[]}
  */
 let dips = [];
-let peerSetUp = false;
+/**
+ * When the peer set came up, or null while it is down.
+ *
+ * A stamp rather than a flag because the release asks how LONG it has held, and
+ * a flag can only say that it holds now. Cleared by every fall, so the interval
+ * it measures is unbroken by construction.
+ * @type {number|null}
+ */
+let upSince = null;
 let ourDosActive = false;
 let timerHandle = null;
 let started = false;
@@ -128,27 +141,36 @@ function releaseDos(reason) {
 }
 
 /**
- * Decide, from the tally and the current peer set, whether the node is out.
+ * Decide, from the tally and how long the peer set has held, whether the node is out.
  *
  * THE RELEASE NEEDS POSITIVE EVIDENCE, not merely the absence of dips. A node
- * that is out of service loses confirmation, drops every peer, and then cannot
- * dip because it has none - so "no dip in the window" would let it back in
- * having demonstrated nothing, take on apps, and collapse again. Requiring the
- * peer set to be UP and dip-free for the whole window means it comes back only
- * after the same continuous stability the readiness fallback asks for, which is
- * the condition it would have had to meet to spawn anything anyway.
+ * whose peer set is down cannot dip at all - the fall edge fires only from above
+ * the rise threshold - so quiet from it is quiet for want of anything to
+ * observe. Releasing on that would hand a node its apps back for having
+ * demonstrated nothing, and it would collapse again.
+ *
+ * So it asks for a whole window of the peer set actually holding: dip-free, and
+ * continuously up since a stamp that every fall clears. A node that cannot keep
+ * a peer set for a full window stays out, which is the right answer for the node
+ * it describes - one that would otherwise re-acquire apps on each brief return
+ * and lose them again on the next fall.
+ *
+ * Coming back needs the rise threshold, not the degraded one. Between them a
+ * node produces no edge either way, so it can neither dip nor show that it has
+ * stopped dipping.
  * @returns {void}
  */
 function evaluate() {
-  const remaining = pruneDips(Date.now());
+  const now = Date.now();
+  const remaining = pruneDips(now);
   if (remaining >= DIP_THRESHOLD) {
     applyDos(remaining);
     return;
   }
   if (!ourDosActive && !isOurStickyDos()) return;
   if (remaining > 0) return;
-  if (!peerSetUp) return;
-  releaseDos('peer set has been up for the whole window with no further dips');
+  if (upSince === null || now - upSince < WINDOW_MS) return;
+  releaseDos('peer set held above the threshold for a whole window with no collapse');
 }
 
 /**
@@ -158,7 +180,9 @@ function evaluate() {
  * @returns {void}
  */
 function noteDip(count, info) {
-  peerSetUp = false;
+  // Before the deliberate check, because the run of peered time ends whoever
+  // ended it. What the check below decides is only whether it was a fault.
+  upSince = null;
   if (info && info.deliberate) {
     log.info(`peerSetStability - peer set torn down by this node (${count} peers), not counted as a dip`);
     return;
@@ -175,7 +199,7 @@ function noteDip(count, info) {
 }
 
 function noteRecovery() {
-  peerSetUp = true;
+  upSince = Date.now();
 }
 
 /**
@@ -197,7 +221,7 @@ function start(injected) {
   injected.onPeerEvent('peersBelowThreshold', deps.onDip);
   injected.onPeerEvent('peerThresholdReached', deps.onRise);
   if (injected.peerCountIfAboveThreshold && injected.peerCountIfAboveThreshold()) {
-    peerSetUp = true;
+    upSince = Date.now();
   }
   timerHandle = setInterval(evaluate, EVALUATE_INTERVAL_MS);
   log.info(`peerSetStability - watching for ${DIP_THRESHOLD} peer-set collapses in ${WINDOW_MS / 60000} minutes`);
@@ -220,7 +244,7 @@ function stop() {
   // on teardown, and a node going down does not become stable by doing so.
   ourDosActive = false;
   dips = [];
-  peerSetUp = false;
+  upSince = null;
 }
 
 module.exports = {
