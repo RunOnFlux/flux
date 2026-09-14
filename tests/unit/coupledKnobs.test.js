@@ -84,6 +84,29 @@ describe('coupled harness knobs track production', () => {
     expect(knobs.productionQueueRatio()).to.be.above(1);
   });
 
+  it('rejects a fleet where a departure cannot be seen before the next holder decides', () => {
+    // Suite 55's own pacing, with the step pulled down until the two holders'
+    // decisions land inside what a departure costs to become visible. Sat ON the
+    // bound rather than under it: the bound is strict, and a step edited to just
+    // reach it is the one a later change drifts to.
+    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833 };
+    const pass = knobs.giveUpPassMs(fleet, knobs.harnessBlockCostMs(fleet));
+    const fluxapps = {
+      ...fleet, residentialQueueStepMs: Math.floor(pass) + knobs.DEPARTURE_ANNOUNCE_MS,
+    };
+
+    expect(() => knobs.assertDepartureIsVisibleInTime(fluxapps))
+      .to.throw(/cannot be announced before the next holder decides/);
+  });
+
+  it('accepts the separation suite 55 actually runs at', () => {
+    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833 };
+
+    expect(() => knobs.assertDepartureIsVisibleInTime({
+      ...fleet, residentialQueueStepMs: knobs.derivedQueueStepMs(fleet),
+    })).to.not.throw();
+  });
+
   it('rejects a harness fleet whose step is shorter than its pass', () => {
     // The state suite 55 shipped in: a step chosen against a 250ms poll, left
     // behind when the poll moved to 833ms.

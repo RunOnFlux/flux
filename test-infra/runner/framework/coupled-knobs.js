@@ -194,6 +194,19 @@ export function productionQueueRatio() {
 // Absolute jitter does not compress with the clocks.
 export const TICKET_GAP_STEPS = 2;
 
+// WHAT A DEPARTURE COSTS between the holder committing to it and the other
+// holders being able to see it: stopping the container, removing the app, and
+// the announcement reaching them. Named for the honest case - an image that
+// HANDLES SIGTERM and exits on it - because that is the only case a fleet may
+// be sized against. Measured at ~430ms of removal and announcement on chud
+// (2026-09-06); carried at 1500 so the bound is not sitting on the measurement.
+//
+// An image that ignores the signal does not cost a little more, it costs
+// docker's whole stop grace - ten seconds by default, and unavoidably so for a
+// PID 1 with no handler, since Linux discards unhandled signals there. That is
+// not a number to widen this constant to. It is an image to replace.
+export const DEPARTURE_ANNOUNCE_MS = 1500;
+
 export function derivedQueueStepMs(fluxapps) {
   const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
   return Math.ceil((pass * productionQueueRatio()) / 1000) * 1000;
@@ -325,6 +338,49 @@ export function assertDepartureOutlivesTicket(fluxapps) {
 }
 
 /**
+ * Refuse a fleet where the second holder decides before the first is visible.
+ *
+ * One-at-a-time is a race, not a lock. A node acts on its queue ticket at the
+ * next give-up pass, so two adjacent positions decide as little as one step
+ * minus one pass apart - the step separates them, the pass grid claws some of
+ * it back - and if the first departure has not been announced by then, the
+ * second still reads the app as fully stocked and hands it back as well.
+ *
+ *   step - pass > DEPARTURE_ANNOUNCE_MS
+ *
+ * Production clears this by three orders of magnitude, which is why the bound
+ * was never written down until a compressed fleet failed it.
+ *
+ * WHAT THIS DOES NOT BUY. It would not have caught the fault that prompted it.
+ * The arithmetic passed; the cost was hiding in the image, which ignored SIGTERM
+ * and so paid docker's full grace rather than the value above. This keeps the
+ * pacing from drifting under the bound - the image is the other half, and no
+ * assertion here can see it.
+ * @param {object} fluxapps Effective fluxapps config for the fleet.
+ * @throws {Error} When the two decisions can land closer than a departure takes.
+ */
+export function assertDepartureIsVisibleInTime(fluxapps) {
+  const step = fluxapps.residentialQueueStepMs;
+  if (!step) return;
+  const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
+  const separation = step - pass;
+  if (separation > DEPARTURE_ANNOUNCE_MS) return;
+  throw new Error(
+    'coupled-knobs: a departure cannot be announced before the next holder decides.\n'
+    + `  step       ${step}ms\n`
+    + `  pass       ${Math.round(pass)}ms\n`
+    + `  separation ${Math.round(separation)}ms  -> the closest two holders' decisions can land\n`
+    + `  needed     > ${DEPARTURE_ANNOUNCE_MS}ms  -> what a departure costs to become visible\n`
+    + '  Below this two holders of one app both hand it back, because the second reads the\n'
+    + '  app as fully stocked. Raise the step with derivedQueueStepMs(fluxapps).\n'
+    + '  If the pacing already clears this and two holders still depart together, the cost\n'
+    + '  is in the IMAGE: a container that ignores SIGTERM pays docker\'s full stop grace\n'
+    + '  (ten seconds, and always, for a PID 1 with no handler) instead of the value above.\n'
+    + '  Seed it with pushTestApp, which installs a handler, rather than pushImage.',
+  );
+}
+
+/**
  * Every coupled-knob rule this harness enforces, in one call.
  * @param {object} fluxapps Effective fluxapps config for the fleet.
  * @throws {Error} When any relationship does not hold.
@@ -338,7 +394,14 @@ export function assertCoupledRatios(fluxapps) {
   const pass = giveUpPassMs(fluxapps, blockCost);
   const ratio = fluxapps.residentialQueueStepMs / pass;
   const required = productionQueueRatio();
-  if (ratio >= required) return;
+  // The ratio first, and the absolute floor after it. A step below the ratio is
+  // also below the floor, and the ratio is the coarser fault with the more
+  // useful message; the floor is what a fleet can still miss while holding
+  // production's shape.
+  if (ratio >= required) {
+    assertDepartureIsVisibleInTime(fluxapps);
+    return;
+  }
   throw new Error(
     'coupled-knobs: residentialQueueStepMs is too short for this fleet\'s give-up pass.\n'
     + `  pass    ${Math.round(pass)}ms  (removeFluxAppsPeriod ${fluxapps.removeFluxAppsPeriod}`
