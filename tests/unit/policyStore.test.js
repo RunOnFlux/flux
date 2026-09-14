@@ -260,6 +260,92 @@ describe('policyStore', () => {
       expect(module.getSeq()).to.equal(2);
       expect(state.policyReady, 'adopting from the source opens it as before').to.equal(true);
     });
+
+    // Holding a bundle and having established that nobody is ahead are two facts, and the
+    // gate is their conjunction. These are the orderings in which they can arrive, and the
+    // states that can be reached with only one of them - the cases the suite had no example
+    // of, which is why a gate that recorded the pair in a latch on one of them shipped.
+
+    it('a source that answers 200 with bytes that do not verify does not spend the confirmation', () => {
+      // A captive portal, a transparent proxy, an injected ISP page. All return a body, and
+      // none of them is the publisher. On a cold node the old gate treated this as the
+      // confirmation, kept it, and could never open afterwards.
+      const axiosGet = sinon.stub().resolves({ data: '<html>captive portal</html>' });
+      const { module, state } = load({ serviceHelper: { axiosGet } });
+      module.setPeerTransport({ request: sinon.stub().resolves() });
+
+      return module.refresh().then(() => {
+        expect(module.getSeq(), 'nothing was adopted').to.equal(0);
+        expect(module.offerBundle(bundle(7)), 'then a peer hands over a real one').to.equal(true);
+        expect(state.policyReady, 'which is what the node may act on').to.equal(true);
+      });
+    });
+
+    it('a fetch that failed to verify does not stop the next one confirming', async () => {
+      const axiosGet = sinon.stub();
+      axiosGet.onCall(0).resolves({ data: 'not a bundle' });
+      axiosGet.onCall(1).resolves({ data: bundle(3) });
+      const { module, state } = load({ serviceHelper: { axiosGet } });
+
+      await module.refresh();
+      await module.refresh();
+
+      expect(module.getSeq()).to.equal(3);
+      expect(state.policyReady, 'the second answer was the publisher and it counted').to.equal(true);
+    });
+
+    it('a peer claiming seq 0 at an empty node does not spend the confirmation', () => {
+      // One signed broadcast from any node in the deterministic list. It is true - nobody
+      // is ahead of a node that holds nothing - and there is nothing to act on yet, so it
+      // must leave the gate able to open when something does arrive.
+      const { module, state } = load();
+      module.setPeerTransport({ request: sinon.stub().resolves() });
+
+      module.notePeerSeq(0, 'peer-1');
+      expect(state.policyReady, 'nothing held, so nothing to act on').to.equal(false);
+
+      expect(module.offerBundle(bundle(11))).to.equal(true);
+      expect(state.policyReady, 'and now there is').to.equal(true);
+    });
+
+    it('an unverified body does not confirm the bundle a node restored', async () => {
+      // The mirror of the case above, and the more dangerous one: the node HOLDS something,
+      // so a gate written by whatever answered last opens on policy the network may have
+      // moved past. Only the signature tells the publisher from whatever answered for it.
+      const axiosGet = sinon.stub().resolves({ data: '<html>captive portal</html>' });
+      const { module, state } = load({ repo: restoredRepo(2), serviceHelper: { axiosGet } });
+
+      expect(await module.restore()).to.equal(true);
+      await module.refresh();
+
+      expect(module.getSeq(), 'it still holds what it restored').to.equal(2);
+      expect(state.policyReady, 'but a 200 from nowhere is not evidence about it').to.equal(false);
+    });
+
+    it('the publisher serving the sequence already held IS confirmation', async () => {
+      // The control for the test above. The ordinary steady-state refresh adopts nothing,
+      // and it must still confirm - otherwise "never confirms" would pass as a fix.
+      const { module, state } = load({ repo: restoredRepo(2), serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(2) }) } });
+
+      expect(await module.restore()).to.equal(true);
+      expect(state.policyReady, 'disk alone does not open it').to.equal(false);
+
+      await module.refresh();
+      expect(state.policyReady, 'the source itself answering does').to.equal(true);
+    });
+
+    it('confirmation that arrives before the bundle still opens the gate', async () => {
+      // start() awaits restore(), and a peer can answer inside that await. The two facts
+      // then land in the opposite order to the usual one. Nothing about the node's state
+      // differs afterwards, so the gate must not depend on which came first.
+      const { module, state } = load({ repo: restoredRepo(2) });
+
+      module.notePeerSeq(0, 'peer-1');
+      expect(state.policyReady, 'confirmed, but holding nothing yet').to.equal(false);
+
+      expect(await module.restore()).to.equal(true);
+      expect(state.policyReady, 'both facts hold now, in either order').to.equal(true);
+    });
   });
 
   describe('what boot costs the published source', () => {
