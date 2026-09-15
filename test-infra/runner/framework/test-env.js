@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
 import { execInContainer } from './container.js';
+import { waitFor } from './wait.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS } from './subnet-config.js';
@@ -163,6 +164,18 @@ const runLabels = () => (RUN_LABEL ? { 'flux-e2e-run': RUN_LABEL } : {});
 // `FLUX_E2E_TAG=<slug> ./build-images.sh` and run with the same value set;
 // the default keeps single-branch use exactly as it was.
 const IMAGE_TAG = process.env.FLUX_E2E_TAG || 'latest';
+
+/**
+ * How long a whole-fleet startDiscovery waits for every node to hold policy.
+ *
+ * ZERO TURNS THE WAIT OFF, which is the escape hatch a derived condition still
+ * needs: policyReachable answers "can this fleet get policy" from the fleet's own
+ * shape, and a fixture it reads wrongly would otherwise have to wait out the full
+ * budget with no way round it but editing this file. Raising it is the other half
+ * - a loaded box peers slowly, and the number that suits cindy at MAXN=6 is not
+ * the one that suits a laptop running one suite.
+ */
+const POLICY_WAIT_MS = Number(process.env.E2E_POLICY_WAIT_MS ?? 120000);
 const image = (name) => `${name}:${IMAGE_TAG}`;
 
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
@@ -904,6 +917,22 @@ export async function createTestEnv({
     );
   }
 
+  // WHETHER THIS FLEET CAN OBTAIN POLICY AT ALL, which decides whether anything may
+  // wait for it.
+  //
+  // A node reaches the published source only after its peer set is up and every peer it
+  // asked has answered without one - so a fleet that cannot cross appSyncPeerThreshold
+  // never asks, and neither does one whose source is not answering. Both are legitimate
+  // fixtures, and a wait for policy on either would burn its timeout on a condition the
+  // fleet was built not to satisfy.
+  //
+  // Derived from the same reachablePeers the peerless override above uses, rather than a
+  // list of suites that opt out: a list goes stale the first time somebody writes a
+  // two-node fleet.
+  const policyReachable = reachablePeers >= (
+    configOverrides?.fluxapps?.appSyncPeerThreshold ?? sharedFluxapps.appSyncPeerThreshold
+  ) && policy?.available !== false;
+
   const mergedNodeOverrides = { ...nodeConfigOverrides, ...peerlessOverrides, ...syncedOverrides };
   // Only a legacy node ever installs its own packages, so unseeding a fleet without
   // one strips nothing and tests nothing. Refused rather than ignored: a flag that
@@ -1545,6 +1574,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     initialHeight,
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
+    // Whether this fleet is one that can obtain policy - see policyReachable above.
+    // bootAndPeer reads it to decide whether waiting for policy is meaningful.
+    policyReachable,
     // What the publisher said about the `locationTable` it was asked to publish - the
     // region assignment, the row count, the sequence the bundle moved to. null when the
     // suite asked for no table.
@@ -1814,6 +1846,35 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
         client.zelidauth = auth.zelidauth;
         await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
       }));
+
+      // AND THEN POLICY, because a peered fleet is not yet one that can serve.
+      //
+      // A node reaches the published source only once its peer set is up and every peer
+      // it asked has answered without a bundle, so policy lands AFTER peering rather than
+      // during boot. The blocklist lives in that bundle, so until it arrives image
+      // compliance cannot be checked and a registration is refused outright - "Unable to
+      // communicate with Flux Services! Try again later." Measured on a ten-node fleet:
+      // last peer at 09:08:30.982, registration refused at 09:08:31.178, 196ms later,
+      // with all ten nodes holding eight peers and no policy.
+      //
+      // HERE RATHER THAN IN bootAndPeer, which is where this was first put and which
+      // covers only 82 of the 106 suites: four register apps without it and would have
+      // kept the race. Every fleet that peers at all comes through this call, including
+      // bootAndPeer itself, so this is the one place that means "the fleet is now up".
+      //
+      // Only for a whole-fleet start, and only where policy is reachable. A call naming
+      // indices is a node rejoining - a restart, a healed partition - and the fleet it is
+      // rejoining may deliberately have no policy to give it; a fleet too small to cross
+      // the peer threshold, or one whose source is not answering, was built not to satisfy
+      // this at all. Derived by the env rather than declared per suite, so a two-node
+      // fleet written later is covered without anybody remembering to opt out.
+      if (!indices && policyReachable && POLICY_WAIT_MS > 0) {
+        await waitFor(
+          () => clients.filter(Boolean).every((client) => client.getEventBuffer()
+            .some((e) => e.event === 'policy:bundleChanged')),
+          { timeout: POLICY_WAIT_MS, interval: 1000, label: 'policy on every node of the fleet' },
+        );
+      }
     },
 
     nodeHasLog(index, pattern) {
