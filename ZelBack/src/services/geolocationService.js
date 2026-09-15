@@ -558,8 +558,9 @@ async function setNodeGeolocation() {
  * The result is a copy. This is the node's own record of where it is, and a
  * caller shaping it for a reply would otherwise edit that record: a field
  * dropped to keep it out of a response is a field the node no longer knows
- * about itself, and the next refresh persists the gap. The object holds only
- * scalars, so one level is the whole of it.
+ * about itself, and the next refresh persists the gap. The record is flat
+ * scalars, so one level copies all of it - a nested field added later would
+ * need this to deepen with it.
  * @returns {Promise<object|null>} The geolocation object or null
  */
 async function getNodeGeolocation() {
