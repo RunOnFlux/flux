@@ -334,31 +334,6 @@ describe('the signed policy bundle on a peered fleet', function () {
       expect(payload.seq).to.equal(fleetSeq);
     });
 
-    it('holds nothing when it restored nothing and no peer has any either', async function () {
-      this.timeout(240000);
-      // THE EDGE BETWEEN THE TWO ABOVE. A node with nothing takes what a peer has; with
-      // nobody holding anything there is nothing to take, and the source is the only road
-      // left - which is the seed, and it runs once when the set is up rather than at boot.
-      // Held here to the case where the source cannot answer either, so what is proved is
-      // that the node stays empty rather than guessing.
-      await stub(env, '/policy', { available: false });
-      await Promise.all([1, 2, 3].map((n) => dbClient(n).deletePolicyBundle()));
-      await Promise.all([0, 1, 2].map((i) => env.restartNode(i)));
-      await Promise.all(env.clients.map((c) => waitForBootSettled(c)));
-      await env.startDiscovery();
-
-      await waitFor(
-        () => env.clients.every((_c, i) => env.nodeHasLog(i, /policyStore - peers are up and none of them holds policy/)),
-        { timeout: 180000, interval: 2000, label: 'every node asked its peers and found nothing' },
-      );
-
-      for (const n of [1, 2, 3]) {
-        // eslint-disable-next-line no-await-in-loop
-        expect(await dbClient(n).policyBundle(), `node ${n} invented a bundle`).to.be.null;
-      }
-
-      await stub(env, '/policy', { available: true });
-    });
   });
 
   describe('the rules the validator applies once policy is known', function () {
@@ -525,6 +500,63 @@ describe('the signed policy bundle on a peered fleet', function () {
         label: 'the node to adopt once the source answers again',
       });
     });
+  });
+});
+
+// THE EDGE BETWEEN "TAKE WHAT A PEER HAS" AND "SEED FROM THE SOURCE": nobody has one.
+//
+// A node with nothing takes what a peer holds; with no peer holding anything, the source is
+// the only road left, and it is reached once the set is up rather than at boot. Held here to
+// the case where the source cannot answer either, so what is proved is that the node stays
+// empty rather than guessing.
+//
+// ITS OWN FLEET, because the scenario strips every node and the fleet cannot recover in
+// place: the seed is evaluated when a peer ask settles, and asks happen on peer ARRIVAL, so
+// a peered fleet that loses all policy does not re-seed until its tick. Sharing a fleet would
+// leave every test after it running against nodes with no policy.
+describe('a peered fleet where nobody holds policy and the source is gone', function () {
+  let env;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      tickerAutostart: false,
+      policy: { available: false },
+      // Never obtains policy, by design - see above. Declared rather than inferred: the
+      // framework derives whether a fleet CAN peer, never whether it means to hold a bundle.
+      awaitPolicy: false,
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await stub(env, '/policy', { available: true }).catch(() => {});
+    await env?.teardown();
+  });
+
+  it('asks its peers, finds nothing, and holds nothing rather than guessing', async function () {
+    this.timeout(240000);
+    // EVERY NODE REACHED A DECISION, which is the difference between this posture and a
+    // fleet that has not got there yet - the seed log is each node saying its peer set is
+    // up and none of them had a bundle.
+    await waitFor(
+      () => env.clients.every((_c, i) => env.nodeHasLog(i, /policyStore - peers are up and none of them holds policy/)),
+      { timeout: 180000, interval: 2000, label: 'every node asked its peers and found none holding policy' },
+    );
+
+    for (const n of [1, 2, 3]) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await dbClient(n).policyBundle(), `node ${n} invented a bundle`).to.be.null;
+    }
+
+    // and the privileged decisions fail closed on all three, not just the one asked
+    const answers = await Promise.all(env.clients.map((c) => c.get('/flux/enterpriseappowners')));
+    for (const a of answers) expect(a.status).to.equal('error');
   });
 });
 
