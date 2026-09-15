@@ -5,7 +5,8 @@ import {
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
-import { bootAndPeer } from '../framework/reconciler-suite.js';
+import { bootAndPeer, waitForLocationTable } from '../framework/reconciler-suite.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -584,5 +585,248 @@ describe('a fleet where only the source has the new policy', function () {
       expect(payload.documents.blockedrepositories, `node ${index} holds the document`)
         .to.deep.equal(['spread/by-peers:v1']);
     }
+  });
+});
+
+// THE PEER THRESHOLD IS WHAT LICENSES A FETCH FROM THE SOURCE, and the state that matters is
+// "this node has peers and is below it". That state is where the decision used to go wrong:
+// the store used to read a count that reported 0 below the threshold as well as at zero
+// peers, so a node ramping up its peer set looked identical to a node with nobody to ask -
+// and the rung below asking peers is github.
+//
+// The harness default of 2 makes that state ONE CONNECTION WIDE, which is why no suite caught
+// it. Ten nodes give the derived ring an arc of 4, so every node settles on eight peers; a
+// threshold of six is then crossed on the way there, and nodes spend real time holding
+// nothing with peers they could have asked. Only the threshold is pinned - the arc stays
+// derived, as E2E_FLEET_SIZING requires.
+describe('the peer threshold is what licenses a fetch from the source', function () {
+  let env;
+  // Deferred, so it joins a fleet that already holds policy rather than booting beside it.
+  // A node that boots WITH the fleet cannot show this: everyone is empty at once, so taking
+  // policy from a peer and seeding it from the source are the same observation.
+  const LATE_NODE = 9;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 10,
+      deferredNodes: 1,
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: { appSyncPeerThreshold: 6, appSyncDegradedThreshold: 2 },
+        // The tick is not this block's subject and would confound it: its slot is derived
+        // from node identity and lands anywhere in the period, so on the harness default of
+        // a day a node can be seconds from ticking and fetch for a reason that has nothing
+        // to do with the decision being measured. A week puts it out of reach of a run.
+        policy: { refreshIntervalMs: 7 * 24 * 60 * 60 * 1000 },
+      },
+    });
+    await bootAndPeer(env);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await stub(env, '/policy', { available: true }).catch(() => {});
+    await env?.teardown();
+  });
+
+  it('a node joining a fleet that holds policy takes it from a peer, with the source available', async function () {
+    this.timeout(420000);
+    // THE PROPERTY THE WHOLE LADDER IS FOR. The source is up, answering, and counting - so
+    // this is not a fixture that makes github impossible, it is a node choosing not to use
+    // it. The old code could not have passed: start() ran before discovery, read a peer
+    // count of 0 because the set was empty, and fetched.
+    const { policySeq } = await stubState(env);
+    const running = Array.from({ length: LATE_NODE }, (_unused, i) => i);
+    await waitFor(
+      async () => (await Promise.all(running.map(heldSeq))).every((s) => s === policySeq),
+      { timeout: 180000, label: `the established fleet to hold seq ${policySeq}` },
+    );
+
+    const before = (await stubState(env)).policyFetches;
+    const client = await env.startNode(LATE_NODE);
+    await waitForBootSettled(client);
+    await env.startDiscovery([LATE_NODE]);
+
+    await waitFor(async () => (await heldSeq(LATE_NODE)) === policySeq, {
+      timeout: 240000,
+      interval: 2000,
+      label: `node ${LATE_NODE} to obtain seq ${policySeq} from its peers`,
+    });
+
+    // On the stub rather than in the node's log, because the stub is the side that cannot
+    // be fooled about whether it served anything. TOTAL, not ok: a request that was made
+    // and refused is still a request that left the node, which is the thing being denied.
+    const after = (await stubState(env)).policyFetches;
+    expect(after.total, 'the node never asked the source, though it was there to ask')
+      .to.equal(before.total);
+  });
+
+  it('and it asked the peers it had rather than waiting to finish peering', async function () {
+    this.timeout(60000);
+    // The ask is per arrival, so it starts at the FIRST peer - well below the threshold.
+    // Without that a node would hold nothing until its set filled, which on a slow join is
+    // minutes of a node that could have been current in milliseconds.
+    expect(
+      env.nodeHasLog(LATE_NODE, /policyStore - adopted seq \d+ from peer/),
+      'it adopted from a peer, not from the source',
+    ).to.equal(true);
+  });
+});
+
+// The other side of the same rule. A fleet that can never finish peering never reaches the
+// edge, so it never seeds - and that is correct rather than a gap: a node below the threshold
+// is one the network has already decided should not be acquiring apps, and a timer that went
+// to the source anyway would be overriding that decision. Three dialers at arc 1 give every
+// node two peers against a threshold of six, so the edge cannot fire however long this waits.
+describe('a fleet too small to finish peering never asks the source', function () {
+  let env;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: { appSyncPeerThreshold: 6, appSyncDegradedThreshold: 2 },
+        // Out of reach of this run, for the reason the block above gives: a tick firing
+        // inside the window would fetch for a reason that is not the one under test.
+        policy: { refreshIntervalMs: 7 * 24 * 60 * 60 * 1000 },
+      },
+    });
+    await bootAndPeer(env);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('holds nothing, and leaves the source untouched while it does', async function () {
+    this.timeout(180000);
+    // A NEGATIVE ASSERTION NEEDS THE SUBJECT TO HAVE ARRIVED. The fleet is peered before
+    // this runs (bootAndPeer above), and the peers are asserted here, so "nobody fetched"
+    // is measured over nodes that are up, connected and have had the chance to - not over
+    // a fleet that never started.
+    for (const index of [0, 1, 2]) {
+      const [out, inc] = await Promise.all([
+        env.clients[index].getPeers(),
+        env.clients[index].getIncomingPeers(),
+      ]);
+      const peers = (out.data?.length ?? 0) + (inc.data?.length ?? 0);
+      expect(peers, `node ${index} is peered, and still short of the threshold`)
+        .to.be.within(1, 5);
+    }
+
+    // Long enough that a boot fetch or a peer-arrival fetch would have landed - the peer
+    // window is three seconds and every node has been up and peered since bootAndPeer.
+    await new Promise((resolve) => { setTimeout(resolve, 20000); });
+
+    const { policyFetches, policyAvailable } = await stubState(env);
+    expect(policyAvailable, 'the source was there to be asked throughout').to.equal(true);
+    for (const index of [0, 1, 2]) {
+      expect(
+        env.nodeHasLog(index, /policyStore - peers are up and none of them holds policy/),
+        `node ${index} never decided its peer set was complete`,
+      ).to.equal(false);
+    }
+    expect(policyFetches.total, 'and no node asked it, because none of them finished peering')
+      .to.equal(0);
+    for (const index of [0, 1, 2]) {
+      expect(await heldSeq(index), `node ${index} holds nothing`).to.be.null;
+    }
+  });
+});
+
+// THE TABLE FOLLOWS THE BUNDLE, AND IT FOLLOWS IT ON AN EVENT.
+//
+// The signed bundle names which file is the iplocation table and what it must hash to, so
+// ipLocationSync cannot act until one is held. It starts on dbReady - a fact about the app
+// database, which says nothing about policy - and when it found nothing it backed off for ten
+// minutes. Both chains hang off the peer threshold and nothing orders them, so which finished
+// first was a race; and a bundle arriving LATER, naming a new baseline, was not noticed until
+// the next daily refresh.
+//
+// What is asserted here is the order of two facts on one node: the bundle changed, and then
+// the table it names was installed - promptly, and without the daily refresh coming round.
+describe('the location table follows the bundle that names it', function () {
+  // Compressed on one node only, as the block above explains: it is the node that reaches the
+  // source and announces what it finds, and the others can only have learned from a peer.
+  const TICKING_NODE = 0;
+  const PEER_NODE = 1;
+  let env;
+
+  dumpLogsOnFailure(() => env);
+
+  const publishTable = (body) => fetch(`${env.stubControl}/iplocation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then((r) => r.json());
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      tickerAutostart: false,
+      // Published before the fleet boots, so every node's first bundle names THIS artifact
+      // and the baseline below is the one they all start from. A publication after
+      // createTestEnv returns re-signs the bundle, and a node still holding the previous one
+      // then asks for a digest the stub no longer serves.
+      locationTable: { domains: 2, subnet: getSubnetConfig().base },
+      nodeConfigOverrides: { [TICKING_NODE]: { policy: { refreshIntervalMs: 15000 } } },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+    await Promise.all(env.clients.map((client) => waitForLocationTable(client, { domains: 2 })));
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await publishTable({ domains: 1 }).catch(() => {});
+    await env?.teardown();
+  });
+
+  it('installs a newly published table without waiting for its daily refresh', async function () {
+    this.timeout(300000);
+    // Every node is on the baseline and its refresh is a day away, so nothing here can be
+    // the daily tick coming round. The ONLY thing that changes is the bundle.
+    const seenBefore = (index, name) => env.clients[index].getEventBuffer()
+      .filter((e) => e.event === name).length;
+    const bundlesBefore = seenBefore(PEER_NODE, 'policy:bundleChanged');
+    const installsBefore = seenBefore(PEER_NODE, 'ipLocation:tableInstalled');
+
+    // A new baseline: new bytes, new digest, and a re-signed bundle naming it.
+    const published = await publishTable({ domains: 3, subnet: getSubnetConfig().base });
+    expect(published.ok, 'the stub accepted the new baseline').to.equal(true);
+
+    // The ticking node reaches the source and announces; the peer node adopts from that
+    // announcement, which is the arrival this wiring hangs on.
+    await waitFor(
+      () => seenBefore(PEER_NODE, 'policy:bundleChanged') > bundlesBefore,
+      { timeout: 180000, interval: 2000, label: `node ${PEER_NODE} to be told the bundle changed` },
+    );
+
+    // THE PROPERTY. Not "eventually" - the daily refresh would also get there, in a day.
+    await waitFor(
+      () => seenBefore(PEER_NODE, 'ipLocation:tableInstalled') > installsBefore,
+      { timeout: 120000, interval: 2000, label: `node ${PEER_NODE} to install the table the new bundle names` },
+    );
+
+    // ORDER, not just co-occurrence: the install has to come after the bundle that named it.
+    const buffer = env.clients[PEER_NODE].getEventBuffer();
+    const bundle = buffer.filter((e) => e.event === 'policy:bundleChanged').pop();
+    const install = buffer.filter((e) => e.event === 'ipLocation:tableInstalled').pop();
+    expect(install.id, 'the table was installed after the bundle named it').to.be.greaterThan(bundle.id);
+
+    // and it is the new baseline that is being served, not the one it booted on
+    const tree = await env.clients[PEER_NODE].get('/apps/placementlocations');
+    expect(tree.data.total.domains, 'placement is answering from the new table').to.equal(3);
   });
 });
