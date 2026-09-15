@@ -175,6 +175,29 @@ describe('geolocationService tests', () => {
       sinon.assert.calledOnce(logStub.info);
     });
 
+    it('answers with a copy, so shaping the answer for a reply leaves the node knowing where it is', async () => {
+      // What getHostInfo does: the node's address and operator are kept from
+      // the app container asking. Handed the cache itself, those two removals
+      // are permanent, and a node that no longer knows its own address cannot
+      // place itself in the location table - it then refuses every app pinned
+      // to a region, and the next refresh persists the gap.
+      // The record the service will hold, distinct from the fixture: asserting
+      // against mockGeolocationData would compare the cache with the very
+      // object a caller mutated, which is equal to itself either way.
+      const held = { ...mockGeolocationData };
+      dbHelperStub.findOneInDatabase.resolves({ ...mockDbResult, geolocation: held });
+
+      const forTheReply = await geolocationService.getNodeGeolocation();
+      delete forTheReply.ip;
+      delete forTheReply.org;
+
+      const stillStored = await geolocationService.getNodeGeolocation();
+
+      expect(stillStored.ip).to.equal('185.199.108.1');
+      expect(stillStored.org).to.equal('Hetzner Online GmbH');
+      expect(held.ip).to.equal('185.199.108.1');
+    });
+
     it('should restore staticIp, dataCenter, and lastIpChangeDate from db', async () => {
       dbHelperStub.findOneInDatabase.resolves(mockDbResult);
 
