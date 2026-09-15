@@ -4,6 +4,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const globalState = require('./utils/globalState');
 const policyArtifactRepository = require('./appDatabase/policyArtifactRepository');
+const fluxEventBus = require('./utils/fluxEventBus');
 const { verifyBundle, MAX_BUNDLE_BYTES } = require('./utils/policySignature');
 
 // The network's policy documents, as one signed bundle.
@@ -67,10 +68,14 @@ let peerRequest = null;
 // rationing and can run on every arrival.
 let peerRequestFrom = null;
 let peerAnnounce = null;
-let peerCount = null;
-// Whether there is a peer set worth asking, as a LEVEL rather than an edge. Without it the
-// peer rung cannot tell "asked and nobody answered" from "asked nobody" -- and the second
-// is what every boot does, because the store is started before discovery.
+// Whether the peer set is above appSyncPeerThreshold, as a LEVEL rather than an edge. Without
+// it the peer rung cannot tell "asked and nobody answered" from "asked nobody" -- and the
+// second is what every boot does, because the store is started before discovery.
+let peerAboveThreshold = null;
+// One seed at a time. Every settling ask evaluates the predicate, so a fleet answering
+// together would otherwise have several of them find it true at once and fetch in lockstep -
+// which is the traffic against the published source this whole design exists to avoid.
+let seedInFlight = false;
 
 // How long a refresh waits for a peer to answer before going to the backstop. Peers are on
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
@@ -98,6 +103,17 @@ let peerAnswered = null;
 // "not there". A targeted ask therefore ends on its answer, and PEER_WINDOW_MS is the floor
 // for a peer that has gone away rather than the mechanism.
 const pendingPeerAsks = new Map();
+
+// Told when the bundle this node holds changes, so a consumer whose work depends on the
+// bundle runs when it arrives rather than polling for it.
+//
+// THE BUNDLE IS A DEPENDENCY OTHER MODULES HAVE, and until this existed the only way to
+// have one was to read getArtifact/getDocument at some moment and hope it was the right
+// one. ipLocationSync did exactly that: it starts on dbReady, which is a signal about the
+// app database and says nothing about policy, and when it found nothing it backed off for
+// ten minutes. Both chains hang off the peer threshold, so which of them finished first
+// was a race - won in practice, guaranteed nowhere.
+const bundleListeners = new Set();
 
 // One refresh at a time. The callers are boot-with-an-empty-store and this node's own tick,
 // which can overlap only when a boot fetch is still outstanding as the first tick falls due -
@@ -180,6 +196,38 @@ function markConfirmed(source) {
   log.info(`policyStore - seq ${getSeq()}: no reachable peer is ahead (${source})`);
 }
 
+/**
+ * Tell everything that depends on the bundle that it has changed.
+ *
+ * Fired wherever `current` is written, which is adoption and restore - a bundle off disk is
+ * as much "the policy this node now holds" as one off a peer, and a consumer that only heard
+ * about one of them would be right half the time.
+ *
+ * A listener that throws is logged and skipped. It is telemetry to its subscribers, not a
+ * step in adopting: a consumer failing must not cost this node the bundle it just verified.
+ * @param {string} source Where the bundle came from, for the log and the event.
+ */
+function notifyBundleChanged(source) {
+  fluxEventBus.publish('policy:bundleChanged', { seq: getSeq(), source });
+  bundleListeners.forEach((listener) => {
+    try {
+      listener({ seq: getSeq(), source });
+    } catch (error) {
+      log.warn(`policyStore - a bundle listener threw: ${error.message}`);
+    }
+  });
+}
+
+/**
+ * Be told when the bundle changes. Returns an unsubscribe.
+ * @param {Function} listener Called with { seq, source } after `current` is written.
+ * @returns {Function} Removes the listener.
+ */
+function onBundleChanged(listener) {
+  bundleListeners.add(listener);
+  return () => bundleListeners.delete(listener);
+}
+
 function adopt(raw, payload, source) {
   current = payload;
   currentRaw = raw;
@@ -193,6 +241,7 @@ function adopt(raw, payload, source) {
   if (peerAnnounce) {
     peerAnnounce(payload.seq).catch((error) => log.warn(`policyStore - could not announce seq: ${error.message}`));
   }
+  notifyBundleChanged(source);
   // Persisted as the bytes that were verified. Failing to store is untidy rather than
   // incorrect: this node is already running on the bundle, it just will not have it at the
   // next boot.
@@ -265,6 +314,7 @@ async function restore() {
   // set `confirmed` with the store still empty, and a restore that wrote `current` without
   // re-deriving would strand the gate exactly as the old latch did. See `confirmed`.
   refreshGate();
+  notifyBundleChanged('disk');
   log.info(`policyStore - restored seq ${payload.seq} from disk, pending confirmation`);
   return true;
 }
@@ -317,6 +367,57 @@ async function askPeer(peerKey) {
     await Promise.race([answered, serviceHelper.delay(PEER_WINDOW_MS)]);
   } finally {
     pendingPeerAsks.delete(peerKey);
+    // IN THE FINALLY, so a send that threw still gets here. Otherwise an ask that failed to
+    // leave the node would skip the decision, and if it were the last one outstanding the
+    // node would sit holding nothing until another peer happened to arrive. Its own error is
+    // kept separate so it cannot mask the one the ask is already propagating.
+    await seedIfPeersHaveNothing()
+      .catch((error) => log.error(`policyStore - seeding from the source failed: ${error.message}`));
+  }
+}
+
+/**
+ * The peers have been asked and have answered. If none of them had anything, seed from the
+ * published source.
+ *
+ * THE ONLY PLACE A NODE WITHOUT POLICY REACHES THE SOURCE. Derived from three facts rather
+ * than fired by an event, because any of the three can be the last to become true and a latch
+ * on one of them records a conjunction it cannot track - the mistake refreshGate above exists
+ * to avoid:
+ *
+ *   nothing is outstanding  every peer this node has was asked AND has answered. Peers reply
+ *                           in all three states, so "holds nothing" settles an ask exactly as
+ *                           a bundle does, and a peer that vanished settles on PEER_WINDOW_MS.
+ *   the set is above threshold  enough peers to have been worth asking, as the network
+ *                           already defines it. Below it, an empty store says only that
+ *                           peering is young.
+ *   this node holds nothing  anything at all, however old, is carried forward by peers and
+ *                           by this node's own tick.
+ *
+ * Together they mean: nobody reachable has policy. That is the first rollout, and seeding it
+ * is what the published source is for.
+ *
+ * Evaluated here rather than on peerThresholdReached because the edge can never satisfy it.
+ * The peer that crosses the threshold is asked first - peerConnected is emitted before the
+ * edge, and askPeer registers synchronously - so its own ask is always outstanding at the
+ * moment the edge fires. Reading the threshold as a LEVEL here also means there is no latch
+ * of ours to re-arm: a node that fell below the degraded level and peered back up asks its
+ * new peers, and the last of those answers arrives here with the level true again.
+ * @returns {Promise<void>}
+ */
+async function seedIfPeersHaveNothing() {
+  if (current || pendingPeerAsks.size || seedInFlight) return;
+  if (!peerAboveThreshold || !peerAboveThreshold()) return;
+  seedInFlight = true;
+  try {
+    log.info('policyStore - peers are up and none of them holds policy, seeding from the published source');
+    const raw = await fetchFromBackstop();
+    if (!raw) return;
+    // Same verdict handling as the tick's ladder: a body that verifies is the publisher
+    // answering, which is the one answer that means current rather than merely not-behind.
+    if (consider(raw, 'backstop') !== VERDICT.REJECTED) markConfirmed('the published source');
+  } finally {
+    seedInFlight = false;
   }
 }
 
@@ -335,16 +436,15 @@ async function refresh() {
   // discovery has connected anything. It cost the 3s window plus the 500ms the broadcast
   // itself sleeps between directions, on every boot, to ask nobody anything.
   //
-  // The count comes from peerManager's LATCHED threshold, not from a raw tally: the
-  // network already defines "enough peers to gossip with" hysteretically, at
-  // appSyncPeerThreshold on the way up and appSyncDegradedThreshold on the way down (12
-  // and 4). Reusing it means the policy rung opens and closes with the same peer set the
-  // spawner and the sync orchestrator use, and cannot flap on a single reconnect.
+  // The level comes from peerManager's LATCHED threshold: the network already defines
+  // "enough peers to gossip with" hysteretically, at appSyncPeerThreshold on the way up and
+  // appSyncDegradedThreshold on the way down (12 and 4). Reusing it means the policy rung
+  // opens and closes with the same peer set the spawner and the sync orchestrator use, and
+  // cannot flap on a single reconnect.
   //
-  // A transport that does not report a count is treated as "unknown, ask anyway", so the
-  // rung is only skipped on a positive answer of zero.
-  const reachable = peerCount ? peerCount() : null;
-  if (peerRequest && reachable !== 0) {
+  // A transport that does not report the level is treated as "unknown, ask anyway", so the
+  // rung is only skipped on a positive answer of no.
+  if (peerRequest && (!peerAboveThreshold || peerAboveThreshold())) {
     // Armed before the ask, because a peer can answer while peerRequest is still awaiting.
     const answered = new Promise((resolve) => { peerAnswered = () => resolve(true); });
     await peerRequest(getSeq()).catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
@@ -372,13 +472,9 @@ async function refresh() {
 /**
  * A peer has connected. Ask it whether it is ahead of us.
  *
- * One message, one reply, and it NEVER reaches the published source. A peer connecting says
- * something about that peer and nothing about github, so a peer event must not cause a fetch:
- * a node ramping to its full peer set generates one of these per arrival, and at boot the
- * broadcast rung is shut anyway (peerCountIfAboveThreshold reads 0 below appSyncPeerThreshold),
- * so a ladder run here fell straight through to the source. Every arrival, on every node,
- * including the fleet coming back from a release - which is the stampede the phased tick
- * exists to prevent.
+ * One message and one reply. A node ramping to its full peer set generates one of these per
+ * arrival, so a ladder run here would be a fetch per arrival on every node, including the
+ * fleet coming back from a release - the stampede the phased tick exists to prevent.
  *
  * This is the rung that closes the real gap. A peer announces what it adopts, but only to
  * nodes it is connected to AT THAT MOMENT - so a peer that obtained policy before it met us
@@ -386,15 +482,22 @@ async function refresh() {
  * covers that, and it works just as well when this node holds nothing: it asks for anything
  * above seq 0.
  *
- * Reaching the source is left to the two places that should: boot with an empty store, and
- * this node's own phased tick. Across the fleet those ticks are what makes github a seed -
- * spread over the period by identity, some node is always the one that looks.
+ * The answer settles this node's ask, and the last ask to settle is where the decision to
+ * seed from the source is made - see seedIfPeersHaveNothing. So this rung reaches the source
+ * only through a peer set that has been asked in full and had nothing, never through an
+ * arrival on its own. Otherwise the source is this node's phased tick, which across the fleet
+ * is what makes github a seed: spread over the period by identity, some node is always the
+ * one that looks.
  * @param {string} peerKey ip:port of the peer that connected.
  */
 function notePeerAvailable(peerKey) {
-  if (!peerKey || !peerRequestFrom) return;
-  askPeer(peerKey).catch((error) => log.warn(`policyStore - peer ask failed: ${error.message}`));
+  if (!peerKey || !peerRequestFrom) return Promise.resolve();
+  // Returned rather than dropped so a caller CAN wait for the ask and the seed decision that
+  // follows it. Nothing in production does - a peer arriving must not hold up the event that
+  // announced it - but a fire-and-forget chain is otherwise only observable by sleeping.
+  return askPeer(peerKey).catch((error) => log.warn(`policyStore - peer ask failed: ${error.message}`));
 }
+
 
 /**
  * Where in the backstop period this node's tick falls, derived from its identity.
@@ -456,16 +559,17 @@ function refreshOnce() {
  * Wire the peer steps. Called once peering is up; until then the ladder is stored + backstop.
  * @param {Function} request Ask peers for anything above a sequence.
  * @param {Function} announce Tell peers what this node has adopted.
- * @param {Function} [count] How many peers are connected right now. Without it the store
- *   asks regardless and waits out the window, which is what a boot used to do.
+ * @param {Function} [aboveThreshold] Whether the peer set is above appSyncPeerThreshold.
+ *   Without it the store asks regardless and waits out the window, which is what a boot
+ *   used to do.
  */
 function setPeerTransport({
-  request, requestFrom, announce, count,
+  request, requestFrom, announce, aboveThreshold,
 } = {}) {
   peerRequest = request || null;
   peerRequestFrom = requestFrom || null;
   peerAnnounce = announce || null;
-  peerCount = count || null;
+  peerAboveThreshold = aboveThreshold || null;
 }
 
 /**
@@ -501,22 +605,21 @@ function notePeerSeq(seq, peerKey) {
  */
 async function start() {
   if (refreshInterval) return;
-  const restored = await restore();
+  await restore();
 
-  // Only fetch at boot when this node came back with NOTHING.
+  // BOOT NEVER REACHES THE PUBLISHED SOURCE, whether this node restored a bundle or came
+  // back with nothing.
   //
-  // Phasing the tick spreads the periodic fetch across the period, but boot is not the
-  // tick: a release wave restarts the fleet inside a short window, and an unconditional
-  // boot fetch is then every node hitting the published source at once - the same storm
-  // the phase exists to prevent, arriving through a different door. A node that restored
-  // a verified bundle does not need it: it HAS policy, its own slot will bring anything
-  // newer, and the first peer-threshold crossing asks peers, which is local and free.
+  // start() runs before discovery, so the peer set is empty here on every node, always.
+  // A ladder run at this point therefore cannot take its peer rung - there is nobody to
+  // ask - and falls through to the source. That made "no peers YET" and "peers have
+  // nothing" the same answer, and sent a node whose neighbour held the bundle to github
+  // instead of across the local network.
   //
-  // The cost is that a restored node can be up to one period behind until its slot comes
-  // round or a peer tells it. It is never WITHOUT policy, which is the property that
-  // matters - and for a node that has been off for a long time the peer ask on the first
-  // threshold crossing closes the gap in seconds.
-  if (!restored) await refreshOnce();
+  // What replaces it is seedIfPeersHaveNothing, evaluated as each peer answers: once the
+  // set is above the threshold and every ask has settled, an empty store is evidence about
+  // the NETWORK rather than about how far boot has got. A node that restored a bundle needs
+  // no seed at all; its own slot brings anything newer, and an ahead peer sends it sooner.
 
   // The first tick lands on this node's own slot rather than one period from boot, so the
   // schedule is a property of the node and not of when it happened to start. Aligned to
@@ -555,7 +658,9 @@ function reset() {
   peerRequest = null;
   peerRequestFrom = null;
   peerAnnounce = null;
-  peerCount = null;
+  peerAboveThreshold = null;
+  seedInFlight = false;
+  bundleListeners.clear();
   peerAnswered = null;
   refreshInFlight = null;
   pendingPeerAsks.clear();
@@ -571,6 +676,7 @@ module.exports = {
   getSeq,
   isReady,
   notePeerAvailable,
+  onBundleChanged,
   notePeerSeq,
   offerBundle,
   refresh,

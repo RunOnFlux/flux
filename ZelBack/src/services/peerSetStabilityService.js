@@ -206,8 +206,8 @@ function noteRecovery() {
  * @param {object} injected
  * @param {Function} injected.onPeerEvent
  * @param {Function} injected.offPeerEvent
- * @param {Function} [injected.peerCountIfAboveThreshold] The latched level, read
- * once at start because the rise edge is latched and may already have fired.
+ * @param {Function} [injected.isAboveThreshold] The latched level, read once at
+ * start because the rise edge is latched and may already have fired.
  * @returns {void}
  */
 function start(injected) {
@@ -220,7 +220,7 @@ function start(injected) {
   };
   injected.onPeerEvent('peersBelowThreshold', deps.onDip);
   injected.onPeerEvent('peerThresholdReached', deps.onRise);
-  if (injected.peerCountIfAboveThreshold && injected.peerCountIfAboveThreshold()) {
+  if (injected.isAboveThreshold && injected.isAboveThreshold()) {
     upSince = Date.now();
   }
   timerHandle = setInterval(evaluate, EVALUATE_INTERVAL_MS);

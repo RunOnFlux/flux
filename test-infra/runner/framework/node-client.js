@@ -224,6 +224,13 @@ export function nodeClient(nodeNum) {
         // just as happily.
         'peerSetStability:dos',
         'peerSetStability:released',
+        // The bundle this node holds changed, from whichever rung produced it. What makes
+        // it worth a stream rather than a counter is that things DOWNSTREAM of policy are
+        // driven by it - the location table is fetched on this, not on a timer - so a suite
+        // proving that wiring needs the two facts in order, not just both eventually.
+        'policy:bundleChanged',
+        // And the other half of that pair: a verified table actually installed.
+        'ipLocation:tableInstalled',
         'syncthing:folderErrors',
         'syncthing:eventsResync',
         'syncthing:holderRetained',
