@@ -234,12 +234,31 @@ describe('the location table survives restarts and refuses bad publications', fu
       hookCtx: this,
       nodes: NODES,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
+      // BEFORE THE NODES START, so every node's first fetch is of THIS artifact and the
+      // counters it zeroes describe the boot.
+      //
+      // It used to be posted after createTestEnv returned, on the reasoning that the table
+      // fetch waits on the app database being rebuilt and so happens later still. That
+      // window closed: the bundle a node adopts at boot names the table by content hash,
+      // and adoption happens seconds into boot, long before the rebuild. A publication
+      // after it re-signs the bundle and leaves every node asking for a digest the stub
+      // has already replaced.
+      locationTable: { domains: BASELINE_DOMAINS, subnet: subnet.base },
+      // THE SCENARIOS BELOW REPUBLISH, and a node only looks at the table again when the
+      // bundle naming it changes. Adoption is what drives the refetch - not the restarts
+      // this suite used to rely on, which restore the bundle already held and so ask for
+      // the digest already fetched, which is the one thing that cannot have moved.
+      //
+      // The WHOLE FLEET, not the three nodes that take restarts: the query node reads the
+      // narrowed table too. Fleet-wide is safe here in a way it would not be in 1502 - the
+      // counters this suite asserts on are the iplocation routes, so a policy poll cannot
+      // make "the source served nothing" false for anything below. 1502 keeps the tick on
+      // one node precisely because its proofs ARE about the policy source.
+      configOverrides: {
+        fluxapps: { minOutgoing: 2, minIncoming: 1 },
+        policy: { refreshIntervalMs: 15000 },
+      },
     });
-    // Published before the fleet's table fetch (which waits on the app database
-    // being rebuilt, i.e. well into bootAndPeer below), so every node's first
-    // fetch is of THIS artifact and the counters it zeroes describe the boot.
-    await publish({ domains: BASELINE_DOMAINS, subnet: subnet.base });
     baselineGenerated = (await stubState()).ipLocation.generated;
 
     // In a four-node ring with minOutgoing 2, mutual pairs de-duplicate down to
@@ -573,21 +592,31 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
       hookCtx: this,
       nodes: NODES,
       tickerAutostart: false,
+      // Withdrawn BEFORE ANY NODE STARTS, so the only bundle this fleet ever sees names no
+      // artifact at all.
+      //
+      // Withdrawing it afterwards made the posture a race. A node that had already adopted
+      // the bundle naming the default artifact asked for that digest and got a 404; a node
+      // that took the withdrawn bundle first never asked at all - and the fleet ended up
+      // split between the two, which is neither posture. Node 0's log from the run that
+      // found this: adopted seq 1, asked, 404, then adopted seq 2 one second later.
+      locationTable: { artifact: null },
       configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
     });
-    // Withdrawn before the fleet's table fetch, so no node ever sees an
-    // artifact: both representations 404 for the life of this fleet.
-    await fetch(`${env.stubControl}/iplocation`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ artifact: null }),
-    });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
-    // Every node has TRIED and found nothing - the difference between the
-    // posture this asserts and a fleet that simply has not got there yet.
-    await waitFor(async () => (await fetchCounts()).missing >= env.nodeCount, {
-      timeout: 240000, interval: 3000, label: 'every node looked for the artifact and found none',
-    });
+    // EVERY NODE HAS DECIDED, which is the difference between the posture this asserts and
+    // a fleet that simply has not got there yet.
+    //
+    // Deciding now means declining to fetch: the bundle is what says which bytes are the
+    // table, and one that names no artifact gives a node nothing to ask for and nothing to
+    // verify an answer against. So the evidence is each node's own log, not a count of
+    // requests at the stub - there are none to count, and that is the point.
+    await waitFor(
+      () => env.clients.every(
+        (_client, index) => env.nodeHasLog(index, /ipLocationSync - no signed statement for the iplocation table/),
+      ),
+      { timeout: 240000, interval: 3000, label: 'every node looked for a statement naming a table and found none' },
+    );
   });
 
   after(async function () {
@@ -599,7 +628,11 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
     this.timeout(60000);
     const counts = await fetchCounts();
     expect(counts.ok, 'there was never anything to download').to.equal(0);
-    expect(counts.missing, 'every node asked').to.be.at.least(env.nodeCount);
+    // AND NOBODY ASKED. A node whose bundle names no artifact has nothing to request and
+    // no signed value to check an answer against, so it declines rather than fetching
+    // something it could not verify - which is the whole reason the artifact is named in
+    // the bundle at all. The before hook has each node's log saying so.
+    expect(counts.total, 'and no node asked for one it had no statement about').to.equal(0);
 
     const answers = await Promise.all(env.clients.map((client) => client.post('/apps/placementfeasibility', {
       instances: 3,

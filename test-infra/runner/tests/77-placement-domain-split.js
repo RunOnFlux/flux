@@ -44,16 +44,13 @@ describe('placement share spreads synced instances across table fault domains', 
       hookCtx: this,
       nodes: 6,
       tickerAutostart: false,
+      // Three organisations across the fleet's /24, published BEFORE THE NODES START - the
+      // bundle each node adopts at boot names the table by content hash, so a publication
+      // after createTestEnv returns leaves every node asking for a digest the stub has
+      // already replaced, and none of them ever gets a table.
+      locationTable: { domains: 3, subnet: getSubnetConfig().base },
       configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
     });
-    // three organisations across the fleet's /24, published before the nodes
-    // boot so their first fetch already carries the split
-    const response = await fetch(`${env.stubControl}/iplocation`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
-    });
-    expect(response.ok, 'stub accepted the split artifact').to.equal(true);
     // in a six-ring with minOutgoing 2 there are no mutual pairs, so every
     // node settles at exactly two connections in each direction
     await bootAndPeer(env, { minOutbound: 2, minInbound: 2 });
