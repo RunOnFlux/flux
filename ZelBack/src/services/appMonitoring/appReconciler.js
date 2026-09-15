@@ -85,11 +85,10 @@ function settleBootDrain(reason) {
   log.info(`appReconciler - boot drain settled (${reason})`);
 }
 
-// A container start is information the network wants immediately: a backoff
-// straggler that starts minutes after boot must refresh its appsLocations row
-// inside the sigterm TTL window, not at the next hourly broadcast.
-// serviceManager wires this to the peer broadcast (which coalesces bursts),
-// mirroring appInstaller.setOnInstallComplete.
+// Reports that a container was started, for an observer that needs the edge
+// itself. The node's network presence does not come from here: what it
+// announces is the set of apps installed on it, which a container starting or
+// stopping does not change.
 let onContainerStarted = null;
 
 function setOnContainerStarted(callback) {
