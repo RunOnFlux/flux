@@ -10,6 +10,7 @@ const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const signatureVerifier = require('../signatureVerifier');
 const imageManager = require('../appSecurity/imageManager');
+const globalState = require('../utils/globalState');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 // eslint-disable-next-line no-unused-vars
 const {
@@ -1320,6 +1321,19 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
 
   // Whitelist, repository checks
   if (liveSubmission) {
+    // POLICY IS A PRECONDITION OF ANSWERING AT ALL, asked here rather than discovered
+    // below. The blocked-repository list is part of the signed bundle, so without one this
+    // node cannot establish that an image is not banned - and the checks after it read the
+    // same bundle for enterprise ownership. A node in that state is not refusing this app;
+    // it is not yet in a position to judge any app, which is a fact about the node and is
+    // what the caller needs told so it can retry or ask a node that is ready.
+    //
+    // The same bar the spawner holds acquisition to (appSpawner.js), so a node is inert for
+    // apps in both directions on one condition rather than two that can disagree.
+    if (!globalState.policyReady) {
+      throw new Error('Cannot verify application images: network policy not yet obtained.');
+    }
+
     // check blacklist
     await imageManager.checkApplicationImagesCompliance(appSpecifications);
 

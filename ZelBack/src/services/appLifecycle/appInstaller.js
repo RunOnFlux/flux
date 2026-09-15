@@ -206,6 +206,14 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
 
+  // POLICY IS A PRECONDITION, as it is at registration. The blocked-repository list lives
+  // in the signed bundle, so a node without one cannot establish that an image is not
+  // banned - and installing on the assumption it is fine is the mistake that cannot be
+  // taken back, because the container is running by the time anything else notices.
+  if (!globalState.policyReady) {
+    throw new Error('Cannot verify application images: network policy not yet obtained.');
+  }
+
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
@@ -680,10 +688,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
-    // The one place the hold is released, so every way out of this function
-    // releases it. A tier lookup that failed used to return without releasing,
-    // and the node then refused every install, redeploy, spawn and reinstall
-    // pass it was offered until FluxOS restarted.
+    // THE ONE PLACE THE HOLD IS RELEASED, so every way out of this function releases
+    // it - including the early returns above. A path that leaves without releasing
+    // costs the node every install, redeploy, spawn and reinstall pass it is offered
+    // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
     if (test) {
       try {

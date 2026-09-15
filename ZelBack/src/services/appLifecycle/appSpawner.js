@@ -398,11 +398,10 @@ async function trySpawningGlobalApplication() {
       // A pinned spec runs on the nodes it names and nowhere else. Unpinned specs are
       // unaffected and go on to the placement rules below.
       //
-      // This used to mean three different things for one field. v7 was strict. v8 was
-      // not - `|| app.version >= 8` let any node take a pinned v8 app, which then fell
-      // through to the deferral below and installed elsewhere 30 to 57 minutes later.
-      // A carve-out restored strictness for enterprise owners alone, using the policy
-      // as a flag meaning "this pin is real".
+      // ONE RULE FOR EVERY VERSION, and for every owner. A pin is a pin: the spec names
+      // the nodes, and a node not named does not take the app whatever its version says
+      // and whoever signed it. Policy decides who may PUBLISH a pin, never whether a
+      // published one is worth honouring.
       //
       // Soft pinning is not a weaker guarantee, it is the absence of one: an owner pins
       // to three nodes and an hour later the app is somewhere else. For the shape the
@@ -576,10 +575,14 @@ async function trySpawningGlobalApplication() {
     const appPorts = appUtilities.getAppPorts(appSpecifications);
 
     // verify app compliance
+    //
+    // Cached as an app-level failure without qualification, because by here it can only be
+    // one. Acquisition is already held shut above until policy is obtained, so a compliance
+    // check that fails has read the blocklist and found this app in it - a fact about the
+    // app, and durable. The transient case cannot arrive: this node does not spawn at all
+    // until it holds policy.
     await imageManager.checkApplicationImagesCompliance(appSpecifications).catch((error) => {
-      if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
-        globalState.spawnErrorsLongerAppCache.set(appHash, '');
-      }
+      globalState.spawnErrorsLongerAppCache.set(appHash, '');
       throw error;
     });
 
@@ -797,11 +800,8 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    // A node not named by a pinned spec used to be parked here and allowed to install it
-    // 30 to 57 minutes later if the instance count was still short - the soft half of
-    // pinning. The selection filter above is strict now, so such an app never reaches
-    // this point, and the branch went with the behaviour rather than being left
-    // unreachable for someone to wire back up.
+    // A node not named by a pinned spec never reaches here: the selection filter above
+    // is strict, so the app is excluded before anything can defer on it.
 
     if (!isEnterprise && !appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater) {
       const tier = await generalService.nodeTier();

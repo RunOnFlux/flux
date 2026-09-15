@@ -660,7 +660,7 @@ describe('imageManager tests', () => {
       }
     });
 
-    it('should throw error if unable to communicate with Flux Services', async () => {
+    it('refuses loudly when asked before the node has policy, naming the wiring fault', async () => {
       policyStore.getDocument.restore();
       sinon.stub(policyStore, 'getDocument').returns(null);
 
@@ -676,7 +676,10 @@ describe('imageManager tests', () => {
         await imageManager.checkApplicationImagesCompliance(appSpecs);
         expect.fail('Should have thrown an error');
       } catch (error) {
-        expect(error.message).to.include('Unable to communicate with Flux Services');
+        // NAMES THE CALLER, not the network. Every caller holds its work shut until the
+        // node has policy, so arriving here is one of them asking without checking - and
+        // a message about reaching Flux Services describes a thing that never happened.
+        expect(error.message).to.include('called before network policy was obtained');
       }
     });
   });

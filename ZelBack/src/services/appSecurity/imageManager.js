@@ -171,12 +171,9 @@ async function verifyRepository(repotag, options = {}) {
  * @returns {Promise<Array|null>} List of blocked repositories
  */
 function getBlockedRepositores() {
-  // Read from the signed bundle policyStore holds, not fetched here. What that removes, as
-  // well as the trust: this used to cache whatever the response contained without checking it
-  // was a list, for six hours. A github error page is truthy, so it was cached, and every
-  // read of it then threw `repos.forEach is not a function` -- refusing installs with a
-  // TypeError and, in the spawner, marking apps unspawnable for seven days because the
-  // TypeError did not match the one error message that path treats as "the service is down".
+  // Read from the signed bundle policyStore holds, not fetched here - so what arrives is
+  // bytes a signature has vouched for, rather than whatever a response body contained. An
+  // error page is truthy and shaped like nothing; a signed document cannot be.
   //
   // Still null for "not obtained", which callers already distinguish from an empty list.
   return policyStore.getDocument('blockedrepositories');
@@ -242,10 +239,8 @@ function getBlocklist() {
   // inconsistent, and that is exactly when refusing beats guessing. Suite 1501 asserts
   // the same rule from the other end.
   //
-  // Null still means "could not ask", never "nothing is blocked", and callers refuse or
-  // defer on it. What no longer needs defending against is the cache that held an error
-  // page for six hours: there is no response to cache, only bytes a signature has
-  // already vouched for.
+  // Null means "could not ask", never "nothing is blocked", and callers refuse or defer
+  // on it.
   const typed = policyStore.getDocument('blocklist');
   if (typed !== null && typed !== undefined) {
     if (!Array.isArray(typed)) return null;
@@ -440,7 +435,16 @@ async function checkApplicationImagesCompliance(appSpecs) {
   const entries = getBlocklist();
 
   if (!entries) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
+    // AN INVARIANT, NOT A CONDITION TO HANDLE. Every caller holds its work shut until the
+    // node has policy - the spawner before acquiring, the validator before answering a live
+    // submission, the installer before pulling - so reaching here means one of them asked
+    // without checking, which is a wiring fault rather than a node that is still catching up.
+    //
+    // Named for that. The message said the node could not reach Flux Services, which was
+    // never what this was: the node had spoken to nobody and did not need to, it simply had
+    // no blocklist yet. A caller cannot act on a diagnosis of the wrong thing, and one of
+    // them used to tell the two apart by comparing this sentence.
+    throw new Error('checkApplicationImagesCompliance called before network policy was obtained');
   }
 
   const repotags = imagesOf(appSpecs);
