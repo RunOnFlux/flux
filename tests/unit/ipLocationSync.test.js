@@ -34,6 +34,7 @@ describe('ipLocationSync tests', () => {
     unsubscribeSpy = sinon.stub();
     policyStoreStub = {
       getArtifact: sinon.stub().returns({ file: FILE, sha256: SHA, bytes: BYTES.length }),
+      getSeq: sinon.stub().returns(7),
       onBundleChanged: (listener) => { bundleListener = listener; return unsubscribeSpy; },
     };
     eventBusStub = { publish: sinon.stub(), count: sinon.stub() };
@@ -442,6 +443,20 @@ describe('ipLocationSync tests', () => {
       } finally {
         clock.uninstall();
       }
+    });
+
+    it('says so when the bundle names no table, rather than going quiet', async () => {
+      // "Nothing was fetched" is equally true of a node that has not got here yet, so a
+      // fleet whose bundle names no artifact cannot be shown by an absence of requests.
+      // The decision is published, and it carries the bundle it was made against.
+      withNoBundleYet();
+      await ipLocationSync.startSync();
+      await settle();
+
+      const declined = eventBusStub.publish.getCalls().filter((c) => c.args[0] === 'ipLocation:noStatement');
+      expect(declined, 'it looked, and had nothing to look for').to.have.lengthOf(1);
+      expect(declined[0].args[1]).to.deep.equal({ seq: 7 });
+      expect(axiosGetStub.called, 'and asked the source for nothing').to.equal(false);
     });
 
     it('refetches when a later bundle names a different table', async () => {

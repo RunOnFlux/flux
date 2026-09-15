@@ -112,6 +112,11 @@ async function refresh() {
   const want = policyStore.getArtifact(ARTIFACT_FILE);
   if (!want || !want.file || !want.sha256) {
     log.info('ipLocationSync - no signed statement for the iplocation table yet, not fetching');
+    // A DECISION, not a silence. "Nothing was fetched" is equally true of a node that has
+    // not got here yet, so the posture a bundle-less fleet holds cannot be shown by an
+    // absence of requests at the source - something has to say this node looked and had
+    // nothing to look for.
+    fluxEventBus.publish('ipLocation:noStatement', { seq: policyStore.getSeq() });
     return { installed: false, attempted: false };
   }
   if (heldSha === want.sha256) return { installed: false, attempted: false };

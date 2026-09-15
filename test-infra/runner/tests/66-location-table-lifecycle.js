@@ -609,12 +609,11 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
     //
     // Deciding now means declining to fetch: the bundle is what says which bytes are the
     // table, and one that names no artifact gives a node nothing to ask for and nothing to
-    // verify an answer against. So the evidence is each node's own log, not a count of
-    // requests at the stub - there are none to count, and that is the point.
+    // verify an answer against. So the evidence is the decision each node published, not a
+    // count of requests at the stub - there are none to count, and that is the point.
     await waitFor(
-      () => env.clients.every(
-        (_client, index) => env.nodeHasLog(index, /ipLocationSync - no signed statement for the iplocation table/),
-      ),
+      () => env.clients.every((client) => client.getEventBuffer()
+        .some((e) => e.event === 'ipLocation:noStatement')),
       { timeout: 240000, interval: 3000, label: 'every node looked for a statement naming a table and found none' },
     );
   });

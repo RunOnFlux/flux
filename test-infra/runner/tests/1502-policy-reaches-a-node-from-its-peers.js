@@ -359,6 +359,17 @@ describe('a node that restored STALE policy catches up before it acts', function
       async () => (await Promise.all([0, 1, 2].map(heldSeq))).every((n) => n === published),
       { timeout: 150000, label: `all three nodes to reach seq ${published}` },
     );
+
+    // BY WHICH ROUTE, because "everyone reached 40" is true of a fleet that all went to
+    // github independently, which is the thing this design exists to stop. The ticking
+    // node is the one that reaches the source; node 0 - the subject - is told by a peer.
+    const rungsFor = (index, seq) => env.clients[index].getEventBuffer()
+      .filter((e) => e.event === 'policy:bundleChanged' && e.data.seq === seq)
+      .map((e) => e.data.source);
+    expect(rungsFor(1, published), 'node 1 reached the source on its compressed tick')
+      .to.include('backstop');
+    expect(rungsFor(0, published), 'and node 0 was told by a peer, never by github')
+      .to.deep.equal(['peer']);
   });
 
   it('and only then starts considering apps', async function () {
@@ -684,10 +695,17 @@ describe('the peer threshold is what licenses a fetch from the source', function
     // The ask is per arrival, so it starts at the FIRST peer - well below the threshold.
     // Without that a node would hold nothing until its set filled, which on a slow join is
     // minutes of a node that could have been current in milliseconds.
-    expect(
-      env.nodeHasLog(LATE_NODE, /policyStore - adopted seq \d+ from peer/),
-      'it adopted from a peer, not from the source',
-    ).to.equal(true);
+    //
+    // ON THE EVENT, WHICH NAMES THE RUNG, rather than on a log line that happens to mention
+    // one. policy:bundleChanged carries where the bundle came from, so this asserts the
+    // fact directly - and asserting the WHOLE list rather than "a peer one exists" is what
+    // makes a backstop fetch a failure here instead of something sitting unnoticed beside
+    // a peer adoption.
+    const rungs = env.clients[LATE_NODE].getEventBuffer()
+      .filter((e) => e.event === 'policy:bundleChanged')
+      .map((e) => e.data.source);
+    expect(rungs, 'every bundle it holds came off a peer, none from the source')
+      .to.deep.equal(['peer']);
   });
 });
 
@@ -746,9 +764,9 @@ describe('a fleet too small to finish peering never asks the source', function (
     expect(policyAvailable, 'the source was there to be asked throughout').to.equal(true);
     for (const index of [0, 1, 2]) {
       expect(
-        env.nodeHasLog(index, /policyStore - peers are up and none of them holds policy/),
-        `node ${index} never decided its peer set was complete`,
-      ).to.equal(false);
+        env.clients[index].getEventBuffer().filter((e) => e.event === 'policy:bundleChanged'),
+        `node ${index} holds nothing, from any rung`,
+      ).to.deep.equal([]);
     }
     expect(policyFetches.total, 'and no node asked it, because none of them finished peering')
       .to.equal(0);
