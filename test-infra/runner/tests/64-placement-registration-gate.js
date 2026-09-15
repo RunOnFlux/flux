@@ -91,16 +91,18 @@ describe('placement gate at registration and the advice endpoint', function () {
       hookCtx: this,
       nodes: 4,
       tickerAutostart: false,
+      // BEFORE THE NODES START, not after createTestEnv returns. The bundle a node adopts
+      // at boot names the table by content hash, so a publication after that point leaves
+      // every node asking for a digest the stub has already replaced - a 404, and no table
+      // at all. Publishing here means the fleet boots onto the bundle that names these
+      // bytes. (The mutable name this used to fetch always served whatever was current,
+      // which is why posting afterwards worked until the artifact was pinned.)
+      locationTable: { domains: 3, subnet: getSubnetConfig().base },
       // minOutgoing is BOTH the app-submission door and the number of outgoing
       // connections each node establishes (fluxCommunication.js's
       // minDeterministicOutPeers), so the fleet, this value and the peer wait
       // below all have to agree.
       configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
-    });
-    await fetch(`${env.stubControl}/iplocation`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
     // The deterministic ring has node i dial i+1..i+minOutgoing, and mutual
     // pairs are de-duplicated, so in a four-node fleet node 0 settles at one

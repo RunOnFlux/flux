@@ -1137,17 +1137,33 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     });
   }
 
-  // The location table, published before the fleet boots for the same reason the
-  // geolocation overrides are. A node fetches the artifact once at startup and
-  // then not again for a day, so a suite publishing one after createTestEnv
-  // returns is racing that fetch - and losing it leaves the fleet on the default
-  // table, which carries no organisation classes at all.
+  // The location table, published before the fleet boots - and it has to be here rather
+  // than after createTestEnv returns, for two reasons that compound.
+  //
+  // The bundle a node adopts at boot NAMES THE TABLE BY CONTENT HASH, so a publication
+  // afterwards re-signs the bundle and leaves every node asking the stub for a digest it
+  // has already replaced: a 404, and no table at all. (The mutable name nodes used to
+  // fetch always served whatever was current, which is why publishing late worked until
+  // the artifact was pinned to a signed digest.)
+  //
+  // And a node fetches the artifact once at startup, so a late publication also races that
+  // fetch - losing it leaves the fleet on the default table, which carries no organisation
+  // classes at all.
+  //
+  // The publisher's answer is kept on the env: it carries the region assignment and row
+  // counts a suite cannot compute for itself, and handing the publication to the env would
+  // otherwise take that away from the suite that needs it.
+  let locationTablePublication = null;
   if (locationTable) {
-    await fetch(`http://${EXTERNAL_STUB_IP}:3001/iplocation`, {
+    const published = await fetch(`http://${EXTERNAL_STUB_IP}:3001/iplocation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(locationTable),
     });
+    if (!published.ok) {
+      throw new Error(`createTestEnv: the stub refused the location table (${published.status})`);
+    }
+    locationTablePublication = await published.json();
   }
 
   // The policy bundle the fleet will boot onto, published before any node starts, for the
@@ -1529,6 +1545,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     initialHeight,
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
+    // What the publisher said about the `locationTable` it was asked to publish - the
+    // region assignment, the row count, the sequence the bundle moved to. null when the
+    // suite asked for no table.
+    locationTablePublication,
     // What the FLEET reads, as opposed to what the suite drives. A suite needs it when
     // the bytes a node would fetch are the subject rather than the fetching - reading the
     // signed policy bundle to hand to a peer, say.
