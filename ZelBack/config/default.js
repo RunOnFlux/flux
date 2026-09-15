@@ -120,6 +120,13 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.13.1',
+  // The NodeJS the process itself runs on. A node on a runtime the code was not
+  // written against fails whichever paths need what it lacks, one at a time and
+  // silently, rather than reporting itself unfit. 20.8.0 is where the fleet
+  // already is: every ArcaneOS node runs 24.x, nothing at all runs between
+  // 16.20.2 and 20.8.0, so the number costs no node a lower one would keep and
+  // leaves nothing in service on a line unsupported upstream.
+  minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
