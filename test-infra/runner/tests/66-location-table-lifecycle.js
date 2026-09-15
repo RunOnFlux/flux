@@ -449,7 +449,11 @@ describe('the location table survives restarts and refuses bad publications', fu
     expect(tampered.tampered).to.equal(true);
     expect(tampered.servedUnder, 'served under the name the bundle signed').to.match(/^iplocation-[0-9a-f]{64}\.bin\.gz$/);
 
-    await onBundle(REJECT_NODE, tampered.policySeq);
+    // THE PUBLICATION'S SEQUENCE, NOT THE TAMPER'S. Tampering serves different bytes under
+    // the name already signed - it does not re-sign, and returns no sequence. What the node
+    // must be on is the bundle from the publication above, which names the digest whose
+    // bytes are now forged.
+    await onBundle(REJECT_NODE, published.policySeq);
 
     const beforeTamper = lastEventId(REJECT_NODE);
     await restartAndSettle(REJECT_NODE);
