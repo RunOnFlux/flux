@@ -259,6 +259,11 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
+    // Before anything that might call a runtime API this NodeJS does not have.
+    // Unlike the port above this does not exit: the node stays up holding a
+    // sticky DOS, so an operator reading /flux/info is told which version it
+    // found and which is required, rather than watching it restart in silence.
+    fluxNetworkHelper.checkNodeJsVersionAllowed();
     // Seed the enterprise node->owners map from helpers/enterprisenodes.json on disk
     // and sync it from github (every 6h thereafter). Awaited so consumers (identity
     // resolution, the spawn loop, app-spec validation) have data before they run; the
