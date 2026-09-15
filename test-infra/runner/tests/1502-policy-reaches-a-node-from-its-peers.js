@@ -324,6 +324,20 @@ describe('a node that restored STALE policy catches up before it acts', function
       // Well above the seeded bundle, so the node is unambiguously behind.
       policy: { seq: 40 },
       policySeeds: { 0: STALE_SEQ },
+      // SOMEBODY HAS TO REACH THE SOURCE, and in a three-node fleet nobody would.
+      //
+      // Nodes 1 and 2 boot empty, and the first thing that answers them is node 0 holding
+      // the seeded seq 4. They adopt it - correctly: a node with no policy takes what a
+      // peer offers, which is the whole point of asking peers before the source. But
+      // having policy, none of them is a candidate for the seed any more, and the fleet
+      // settles on seq 4 with the network at 40.
+      //
+      // That is the stale-neighbourhood case, and what corrects it in production is the
+      // phased tick: 6,370 nodes on a 24-hour period is one node looking every ~13
+      // seconds. Three nodes on the same period is one look every eight hours, so the
+      // tick is compressed on one of them - the fixture supplying at three nodes what the
+      // fleet supplies by its size. Node 0 is left alone; it is the subject.
+      nodeConfigOverrides: { 1: { policy: { refreshIntervalMs: 15000 } } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
@@ -825,8 +839,11 @@ describe('the location table follows the bundle that names it', function () {
     const install = buffer.filter((e) => e.event === 'ipLocation:tableInstalled').pop();
     expect(install.id, 'the table was installed after the bundle named it').to.be.greaterThan(bundle.id);
 
-    // and it is the new baseline that is being served, not the one it booted on
-    const tree = await env.clients[PEER_NODE].get('/apps/placementlocations');
-    expect(tree.data.total.domains, 'placement is answering from the new table').to.equal(3);
+    // AND IT IS THE NEW BASELINE BEING SERVED, not the one it booted on. Waited for rather
+    // than read straight after the install event: installing the artifact and re-resolving
+    // every node's location against it are two steps, and the second is started by the
+    // first rather than awaited by it. The event says the table landed; this says placement
+    // is answering from it.
+    await waitForLocationTable(env.clients[PEER_NODE], { domains: 3 });
   });
 });
