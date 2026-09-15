@@ -209,12 +209,19 @@ describe('the signed policy bundle on a single node', function () {
       nodes: 1,
       tickerAutostart: false,
       policy: { documents: { enterprisenodes: ENTERPRISE_MAP } },
+      // A LONE NODE REACHES THE SOURCE ON ITS TICK AND NOWHERE ELSE. Boot asks no
+      // peers - there are none - and asking the source is licensed by having asked
+      // a peer set and had nothing back, which a node with no peers never does. So
+      // the tick is compressed, exactly as the two sibling fleets in this file do,
+      // rather than the fleet waiting out a day for its own slot.
+      configOverrides: { policy: { refreshIntervalMs: 15000 } },
     });
     [node] = env.clients;
     db = dbClient(1);
     await pushTestApp(APP_IMAGE);
     await waitForBootSettled(node);
-    // Boot resolves policy from the backstop; nothing else here is meaningful until it has.
+    // Its own tick resolves policy from the backstop; nothing else here is meaningful
+    // until it has.
     await waitFor(async () => Boolean(await db.policyBundle()), {
       timeout: 90000,
       label: 'the node to adopt a policy bundle',
