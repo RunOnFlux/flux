@@ -122,6 +122,12 @@ async function refresh() {
   if (heldSha === want.sha256) return { installed: false, attempted: false };
 
   const url = `${config.policy.signedBaseUrl}/${want.file}`;
+  // WHY a refusal happened, as a value rather than as a sentence. Every rejection below
+  // ends at the same log line, so the text cannot tell a table this build cannot read from
+  // one whose bytes were swapped in transit - and those are different events, one a bad
+  // publication and the other an attack. Set at each point that decides, so the default
+  // covers only the request itself failing.
+  let refusal = 'unreachable';
   try {
     const res = await serviceHelper.axiosGet(url, {
       timeout: FETCH_TIMEOUT_MS,
@@ -134,10 +140,12 @@ async function refresh() {
     const bytes = Buffer.from(res.data);
 
     if (want.bytes && bytes.length !== want.bytes) {
+      refusal = 'length';
       throw new Error(`artifact is ${bytes.length} bytes, bundle says ${want.bytes}`);
     }
     const got = sha256Hex(bytes);
     if (got !== want.sha256) {
+      refusal = 'digest';
       throw new Error(`artifact hashes to ${got}, bundle says ${want.sha256}`);
     }
 
@@ -145,6 +153,7 @@ async function refresh() {
       // before the cache write, so a malformed artifact never displaces a good stored copy
       await ipLocationStore.setArtifact(bytes);
     } catch (error) {
+      refusal = 'unreadable';
       // Remember the digest of bytes this build cannot read, so the next attempt does not
       // download the same rejected artifact again. A corrected publication is a different
       // digest and is fetched.
@@ -161,6 +170,7 @@ async function refresh() {
     return { installed: true, attempted: true };
   } catch (error) {
     log.warn(`ipLocationSync - failed to refresh from ${url}, keeping current table: ${error.message}`);
+    fluxEventBus.publish('ipLocation:refused', { reason: refusal, sha256: want.sha256, detail: error.message });
     return { installed: false, attempted: true };
   }
 }

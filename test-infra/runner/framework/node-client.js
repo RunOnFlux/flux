@@ -235,6 +235,10 @@ export function nodeClient(nodeNum) {
         // table. A fleet in that posture makes no requests at all, so this is what tells
         // "decided to decline" from "has not got there yet".
         'ipLocation:noStatement',
+        // A table the node fetched and would not install, with WHY as a value: every
+        // refusal ends at one log line, so the text cannot tell a bad publication from
+        // bytes swapped in transit, and those are different events.
+        'ipLocation:refused',
         'syncthing:folderErrors',
         'syncthing:eventsResync',
         'syncthing:holderRetained',

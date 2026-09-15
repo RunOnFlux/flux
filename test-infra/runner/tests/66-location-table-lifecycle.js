@@ -165,6 +165,19 @@ describe('the location table survives restarts and refuses bad publications', fu
 
   const stubState = async () => (await fetch(`${env.stubControl}/state`)).json();
 
+  // The refusals a node published after a given point, as reasons.
+  //
+  // SCOPED BY EVENT ID, because these scenarios share a node and its buffer keeps
+  // everything: an unscoped look finds the PREVIOUS scenario's refusal and passes on it.
+  // And by reason rather than by log text - every refusal ends at the same line, so
+  // matching it cannot tell a table this build cannot read from one whose bytes were
+  // swapped in transit, which are the two different things this block is here to separate.
+  const lastEventId = (index) => env.clients[index].getEventBuffer()
+    .reduce((highest, e) => Math.max(highest, e.id), 0);
+  const refusalsSince = (index, afterId) => env.clients[index].getEventBuffer()
+    .filter((e) => e.event === 'ipLocation:refused' && e.id > afterId)
+    .map((e) => e.data);
+
   // What the fleet did about the artifact currently published. Publishing zeroes
   // these, so they are always scoped to the publication under test.
   const fetchCounts = async (route = BINARY_ROUTE) => (await stubState()).ipLocationFetches[route];
@@ -351,15 +364,25 @@ describe('the location table survives restarts and refuses bad publications', fu
     expect(tree.total.domains).to.equal(BASELINE_DOMAINS);
     expect(tree.unresolved).to.equal(0);
 
-    // The refresh still runs on every startup; with the artifact unchanged the
-    // etag makes it a conditional request that transfers no body at all.
-    await waitFor(async () => (await fetchCounts()).notModified > beforeRestart.notModified, {
-      timeout: 180000, interval: 2000, label: 'the restarted node revalidates its copy',
-    });
+    // THE REFRESH ASKS THE SOURCE NOTHING. It used to revalidate with an etag, and the
+    // assertion here was that a 304 came back; the digest replaced that. A content-addressed
+    // name changes when the content does, so "do I already hold this" is a comparison
+    // against a value the bundle signed, decided locally - rather than a question put to the
+    // server that would be serving the answer, which is the one party that cannot settle it.
+    //
+    // So the restart is expected to produce NO REQUEST OF ANY KIND, which is a stronger
+    // statement than the 304 it replaces and the reason this is asserted on total rather
+    // than on any single outcome.
+    await waitFor(
+      () => env.nodeHasLog(REFRESH_NODE, /ipLocationSync - iplocation table restored from cache|ipLocationStore - adopted the stored baseline/),
+      { timeout: 180000, interval: 2000, label: 'the restarted node settles on the copy it already had' },
+    );
     const afterRestart = await fetchCounts();
+    expect(afterRestart.total, 'the restart asked the source for nothing at all')
+      .to.equal(beforeRestart.total);
     expect(afterRestart.ok, 'and never downloads the artifact a second time').to.equal(beforeRestart.ok);
-    // asserted after the revalidation: a 304 returns before any ingest could
-    // start, so from here the restart is finished with the table for good
+    // asserted after the node has settled: it decided against fetching before any ingest
+    // could start, so from here the restart is finished with the table for good
     expect(env.nodeLogCount(REFRESH_NODE, /ipLocationStore - baseline installed/),
       'and ingested nothing a second time').to.equal(1);
   });
@@ -373,14 +396,19 @@ describe('the location table survives restarts and refuses bad publications', fu
     });
     expect(published.rowCount, 'these bytes are not a format-2 artifact at all').to.equal(null);
 
+    const beforeMalformed = lastEventId(REJECT_NODE);
     await restartAndSettle(REJECT_NODE);
     await waitFor(async () => (await fetchCounts()).ok >= 1, {
       timeout: 180000, interval: 2000, label: 'the restarted node downloads the malformed artifact',
     });
-    // it kept its table because it REFUSED these bytes, not because it never saw them
-    await waitFor(() => env.nodeHasLog(REJECT_NODE, /ipLocationSync - failed to refresh.*keeping current table/), {
+    // It kept its table because it REFUSED these bytes, not because it never saw them -
+    // and refused them as UNREADABLE, which is the fault being published here. A digest
+    // refusal would mean something else entirely and must not pass for this.
+    await waitFor(() => refusalsSince(REJECT_NODE, beforeMalformed).length > 0, {
       timeout: 30000, interval: 1000, label: 'the malformed artifact is refused',
     });
+    expect(refusalsSince(REJECT_NODE, beforeMalformed).map((r) => r.reason),
+      'refused because the reader would not take the bytes').to.deep.equal(['unreadable']);
 
     const answer = await tableAnswer(env.clients[REJECT_NODE], 2);
     expect(answer.tableAvailable, 'the node still has a table').to.equal(true);
@@ -407,14 +435,24 @@ describe('the location table survives restarts and refuses bad publications', fu
     expect(tampered.tampered).to.equal(true);
     expect(tampered.servedUnder, 'served under the name the bundle signed').to.match(/^iplocation-[0-9a-f]{64}\.bin\.gz$/);
 
+    const beforeTamper = lastEventId(REJECT_NODE);
     await restartAndSettle(REJECT_NODE);
     // It DOWNLOADED it - this is a refusal, not a node that never looked.
     await waitFor(async () => (await fetchCounts()).ok >= 1, {
       timeout: 180000, interval: 2000, label: 'the restarted node downloads the tampered artifact',
     });
-    await waitFor(() => env.nodeHasLog(REJECT_NODE, /ipLocationSync - failed to refresh.*hashes to/), {
+    await waitFor(() => refusalsSince(REJECT_NODE, beforeTamper).length > 0, {
       timeout: 30000, interval: 1000, label: 'the digest check refuses it, naming the disagreement',
     });
+    // THE DIGEST, specifically. The bytes are the declared length and arrive under the name
+    // the bundle signed, so every other check passes them - only the hash disagrees, and
+    // that is the whole reason the bundle carries one.
+    const [tamperRefusal] = refusalsSince(REJECT_NODE, beforeTamper);
+    expect(tamperRefusal.reason, 'refused on the digest, not on anything upstream of it').to.equal('digest');
+    // The digest it refused against is the one the bundle signed - which the stub reports
+    // as the name it served the forged bytes under.
+    const [, signedDigest] = tampered.servedUnder.match(/^iplocation-([0-9a-f]{64})\.bin\.gz$/);
+    expect(tamperRefusal.sha256, 'checked against the digest the bundle vouched for').to.equal(signedDigest);
 
     const answer = await tableAnswer(env.clients[REJECT_NODE], 3);
     expect(answer.tableAvailable, 'the node still has a table').to.equal(true);
@@ -437,11 +475,14 @@ describe('the location table survives restarts and refuses bad publications', fu
     expect(published.padded).to.equal(false);
     expect(published.rowCount, 'the artifact sits below the truncation floor').to.be.lessThan(TRUNCATION_FLOOR);
 
+    const beforeFloor = lastEventId(FLOOR_NODE);
     await restartAndSettle(FLOOR_NODE);
     await waitFor(async () => (await fetchCounts()).ok >= 1, {
       timeout: 180000, interval: 2000, label: 'the restarted node downloads the truncated artifact',
     });
-    await waitFor(() => env.nodeHasLog(FLOOR_NODE, /below the truncation floor/), {
+    // the reason is the event's; the floor itself is the store's message, carried as detail
+    await waitFor(() => refusalsSince(FLOOR_NODE, beforeFloor)
+      .some((r) => r.reason === 'unreadable' && /below the truncation floor/.test(r.detail)), {
       timeout: 30000, interval: 1000, label: 'the truncated artifact is refused on the floor',
     });
 
@@ -463,8 +504,13 @@ describe('the location table survives restarts and refuses bad publications', fu
     // bundle, not the server, is what says whether there is a table to fetch.
     await publish({ artifact: null });
 
+    // Scoped past everything this node has already decided: it has declined before in this
+    // suite, and an unscoped look would find that one and pass without the restart below
+    // having done anything.
+    const beforeGone = lastEventId(REFRESH_NODE);
     await restartAndSettle(REFRESH_NODE);
-    await waitFor(() => env.nodeHasLog(REFRESH_NODE, /ipLocationSync - no signed statement for the iplocation table/), {
+    await waitFor(() => env.clients[REFRESH_NODE].getEventBuffer()
+      .some((e) => e.event === 'ipLocation:noStatement' && e.id > beforeGone), {
       timeout: 180000, interval: 2000, label: 'the restarted node finds nothing named and says so',
     });
 

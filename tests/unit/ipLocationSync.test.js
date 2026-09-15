@@ -459,6 +459,54 @@ describe('ipLocationSync tests', () => {
       expect(axiosGetStub.called, 'and asked the source for nothing').to.equal(false);
     });
 
+    // WHY A REFUSAL HAPPENED, as a value. All four end at the same log line, so a suite
+    // matching its text cannot tell a table this build cannot read from one whose bytes
+    // were swapped in transit - a bad publication and an attack, reported identically.
+    describe('a refusal says which kind it was', () => {
+      const refusals = () => eventBusStub.publish.getCalls()
+        .filter((c) => c.args[0] === 'ipLocation:refused')
+        .map((c) => c.args[1].reason);
+
+      it('names an unreachable source', async () => {
+        axiosGetStub.rejects(new Error('ECONNREFUSED'));
+        await ipLocationSync.refresh();
+        expect(refusals()).to.deep.equal(['unreachable']);
+      });
+
+      it('names a length that disagrees with the bundle', async () => {
+        axiosGetStub.resolves({ status: 200, data: Buffer.from('not the declared length at all') });
+        await ipLocationSync.refresh();
+        expect(refusals()).to.deep.equal(['length']);
+      });
+
+      it('names a digest that disagrees with the bundle', async () => {
+        // exactly the declared length, so only the hash can catch it - the case the
+        // signature exists for
+        const swapped = Buffer.alloc(BYTES.length, 0x41);
+        policyStoreStub.getArtifact.returns({ file: FILE, sha256: SHA, bytes: swapped.length });
+        axiosGetStub.resolves({ status: 200, data: swapped });
+        await ipLocationSync.refresh();
+        expect(refusals()).to.deep.equal(['digest']);
+      });
+
+      it('names bytes the reader would not take', async () => {
+        storeStub.setArtifact.rejects(new Error('row count 3 is below the truncation floor'));
+        await ipLocationSync.refresh();
+        expect(refusals()).to.deep.equal(['unreadable']);
+      });
+
+      it('carries the detail alongside the reason, for the case that needs it', async () => {
+        storeStub.setArtifact.rejects(new Error('row count 3 is below the truncation floor 1500000'));
+        await ipLocationSync.refresh();
+        const [call] = eventBusStub.publish.getCalls().filter((c) => c.args[0] === 'ipLocation:refused');
+        expect(call.args[1]).to.deep.equal({
+          reason: 'unreadable',
+          sha256: SHA,
+          detail: 'row count 3 is below the truncation floor 1500000',
+        });
+      });
+    });
+
     it('refetches when a later bundle names a different table', async () => {
       // A new baseline is published as a new bundle naming a new digest. Without this the
       // node would not look again until its next daily refresh, so a table the network had
