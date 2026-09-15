@@ -831,8 +831,8 @@ function getFluxZelID(req, res) {
 function getFluxIds(req, res) {
   const fluxConfig = {
     fluxTeamFluxID: configDefault.fluxTeamFluxID,
-    // An array. Read through the helper so a node whose local config still holds
-    // the single string this used to be reports the same shape as one that does not.
+    // An array. Read through the helper, which normalises the single-string form an
+    // older local config may still hold, so every node reports the same shape.
     fluxSupportTeamFluxID: verificationHelperUtils.fluxSupportTeamZelids(),
   };
 

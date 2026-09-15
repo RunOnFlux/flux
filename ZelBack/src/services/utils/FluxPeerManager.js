@@ -526,13 +526,10 @@ class FluxPeerManager extends EventEmitter {
   // attaches after the threshold was crossed never sees the event, so it must
   // be able to read the current state.
   //
-  // A BOOLEAN, because that is the question. This used to return the peer count
-  // above the threshold and 0 below it - so 0 meant "no peers" and 0 also meant
-  // "eleven peers", and a caller had to be told which of the two it was reading.
-  // Every caller wanted the flag; the one that read it as a tally sent a node to
-  // the published source while its peers held the bundle. A count that is only
-  // sometimes a count is not a count. Anything wanting the number calls
-  // getNumberOfPeers, which always means what it says.
+  // A BOOLEAN, because that is the question every caller asks. A count that
+  // reported the size above the threshold and 0 below it would mean "no peers"
+  // and "eleven peers" with the same value, and a reader could not tell which.
+  // Anything wanting the number calls getNumberOfPeers.
   isAboveThreshold() {
     return this.#aboveThreshold;
   }

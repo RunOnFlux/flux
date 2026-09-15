@@ -1855,11 +1855,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
       // the peer threshold, or one whose source is not answering, was built not to satisfy
       // this at all. Derived by the env rather than declared per suite, so a two-node
       // fleet written later is covered without anybody remembering to opt out.
-      //
-      // A fixed bound like every other wait here, and no knob. There is nothing to tune:
-      // this settles in seconds, and a fleet still without policy after two minutes is one
-      // that should fail rather than be given longer. A fixture policyReachable reads
-      // wrongly is a bug in policyReachable, not something to switch off for the whole run.
+
       if (!indices && policyReachable) {
         await waitFor(
           () => clients.filter(Boolean).every((client) => client.getEventBuffer()

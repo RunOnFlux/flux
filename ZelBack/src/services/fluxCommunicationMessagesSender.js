@@ -177,13 +177,11 @@ async function respondWithPolicy(msgObj, peer) {
     if (policyStore.getSeq() <= askerSeq) {
       // Nothing newer to give - but say so, rather than saying nothing.
       //
-      // Silence used to be the answer here, on the grounds that "I have nothing newer"
-      // is a claim the asker cannot check. True, and it stays uncheckable: what comes
-      // back is a sequence, and a sequence grants nothing. What it does give the asker
-      // is the difference between "my peers agree I am current" and "my peers are
-      // asleep", which silence cannot express - and a node that cannot tell those apart
-      // has no way to know whether the policy it restored from disk is still the
-      // network's.
+      // "I have nothing newer" is a claim the asker cannot check, and it grants nothing:
+      // what comes back is a sequence. What it gives the asker is the difference between
+      // "my peers agree I am current" and "my peers are asleep", which silence cannot
+      // express - and a node that cannot tell those apart has no way to know whether the
+      // policy it restored from disk is still the network's.
       //
       // A PEER THAT LIES LOW IS ACTED ON: policyStore.notePeerSeq takes a sequence at or
       // below its own as confirmation, and that opens the acquisition gate. It is safe

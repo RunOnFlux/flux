@@ -715,9 +715,8 @@ module.exports = {
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
   github: {
-    // The REST API only. Nothing reads files from github any more: the policy documents
-    // that used to come from RunOnFlux/flux helpers/ are served from config.policy.baseUrl
-    // and the helpers/ copies are gone.
+    // The REST API only. Nothing here reads files from github: the policy documents are
+    // served from config.policy.baseUrl.
     apiBaseUrl: 'https://api.github.com',
   },
   policy: {

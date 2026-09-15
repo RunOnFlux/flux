@@ -320,8 +320,8 @@ async function startSync() {
   // minute backoff", decided by a race.
   //
   // It also covers the bundle CHANGING later. A new baseline is published as a new bundle
-  // naming a new digest, and before this the node would not look until its next daily
-  // refresh - so a table the network had already moved to could be up to a day away.
+  // naming a new digest, and the subscription is what brings it inside seconds rather
+  // than leaving it until the next daily refresh.
   // The returned promise is swallowed deliberately: policyStore fires listeners without
   // awaiting them - a consumer must not be able to hold up an adoption - so letting one
   // escape here would be an unhandled rejection rather than anything anybody reads.
