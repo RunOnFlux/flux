@@ -1562,6 +1562,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     }
   }
 
+  // Nodes this fixture has cut off from the fleet. They reach nobody and nobody reaches
+  // them, so they peer with nobody and obtain no policy - by the fixture's own doing.
+  const heldOut = new Set();
+
   // Post-boot methods join the shell here (they close over _buildEnv locals like
   // deferredBuilders/fluxNodes); identity, registries and teardown live on the
   // shell itself so they exist from boot start.
@@ -1727,6 +1731,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     // The acceptance window then spans a sync rather than a boot, and stops depending on
     // how loaded the box was.
     async holdOutPendingNode(pendingIndex, runningIndices) {
+      // Remembered, so anything waiting on the fleet knows this node is not coming. It is
+      // cut off from every other node, so it peers with nobody and obtains no policy - and
+      // a wait that required it would be waiting for the condition this call creates.
+      heldOut.add(pendingIndex);
       const pendingIp = fluxNodes[pendingIndex].ip;
       await Promise.all(runningIndices.map(async (node) => {
         const res = await fluxNodes[node].container.exec(
@@ -1742,6 +1750,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
     // already gone is not an error. The caller re-runs discovery, since the held
     // node was refused for the whole time the others were dialling.
     async releasePendingNode(pendingIndex, runningIndices) {
+      heldOut.delete(pendingIndex);
       const pendingIp = fluxNodes[pendingIndex].ip;
       await Promise.all(runningIndices.map((node) => fluxNodes[node].container.exec(
         ['sh', '-c', `iptables -D INPUT -s ${pendingIp} -j DROP || true`],
@@ -1871,9 +1880,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
 
       if (!indices && policyReachable) {
         await waitFor(
-          () => clients.filter(Boolean).every((client) => client.getEventBuffer()
+          () => clients.every((client, i) => !client || heldOut.has(i) || client.getEventBuffer()
             .some((e) => e.event === 'policy:bundleChanged')),
-          { timeout: 120000, interval: 1000, label: 'policy on every node of the fleet' },
+          { timeout: 120000, interval: 1000, label: 'policy on every node the fleet can reach' },
         );
       }
     },
