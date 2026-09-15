@@ -297,6 +297,7 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     },
     { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
   );
+
   await startTicker();
 }
 

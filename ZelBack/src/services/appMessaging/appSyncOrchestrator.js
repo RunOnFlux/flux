@@ -81,11 +81,9 @@ class AppSyncOrchestrator {
   /**
    * Whether the peer set is up RIGHT NOW, mirroring FluxPeerManager's latch.
    *
-   * A level, not a one-way latch. It used to be set on peerThresholdReached
-   * and cleared nowhere, which was survivable while nothing but "has the sync
-   * ever been allowed to start" read it - and is not, now that the block
-   * fallback is gated on it. A latch that never falls cannot say a peer set
-   * was lost, and the whole point of the gate is that it was.
+   * A level, not a one-way latch, because the block fallback is gated on it: a
+   * latch that never falls cannot say a peer set was lost, and that it was lost
+   * is the whole point of the gate.
    *
    * It tracks the HYSTERETIC pair, because that is the pair the two events it
    * rides on are emitted from: up at appSyncPeerThreshold (12), down at
@@ -171,14 +169,14 @@ class AppSyncOrchestrator {
   #heartbeatInterval = null;
   #bootContext = null;
   #canSendMessages = false;
-  #peerCountIfAboveThreshold = () => 0;
+  #isAboveThreshold = () => false;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
     this.#getEligibleSyncPeers = options.getEligibleSyncPeers;
     this.#onPeerEvent = options.onPeerEvent;
     this.#offPeerEvent = options.offPeerEvent;
-    this.#peerCountIfAboveThreshold = options.peerCountIfAboveThreshold ?? (() => 0);
+    this.#isAboveThreshold = options.isAboveThreshold ?? (() => false);
     this.#waitForNetworkState = options.networkStateReady ?? null;
     this.#fluxVersion = options.fluxVersion ?? null;
   }
@@ -208,8 +206,11 @@ class AppSyncOrchestrator {
     this.#bootContext = bootContext;
     this.#startHeartbeat();
 
+    // count comes from the edge, which carries the size that crossed it. The level read
+    // below has no count to report - and asking for one would be a dependency taken on for
+    // a log line - so it says which of the two paths got here instead.
     this.#peerThresholdHandler = (count) => {
-      log.info(`AppSyncOrchestrator - Peer threshold reached (${count} peers)`);
+      log.info(`AppSyncOrchestrator - Peer threshold reached (${count === undefined ? 'already above it at start' : `${count} peers`})`);
       this.#peersReady = true;
       this.#tryStartSync();
     };
@@ -241,9 +242,8 @@ class AppSyncOrchestrator {
     // has already fired and never re-fires, which would leave #peersReady
     // false and stall ephemeral state sync until the block timer. Read the
     // level after subscribing to the edge.
-    const peersAlready = this.#peerCountIfAboveThreshold();
-    if (peersAlready && !this.#peersReady) {
-      this.#peerThresholdHandler(peersAlready);
+    if (this.#isAboveThreshold() && !this.#peersReady) {
+      this.#peerThresholdHandler();
     }
 
     this.#ephemeralSyncHandler = (syncType, peerKey) => this.#onEphemeralSyncComplete(syncType, peerKey);
@@ -1030,13 +1030,12 @@ class AppSyncOrchestrator {
   // (#onPeersDegraded). It is therefore 125 CONTINUOUS minutes with peers, not
   // 125 minutes of uptime.
   //
-  // There used to be a second, shorter value for enterprise nodes, halved in
-  // the manner of the spawner's enterprise deferrals. Those are a priority -
-  // how long before a node may compete for an app - and halving one grants an
-  // advantage. This is not that: it is how long before a node assumes it knows
-  // what the network looks like, and there is no advantage in assuming it
-  // sooner. A node can be given priority; it cannot be given information it has
-  // not received.
+  // ONE VALUE, ENTERPRISE OR NOT, unlike the spawner's deferrals. Those are a
+  // priority - how long before a node may compete for an app - and shortening
+  // one grants an advantage. This is how long before a node assumes it knows
+  // what the network looks like, and assuming it sooner is not an advantage. A
+  // node can be given priority; it cannot be given information it has not
+  // received.
   #isBlockTimerExpired() {
     return this.#blocksSinceSyncStarted >= FALLBACK_MINUTES * BLOCKS_PER_MINUTE;
   }

@@ -313,7 +313,6 @@ module.exports = {
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     spawnDeferrals: {
-      targetedNodesMs: { enterprise: 1800000, standard: 3420000 },
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },
       capacityGap: {
@@ -414,11 +413,18 @@ module.exports = {
     '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',
   ],
   github: {
-    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
     apiBaseUrl: 'https://api.github.com',
   },
   policy: {
     baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
+    signedBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/signed',
+    publicKeys: [
+      'c31930ec386a49f31321851766d93bcb90bf269cd15bec7a329155a4d79ea380',
+      '739ca41408f66c75d6cb4bc1d5c044ca5a118de190081da68e5a7d6839fb69f8',
+    ],
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    peerWindowMs: 3 * 1000,
+    fetchTimeoutMs: 10 * 1000,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

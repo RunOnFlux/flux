@@ -532,8 +532,18 @@ describe('an app log stream loses nothing and is shared between viewers', functi
 
       // Given up by name rather than by disconnecting, so the other one is
       // proved to survive it.
+      //
+      // BY THE ID IT WAS GIVEN BACK, not by the identifier it subscribed with.
+      // Which container is answered first is deliberately not decided here - both
+      // subscribes are emitted before either can be answered, which is the whole
+      // point of the case - so `subscribed[0]` is whichever the node got to first
+      // and has no fixed relation to `secondIdentifier`. Giving up that identifier
+      // and then waiting on `subscribed[0]` asks the node to keep feeding the
+      // container just unsubscribed, about half the time. The handler matches an
+      // unsubscribe against the id or the name (`leaveMatching`), so naming the id
+      // makes the pair agree however the race fell.
       const kept = byContainer.get(subscribed[0]).length;
-      socket.emit('unsubscribe', secondIdentifier);
+      socket.emit('unsubscribe', subscribed[1]);
       await new Promise((resolve) => { setTimeout(resolve, 1500); });
       const leftSettled = byContainer.get(subscribed[1]).length;
 

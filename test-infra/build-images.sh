@@ -26,6 +26,24 @@ TAG="${FLUX_E2E_TAG:-latest}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Where the node image takes its Ubuntu packages from. Passed through only when set, so
+# the default stays whatever the Dockerfile declares and an ordinary build is unchanged.
+# A box that cannot reach Canonical names a mirror instead:
+#
+#   UBUNTU_MIRROR=http://mirrors.edge.kernel.org/ubuntu ./test-infra/build-images.sh
+#
+# It reaches the node image only. No stub uses apt - they are node:20-slim plus npm - so
+# there is nothing to thread it through to.
+# if/then rather than `[ ... ] && ...`: under `set -e` an AND-list whose test fails is a
+# non-zero statement, so the unset case - the normal one - would abort the build script.
+MIRROR_ARGS=()
+if [ -n "${UBUNTU_MIRROR:-}" ]; then
+  MIRROR_ARGS+=(--build-arg "UBUNTU_MIRROR=${UBUNTU_MIRROR}")
+fi
+if [ -n "${UBUNTU_SECURITY_MIRROR:-}" ]; then
+  MIRROR_ARGS+=(--build-arg "UBUNTU_SECURITY_MIRROR=${UBUNTU_SECURITY_MIRROR}")
+fi
+
 # The stub set is DERIVED, never listed: it differs by lineage (v9 carries a
 # fluxdrive-stub the development lineage neither builds nor references), and a
 # hardcoded list silently skips whichever image the other lineage added.
@@ -47,6 +65,7 @@ build_fluxos() {
   bash test-infra/test-app/build.sh
   echo "==> flux-e2e-fluxos-01:${TAG}"
   docker build -f test-infra/Dockerfile.fluxos \
+    ${MIRROR_ARGS[@]+"${MIRROR_ARGS[@]}"} \
     --label "flux.e2e.src=$(test-infra/image-digest.sh fluxos-01)" \
     -t "flux-e2e-fluxos-01:${TAG}" .
 }

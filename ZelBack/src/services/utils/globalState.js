@@ -12,6 +12,7 @@ let masterSlaveAppsRunning = false;
 const daemonReadyGate = new AsyncGate();
 const bootContainerStateSettledGate = new AsyncGate();
 const dbReadyGate = new AsyncGate();
+const policyReadyGate = new AsyncGate();
 let appStateAuthoritative = false;
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
@@ -117,11 +118,11 @@ module.exports = {
   // others, because a redeploy that asked without excluding itself would refuse
   // its own reinstall. Order is the order the guards asked in.
   //
-  // Every entry point that can START work asks this. The five flags used to be
-  // read as hand-picked subsets - forty-six guards, exactly one of which read
-  // reinstallationOfOldAppsInProgress - so the periodic reinstall pass announced
-  // itself and the spawner walked straight past it, took the node during the
-  // pass's own wait, and left an app torn down that could not be rebuilt.
+  // EVERY ENTRY POINT THAT CAN START WORK ASKS THIS, and asks it for all five flags
+  // rather than a subset it picked. A guard that reads only the flags it expects to
+  // meet walks past the one it did not: a spawner that ignores the reinstall pass takes
+  // the node during that pass's own wait and leaves an app torn down that cannot be
+  // rebuilt.
   operationHolding(except = null) {
     const held = [
       ['removal', removalInProgress],
@@ -151,6 +152,19 @@ module.exports = {
   get dbReady() { return dbReadyGate.ready; },
   set dbReady(value) { if (value) dbReadyGate.open(); else dbReadyGate.close(); },
   waitForDbReady() { return dbReadyGate.wait(); },
+
+  // Whether this node has a network policy it actually obtained, as opposed to the
+  // absence of one. Closed until enterpriseConfig resolves the node->owners map, and
+  // closed again if the map is ever lost.
+  //
+  // The distinction is the point: an empty map and an unread map produce the same
+  // answer from every lookup ("this node is not an enterprise node"), and acting on
+  // that answer is how an enterprise node fills itself with apps it must not host and
+  // then has them uninstalled from under it. Acquisition waits for this gate; nothing
+  // else has to, because nothing else decides whether an app belongs here.
+  get policyReady() { return policyReadyGate.ready; },
+  set policyReady(value) { if (value) policyReadyGate.open(); else policyReadyGate.close(); },
+  waitForPolicyReady() { return policyReadyGate.wait(); },
 
   // Whether this node's ephemeral app-state store is worth another node's
   // survey: its own state sync completed, or it has spent the block timer

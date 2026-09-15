@@ -1,4 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildEnterpriseBlob } from './enterprise-helper.js';
 import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
@@ -8,6 +11,26 @@ import { allocatePortFor, assignPorts } from './port-allocator.js';
 import chainStart from './chain-start.cjs';
 
 const { DEFAULT_INITIAL_HEIGHT } = chainStart;
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const deterministicList = JSON.parse(
+  readFileSync(join(HERE, '..', '..', 'fixtures', 'deterministic-list.json'), 'utf-8'),
+);
+
+/**
+ * A node's collateral outpoint, in the form a spec's `nodes` array uses.
+ *
+ * The other half of how a pin can name a node. It reads from the same fixture the daemon
+ * stub answers getzelnodestatus from, so the value a suite pins with is the value the node
+ * will report for itself - restating it in a suite is how a pin silently matches nobody.
+ * @param {number} index Node index, 0-based, as env.clients is indexed.
+ * @returns {string} `<txhash>:<outidx>`
+ */
+export function nodeOutpoint(index) {
+  const node = deterministicList[index];
+  if (!node) throw new Error(`nodeOutpoint: no node at index ${index}`);
+  return `${node.txhash}:${node.outidx}`;
+}
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -41,6 +64,16 @@ export async function buildSeedableApp({
   // Two apps in a suite wanting one port is refused here by default. A suite
   // for which the collision IS the subject - 98 - says so.
   allowPortReuse = false,
+  // Pin the app to named nodes. An entry names a node EITHER by socket address
+  // ('198.18.1.0:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
+  // are live on the network, and nodeOutpoint() below builds the second form.
+  //
+  // Set HERE and nowhere else: the signature and the hash are taken over
+  // JSON.stringify(spec) a few lines down, so a suite that pins an app by
+  // writing to the returned spec gets a specification whose hash belongs to a
+  // different one. Nothing rejects that - the node simply decides the app is
+  // obsolete and reinstalls it forever.
+  nodes = [],
 }) {
   const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
@@ -72,7 +105,7 @@ export async function buildSeedableApp({
     contacts: [],
     geolocation: [],
     expire,
-    nodes: [],
+    nodes,
     staticip,
     enterprise,
   };

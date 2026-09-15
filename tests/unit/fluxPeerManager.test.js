@@ -898,6 +898,28 @@ describe('FluxPeerManager tests', () => {
       ]);
     });
 
+    // ORDER IS PART OF THE CONTRACT, not an accident of where the emits sit.
+    //
+    // A listener that starts per-connection work on peerConnected and reads the result of
+    // that work on peerThresholdReached needs the connection handled first. policyStore is
+    // exactly that listener: it asks each arriving peer for policy, and when the set is full
+    // and every ask has come back empty it seeds from the published source. With the edge
+    // emitted first, the peer that CROSSED the threshold has not been asked at the moment
+    // the set is declared full - so "nobody has policy" would be decided over a peer nobody
+    // had spoken to yet.
+    it('announces the connection before it announces that the set is full', () => {
+      const order = [];
+      manager.on('peerConnected', () => order.push('connected'));
+      manager.on('peerThresholdReached', () => order.push('threshold'));
+
+      for (let i = 1; i <= 12; i += 1) {
+        manager.add(createMockWs(`10.0.0.${i}`, '16127'), `10.0.0.${i}`, '16127', { source: PEER_SOURCE.RANDOM });
+      }
+
+      expect(order.slice(-2), 'the crossing peer is announced, then the crossing')
+        .to.deep.equal(['connected', 'threshold']);
+    });
+
     // A FALL THIS NODE CAUSED IS NOT THE NETWORK FAILING. disconnectAll() drops
     // every peer when confirmation is lost, which crosses the degraded
     // threshold exactly as an outage does. A listener counting peer-set

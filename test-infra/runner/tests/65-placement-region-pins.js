@@ -172,19 +172,22 @@ describe('placement honours region pins on proof from the shared table', functio
       hookCtx: this,
       nodes: 6,
       tickerAutostart: false,
+      // Three organisations WITH regions, published BEFORE THE NODES START. Organisations
+      // 0 and 1 carry a region; the last carries none.
+      //
+      // Through the env rather than posted afterwards: the bundle a node adopts at boot
+      // names the table by content hash, so a later publication re-signs the bundle and
+      // leaves every node asking for a digest the stub has already replaced - a 404, and
+      // no table for the whole fleet.
+      locationTable: { domains: DOMAINS, subnet: subnet.base, regions: true },
       configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
     });
 
-    // Three organisations WITH regions, published before the nodes boot so
-    // their first fetch already carries them. Organisations 0 and 1 carry a
-    // region; the last carries none.
-    const response = await fetch(`${env.stubControl}/iplocation`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domains: DOMAINS, subnet: subnet.base, regions: true }),
-    });
-    expect(response.ok, 'stub accepted the regioned split artifact').to.equal(true);
-    const published = await response.json();
+    // What the publisher said about that artifact. The env did the publishing, so it
+    // carries the answer - this suite pins with the region assignment, which it has no way
+    // to compute for itself.
+    const published = env.locationTablePublication;
+    expect(published, 'the env published the regioned split artifact').to.not.equal(null);
 
     // Everything this suite pins with comes from that answer. The stub's
     // country and region tables are index-aligned - regions[k] belongs to

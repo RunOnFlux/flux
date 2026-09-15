@@ -38,7 +38,8 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
-const enterpriseConfig = require('./utils/enterpriseConfig');
+const policyStore = require('./policyStore');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -259,12 +260,6 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    // Seed the enterprise node->owners map from helpers/enterprisenodes.json on disk
-    // and sync it from github (every 6h thereafter). Awaited so consumers (identity
-    // resolution, the spawn loop, app-spec validation) have data before they run; the
-    // disk read and github fetch are both bounded (10s fetch timeout) so boot is never
-    // stuck on this. A failed/invalid sync keeps the last-good value.
-    await enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
@@ -487,7 +482,7 @@ async function startFluxFunctions() {
         .map((p) => ({ key: p.key, connectionId: p.connectionId, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
       networkStateReady: () => networkStateService.waitStarted(),
       fluxVersion,
     });
@@ -504,8 +499,58 @@ async function startFluxFunctions() {
     peerSetStabilityService.start({
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
     });
+
+    // Network policy, started here rather than at the top of boot because it needs both of
+    // the things that only exist by now: mongo, to restore and re-verify the bundle this
+    // node last held, and peers, to ask for anything newer. Its old position could reach
+    // neither, which is why it could only ever fetch from github.
+    //
+    // Not awaited. Boot does not wait on policy and never did: the node comes up, serves its
+    // API and keeps its containers running regardless. What waits is acquisition, through
+    // globalState.policyReady, which is the one decision that must not be made on a guess.
+    policyStore.setPeerTransport({
+      request: (seq) => fluxCommunicationMessagesSender.requestPolicyFromPeers(seq),
+      // Targeted rung, for a node that already holds policy. A key that no longer resolves
+      // is a peer that left between connecting and being asked, which is not an error.
+      requestFrom: (key, seq) => {
+        const peer = peerManager.get(key);
+        if (!peer) return Promise.resolve();
+        return fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, seq);
+      },
+      announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
+      // The latched level: peerManager already defines "enough peers to gossip with" with
+      // hysteresis (appSyncPeerThreshold 12 up, appSyncDegradedThreshold 4 down). A late
+      // subscriber cannot see the edge it missed, which is what this accessor exists for -
+      // and reading the level rather than keeping an edge of our own is why nothing here
+      // needs re-arming when a peer set collapses and rebuilds.
+      aboveThreshold: () => peerManager.isAboveThreshold(),
+    });
+    // Discovery has not started yet - it is fifty lines below - so the peer set is empty at
+    // this point on every node, always. Nothing here asks peers or the source; both are
+    // driven by the two subscriptions that follow, which is what makes peers-first true at
+    // boot rather than only at the 24-hour tick. It is the whole difference between a node
+    // that boots while github is down getting policy from the neighbour beside it and
+    // getting none for a day.
+    //
+    // PER JOIN for the ASK. peerThresholdReached fires when the count first crosses
+    // appSyncPeerThreshold and then never again unless the set has since fallen below
+    // appSyncDegradedThreshold, so as a prompt to ask peers it is the wrong signal: a node
+    // asks once, its peers have nothing either, and when one of them later obtains a bundle
+    // nothing tells this node to ask again - its peer set never collapsed, so the edge never
+    // re-arms. Measured on a three-node fleet: node 1 asked at 08:16:09, node 0 adopted at
+    // 08:16:54, and node 1 held nothing thereafter. Every join re-arms the ask, and the join
+    // that crosses the threshold is one of them.
+    //
+    // The key is the whole point: notePeerAvailable asks THAT peer and never the source.
+    // A broadcast would have to be rationed, and a rationed ask cannot serve a node that is
+    // merely behind.
+    //
+    // The orchestrator next door draws the same distinction for its sync pool, and for the
+    // same reason: a latched edge says nothing about a pool that has changed since it fired.
+    peerManager.on('peerConnected', (key) => policyStore.notePeerAvailable(key));
+    policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
     appSpawner.initialize();
