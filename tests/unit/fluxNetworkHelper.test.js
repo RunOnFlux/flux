@@ -789,6 +789,70 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('checkNodeJsVersionAllowed tests', () => {
+    // minimumNodeJsAllowedVersion = '20.8.0'
+    const realNodeJsVersion = process.versions.node;
+
+    function runningOn(version) {
+      Object.defineProperty(process.versions, 'node', { value: version, configurable: true });
+    }
+
+    afterEach(() => {
+      runningOn(realNodeJsVersion);
+      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+    });
+
+    it('allows the runtime the fleet already runs', () => {
+      runningOn('24.14.1');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('allows the floor itself', () => {
+      runningOn('20.8.0');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node below the floor out of service, and says which version it found', () => {
+      // the last 16.x release, which left support in September 2023
+      runningOn('16.20.2');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('20.8.0');
+      expect(reported.dosMessage).to.include('16.20.2');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('refuses a version below the floor within the same major', () => {
+      runningOn('20.7.0');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
+    });
+
+    it('survives the clear a successful availability pass performs', () => {
+      // checkMyFluxAvailability ends a good pass with dosState = 0 and
+      // setDosMessage(null). The runtime verdict is asked once at startup, so if
+      // that clear reached it the node would return to service on a NodeJS that
+      // cannot run the code and nothing would ask again.
+      runningOn('16.20.2');
+      fluxNetworkHelper.checkNodeJsVersionAllowed();
+
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('16.20.2');
+      expect(reported.dosState).to.equal(100);
+    });
+  });
+
   describe('checkFluxbenchVersionAllowed tests', () => {
     // minimumFluxBenchAllowedVersion = '6.2.0';
     let benchmarkInfoResponseStub;

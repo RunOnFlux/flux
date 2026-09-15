@@ -175,27 +175,48 @@ describe('geolocationService tests', () => {
       sinon.assert.calledOnce(logStub.info);
     });
 
-    it('answers with a copy, so shaping the answer for a reply leaves the node knowing where it is', async () => {
-      // What getHostInfo does: the node's address and operator are kept from
-      // the app container asking. Handed the cache itself, those two removals
-      // are permanent, and a node that no longer knows its own address cannot
-      // place itself in the location table - it then refuses every app pinned
-      // to a region, and the next refresh persists the gap.
-      // The record the service will hold, distinct from the fixture: asserting
-      // against mockGeolocationData would compare the cache with the very
-      // object a caller mutated, which is equal to itself either way.
+    // Both branches of the accessor are covered separately and deliberately.
+    // A test that mutates what the DATABASE branch returned and then reads the
+    // cache proves only that branch: it runs at most once per process, before
+    // the first refresh pass, while every call after boot takes the in-memory
+    // one. Asserting against mockGeolocationData rather than an independent
+    // value would likewise compare the cache with the very object a caller
+    // mutated, which is equal to itself either way.
+    it('answers with a copy on the in-memory path, the one every call after boot takes', async () => {
       const held = { ...mockGeolocationData };
       dbHelperStub.findOneInDatabase.resolves({ ...mockDbResult, geolocation: held });
+      await geolocationService.getNodeGeolocation();
 
+      // what getHostInfo does, to what the in-memory branch handed it
       const forTheReply = await geolocationService.getNodeGeolocation();
       delete forTheReply.ip;
       delete forTheReply.org;
 
       const stillStored = await geolocationService.getNodeGeolocation();
-
       expect(stillStored.ip).to.equal('185.199.108.1');
       expect(stillStored.org).to.equal('Hetzner Online GmbH');
+    });
+
+    it('answers with a copy on the database-restore path', async () => {
+      const held = { ...mockGeolocationData };
+      dbHelperStub.findOneInDatabase.resolves({ ...mockDbResult, geolocation: held });
+
+      const fromDb = await geolocationService.getNodeGeolocation();
+      delete fromDb.ip;
+
       expect(held.ip).to.equal('185.199.108.1');
+      const next = await geolocationService.getNodeGeolocation();
+      expect(next.ip).to.equal('185.199.108.1');
+    });
+
+    it('hands a distinct object to every caller', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ ...mockDbResult, geolocation: { ...mockGeolocationData } });
+
+      const first = await geolocationService.getNodeGeolocation();
+      const second = await geolocationService.getNodeGeolocation();
+
+      expect(first).to.not.equal(second);
+      expect(first).to.deep.equal(second);
     });
 
     it('should restore staticIp, dataCenter, and lastIpChangeDate from db', async () => {

@@ -120,6 +120,14 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.18.0',
+  // The NodeJS the process itself runs on. The tree already calls globals that
+  // are not on every runtime in the fleet - fetch, in the Azure registry auth
+  // provider, arrived in 18 - and a node missing one fails that path alone and
+  // silently, rather than reporting itself unfit. The floor sits above that at
+  // 20.8.0 because that is where the fleet already is: every ArcaneOS node runs
+  // 24.x, nothing at all runs between 16.20.2 and 20.8.0, so the higher number
+  // costs no node and leaves nothing in service on a line unsupported upstream.
+  minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
