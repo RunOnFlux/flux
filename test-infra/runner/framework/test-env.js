@@ -745,6 +745,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
+  awaitPolicy = true,
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
@@ -906,21 +907,31 @@ export async function createTestEnv({
     );
   }
 
-  // WHETHER THIS FLEET CAN OBTAIN POLICY AT ALL, which decides whether anything may
-  // wait for it.
+  // WHETHER ANYTHING MAY WAIT FOR THIS FLEET TO HOLD POLICY, which is two questions of
+  // different kinds and the framework may only answer one of them.
   //
-  // A node reaches the published source only after its peer set is up and every peer it
-  // asked has answered without one - so a fleet that cannot cross appSyncPeerThreshold
-  // never asks, and neither does one whose source is not answering. Both are legitimate
-  // fixtures, and a wait for policy on either would burn its timeout on a condition the
-  // fleet was built not to satisfy.
+  // CAN IT PEER is arithmetic, and derived here. A node reaches the published source only
+  // once its peer set is up and every peer it asked has answered without a bundle, so a
+  // fleet that cannot cross appSyncPeerThreshold never asks. That follows from the node
+  // count and the ring's derived arc - the same reachablePeers the peerless override above
+  // uses - and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
+  // nodes and have no opinion about policy at all; their authors should not have to know
+  // this wait exists.
   //
-  // Derived from the same reachablePeers the peerless override above uses, rather than a
-  // list of suites that opt out: a list goes stale the first time somebody writes a
-  // two-node fleet.
-  const policyReachable = reachablePeers >= (
+  // A threshold of zero would not rescue them: FluxPeerManager sets #aboveThreshold only
+  // inside addPeer, so a node with no peers never flips the latch whatever the threshold
+  // is set to.
+  //
+  // DOES IT WANT TO is intent, and only the fixture knows. A source can answer perfectly
+  // and serve a bundle the node is right to refuse - a signer the fleet does not pin, a
+  // sequence going backwards, bytes that are not a bundle - and such a fleet never holds
+  // policy BY DESIGN. Inferring that from the policy options cannot work: enumerating
+  // `available: false` missed `signer: 'rogue'` and cost a gate, and the next control added
+  // to the stub would break it again. Those fixtures say so with `awaitPolicy: false`,
+  // beside the option that creates the condition, where the two cannot drift apart.
+  const policyReachable = awaitPolicy && reachablePeers >= (
     configOverrides?.fluxapps?.appSyncPeerThreshold ?? sharedFluxapps.appSyncPeerThreshold
-  ) && policy?.available !== false;
+  );
 
   const mergedNodeOverrides = { ...nodeConfigOverrides, ...peerlessOverrides, ...syncedOverrides };
   // Only a legacy node ever installs its own packages, so unseeding a fleet without

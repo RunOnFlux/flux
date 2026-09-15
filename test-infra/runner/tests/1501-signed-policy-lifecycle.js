@@ -4,6 +4,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
+import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { assignPorts } from '../framework/port-allocator.js';
@@ -183,7 +184,17 @@ describe('the backstop tick', function () {
   });
 });
 
-describe('the signed policy bundle on a single node', function () {
+// THREE NODES, BECAUSE POLICY ARRIVES THROUGH PEERS.
+//
+// A node reaches the published source only once its peer set is up and every peer it asked
+// has answered without a bundle. A lone node never asks a peer, never earns the right to ask
+// the source, and never holds policy at all - so the smallest fleet that can hold a bundle is
+// one that can peer, and everything below needs one held.
+//
+// Its own tick would be the other road and is deliberately not taken: the tick polls the
+// source, and the stub's fetch counter is fleet-wide, so ANY node polling falsifies the
+// "did not ask the source" assertions these tests are built on - including a ticking sibling.
+describe('the signed policy bundle on a peered fleet', function () {
   let env;
   let node;
   let db;
@@ -206,26 +217,18 @@ describe('the signed policy bundle on a single node', function () {
     // racing the node's one boot-time resolution.
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 1,
+      nodes: 3,
       tickerAutostart: false,
       policy: { documents: { enterprisenodes: ENTERPRISE_MAP } },
-      // A LONE NODE REACHES THE SOURCE ON ITS TICK AND NOWHERE ELSE. Boot asks no
-      // peers - there are none - and asking the source is licensed by having asked
-      // a peer set and had nothing back, which a node with no peers never does. So
-      // the tick is compressed, exactly as the two sibling fleets in this file do,
-      // rather than the fleet waiting out a day for its own slot.
-      configOverrides: { policy: { refreshIntervalMs: 15000 } },
     });
     [node] = env.clients;
     db = dbClient(1);
     await pushTestApp(APP_IMAGE);
-    await waitForBootSettled(node);
-    // Its own tick resolves policy from the backstop; nothing else here is meaningful
-    // until it has.
-    await waitFor(async () => Boolean(await db.policyBundle()), {
-      timeout: 90000,
-      label: 'the node to adopt a policy bundle',
-    });
+    // The fleet peers, crosses the threshold, asks its peers, finds nobody holding a bundle,
+    // and seeds once from the source. startDiscovery does not return until every node holds
+    // it, so nothing below races that - and it is the LAST thing to touch the source, which
+    // is what makes the fetch counter meaningful from here on.
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
   after(async function () {
@@ -264,20 +267,13 @@ describe('the signed policy bundle on a single node', function () {
       expect(owners.data).to.deep.equal([ENTERPRISE_OWNER]);
     });
 
-    // A RESTART IS NO LONGER HOW A SINGLE NODE LEARNS, and that is the point of the
-    // pair below rather than a limitation of it.
+    // WHERE A RESTART LEAVES A NODE, which is the whole of what changed about acquisition.
     //
-    // This block used to be one test: publish a document, restart, and wait for the
-    // node to pick it up - on the reasoning that a peerless node's only other road
-    // is a 24-hour backstop. Boot fetched unconditionally then. It no longer does:
-    // only a node that restored NOTHING asks the source at boot, because a release
-    // wave restarting the whole fleet was otherwise one github fetch per node inside
-    // the rollout window, and phasing the periodic tick does nothing about the boot
-    // path. So the old test's premise is now false by design, and it timed out the
-    // first time this suite met the change.
-    //
-    // Split, the two halves say what actually holds, and the first of them had no
-    // fleet coverage at all.
+    // Boot reaches the published source never. A node asks each peer as it arrives and goes
+    // to the source only once the set is up and every ask came back empty - so a restart is
+    // no longer how anything is learned, and the pair below says what a restart does instead
+    // depending on what the node came back with.
+
     it('does not ask the source at boot when it restored a bundle', async function () {
       this.timeout(120000);
       const before = (await db.policyBundle()).seq;
@@ -290,6 +286,7 @@ describe('the signed policy bundle on a single node', function () {
 
       await env.restartNode(0);
       await waitForBootSettled(node);
+      await env.startDiscovery([0]);
 
       expect(
         (await db.policyBundle()).seq,
@@ -301,26 +298,66 @@ describe('the signed policy bundle on a single node', function () {
       ).to.equal(asked);
     });
 
-    it('takes the newly published document when it restored nothing', async function () {
-      this.timeout(120000);
-      const { seq } = await stubState(env).then((st) => ({ seq: st.policySeq }));
-      // Nothing on disk is the one case that still resolves from the source at boot,
-      // and it is how this suite proves the published document reaches a node at all.
+    it('takes what its peers hold when it restored nothing, without asking the source', async function () {
+      this.timeout(180000);
+      // THE CASE THAT USED TO GO TO GITHUB. An empty node asked the source at boot, which
+      // is the fetch per node a release wave turned into a stampede. It asks its peers now,
+      // and they answer - so the bundle still reaches it, off the local network.
+      //
+      // Its PEERS' sequence, not the stub's. The test above advanced the stub and nothing
+      // picked it up, so the fleet is deliberately behind: a node that came back level with
+      // the STUB would have reached past its peers to the source, which is the thing being
+      // denied here.
+      const fleetSeq = (await dbClient(2).policyBundle()).seq;
+      const asked = (await stubState(env)).policyFetches.total;
       await db.deletePolicyBundle();
+      expect(await db.policyBundle(), 'node 1 starts this test with nothing').to.be.null;
+
       await env.restartNode(0);
       await waitForBootSettled(node);
-      await waitFor(async () => Boolean(await db.policyBundle())
-        && (await db.policyBundle()).seq === seq, {
-        timeout: 90000,
-        label: `the node to adopt seq ${seq}`,
+      await env.startDiscovery([0]);
+
+      await waitFor(async () => (await db.policyBundle())?.seq === fleetSeq, {
+        timeout: 120000,
+        label: `node 1 to take seq ${fleetSeq} from a peer`,
       });
+      expect(
+        (await stubState(env)).policyFetches.total,
+        'it reached past its peers to the source',
+      ).to.equal(asked);
+
+      // and the bytes it took verify - a peer is checked, never trusted
       const stored = await db.policyBundle();
       const payload = JSON.parse(
         Buffer.from(JSON.parse(stored.raw).payload_b64, 'base64').toString('utf8'),
       );
-      expect(payload.documents.blockedrepositories).to.deep.equal(['blocked/by-policy:v1']);
-      // and the document published before boot is still there, unchanged by the new one
-      expect(payload.documents.enterprisenodes).to.deep.equal(ENTERPRISE_MAP);
+      expect(payload.seq).to.equal(fleetSeq);
+    });
+
+    it('holds nothing when it restored nothing and no peer has any either', async function () {
+      this.timeout(240000);
+      // THE EDGE BETWEEN THE TWO ABOVE. A node with nothing takes what a peer has; with
+      // nobody holding anything there is nothing to take, and the source is the only road
+      // left - which is the seed, and it runs once when the set is up rather than at boot.
+      // Held here to the case where the source cannot answer either, so what is proved is
+      // that the node stays empty rather than guessing.
+      await stub(env, '/policy', { available: false });
+      await Promise.all([1, 2, 3].map((n) => dbClient(n).deletePolicyBundle()));
+      await Promise.all([0, 1, 2].map((i) => env.restartNode(i)));
+      await Promise.all(env.clients.map((c) => waitForBootSettled(c)));
+      await env.startDiscovery();
+
+      await waitFor(
+        () => env.clients.every((_c, i) => env.nodeHasLog(i, /policyStore - peers are up and none of them holds policy/)),
+        { timeout: 180000, interval: 2000, label: 'every node asked its peers and found nothing' },
+      );
+
+      for (const n of [1, 2, 3]) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await dbClient(n).policyBundle(), `node ${n} invented a bundle`).to.be.null;
+      }
+
+      await stub(env, '/policy', { available: true });
     });
   });
 
@@ -388,13 +425,12 @@ describe('the signed policy bundle on a single node', function () {
 
     it('restores the stored bundle at boot with the source returning 503', async function () {
       this.timeout(180000);
-      await env.restartNode(0);
-      await waitForBootSettled(node);
-      await waitFor(async () => (await db.policyBundle()).seq === (await stubState(env)).policySeq, {
-        timeout: 90000,
-        label: 'the node to be level with the stub before the source goes away',
-      });
+      // WHAT IT HOLDS, not whether it is level with the stub. The old precondition waited
+      // for the node to catch the stub's latest, which needed a fetch at boot - the thing
+      // this branch removed. What the test is actually about is a node coming back on its
+      // own disk with the source gone, and that needs a bundle held, nothing more.
       const held = await db.policyBundle();
+      expect(held, 'the node holds a bundle before the source goes away').to.not.be.null;
 
       await stub(env, '/policy', { available: false });
       const fetchesBefore = (await stubState(env)).policyFetches.total;
@@ -429,12 +465,18 @@ describe('the signed policy bundle on a single node', function () {
       // guess is what filled enterprise nodes with apps the ownership sweep then removed
       // from under their owners.
       //
+      // NOTHING REACHABLE MEANS NO PEERS EITHER, and that is arranged rather than assumed:
+      // discovery is not restarted for this node, so it comes back alone. A restarted node
+      // dials nobody until it is told to - the fleet's discoveryAutostart is false - so
+      // leaving it untold is what makes "cannot get one" true of the peer rung as well as
+      // of the source.
+      //
       // That acquisition itself is held shut is asserted in suite 1502, not here: the spawn
-      // loop only starts when the sync orchestrator reaches READY, which needs peers, so
-      // on a fleet of one the loop never runs and `spawner:blocked` could never fire. A
-      // wait for it here would pass its whole timeout and fail as though the gate were
-      // open. What one node CAN show is the other half of the same rule - every decision
-      // that grants a privilege fails closed.
+      // loop only starts when the sync orchestrator reaches READY, which needs peers, so a
+      // node alone never runs the loop and `spawner:blocked` could never fire. A wait for it
+      // here would pass its whole timeout and fail as though the gate were open. What this
+      // node CAN show is the other half of the same rule - every decision that grants a
+      // privilege fails closed.
       await stub(env, '/policy', { available: false });
       await db.deletePolicyBundle();
       await env.restartNode(0);

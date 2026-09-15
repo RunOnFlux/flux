@@ -396,7 +396,16 @@ describe('a fleet that has never obtained policy', function () {
     // rather than afterwards because a node resolves policy once at boot: setting it later
     // would be racing that, and losing the race leaves a fleet that DID get policy - which
     // still looks like a valid fleet, so the suite would go green having tested nothing.
-    env = await createTestEnv({ hookCtx: this, nodes: 3, policy: { available: false } });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      policy: { available: false },
+      // The source never answers, so this fleet never holds policy - which is the subject.
+      // Said here rather than inferred from the option beside it: whether a fixture WANTS a
+      // policy-less fleet is intent, and the framework can only derive whether one could
+      // peer at all.
+      awaitPolicy: false,
+    });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
@@ -483,7 +492,13 @@ describe('a node whose source answered with something that did not verify', func
     // gives: policy is resolved once at boot, and a fleet that obtained a good bundle first
     // would be testing a node that never met the failure.
     env = await createTestEnv({
-      hookCtx: this, nodes: 3, policy: { available: true, signer: 'rogue' },
+      hookCtx: this,
+      nodes: 3,
+      policy: { available: true, signer: 'rogue' },
+      // The source answers, and everything it serves is refused - so this fleet holds no
+      // policy however long it is given. A source that RESPONDS is not a fleet that ends up
+      // with a bundle, and only this fixture knows the difference.
+      awaitPolicy: false,
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
