@@ -433,73 +433,6 @@ describe('the signed policy bundle on a peered fleet', function () {
       await stub(env, '/policy', { available: true });
     });
 
-    it('refuses to decide anything when it has no policy and cannot get one', async function () {
-      this.timeout(240000);
-      // The state the whole design exists for: nothing on disk, nothing reachable. A node
-      // here must not guess that it is an ordinary node with no enterprise duties - that
-      // guess is what filled enterprise nodes with apps the ownership sweep then removed
-      // from under their owners.
-      //
-      // NOTHING REACHABLE MEANS NO PEERS EITHER, and that is arranged rather than assumed:
-      // discovery is not restarted for this node, so it comes back alone. A restarted node
-      // dials nobody until it is told to - the fleet's discoveryAutostart is false - so
-      // leaving it untold is what makes "cannot get one" true of the peer rung as well as
-      // of the source.
-      //
-      // That acquisition itself is held shut is asserted in suite 1502, not here: the spawn
-      // loop only starts when the sync orchestrator reaches READY, which needs peers, so a
-      // node alone never runs the loop and `spawner:blocked` could never fire. A wait for it
-      // here would pass its whole timeout and fail as though the gate were open. What this
-      // node CAN show is the other half of the same rule - every decision that grants a
-      // privilege fails closed.
-      await stub(env, '/policy', { available: false });
-      await db.deletePolicyBundle();
-      await env.restartNode(0);
-      await waitForBootSettled(node);
-
-      expect(await db.policyBundle(), 'nothing was restored').to.be.null;
-      const owners = await node.get('/flux/enterpriseappowners');
-      expect(owners.status, 'the node says it cannot tell, not that nobody is eligible').to.equal('error');
-
-      // A pin for an owner who WOULD be eligible under the policy this node cannot read.
-      // Refused, because the alternative is granting a privilege on a guess.
-      const pinned = await verify(policySpec({
-        name: `nopolicypin${Date.now()}`,
-        owner: ENTERPRISE_OWNER,
-        nodes: [PIN_BY_ADDRESS],
-      }));
-      expect(pinned.status).to.equal('error');
-      expect(pinned.data.message).to.include('network policy not yet obtained');
-
-      const dc = await verify(policySpec({
-        name: `nopolicydc${Date.now()}`,
-        owner: ENTERPRISE_OWNER,
-        datacenter: true,
-      }));
-      expect(dc.status).to.equal('error');
-      expect(dc.data.message).to.include('network policy not yet obtained');
-
-      // An ORDINARY app is refused too - not by the rules above, but because the whole
-      // submission needs policy: the blocked-repository list is part of the same bundle, so
-      // a node without one cannot establish that an image is not banned. Together with the
-      // acquisition gate that makes a policy-less node inert for apps in both directions.
-      //
-      // Asserted on the DISTINCT message. Both refusals name the missing policy, but they
-      // name different checks - a test that accepted either would not notice the privileged
-      // path starting to answer with the general one.
-      const ordinary = await verify(policySpec({ name: `nopolicyplain${Date.now()}` }));
-      expect(ordinary.status).to.equal('error');
-      expect(ordinary.data.message).to.include('Cannot verify application images: network policy not yet obtained');
-
-      // And it recovers the moment a source answers again, without intervention.
-      await stub(env, '/policy', { available: true });
-      await env.restartNode(0);
-      await waitForBootSettled(node);
-      await waitFor(async () => Boolean(await db.policyBundle()), {
-        timeout: 90000,
-        label: 'the node to adopt once the source answers again',
-      });
-    });
   });
 });
 
@@ -516,6 +449,12 @@ describe('the signed policy bundle on a peered fleet', function () {
 // leave every test after it running against nodes with no policy.
 describe('a peered fleet where nobody holds policy and the source is gone', function () {
   let env;
+
+  const verify = (spec) => env.clients[0].post(
+    '/apps/verifyappregistrationspecifications',
+    spec,
+    { 'Content-Type': 'text/plain' },
+  );
 
   dumpLogsOnFailure(() => env);
 
@@ -557,6 +496,56 @@ describe('a peered fleet where nobody holds policy and the source is gone', func
     // and the privileged decisions fail closed on all three, not just the one asked
     const answers = await Promise.all(env.clients.map((c) => c.get('/flux/enterpriseappowners')));
     for (const a of answers) expect(a.status).to.equal('error');
+  });
+
+  it('refuses every decision that grants a privilege, and recovers when the source returns', async function () {
+    this.timeout(300000);
+    // The state the whole design exists for: nothing on disk, nothing reachable. A node
+    // here must not guess that it is an ordinary node with no enterprise duties - that
+    // guess is what filled enterprise nodes with apps the ownership sweep then removed
+    // from under their owners.
+    //
+    // ON THIS FLEET RATHER THAN A PEERED ONE THAT HOLDS POLICY. It used to strip a single
+    // node and rely on it coming back without peers; on a fleet whose peers hold a bundle
+    // the node is handed one on the first inbound reconnect, which is the peer rung working
+    // and leaves nothing to assert. Here nobody has one, so "cannot get one" is true of
+    // every rung.
+    const pinned = await verify(policySpec({
+      name: `nopolicypin${Date.now()}`, owner: ENTERPRISE_OWNER, nodes: [PIN_BY_ADDRESS],
+    }));
+    expect(pinned.status).to.equal('error');
+    expect(pinned.data.message).to.include('network policy not yet obtained');
+
+    const dc = await verify(policySpec({
+      name: `nopolicydc${Date.now()}`, owner: ENTERPRISE_OWNER, datacenter: true,
+    }));
+    expect(dc.status).to.equal('error');
+    expect(dc.data.message).to.include('network policy not yet obtained');
+
+    // An ORDINARY app is refused too - not by the rules above, but because the whole
+    // submission needs policy: the blocked-repository list is part of the same bundle, so
+    // a node without one cannot establish that an image is not banned. Together with the
+    // acquisition gate that makes a policy-less node inert for apps in both directions.
+    //
+    // Asserted on the DISTINCT message. Both refusals name the missing policy, but they
+    // name different checks - a test that accepted either would not notice the privileged
+    // path starting to answer with the general one.
+    const ordinary = await verify(policySpec({ name: `nopolicyplain${Date.now()}` }));
+    expect(ordinary.status).to.equal('error');
+    expect(ordinary.data.message).to.include('Cannot verify application images: network policy not yet obtained');
+
+    // AND IT RECOVERS THROUGH THE SEED, without intervention. The source answering is not
+    // enough on its own - the fleet is already peered, and the seed is evaluated when a
+    // peer ask settles - so the node is restarted and re-peered, which is what makes its
+    // peers arrive again and its asks settle against a source that now replies.
+    await stub(env, '/policy', { available: true });
+    await env.restartNode(0);
+    await waitForBootSettled(env.clients[0]);
+    await env.startDiscovery([0]);
+    await waitFor(async () => Boolean(await dbClient(1).policyBundle()), {
+      timeout: 120000,
+      label: 'the node to seed once the source answers again',
+    });
   });
 });
 
