@@ -210,4 +210,75 @@ describe('logFrameDecoder', () => {
     expect(decoder.push(whole.subarray(0, 11))).to.deep.equal([]);
     expect(decoder.push(whole.subarray(11))).to.deep.equal(['héllo→']);
   });
+  // ATTACHING PART-WAY THROUGH A LINE, which is what a follow stream may do.
+  // Docker's `tail` counts ENTRIES - its own 16KB frames - not lines. A container
+  // writing short lines gives one line per entry and the stream does begin at a
+  // line boundary; one writing lines longer than a frame does not, and the first
+  // thing to arrive is the end of a line the decoder never saw the start of.
+  //
+  // It cannot tell which it got. What it must not do is say how much was CUT from
+  // that line, having never seen how much there was.
+  describe('joining a stream part-way through a line', () => {
+    it('hands the first line over, because dropping it would rob every ordinary container', () => {
+      // A container whose lines fit in one entry starts its stream on a boundary,
+      // so this line is whole and a viewer should have it. Skipping to the first
+      // newline would cost the common case a real line to protect the rare one.
+      const decoder = new LogFrameDecoder({ joinMidStream: true });
+
+      expect(decoder.push(frame('a line the stream opened on\n')))
+        .to.deep.equal(['a line the stream opened on']);
+    });
+
+    it('says nothing about what was cut from that first line', () => {
+      // The claim is "your line is missing this much", and this decoder does not
+      // know: it may have joined the line half way through. A figure here would be
+      // true of what arrived and false of the line, which is what a reader takes
+      // it for.
+      const decoder = new LogFrameDecoder({ joinMidStream: true, maxLineLength: 10 });
+
+      expect(decoder.push(frame('0123456789ABCDE\n')), 'the line is still handed over, cut')
+        .to.deep.equal(['0123456789']);
+      expect(decoder.takeTruncated(), 'but nothing is claimed about it').to.equal(0);
+    });
+
+    it('speaks for every line after the first, which it has seen whole', () => {
+      const decoder = new LogFrameDecoder({ joinMidStream: true, maxLineLength: 10 });
+
+      decoder.push(frame('the line it joined\n'));
+      expect(decoder.push(frame('0123456789ABCDE\n'))).to.deep.equal(['0123456789']);
+      expect(decoder.takeTruncated(), 'this one it saw from the start').to.equal(5);
+    });
+
+    it('waits for a newline before it starts speaking, however many chunks that takes', () => {
+      // The fragment is eighty frames long in the case this exists for, so the
+      // newline that ends it is many chunks away - and until it comes, every line
+      // in flight is still the one that was joined.
+      const decoder = new LogFrameDecoder({ joinMidStream: true, maxLineLength: 10 });
+
+      decoder.push(frame('still'));
+      decoder.push(frame(' inside the fragment'));
+      expect(decoder.takeTruncated(), 'nothing claimed while the joined line is still arriving').to.equal(0);
+
+      decoder.push(frame(' and its end\n'));
+      expect(decoder.push(frame('0123456789ABCDE\n'))).to.deep.equal(['0123456789']);
+      expect(decoder.takeTruncated(), 'and the first line it saw whole is reported').to.equal(5);
+    });
+
+    it('claims nothing when a stream ends before any newline at all', () => {
+      // Every byte it saw belonged to a line it joined and never left.
+      const decoder = new LogFrameDecoder({ joinMidStream: true, maxLineLength: 10 });
+
+      decoder.push(frame('0123456789ABCDEFGHIJ'));
+      decoder.flush();
+
+      expect(decoder.takeTruncated()).to.equal(0);
+    });
+
+    it('is off by default, because a read handed one whole payload starts at a boundary', () => {
+      const decoder = new LogFrameDecoder({ maxLineLength: 10 });
+
+      expect(decoder.push(frame('0123456789ABCDE\n'))).to.deep.equal(['0123456789']);
+      expect(decoder.takeTruncated(), 'the polling read speaks for its first line').to.equal(5);
+    });
+  });
 });

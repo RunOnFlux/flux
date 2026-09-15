@@ -181,7 +181,7 @@ describe('appLogsHandler tests', () => {
 
       const opts = container.logs.firstCall.args[0];
       expect(opts.follow, 'a poll is not what this is').to.be.true;
-      expect(opts.tail, 'follow without a tail reads the whole file to establish').to.equal(appLogsHandler.BACKFILL_LINES);
+      expect(opts.tail, 'follow without a tail reads the whole file to establish').to.equal(appLogsHandler.BACKFILL_ENTRIES);
       expect(opts.timestamps).to.be.true;
     });
 
@@ -786,7 +786,7 @@ describe('appLogsHandler tests', () => {
       const feed = appLogsHandler.feeds.get('abc123');
       expect(feed.queued, 'the whole chunk was lost before a line of it was queued').to.have.length(appLogsHandler.MAX_QUEUED_LINES);
       expect(feed.dropped, 'what did not fit is counted and reported, never passed over in silence').to.equal(written - appLogsHandler.MAX_QUEUED_LINES);
-      expect(feed.recent, 'a later viewer opens on the tail of what was written').to.have.length(appLogsHandler.BACKFILL_LINES);
+      expect(feed.recent, 'a later viewer opens on the tail of what was written').to.have.length(appLogsHandler.REPLAY_LINES);
     });
 
     it('names the container on every message, so a connection can follow several', async () => {
@@ -818,6 +818,13 @@ describe('appLogsHandler tests', () => {
       appLogsHandler(socket);
       await subscribe(socket);
 
+      // A LINE AHEAD OF THE ONE UNDER TEST, because the stream a viewer gets opens
+      // with docker's `tail` and its first bytes may be the tail of a line this
+      // node never saw the start of - which is the one line it cannot say what was
+      // cut from. A complete line here is what the backfill supplies in production
+      // and puts the subject of this test on ground the node can speak for.
+      logStream.emit('data', frame('a line the stream opened on\n'));
+
       const overlong = 'x'.repeat(LogFrameDecoder.MAX_LINE_LENGTH + 40);
       logStream.emit('data', frame(`${overlong}\n`));
       clock.tick(appLogsHandler.BATCH_MS);
@@ -830,7 +837,11 @@ describe('appLogsHandler tests', () => {
       });
 
       const lines = emitted.filter((e) => e.event === 'logs');
-      expect(lines[0].payload.lines[0].length, 'the line was delivered whole').to.equal(LogFrameDecoder.MAX_LINE_LENGTH);
+      // Found rather than indexed: the batch also carries the line the stream
+      // opened on, and which slot the subject lands in is not what is being tested.
+      const delivered = lines.flatMap((e) => e.payload.lines);
+      expect(delivered.some((line) => line.length === LogFrameDecoder.MAX_LINE_LENGTH),
+        'the line was delivered cut to the cap').to.equal(true);
       // Under the line it describes, not over it. `skipped` announces lines that
       // never arrived and belongs ahead of the ones that did; this is about a
       // line the viewer is being shown.
@@ -849,6 +860,13 @@ describe('appLogsHandler tests', () => {
       const socket = makeSocket('s1', makeNamespace());
       appLogsHandler(socket);
       await subscribe(socket);
+
+      // A LINE AHEAD OF THE ONE UNDER TEST, because the stream a viewer gets opens
+      // with docker's `tail` and its first bytes may be the tail of a line this
+      // node never saw the start of - which is the one line it cannot say what was
+      // cut from. A complete line here is what the backfill supplies in production
+      // and puts the subject of this test on ground the node can speak for.
+      logStream.emit('data', frame('a line the stream opened on\n'));
 
       logStream.emit('data', frame('x'.repeat(LogFrameDecoder.MAX_LINE_LENGTH + 10)));
       clock.tick(appLogsHandler.BATCH_MS);
