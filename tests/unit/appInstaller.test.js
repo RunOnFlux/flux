@@ -77,6 +77,10 @@ describe('appInstaller tests', () => {
 
     // The real module, reset - see tests/unit/fixtures/globalState.js.
     globalStateStub = resetGlobalState();
+    // Installing reads the blocked-repository list out of the signed bundle, so a node that
+    // does not hold policy refuses before it pulls anything. Every case here is about what
+    // a node that CAN install does; the refusal before policy has its own case below.
+    globalStateStub.policyReady = true;
 
     // Stubs
     verificationHelperStub = {

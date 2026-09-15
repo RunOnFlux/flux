@@ -9,6 +9,7 @@ describe('appValidator tests', () => {
   // The enterprise app owners this node has obtained. null means it has not obtained
   // the policy at all, which is a different answer from "there are none".
   let enterpriseOwners;
+  let globalStateStub;
   // The spec already on chain for this app, or null when there is none.
   let previousAppSpecs;
 
@@ -64,6 +65,7 @@ describe('appValidator tests', () => {
       },
     };
 
+    globalStateStub = { policyReady: true };
     appValidator = proxyquire('../../ZelBack/src/services/appRequirements/appValidator', {
       '../serviceHelper': {
         ensureNumber: sinon.stub().returnsArg(0),
@@ -87,6 +89,11 @@ describe('appValidator tests', () => {
       '../utils/enterpriseConfig': {
         getEnterpriseAppOwners: () => enterpriseOwners,
       },
+      // A live submission is only answered by a node that holds policy - the blocklist and
+      // the enterprise owner map both come out of the bundle. Every case below is about
+      // what a READY node decides, so it is ready; the refusal before readiness has its
+      // own case.
+      '../utils/globalState': globalStateStub,
       '../verificationHelper': {
         verifyPrivilege: sinon.stub().resolves(true),
       },
@@ -258,6 +265,42 @@ describe('appValidator tests', () => {
 
     it('should accept a Flux ID owner on a live submission', async () => {
       await appValidator.verifyAppSpecifications(specsOwnedBy('1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg'), 1000, true);
+    });
+
+    // POLICY IS A PRECONDITION OF ANSWERING, not something to discover half way down.
+    //
+    // The blocked-repository list and the enterprise owner map both come out of the signed
+    // bundle, so a node without one cannot judge any app. Refusing here says that about the
+    // NODE, which is what lets a caller retry or ask a node that is ready - where failing
+    // deeper reported it as an inability to reach Flux Services, a thing that had not
+    // happened, and that a caller could only tell apart by comparing the sentence.
+    it('refuses a live submission before the node has policy, and says which it is', async () => {
+      globalStateStub.policyReady = false;
+
+      try {
+        await appValidator.verifyAppSpecifications(specsOwnedBy('1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg'), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('network policy not yet obtained');
+      }
+    });
+
+    it('does not reach the blocklist at all before the node has policy', async () => {
+      // Refused at the door, so nothing downstream is asked a question it cannot answer.
+      globalStateStub.policyReady = false;
+
+      await appValidator.verifyAppSpecifications(specsOwnedBy('1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg'), 1000, true)
+        .catch(() => {});
+
+      expect(imageManagerStub.checkApplicationImagesCompliance.called).to.equal(false);
+    });
+
+    it('leaves a replay alone, which is judged against the chain rather than against policy', async () => {
+      // liveSubmission false is a message already on chain being re-verified. It was judged
+      // when it was submitted, and a node still catching up must not refuse to replay it.
+      globalStateStub.policyReady = false;
+
+      await appValidator.verifyAppSpecifications(specsOwnedBy('TrippleCore'), 1000);
     });
 
     it('should accept an ethereum owner on a live submission', async () => {

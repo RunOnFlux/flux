@@ -462,20 +462,17 @@ describe('the signed policy bundle on a single node', function () {
       expect(dc.status).to.equal('error');
       expect(dc.data.message).to.include('network policy not yet obtained');
 
-      // And an ORDINARY app is refused too - not by the rules above, but because the
-      // blocked-repository list is part of the same bundle. checkApplicationImagesCompliance
-      // (imageManager.js:400) throws when it cannot read that list, so a node with no policy
-      // cannot establish that an image is not banned and will not register anything at all.
+      // An ORDINARY app is refused too - not by the rules above, but because the whole
+      // submission needs policy: the blocked-repository list is part of the same bundle, so
+      // a node without one cannot establish that an image is not banned. Together with the
+      // acquisition gate that makes a policy-less node inert for apps in both directions.
       //
-      // I expected this to succeed, on the theory that policy gates privileges rather than
-      // registration. It does not, and the stricter behaviour is the right one: together
-      // with the acquisition gate it makes a policy-less node inert for apps in both
-      // directions, which is the whole point. Asserted on the DISTINCT message, because the
-      // two refusals mean different things and a test that accepted either would not notice
-      // if the privileged path started answering with the generic one.
+      // Asserted on the DISTINCT message. Both refusals name the missing policy, but they
+      // name different checks - a test that accepted either would not notice the privileged
+      // path starting to answer with the general one.
       const ordinary = await verify(policySpec({ name: `nopolicyplain${Date.now()}` }));
       expect(ordinary.status).to.equal('error');
-      expect(ordinary.data.message).to.include('Unable to communicate with Flux Services');
+      expect(ordinary.data.message).to.include('Cannot verify application images: network policy not yet obtained');
 
       // And it recovers the moment a source answers again, without intervention.
       await stub(env, '/policy', { available: true });

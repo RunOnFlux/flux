@@ -209,7 +209,7 @@ describe('appSpawner tests', () => {
         countAppInstallingErrors: sinon.stub().resolves(opts.errorCount ?? 0),
       },
       '../appSecurity/imageManager': {
-        checkApplicationImagesCompliance: sinon.stub().resolves(),
+        checkApplicationImagesCompliance: opts.complianceStub ?? sinon.stub().resolves(),
         verifyRepository: sinon.stub().resolves(),
         // No blocklist by default, so the candidate filter is inert unless a test
         // supplies one. The matcher is the real implementation: a double of it
@@ -970,6 +970,23 @@ describe('appSpawner tests', () => {
         installStub: sinon.stub().resolves(InstallOutcome.FAILED),
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
+    });
+
+    it('caches an app the blocklist refuses, without qualifying the refusal', async () => {
+      // A COMPLIANCE FAILURE HERE IS ABOUT THE APP, and durable, so the app is not
+      // reconsidered until the cache expires. It can only be about the app: acquisition is
+      // held shut above until this node holds policy, so a compliance check that runs has
+      // read the blocklist, and one that fails found this app in it.
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        complianceStub: sinon.stub().rejects(new Error('Image blocked/repo is blocked')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
     });
 
