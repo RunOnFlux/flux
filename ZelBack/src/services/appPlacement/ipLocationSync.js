@@ -10,11 +10,19 @@
 // copy. The policy store will restore the cache this module populated; no node
 // refetches across the transition.
 //
+// WHEN IT FETCHES is decided by policyStore.onBundleChanged, not by a clock. The bundle
+// names which file is the table and what it must hash to, so there is nothing to do until
+// one is held - and this module is started on dbReady, which is a fact about the app
+// database and says nothing about policy. Both hang off the peer threshold and neither
+// orders the other, so reading the bundle once on the way past was a race. The retry below
+// is for a source that cannot be reached, which is the only thing a timer can speak to.
+//
 // AT REBASE: delete this module and its serviceManager start call, and wire
 //   policyStore.onArtifact('ipLocationTable', (bytes) => ipLocationStore.setArtifact(bytes));
-// beside policyStore.startSync() instead. The rows live in mongo and the ingest
-// marker names the baseline they came from, so their boot restore only
-// re-ingests when the artifact's generated timestamp differs from the marker's.
+// beside policyStore.startSync() instead - the same subscription this module already takes,
+// with the store owning the fetch as well as the statement. The rows live in mongo and the
+// ingest marker names the baseline they came from, so their boot restore only re-ingests
+// when the artifact's generated timestamp differs from the marker's.
 
 const config = require('config');
 const crypto = require('crypto');
@@ -24,6 +32,7 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const policyArtifactRepository = require('../appDatabase/policyArtifactRepository');
 const policyStore = require('../policyStore');
 const ipLocationStore = require('./ipLocationStore');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 const ARTIFACT_NAME = 'ipLocationTable'; // registry key, shared with policyStore
 const ARTIFACT_FILE = 'iplocation.bin.gz';
@@ -42,6 +51,14 @@ let retryTimer = null;
 let retryAttempt = 0;
 let started = false;
 let restored = false;
+// Removes the policy subscription, so a stopped sync stops reacting to bundles.
+let unsubscribeBundle = null;
+// The refresh currently running, so a bundle arriving mid-fetch joins it rather than
+// starting a second download of the same artifact.
+let refreshInFlight = null;
+// A bundle arrived while a refresh was running. The running pass cannot see it, so one more
+// runs when it finishes.
+let refreshAgain = false;
 let nodeLocationPass = null;
 
 /**
@@ -85,15 +102,19 @@ function sha256Hex(bytes) {
  * The digest also replaces the conditional request. A content-addressed name changes when the
  * content does, so holding the named digest IS "unchanged" - decided locally, against a signed
  * value, instead of by an ETag the server could answer anything to.
- * @returns {Promise<boolean>} true when a new table was installed.
+ * Answers BOTH facts, because the caller has to tell "there was nothing to fetch" from
+ * "there was, and it did not arrive". Only the second is a reason to retry: the first is
+ * waiting on a bundle, and a bundle arriving is an event, not something a clock can hurry.
+ * @returns {Promise<{installed: boolean, attempted: boolean}>} installed: a new table is in
+ *   place. attempted: a request left this node.
  */
 async function refresh() {
   const want = policyStore.getArtifact(ARTIFACT_FILE);
   if (!want || !want.file || !want.sha256) {
     log.info('ipLocationSync - no signed statement for the iplocation table yet, not fetching');
-    return false;
+    return { installed: false, attempted: false };
   }
-  if (heldSha === want.sha256) return false;
+  if (heldSha === want.sha256) return { installed: false, attempted: false };
 
   const url = `${config.policy.signedBaseUrl}/${want.file}`;
   try {
@@ -129,12 +150,13 @@ async function refresh() {
     await policyArtifactRepository.writeArtifactBytes(ARTIFACT_NAME, bytes)
       .catch((error) => log.warn(`ipLocationSync - failed to cache artifact: ${error.message}`));
     log.info(`ipLocationSync - iplocation table refreshed, verified against the signed bundle (${want.sha256.slice(0, 12)})`);
+    fluxEventBus.publish('ipLocation:tableInstalled', { sha256: want.sha256, bytes: bytes.length });
     // a new baseline invalidates every node location document
     refreshNodeLocations();
-    return true;
+    return { installed: true, attempted: true };
   } catch (error) {
     log.warn(`ipLocationSync - failed to refresh from ${url}, keeping current table: ${error.message}`);
-    return false;
+    return { installed: false, attempted: true };
   }
 }
 
@@ -144,9 +166,31 @@ async function refresh() {
  * lands in a boot-time network gap would otherwise spend a full day computing
  * /16 fault domains while the rest of the fleet uses organisations.
  */
-function scheduleRefresh() {
-  refresh()
-    .then((installed) => {
+function scheduleRefresh({ bundleChanged = false } = {}) {
+  // A NEW BUNDLE INVALIDATES A PENDING BACKOFF. The retry is armed because a fetch found
+  // nothing to fetch or could not fetch it; a bundle arriving is precisely the thing it was
+  // waiting for, so waiting out the rest of an interval that was chosen for a condition
+  // that has since changed buys nothing. The attempt count resets with it - the next
+  // failure is the first of a new situation, not the sixth of the old one.
+  if (bundleChanged && retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retryAttempt = 0;
+  }
+  // One fetch at a time: two concurrent downloads of the same four point eight megabytes is
+  // the traffic this module is careful about everywhere else.
+  //
+  // A pass reads the bundle it had WHEN IT STARTED, so joining the running one would not
+  // cover a bundle that has arrived since - the fetch can take two minutes, which is long
+  // enough for a peer to answer inside it. Remembered and run once at the end instead:
+  // coalesced, so any number of bundles landing during a pass cost one more fetch, not one
+  // each.
+  if (refreshInFlight) {
+    if (bundleChanged) refreshAgain = true;
+    return refreshInFlight;
+  }
+  refreshInFlight = refresh()
+    .then(({ installed, attempted }) => {
       // The node list drifts while the table does not, so a 304 still leaves
       // nodes that joined since the last pass without a location document.
       // An install has already asked for the pass this would repeat.
@@ -155,6 +199,12 @@ function scheduleRefresh() {
         retryAttempt = 0;
         return;
       }
+      // ONLY A FETCH THAT FAILED IS WORTH RETRYING. A pass that found no bundle naming
+      // the table, or found the digest this node already holds, asked nothing of anyone
+      // - and waiting ten minutes to ask nothing again achieves nothing. What that pass
+      // is waiting for is a bundle, which arrives on an event; a timer cannot hurry it
+      // and firing every ten minutes only pretends to.
+      if (!attempted) return;
       if (retryTimer || retryAttempt >= MAX_RETRY_ATTEMPTS) return;
       // Exponential backoff with a cap on attempts: a boot-time network gap
       // clears in minutes, while a published artifact this build cannot read
@@ -169,7 +219,14 @@ function scheduleRefresh() {
       }, delay);
       if (retryTimer.unref) retryTimer.unref();
     })
-    .catch((error) => log.error(`ipLocationSync - refresh error: ${error.message}`));
+    .catch((error) => log.error(`ipLocationSync - refresh error: ${error.message}`))
+    .finally(() => {
+      refreshInFlight = null;
+      if (!refreshAgain) return;
+      refreshAgain = false;
+      scheduleRefresh({ bundleChanged: true });
+    });
+  return refreshInFlight;
 }
 
 /**
@@ -241,6 +298,22 @@ async function startSync() {
   if (started) return;
   started = true;
   await restoreCachedTable();
+  // THE BUNDLE IS WHAT NAMES THE TABLE, so a bundle arriving is the event this fetch waits
+  // on - not a delay, and not dbReady, which is a fact about the app database and says
+  // nothing about policy. Both start from the peer threshold and nothing orders them, so
+  // without this the two outcomes were "policy was already there" and "wait out a ten
+  // minute backoff", decided by a race.
+  //
+  // It also covers the bundle CHANGING later. A new baseline is published as a new bundle
+  // naming a new digest, and before this the node would not look until its next daily
+  // refresh - so a table the network had already moved to could be up to a day away.
+  // The returned promise is swallowed deliberately: policyStore fires listeners without
+  // awaiting them - a consumer must not be able to hold up an adoption - so letting one
+  // escape here would be an unhandled rejection rather than anything anybody reads.
+  unsubscribeBundle = policyStore.onBundleChanged(() => {
+    scheduleRefresh({ bundleChanged: true })
+      .catch((error) => log.error(`ipLocationSync - refresh on a new bundle failed: ${error.message}`));
+  });
   scheduleRefresh();
   refreshInterval = setInterval(scheduleRefresh, REFRESH_INTERVAL_MS);
   if (refreshInterval.unref) refreshInterval.unref();
@@ -250,6 +323,8 @@ async function startSync() {
  * Stop the refresh loop. Test support and shutdown.
  */
 function stopSync() {
+  if (unsubscribeBundle) unsubscribeBundle();
+  unsubscribeBundle = null;
   if (refreshInterval) clearInterval(refreshInterval);
   if (retryTimer) clearTimeout(retryTimer);
   refreshInterval = null;
@@ -257,6 +332,8 @@ function stopSync() {
   retryAttempt = 0;
   started = false;
   restored = false;
+  refreshInFlight = null;
+  refreshAgain = false;
   heldSha = null;
 }
 

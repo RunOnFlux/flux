@@ -482,7 +482,7 @@ async function startFluxFunctions() {
         .map((p) => ({ key: p.key, connectionId: p.connectionId, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
       networkStateReady: () => networkStateService.waitStarted(),
       fluxVersion,
     });
@@ -499,7 +499,7 @@ async function startFluxFunctions() {
     peerSetStabilityService.start({
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
     });
 
     // Network policy, started here rather than at the top of boot because it needs both of
@@ -520,33 +520,32 @@ async function startFluxFunctions() {
         return fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, seq);
       },
       announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
-      // The latched level, not a raw tally: peerManager already defines "enough peers to
-      // gossip with" with hysteresis (appSyncPeerThreshold 12 up, appSyncDegradedThreshold
-      // 4 down), and reads 0 below it. A late subscriber cannot see the edge it missed,
-      // which is what this accessor exists for.
-      count: () => peerManager.peerCountIfAboveThreshold(),
+      // The latched level: peerManager already defines "enough peers to gossip with" with
+      // hysteresis (appSyncPeerThreshold 12 up, appSyncDegradedThreshold 4 down). A late
+      // subscriber cannot see the edge it missed, which is what this accessor exists for -
+      // and reading the level rather than keeping an edge of our own is why nothing here
+      // needs re-arming when a peer set collapses and rebuilds.
+      aboveThreshold: () => peerManager.isAboveThreshold(),
     });
-    // The peer rung is useless at this point in boot -- discovery has not started yet (it
-    // is fifty lines below), so the refresh below has no peer set and goes straight to the
-    // published source. Telling the store when a peer appears is what makes peers-first true
-    // at boot rather than only at the 24-hour tick, and it is the whole difference between
-    // a node that boots while github is down getting policy from the neighbour beside it
-    // and getting none for a day.
+    // Discovery has not started yet - it is fifty lines below - so the peer set is empty at
+    // this point on every node, always. Nothing here asks peers or the source; both are
+    // driven by the two subscriptions that follow, which is what makes peers-first true at
+    // boot rather than only at the 24-hour tick. It is the whole difference between a node
+    // that boots while github is down getting policy from the neighbour beside it and
+    // getting none for a day.
     //
-    // PER JOIN, not on the threshold edge. peerThresholdReached fires when the count first
-    // crosses appSyncPeerThreshold and then never again unless the set has since fallen
-    // below appSyncDegradedThreshold. For a node that holds NO policy that is the wrong
-    // signal: it asks once, its peers have nothing either, and when one of them later
-    // obtains a bundle nothing tells this node to ask again - its peer set never collapsed,
-    // so the edge never re-arms. Measured on a three-node fleet: node 1 asked at 08:16:09,
-    // node 0 adopted at 08:16:54, and node 1 held nothing thereafter. Every join re-arms it,
-    // and the join that crosses the threshold is one of them, so the edge adds nothing.
+    // PER JOIN for the ASK. peerThresholdReached fires when the count first crosses
+    // appSyncPeerThreshold and then never again unless the set has since fallen below
+    // appSyncDegradedThreshold, so as a prompt to ask peers it is the wrong signal: a node
+    // asks once, its peers have nothing either, and when one of them later obtains a bundle
+    // nothing tells this node to ask again - its peer set never collapsed, so the edge never
+    // re-arms. Measured on a three-node fleet: node 1 asked at 08:16:09, node 0 adopted at
+    // 08:16:54, and node 1 held nothing thereafter. Every join re-arms the ask, and the join
+    // that crosses the threshold is one of them.
     //
     // The key is the whole point: notePeerAvailable asks THAT peer and never the source.
     // A broadcast would have to be rationed, and a rationed ask cannot serve a node that is
-    // merely behind. Reaching the source stays with boot-on-an-empty-store and the phased
-    // tick, which is what keeps it a seed - across the fleet those ticks are spread by node
-    // identity, so some node is always the next to look, and what it finds it announces.
+    // merely behind.
     //
     // The orchestrator next door draws the same distinction for its sync pool, and for the
     // same reason: a latched edge says nothing about a pool that has changed since it fired.

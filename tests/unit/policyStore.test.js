@@ -34,6 +34,7 @@ function bundle(seq, documents = { blockedrepositories: ['a/b'] }, privateKey = 
 
 function load(overrides = {}) {
   const log = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
+  const eventBus = { publish: sinon.stub(), count: sinon.stub() };
   const state = { policyReady: false };
   const repo = overrides.repo || {
     readBundle: sinon.stub().resolves(null),
@@ -63,10 +64,11 @@ function load(overrides = {}) {
     '../lib/log': log,
     './serviceHelper': serviceHelper,
     './utils/globalState': state,
+    './utils/fluxEventBus': eventBus,
     './appDatabase/policyArtifactRepository': repo,
   });
   return {
-    module, log, state, repo, serviceHelper,
+    module, log, state, repo, serviceHelper, eventBus,
   };
 }
 
@@ -165,6 +167,10 @@ describe('policyStore', () => {
       const axiosGet = sinon.stub().resolves({ data: bundle(3) });
       const { module } = load({ fetchTimeoutMs: 1234, serviceHelper: { axiosGet } });
       await module.start();
+      // Through the seed rather than through start(): boot no longer reaches the source at
+      // all, so this is the first request that leaves the node.
+      module.setPeerTransport({ requestFrom: async () => {}, aboveThreshold: () => true });
+      await module.notePeerAvailable('10.0.0.1:16127');
       module.stop();
       expect(axiosGet.firstCall.args[1].timeout).to.equal(1234);
     });
@@ -180,7 +186,7 @@ describe('policyStore', () => {
       // Disk proves the bundle is real. It cannot prove policy did not move while this
       // node was down, and the documents inside decide who may host what.
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       module.stop();
       expect(module.getSeq(), 'it holds the bundle').to.equal(4);
@@ -189,7 +195,7 @@ describe('policyStore', () => {
 
     it('a peer at the same sequence confirms it', async () => {
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       expect(state.policyReady).to.equal(false);
 
@@ -202,7 +208,7 @@ describe('policyStore', () => {
       // It answers, so it is alive - but an empty peer cannot speak to whether what we
       // restored is still the network's.
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 1 });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => true });
       await module.start();
 
       module.notePeerSeq(null);
@@ -213,7 +219,7 @@ describe('policyStore', () => {
     it('a peer AHEAD of us does not confirm - it means we are behind', async () => {
       const request = sinon.stub().resolves();
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request, announce: sinon.stub().resolves(), count: () => 1 });
+      module.setPeerTransport({ request, announce: sinon.stub().resolves(), aboveThreshold: () => true });
       await module.start();
 
       module.notePeerSeq(9);
@@ -227,7 +233,7 @@ describe('policyStore', () => {
         repo: restoredRepo(4),
         serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(9) }) },
       });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       expect(state.policyReady).to.equal(false);
 
@@ -243,7 +249,7 @@ describe('policyStore', () => {
       // reason. Forcing the gate open on a timer would override a decision the fleet
       // had already made.
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), count: () => 0 });
+      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       await new Promise((resolve) => { setTimeout(resolve, 60); });
       expect(state.policyReady, 'held, unconfirmed, not acting').to.equal(false);
@@ -256,6 +262,8 @@ describe('policyStore', () => {
         serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(2) }) },
       });
       await module.start();
+      module.setPeerTransport({ requestFrom: async () => {}, aboveThreshold: () => true });
+      await module.notePeerAvailable('10.0.0.1:16127');
       module.stop();
       expect(module.getSeq()).to.equal(2);
       expect(state.policyReady, 'adopting from the source opens it as before').to.equal(true);
@@ -365,13 +373,176 @@ describe('policyStore', () => {
       expect(axiosGet.called, 'and it did not go to the source to learn that').to.equal(false);
     });
 
-    it('fetches when it came back with nothing', async () => {
+    it('does not fetch when it came back with nothing either', async () => {
+      // start() runs before discovery, so the peer set is empty here on EVERY node. A
+      // ladder run at this point cannot take its peer rung and falls through to the
+      // source, which made "no peers yet" and "peers have nothing" the same answer - and
+      // sent a node whose neighbour held the bundle to github instead. Boot asks nobody;
+      // the threshold edge is what decides the node is genuinely alone.
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module } = load({ serviceHelper: { axiosGet } });
       await module.start();
       module.stop();
-      expect(axiosGet.calledOnce, 'nothing on disk, so it must ask').to.equal(true);
-      expect(module.getSeq()).to.equal(9);
+      expect(axiosGet.called, 'an empty store at boot is not evidence about the network').to.equal(false);
+      expect(module.getSeq(), 'and it holds nothing until something answers').to.equal(0);
+    });
+  });
+
+  describe('seeding from the source when the peers have nothing', () => {
+    const PEER = '10.0.0.1:16127';
+    const OTHER_PEER = '10.0.0.2:16127';
+
+    // A peer that answers "I hold nothing". respondWithPolicy replies in all three states,
+    // so this settles the ask exactly as a bundle would - which is what makes an empty
+    // pendingPeerAsks mean "everyone answered" rather than "nobody has yet".
+    const holdsNothing = (m) => async (key) => m.notePeerSeq(null, key);
+
+    it('goes to the source once the peers are up and none of them had anything', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m, state } = load({ serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({ requestFrom: holdsNothing(m), aboveThreshold: () => true });
+
+      await m.notePeerAvailable(PEER);
+
+      expect(axiosGet.calledOnce, 'asked everyone, nobody had it - this is the first rollout').to.equal(true);
+      expect(m.getSeq()).to.equal(7);
+      expect(state.policyReady, 'the publisher answering is what confirms').to.equal(true);
+      m.stop();
+    });
+
+    it('does not go to the source while the peer set is below the threshold', async () => {
+      // THE CASE THAT USED TO GO TO GITHUB. The node has a peer, asked it, and got nothing
+      // back - but one peer is not a peer set, and an empty store here says only that
+      // peering is young. The old code read a count that was 0 below the threshold, could
+      // not tell this from having nobody at all, and fetched.
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({ requestFrom: holdsNothing(m), aboveThreshold: () => false });
+
+      await m.notePeerAvailable(PEER);
+
+      expect(axiosGet.called, 'below the threshold, so it waits for more peers').to.equal(false);
+      expect(m.getSeq()).to.equal(0);
+      m.stop();
+    });
+
+    it('does not go to the source when a peer answered with a bundle', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({
+        requestFrom: async (key) => { m.offerBundle(bundle(5), key); },
+        aboveThreshold: () => true,
+      });
+
+      await m.notePeerAvailable(PEER);
+
+      expect(axiosGet.called, 'it has policy, so there is nothing to seed').to.equal(false);
+      expect(m.getSeq()).to.equal(5);
+      m.stop();
+    });
+
+    it('does not go to the source for a node that restored a bundle', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const repo = {
+        readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
+        writeBundle: sinon.stub().resolves(true),
+      };
+      const { module: m } = load({ repo, serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({ requestFrom: holdsNothing(m), aboveThreshold: () => true });
+
+      await m.notePeerAvailable(PEER);
+
+      expect(axiosGet.called, 'a restored node needs no seed - peers and its own tick carry it').to.equal(false);
+      expect(m.getSeq()).to.equal(4);
+      m.stop();
+    });
+
+    // THE ORDERING THE EDGE COULD NOT GIVE US. Deciding on peerThresholdReached would read
+    // the store at the moment the set filled - before the peer that filled it had answered,
+    // and possibly before the ones behind it had. Hanging the decision on the LAST ask to
+    // settle is what makes "nobody has policy" a statement about answers received.
+    it('waits for every outstanding ask before deciding', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      await m.start();
+      let releaseSlowPeer;
+      m.setPeerTransport({
+        aboveThreshold: () => true,
+        requestFrom: async (key) => {
+          if (key === PEER) { m.notePeerSeq(null, key); return; }
+          // the slow one: still in flight when the first peer's ask settles
+          await new Promise((resolve) => { releaseSlowPeer = () => { m.offerBundle(bundle(5), key); resolve(); }; });
+        },
+      });
+
+      const slow = m.notePeerAvailable(OTHER_PEER);
+      await m.notePeerAvailable(PEER);
+      expect(axiosGet.called, 'one ask is still outstanding, so nothing is settled yet').to.equal(false);
+
+      releaseSlowPeer();
+      await slow;
+
+      expect(axiosGet.called, 'and it answered with a bundle, so the source was never needed').to.equal(false);
+      expect(m.getSeq()).to.equal(5);
+      m.stop();
+    });
+
+    it('seeds again after the peer set collapsed and rebuilt, with no latch to re-arm', async () => {
+      // No retry timer, deliberately. The threshold accessor carries the hysteresis - set at
+      // appSyncPeerThreshold, cleared below appSyncDegradedThreshold - so a node that lost
+      // its peers and built them back asks the new ones, and the last of those answers with
+      // the level true again.
+      const axiosGet = sinon.stub();
+      axiosGet.onFirstCall().rejects(new Error('github unreachable'));
+      axiosGet.onSecondCall().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({ requestFrom: holdsNothing(m), aboveThreshold: () => true });
+
+      await m.notePeerAvailable(PEER);
+      expect(m.getSeq(), 'the source did not answer, so it still holds nothing').to.equal(0);
+
+      await m.notePeerAvailable(OTHER_PEER);
+
+      expect(axiosGet.callCount).to.equal(2);
+      expect(m.getSeq()).to.equal(7);
+      m.stop();
+    });
+
+    it('still decides when the ask itself could not be sent', async () => {
+      // A send that throws deletes its entry like any other, so if it were the last one
+      // outstanding and the decision sat after the try/finally, nothing would evaluate it -
+      // and the node would hold nothing until another peer happened to arrive.
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({
+        requestFrom: async () => { throw new Error('socket gone'); },
+        aboveThreshold: () => true,
+      });
+
+      await m.notePeerAvailable(PEER);
+
+      expect(axiosGet.calledOnce, 'the ask failed, which is still an answer of nothing').to.equal(true);
+      expect(m.getSeq()).to.equal(7);
+      m.stop();
+    });
+
+    it('does not act on a source that answers with bytes that do not verify', async () => {
+      const axiosGet = sinon.stub().resolves({ data: '{"seq":7,"documents":{}}' });
+      const { module: m, state } = load({ serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({ requestFrom: holdsNothing(m), aboveThreshold: () => true });
+
+      await m.notePeerAvailable(PEER);
+
+      expect(m.getSeq(), 'unsigned bytes are not the publisher answering').to.equal(0);
+      expect(state.policyReady, 'and nothing about them confirms anything').to.equal(false);
+      m.stop();
     });
   });
 
@@ -427,7 +598,7 @@ describe('policyStore', () => {
       const delay = sinon.stub().resolves();
       const axiosGet = sinon.stub().resolves({ data: bundle(2) });
       const { module } = load({ serviceHelper: { axiosGet, delay } });
-      module.setPeerTransport({ request, announce: sinon.stub().resolves(), count: () => 0 });
+      module.setPeerTransport({ request, announce: sinon.stub().resolves(), aboveThreshold: () => false });
 
       await module.refresh();
       expect(request.called, 'nobody to ask, so it did not ask').to.equal(false);
@@ -439,7 +610,7 @@ describe('policyStore', () => {
       const request = sinon.stub().resolves();
       const axiosGet = sinon.stub().resolves({ data: bundle(2) });
       const { module } = load({ serviceHelper: { axiosGet } });
-      module.setPeerTransport({ request, announce: sinon.stub().resolves(), count: () => 3 });
+      module.setPeerTransport({ request, announce: sinon.stub().resolves(), aboveThreshold: () => true });
 
       await module.refresh();
       expect(request.calledOnce, 'three peers, so it asked them').to.equal(true);
@@ -459,16 +630,15 @@ describe('policyStore', () => {
   });
 
   describe('a peer arriving', () => {
-    // policyStore starts before discovery (serviceManager.js:505 vs :560), so the boot
-    // refresh asks an empty peer set and falls through to the source. Telling the store when
-    // a peer appears is what makes peers-first true at boot rather than only at the tick.
+    // policyStore starts before discovery, so at boot the peer set is empty on every node.
+    // Telling the store when a peer appears is what makes peers-first true at boot rather
+    // than only at the tick.
     //
-    // A PEER EVENT MUST NEVER REACH THE SOURCE. It says something about that peer and
-    // nothing about github, and it fires once per arrival on a node filling its peer set -
-    // at which point the broadcast rung is shut anyway, because peerCountIfAboveThreshold
-    // reads 0 below appSyncPeerThreshold. So a ladder run here fell straight through to the
-    // source, on every arrival, on every node, including a fleet coming back from a release
-    // moments after start() had declined to fetch for exactly that reason.
+    // AN ARRIVAL ON ITS OWN MUST NEVER REACH THE SOURCE. It says something about that peer
+    // and nothing about github, and it fires once per arrival on a node filling its peer
+    // set - so a ladder run here would be a fetch per arrival, on every node, including a
+    // fleet coming back from a release. The source is reached only through the seed, which
+    // needs the whole set asked and answered first.
 
     it('asks the peer that arrived, whether or not it holds anything', async () => {
       const { module } = load();
@@ -833,6 +1003,103 @@ describe('policyStore', () => {
       await m.refresh();
 
       expect(axiosGet.firstCall.args[1].maxContentLength).to.be.a('number');
+    });
+  });
+  // WHAT DEPENDS ON THE BUNDLE HAS TO BE TOLD IT ARRIVED.
+  //
+  // The bundle names the iplocation artifact, so ipLocationSync cannot act until one is
+  // held - and it starts on dbReady, which is a fact about the app database and says
+  // nothing about policy. Both chains hang off the peer threshold and nothing orders them,
+  // so a consumer reading getArtifact at some moment of its own was reading a race.
+  describe('telling the rest of the node the bundle changed', () => {
+    const peerHands = (m, seq) => m.setPeerTransport({ request: async () => { m.offerBundle(bundle(seq)); } });
+
+    it('fires on adoption, naming the rung it came from', async () => {
+      const seen = [];
+      const { module: m } = load();
+      m.onBundleChanged((change) => seen.push(change));
+      peerHands(m, 5);
+
+      await m.refresh();
+
+      expect(seen).to.deep.equal([{ seq: 5, source: 'peer' }]);
+      m.stop();
+    });
+
+    it('fires on a restore, because a bundle off disk is equally the one this node holds', async () => {
+      // A consumer told only about adoption would be right on a cold node and wrong on
+      // every restart - which is most boots.
+      const seen = [];
+      const { module: m } = load({
+        repo: { readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }), writeBundle: sinon.stub().resolves(true) },
+      });
+      m.onBundleChanged((change) => seen.push(change));
+
+      await m.start();
+
+      expect(seen).to.deep.equal([{ seq: 4, source: 'disk' }]);
+      m.stop();
+    });
+
+    it('does not fire for a bundle it refused', async () => {
+      const seen = [];
+      const { module: m } = load();
+      m.onBundleChanged((change) => seen.push(change));
+
+      m.offerBundle(bundle(5, undefined, OTHER.privateKey));
+      m.offerBundle('not json');
+
+      expect(seen, 'nothing was adopted, so nothing changed').to.deep.equal([]);
+      m.stop();
+    });
+
+    it('fires again on every later adoption, so a consumer keeps up', async () => {
+      const seen = [];
+      const { module: m } = load();
+      m.onBundleChanged((change) => seen.push(change.seq));
+
+      m.offerBundle(bundle(5));
+      m.offerBundle(bundle(6));
+      m.offerBundle(bundle(6));
+
+      expect(seen, 'twice, not three times - the repeat was not adopted').to.deep.equal([5, 6]);
+      m.stop();
+    });
+
+    it('stops telling a listener that unsubscribed', async () => {
+      const seen = [];
+      const { module: m } = load();
+      const off = m.onBundleChanged((change) => seen.push(change.seq));
+
+      m.offerBundle(bundle(5));
+      off();
+      m.offerBundle(bundle(6));
+
+      expect(seen).to.deep.equal([5]);
+      m.stop();
+    });
+
+    it('adopts the bundle even when a listener throws', async () => {
+      // Telemetry to its subscribers, not a step in adopting. A consumer failing must not
+      // cost this node the bundle it has already verified.
+      const { module: m, log } = load();
+      m.onBundleChanged(() => { throw new Error('consumer blew up'); });
+
+      m.offerBundle(bundle(5));
+
+      expect(m.getSeq(), 'the bundle is held regardless').to.equal(5);
+      expect(log.warn.calledWithMatch(/bundle listener threw/), 'and the failure is visible').to.equal(true);
+      m.stop();
+    });
+
+    it('publishes the change to the harness event stream', async () => {
+      const { module: m, eventBus } = load();
+      m.offerBundle(bundle(5));
+
+      const published = eventBus.publish.getCalls().filter((c) => c.args[0] === 'policy:bundleChanged');
+      expect(published).to.have.lengthOf(1);
+      expect(published[0].args[1]).to.deep.equal({ seq: 5, source: 'peer' });
+      m.stop();
     });
   });
 });

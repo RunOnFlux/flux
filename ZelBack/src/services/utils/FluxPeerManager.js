@@ -225,11 +225,6 @@ class FluxPeerManager extends EventEmitter {
     this.#schedulePeerUpdate();
     if (this.networkHealthMonitor) this.networkHealthMonitor.recordConnect();
     fluxEventBus.publish('peers:added', { ip, port: String(port), direction, outbound: this.#outboundKeys.size, inbound: this.#inboundKeys.size, total: this.#peers.size });
-    if (!this.#aboveThreshold && this.#peers.size >= this.#syncPeerThreshold) {
-      this.#aboveThreshold = true;
-      this.emit('peerThresholdReached', this.#peers.size);
-      fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
-    }
     // Every connection, not just the one that crosses the threshold. The
     // threshold is a latched edge and is cleared only below the DEGRADED level,
     // so once it has fired it says nothing further about a pool that has since
@@ -241,7 +236,18 @@ class FluxPeerManager extends EventEmitter {
     // no peer was added and the count did not move. Its counterpart is
     // peerDisconnected, and both name the connection rather than the address,
     // because a request lives in a connection.
+    //
+    // BEFORE the threshold edge below, so a listener reacting to the edge sees a
+    // set whose newest member has already been handled. The reverse order says
+    // "your peer set is complete" while withholding the peer that completed it,
+    // and a listener that starts work per connection then has one connection's
+    // worth of it unstarted at the moment it is told the set is full.
     this.emit('peerConnected', peer.key, peer.connectionId);
+    if (!this.#aboveThreshold && this.#peers.size >= this.#syncPeerThreshold) {
+      this.#aboveThreshold = true;
+      this.emit('peerThresholdReached', this.#peers.size);
+      fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
+    }
     return peer;
   }
 
@@ -518,10 +524,17 @@ class FluxPeerManager extends EventEmitter {
 
   // Level accessor for the latched peerThresholdReached edge: a subscriber that
   // attaches after the threshold was crossed never sees the event, so it must
-  // be able to read the current state. Returns the peer count when the
-  // threshold has been reached, 0 otherwise.
-  peerCountIfAboveThreshold() {
-    return this.#aboveThreshold ? this.#peers.size : 0;
+  // be able to read the current state.
+  //
+  // A BOOLEAN, because that is the question. This used to return the peer count
+  // above the threshold and 0 below it - so 0 meant "no peers" and 0 also meant
+  // "eleven peers", and a caller had to be told which of the two it was reading.
+  // Every caller wanted the flag; the one that read it as a tally sent a node to
+  // the published source while its peers held the bundle. A count that is only
+  // sometimes a count is not a count. Anything wanting the number calls
+  // getNumberOfPeers, which always means what it says.
+  isAboveThreshold() {
+    return this.#aboveThreshold;
   }
 
   get outboundCount() {

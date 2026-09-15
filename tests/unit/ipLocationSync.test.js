@@ -22,12 +22,21 @@ describe('ipLocationSync tests', () => {
   let storeStub;
   let fluxListStub;
   let logStub;
+  let eventBusStub;
+  // The listener ipLocationSync registers with policyStore, captured so a test can deliver
+  // a bundle the way adoption does rather than reaching into the module.
+  let bundleListener;
+  let unsubscribeSpy;
 
   function buildModule() {
     axiosGetStub = sinon.stub().resolves({ status: 200, data: BYTES });
+    bundleListener = null;
+    unsubscribeSpy = sinon.stub();
     policyStoreStub = {
       getArtifact: sinon.stub().returns({ file: FILE, sha256: SHA, bytes: BYTES.length }),
+      onBundleChanged: (listener) => { bundleListener = listener; return unsubscribeSpy; },
     };
+    eventBusStub = { publish: sinon.stub(), count: sinon.stub() };
     repositoryStub = {
       getArtifactRecord: sinon.stub().resolves(null),
       readArtifactBytes: sinon.stub().resolves(null),
@@ -48,6 +57,7 @@ describe('ipLocationSync tests', () => {
       '../appDatabase/policyArtifactRepository': repositoryStub,
       '../policyStore': policyStoreStub,
       './ipLocationStore': storeStub,
+      '../utils/fluxEventBus': eventBusStub,
       '../../lib/log': logStub,
     });
   }
@@ -64,7 +74,7 @@ describe('ipLocationSync tests', () => {
   });
 
   it('fetches the file the signed bundle names, from the signed source, and caches it', async () => {
-    const replaced = await ipLocationSync.refresh();
+    const { installed: replaced } = await ipLocationSync.refresh();
     expect(replaced).to.equal(true);
     // The CONTENT-ADDRESSED name, not the mutable one. Asking for the digest is what makes
     // "served the wrong bytes" a 404 rather than a verification failure.
@@ -84,7 +94,7 @@ describe('ipLocationSync tests', () => {
     // The same LENGTH deliberately, so it is the digest that refuses it and not the size
     // check standing in front - a test that cannot tell which guard fired proves neither.
     axiosGetStub.resolves({ status: 200, data: Buffer.from('GZIPPED BYTES') });
-    const replaced = await ipLocationSync.refresh();
+    const { installed: replaced } = await ipLocationSync.refresh();
     expect(replaced).to.equal(false);
     expect(storeStub.setArtifact.called, 'nothing unverified reaches the store').to.equal(false);
     expect(repositoryStub.writeArtifactBytes.called).to.equal(false);
@@ -95,7 +105,7 @@ describe('ipLocationSync tests', () => {
     const shorter = BYTES.subarray(0, BYTES.length - 1);
     policyStoreStub.getArtifact.returns({ file: FILE, sha256: sha(shorter), bytes: BYTES.length });
     axiosGetStub.resolves({ status: 200, data: shorter });
-    const replaced = await ipLocationSync.refresh();
+    const { installed: replaced } = await ipLocationSync.refresh();
     expect(replaced, 'a correct digest does not excuse the wrong size').to.equal(false);
     expect(storeStub.setArtifact.called).to.equal(false);
   });
@@ -104,7 +114,7 @@ describe('ipLocationSync tests', () => {
     // Holding no bundle means holding nothing to check against, and an unverified table is
     // exactly what this exists to refuse. The retry brings it back once policy arrives.
     policyStoreStub.getArtifact.returns(null);
-    const replaced = await ipLocationSync.refresh();
+    const { installed: replaced } = await ipLocationSync.refresh();
     expect(replaced).to.equal(false);
     expect(axiosGetStub.called, 'nothing was fetched').to.equal(false);
     expect(storeStub.setArtifact.called).to.equal(false);
@@ -112,7 +122,7 @@ describe('ipLocationSync tests', () => {
 
   it('does not refetch a table whose digest it already holds', async () => {
     await ipLocationSync.refresh();
-    const replaced = await ipLocationSync.refresh();
+    const { installed: replaced } = await ipLocationSync.refresh();
     expect(replaced).to.equal(false);
     expect(axiosGetStub.calledOnce, 'the second refresh asked the source nothing').to.equal(true);
     expect(storeStub.setArtifact.calledOnce).to.equal(true);
@@ -121,7 +131,7 @@ describe('ipLocationSync tests', () => {
 
   it('rejects a malformed artifact without displacing the cached copy', async () => {
     storeStub.setArtifact.rejects(new Error('iplocation artifact: bad magic'));
-    const replaced = await ipLocationSync.refresh();
+    const { installed: replaced } = await ipLocationSync.refresh();
     expect(replaced).to.equal(false);
     expect(repositoryStub.writeArtifactBytes.called).to.equal(false);
     expect(logStub.warn.args.some((a) => a[0].includes('keeping current table'))).to.equal(true);
@@ -334,10 +344,173 @@ describe('ipLocationSync tests', () => {
 
     it('a failed node location pass never fails the artifact refresh', async () => {
       storeStub.refreshNodeLocations.rejects(new Error('MongoServerSelectionError'));
-      const replaced = await ipLocationSync.refresh();
+      const { installed: replaced } = await ipLocationSync.refresh();
       await settle();
       expect(replaced).to.equal(true);
       expect(logStub.warn.args.some((a) => a[0].includes('node location refresh failed'))).to.equal(true);
+    });
+  });
+  // THE TABLE IS FETCHED ON THE BUNDLE, NOT ON A TIMER.
+  //
+  // The bundle names which file is the table and what it must hash to, so this module cannot
+  // do anything until one arrives. It starts on dbReady, which is a fact about the app
+  // database and says nothing about policy; both chains hang off the peer threshold and
+  // nothing orders them. Before the subscription the two outcomes were "policy happened to
+  // be there" and "wait out a ten-minute backoff", picked by a race.
+  describe('the bundle is the event this waits on', () => {
+    // A node whose policy has not arrived: nothing names the table, so nothing is fetched.
+    const withNoBundleYet = () => policyStoreStub.getArtifact.returns(null);
+    // and now it has, naming the artifact the source is serving
+    const bundleArrives = async (artifact = { file: FILE, sha256: SHA, bytes: BYTES.length }) => {
+      policyStoreStub.getArtifact.returns(artifact);
+      await bundleListener({ seq: 1, source: 'peer' });
+      await settle();
+    };
+
+    it('subscribes on start and drops the subscription on stop', async () => {
+      await ipLocationSync.startSync();
+      expect(bundleListener, 'it registered for bundle changes').to.be.a('function');
+      await ipLocationSync.stopSync();
+      expect(unsubscribeSpy.calledOnce, 'and a stopped sync stops reacting to them').to.equal(true);
+    });
+
+    it('fetches as soon as the bundle arrives, having declined to without one', async () => {
+      withNoBundleYet();
+      await ipLocationSync.startSync();
+      await settle();
+      expect(axiosGetStub.called, 'nothing names the table yet, so nothing is fetched').to.equal(false);
+
+      await bundleArrives();
+
+      expect(axiosGetStub.calledOnce, 'the bundle named it, so it went and got it').to.equal(true);
+      expect(axiosGetStub.firstCall.args[0]).to.contain(FILE);
+      expect(storeStub.setArtifact.calledOnce, 'and installed it').to.equal(true);
+    });
+
+    it('does not wait out the backoff that was armed before the bundle came', async () => {
+      // The retry exists for a source that cannot be reached. A bundle arriving is the thing
+      // it was waiting for, so the interval - chosen for a condition that no longer holds -
+      // must not stand between the node and its table.
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+      try {
+        withNoBundleYet();
+        await ipLocationSync.startSync();
+        await settle();
+
+        await bundleArrives();
+        expect(axiosGetStub.calledOnce, 'it fetched on the event, not on the clock').to.equal(true);
+
+        // MEASURED ON THE PASS, NOT ON THE DOWNLOAD. Once the table is installed a stale
+        // retry firing would find the digest it already holds and fetch nothing, so the
+        // request count cannot tell a cancelled timer from a live one. Every pass that
+        // installs nothing refreshes the node locations, so that count is what moves.
+        const passesBefore = storeStub.refreshNodeLocations.callCount;
+
+        // Well past the ten-minute retry that was armed at start.
+        await clock.tickAsync(11 * 60 * 1000);
+        await settle();
+
+        expect(storeStub.refreshNodeLocations.callCount, 'the stale retry was cancelled, not left armed')
+          .to.equal(passesBefore);
+        expect(axiosGetStub.calledOnce, 'and nothing was downloaded twice').to.equal(true);
+      } finally {
+        clock.uninstall();
+      }
+    });
+
+    it('arms no retry when there was nothing to fetch', async () => {
+      // THE TIMER IS FOR A SOURCE THAT COULD NOT BE REACHED, and nothing else. A pass with
+      // no bundle naming the table asked nobody anything, so waiting ten minutes to ask
+      // nobody again achieves nothing - and what it is really waiting for arrives on an
+      // event, which no interval can hurry.
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+      try {
+        withNoBundleYet();
+        await ipLocationSync.startSync();
+        await settle();
+        const passesAfterStart = storeStub.refreshNodeLocations.callCount;
+
+        // past every step of the backoff the old code would have armed
+        await clock.tickAsync(11 * 60 * 1000);
+        await settle();
+        await clock.tickAsync(21 * 60 * 1000);
+        await settle();
+
+        expect(storeStub.refreshNodeLocations.callCount, 'no retry was armed, so no pass ran')
+          .to.equal(passesAfterStart);
+        expect(axiosGetStub.called, 'and nothing was ever requested').to.equal(false);
+      } finally {
+        clock.uninstall();
+      }
+    });
+
+    it('refetches when a later bundle names a different table', async () => {
+      // A new baseline is published as a new bundle naming a new digest. Without this the
+      // node would not look again until its next daily refresh, so a table the network had
+      // already moved to could be a day away.
+      await ipLocationSync.startSync();
+      await settle();
+      expect(axiosGetStub.calledOnce).to.equal(true);
+
+      const NEXT = Buffer.from('a newer table');
+      const NEXT_SHA = sha(NEXT);
+      axiosGetStub.resolves({ status: 200, data: NEXT });
+      await bundleArrives({ file: `iplocation-${NEXT_SHA}.bin.gz`, sha256: NEXT_SHA, bytes: NEXT.length });
+
+      expect(axiosGetStub.calledTwice, 'the digest moved, so it fetched again').to.equal(true);
+      expect(axiosGetStub.secondCall.args[0]).to.contain(NEXT_SHA);
+      expect(storeStub.setArtifact.calledTwice).to.equal(true);
+    });
+
+    it('does nothing when the bundle names the table it already holds', async () => {
+      await ipLocationSync.startSync();
+      await settle();
+      expect(axiosGetStub.calledOnce).to.equal(true);
+
+      // a bundle changed for some other document, naming the same artifact
+      await bundleArrives();
+
+      expect(axiosGetStub.calledOnce, 'the digest is the one it holds, so there is nothing to do').to.equal(true);
+    });
+
+    it('runs one more pass when the bundle changes mid-fetch, rather than two at once', async () => {
+      // A pass reads the bundle it had when it STARTED, so joining the running one would
+      // not cover a bundle that arrived since - and the fetch is allowed two minutes, which
+      // is long enough for a peer to answer inside it.
+      let releaseFirstFetch;
+      axiosGetStub.onFirstCall().returns(new Promise((resolve) => {
+        releaseFirstFetch = () => resolve({ status: 200, data: BYTES });
+      }));
+      const NEXT = Buffer.from('arrived while the first was in flight');
+      const NEXT_SHA = sha(NEXT);
+      axiosGetStub.onSecondCall().resolves({ status: 200, data: NEXT });
+
+      const started = ipLocationSync.startSync();
+      await settle();
+      expect(axiosGetStub.calledOnce, 'the first pass is in flight').to.equal(true);
+
+      policyStoreStub.getArtifact.returns({ file: `iplocation-${NEXT_SHA}.bin.gz`, sha256: NEXT_SHA, bytes: NEXT.length });
+      // NOT awaited, exactly as policyStore fires it: awaiting here would wait on the very
+      // fetch this is arriving during.
+      bundleListener({ seq: 2, source: 'peer' });
+      await settle();
+      expect(axiosGetStub.calledOnce, 'no second download alongside the first').to.equal(true);
+
+      releaseFirstFetch();
+      await started;
+      await settle();
+      await settle();
+
+      expect(axiosGetStub.calledTwice, 'the newer bundle got its own pass once the first ended').to.equal(true);
+      expect(axiosGetStub.secondCall.args[0]).to.contain(NEXT_SHA);
+    });
+
+    it('publishes the install, so a suite can see the table follow the bundle', async () => {
+      await ipLocationSync.startSync();
+      await settle();
+      const installed = eventBusStub.publish.getCalls().filter((c) => c.args[0] === 'ipLocation:tableInstalled');
+      expect(installed, 'one event per verified install').to.have.lengthOf(1);
+      expect(installed[0].args[1]).to.deep.equal({ sha256: SHA, bytes: BYTES.length });
     });
   });
 });

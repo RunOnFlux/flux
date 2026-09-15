@@ -171,14 +171,14 @@ class AppSyncOrchestrator {
   #heartbeatInterval = null;
   #bootContext = null;
   #canSendMessages = false;
-  #peerCountIfAboveThreshold = () => 0;
+  #isAboveThreshold = () => false;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
     this.#getEligibleSyncPeers = options.getEligibleSyncPeers;
     this.#onPeerEvent = options.onPeerEvent;
     this.#offPeerEvent = options.offPeerEvent;
-    this.#peerCountIfAboveThreshold = options.peerCountIfAboveThreshold ?? (() => 0);
+    this.#isAboveThreshold = options.isAboveThreshold ?? (() => false);
     this.#waitForNetworkState = options.networkStateReady ?? null;
     this.#fluxVersion = options.fluxVersion ?? null;
   }
@@ -208,8 +208,11 @@ class AppSyncOrchestrator {
     this.#bootContext = bootContext;
     this.#startHeartbeat();
 
+    // count comes from the edge, which carries the size that crossed it. The level read
+    // below has no count to report - and asking for one would be a dependency taken on for
+    // a log line - so it says which of the two paths got here instead.
     this.#peerThresholdHandler = (count) => {
-      log.info(`AppSyncOrchestrator - Peer threshold reached (${count} peers)`);
+      log.info(`AppSyncOrchestrator - Peer threshold reached (${count === undefined ? 'already above it at start' : `${count} peers`})`);
       this.#peersReady = true;
       this.#tryStartSync();
     };
@@ -241,9 +244,8 @@ class AppSyncOrchestrator {
     // has already fired and never re-fires, which would leave #peersReady
     // false and stall ephemeral state sync until the block timer. Read the
     // level after subscribing to the edge.
-    const peersAlready = this.#peerCountIfAboveThreshold();
-    if (peersAlready && !this.#peersReady) {
-      this.#peerThresholdHandler(peersAlready);
+    if (this.#isAboveThreshold() && !this.#peersReady) {
+      this.#peerThresholdHandler();
     }
 
     this.#ephemeralSyncHandler = (syncType, peerKey) => this.#onEphemeralSyncComplete(syncType, peerKey);
