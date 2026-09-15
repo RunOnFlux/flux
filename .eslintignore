@@ -5,8 +5,10 @@
 /ZelApps/
 /docs/
 /dev/
-# ESM, and these rules are written for the CommonJS backend: an ESM import must
-# carry its .js extension, which import/extensions is configured to forbid. It
-# needs a config of its own rather than this one, so it is out of scope here
-# instead of silently wrong.
-/test-infra/
+# test-infra is NOT ignored: it has a config of its own (test-infra/.eslintrc.json),
+# because these rules are written for the CommonJS backend and an ESM import must
+# carry its .js extension, which import/extensions forbids. That config is root, so
+# none of this file's rules reach it - it carries no-undef, which the harness had no
+# check for at all: node --check validates syntax and says nothing about scope, so a
+# variable read outside the function that declared it reached a 104-suite gate and
+# failed every suite that built a fleet.

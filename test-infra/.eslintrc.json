@@ -1,0 +1,15 @@
+{
+  "root": true,
+  "parserOptions": { "ecmaVersion": 2022, "sourceType": "module" },
+  "env": { "node": true, "es2022": true },
+  "rules": {
+    "no-undef": "error"
+  },
+  "overrides": [
+    {
+      "files": ["fixtures/mongo-init.js"],
+      "env": { "mongo": true },
+      "globals": { "db": "readonly", "print": "readonly" }
+    }
+  ]
+}
