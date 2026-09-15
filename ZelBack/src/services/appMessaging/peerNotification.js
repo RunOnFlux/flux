@@ -6,7 +6,6 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const messageStore = require('./messageStore');
-const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
@@ -159,50 +158,25 @@ async function checkAndNotifyPeersOfRunningApps() {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    let appsInstalled = installedAppsRes.data;
-    ({ inPlace: appsInstalled } = await decryptEnterpriseApps(appsInstalled, { formatSpecs: false }));
-    const runningAppsRes = await appQueryService.listRunningApps();
-    if (runningAppsRes.status !== 'success') {
-      throw new Error('Unable to check running Apps');
-    }
-    const runningApps = runningAppsRes.data;
-    const runningAppsNames = runningApps.map((app) => {
-      if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].slice(4);
-      }
-      return app.Names[0].slice(5);
-    });
+    const appsInstalled = installedAppsRes.data;
 
     // hourly resync trigger: let the reconciler bring any drifted containers
-    // (crashed, orphaned, missed events) back to their desired state
+    // (crashed, orphaned, missed events) back to their desired state - a local
+    // health concern, and not what this message reports
     appReconciler.enqueueAll('hourly').catch((err) => log.error(`peerNotification - reconcile sweep failed: ${err.message}`));
 
-    // apps using g:/r: syncthing are advertised as installed-and-running even when
-    // some components are intentionally stopped (e.g. slaves), so derive them
-    // directly from the specs rather than from container run-state
-    const masterSlaveAppsInstalled = appsInstalled.filter((app) => {
-      const comps = app.version >= 4 && Array.isArray(app.compose) ? app.compose : [app];
-      return comps.some((c) => c.containerData && (c.containerData.includes('g:') || c.containerData.includes('r:')));
-    });
-
-    const installedAndRunning = [];
-    appsInstalled.forEach((app) => {
-      if (app.version >= 4) {
-        let appRunningWell = true;
-        app.compose.forEach((appComponent) => {
-          if (!runningAppsNames.includes(`${appComponent.name}_${app.name}`)) {
-            appRunningWell = false;
-          }
-        });
-        if (appRunningWell) {
-          installedAndRunning.push(app);
-        }
-      } else if (runningAppsNames.includes(app.name)) {
-        installedAndRunning.push(app);
-      }
-    });
-    installedAndRunning.push(...masterSlaveAppsInstalled);
-    const applicationsToBroadcast = [...new Set(installedAndRunning)];
+    // Every app installed here, whatever its containers are doing. The message
+    // says "this node holds this app", which is what the spawner counts against
+    // an app's instance target - a container that is down is recovered here, not
+    // relocated, and whether it serves is settled by the load balancer's own
+    // health check. Deriving this from run-state instead made a component that
+    // could never start silence the node, so the app never reached its target
+    // and was placed again, without end.
+    //
+    // Read straight from the installed set: an app's name and hash sit outside
+    // the enterprise envelope, so a spec that cannot be decrypted still states
+    // its claim, and one unreadable app cannot cost this node its presence.
+    const applicationsToBroadcast = appsInstalled;
     const apps = [];
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -217,7 +191,6 @@ async function checkAndNotifyPeersOfRunningApps() {
         if (result && result.runningSince) {
           runningOnMyNodeSince = result.runningSince;
         }
-        log.info(`${application.name} is running/installed properly. Broadcasting status.`);
         apps.push({
           name: application.name,
           hash: application.hash,
