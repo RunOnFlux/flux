@@ -165,17 +165,6 @@ const runLabels = () => (RUN_LABEL ? { 'flux-e2e-run': RUN_LABEL } : {});
 // the default keeps single-branch use exactly as it was.
 const IMAGE_TAG = process.env.FLUX_E2E_TAG || 'latest';
 
-/**
- * How long a whole-fleet startDiscovery waits for every node to hold policy.
- *
- * ZERO TURNS THE WAIT OFF, which is the escape hatch a derived condition still
- * needs: policyReachable answers "can this fleet get policy" from the fleet's own
- * shape, and a fixture it reads wrongly would otherwise have to wait out the full
- * budget with no way round it but editing this file. Raising it is the other half
- * - a loaded box peers slowly, and the number that suits cindy at MAXN=6 is not
- * the one that suits a laptop running one suite.
- */
-const POLICY_WAIT_MS = Number(process.env.E2E_POLICY_WAIT_MS ?? 120000);
 const image = (name) => `${name}:${IMAGE_TAG}`;
 
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
@@ -1868,11 +1857,16 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
       // the peer threshold, or one whose source is not answering, was built not to satisfy
       // this at all. Derived by the env rather than declared per suite, so a two-node
       // fleet written later is covered without anybody remembering to opt out.
-      if (!indices && policyReachable && POLICY_WAIT_MS > 0) {
+      //
+      // A fixed bound like every other wait here, and no knob. There is nothing to tune:
+      // this settles in seconds, and a fleet still without policy after two minutes is one
+      // that should fail rather than be given longer. A fixture policyReachable reads
+      // wrongly is a bug in policyReachable, not something to switch off for the whole run.
+      if (!indices && policyReachable) {
         await waitFor(
           () => clients.filter(Boolean).every((client) => client.getEventBuffer()
             .some((e) => e.event === 'policy:bundleChanged')),
-          { timeout: POLICY_WAIT_MS, interval: 1000, label: 'policy on every node of the fleet' },
+          { timeout: 120000, interval: 1000, label: 'policy on every node of the fleet' },
         );
       }
     },
