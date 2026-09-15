@@ -165,6 +165,19 @@ describe('the location table survives restarts and refuses bad publications', fu
 
   const stubState = async () => (await fetch(`${env.stubControl}/state`)).json();
 
+  // Wait until a node is on the bundle that names the artifact just published.
+  //
+  // A NODE ASKS FOR THE DIGEST ITS OWN BUNDLE CARRIES. One still on an earlier bundle asks
+  // for a name the stub has replaced and is refused as unreachable - a true refusal of the
+  // wrong thing, which says nothing about the check the scenario is there to exercise. The
+  // fleet's tick is compressed, so this is a short wait, but it is the difference between a
+  // scenario that holds and one that holds when the tick happens to have landed.
+  const onBundle = (index, seq) => waitFor(
+    () => env.clients[index].getEventBuffer()
+      .some((e) => e.event === 'policy:bundleChanged' && e.data.seq >= seq),
+    { timeout: 120000, interval: 1000, label: `node ${index} to adopt seq ${seq}` },
+  );
+
   // The refusals a node published after a given point, as reasons.
   //
   // SCOPED BY EVENT ID, because these scenarios share a node and its buffer keeps
@@ -396,6 +409,7 @@ describe('the location table survives restarts and refuses bad publications', fu
     });
     expect(published.rowCount, 'these bytes are not a format-2 artifact at all').to.equal(null);
 
+    await onBundle(REJECT_NODE, published.policySeq);
     const beforeMalformed = lastEventId(REJECT_NODE);
     await restartAndSettle(REJECT_NODE);
     await waitFor(async () => (await fetchCounts()).ok >= 1, {
@@ -434,6 +448,8 @@ describe('the location table survives restarts and refuses bad publications', fu
     const tampered = await publish({ tamper: true });
     expect(tampered.tampered).to.equal(true);
     expect(tampered.servedUnder, 'served under the name the bundle signed').to.match(/^iplocation-[0-9a-f]{64}\.bin\.gz$/);
+
+    await onBundle(REJECT_NODE, tampered.policySeq);
 
     const beforeTamper = lastEventId(REJECT_NODE);
     await restartAndSettle(REJECT_NODE);
@@ -475,6 +491,7 @@ describe('the location table survives restarts and refuses bad publications', fu
     expect(published.padded).to.equal(false);
     expect(published.rowCount, 'the artifact sits below the truncation floor').to.be.lessThan(TRUNCATION_FLOOR);
 
+    await onBundle(FLOOR_NODE, published.policySeq);
     const beforeFloor = lastEventId(FLOOR_NODE);
     await restartAndSettle(FLOOR_NODE);
     await waitFor(async () => (await fetchCounts()).ok >= 1, {
