@@ -120,10 +120,6 @@ const bundleListeners = new Set();
 // rare, and two concurrent fetches of the same bundle is exactly the lockstep traffic against
 // the published source this design exists to avoid. A caller that asks while one is running
 // waits for that one.
-//
-// It used to be load-bearing rather than tidy, because a peer arriving ran a refresh and a
-// node filling its peer set ran sixteen. Peer arrivals ask the peer now and never the source,
-// so the burst it was written for cannot happen.
 let refreshInFlight = null;
 
 
@@ -432,9 +428,8 @@ async function seedIfPeersHaveNothing() {
 async function refresh() {
   // The rung is skipped when there is nobody worth asking. A broadcast to no peers reaches
   // nobody by definition, and waiting PEER_WINDOW_MS afterwards waits for an answer that
-  // cannot come - which every node used to do on every boot, because this runs before
-  // discovery has connected anything. It cost the 3s window plus the 500ms the broadcast
-  // itself sleeps between directions, on every boot, to ask nobody anything.
+  // cannot come - the 3s window plus the 500ms the broadcast sleeps between directions,
+  // spent asking nobody anything.
   //
   // The level comes from peerManager's LATCHED threshold: the network already defines
   // "enough peers to gossip with" hysteretically, at appSyncPeerThreshold on the way up and
@@ -560,8 +555,7 @@ function refreshOnce() {
  * @param {Function} request Ask peers for anything above a sequence.
  * @param {Function} announce Tell peers what this node has adopted.
  * @param {Function} [aboveThreshold] Whether the peer set is above appSyncPeerThreshold.
- *   Without it the store asks regardless and waits out the window, which is what a boot
- *   used to do.
+ *   Without it the store asks regardless and waits out the window.
  */
 function setPeerTransport({
   request, requestFrom, announce, aboveThreshold,

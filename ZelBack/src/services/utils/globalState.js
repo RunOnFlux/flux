@@ -118,11 +118,11 @@ module.exports = {
   // others, because a redeploy that asked without excluding itself would refuse
   // its own reinstall. Order is the order the guards asked in.
   //
-  // Every entry point that can START work asks this. The five flags used to be
-  // read as hand-picked subsets - forty-six guards, exactly one of which read
-  // reinstallationOfOldAppsInProgress - so the periodic reinstall pass announced
-  // itself and the spawner walked straight past it, took the node during the
-  // pass's own wait, and left an app torn down that could not be rebuilt.
+  // EVERY ENTRY POINT THAT CAN START WORK ASKS THIS, and asks it for all five flags
+  // rather than a subset it picked. A guard that reads only the flags it expects to
+  // meet walks past the one it did not: a spawner that ignores the reinstall pass takes
+  // the node during that pass's own wait and leaves an app torn down that cannot be
+  // rebuilt.
   operationHolding(except = null) {
     const held = [
       ['removal', removalInProgress],
