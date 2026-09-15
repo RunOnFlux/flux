@@ -35,6 +35,10 @@ async function getHostInfo(req, res) {
         hostInfo.ip = extractIp(localSocketAddr);
         const nodeGeo = await geolocationService.getNodeGeolocation();
         if (nodeGeo) {
+          // The node's own address and the operator holding it are not the
+          // container's business. getNodeGeolocation answers with a copy, so
+          // these removals shape this reply and leave the node's own record of
+          // where it is intact.
           delete nodeGeo.ip;
           delete nodeGeo.org;
           hostInfo.geo = nodeGeo;
