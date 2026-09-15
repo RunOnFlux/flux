@@ -243,6 +243,16 @@ module.exports = {
     // artefact; making the harness faster until it stops happening is the same
     // move one layer down. Measured at 4.8s a block at the old hardcoded 5000,
     // which was poll-dominated - a block sat unnoticed for a whole window.
+    // How many blocks between runs of the give-up pass, which is what suites
+    // waiting on a surplus trim, an expiry or a reinstall actually wait for.
+    // Production's 11 costs 44 blocks a firing once speedMultiplier is applied,
+    // and a suite needing two firings pays for 88 blocks of chain before it can
+    // assert anything. 4 is the lowest value this fleet has held: at 1 a
+    // departure was not announced before the next holder decided and two
+    // holders handed the same app back. The coupled values follow through
+    // derivedQueueStepMs and derivedEvacuationIntervalMs, and
+    // assertCoupledRatios refuses a fleet where the ratio no longer holds.
+    removeFluxAppsPeriod: 4,
     explorerPollIntervalMs: 833,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,
