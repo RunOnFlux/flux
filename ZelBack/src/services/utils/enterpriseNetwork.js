@@ -3,6 +3,7 @@ const dbHelper = require('../dbHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appConstants = require('./appConstants');
 const enterpriseConfig = require('./enterpriseConfig');
+const policyStore = require('../policyStore');
 const log = require('../../lib/log');
 
 // This node's own fluxnode pubkey, cached once resolved. The pubkey never
@@ -109,16 +110,41 @@ function getCachedAllowedOwnersForNode() {
  */
 function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
   return new Promise((resolve) => {
+    let timer = null;
+    let unsubscribe = null;
+
+    const done = () => {
+      if (timer) clearTimeout(timer);
+      if (unsubscribe) unsubscribe();
+      timer = null;
+      unsubscribe = null;
+      resolve();
+    };
+
     const tryResolve = async () => {
       try {
         await isEnterpriseNode();
         log.info('enterpriseNetwork: identity resolved');
-        resolve();
+        done();
       } catch (err) {
         log.warn(`enterpriseNetwork: identity resolution failed, retrying in ${Math.round(retryDelayMs / 1000)}s: ${err.message || err}`);
-        setTimeout(tryResolve, retryDelayMs);
+        timer = setTimeout(tryResolve, retryDelayMs);
       }
     };
+
+    // THE TWO REASONS THIS FAILS NEED DIFFERENT ANSWERS. A daemon or benchmark still coming
+    // up has nothing to announce, so waiting out an interval is the only thing to do. Policy
+    // not yet obtained is not like that: it arrives, and it says so.
+    //
+    // Without this the node waits the full interval for a fact that is already there - the
+    // spawner is gated on this identity (appSpawner: enterprise_unresolved), so a fleet
+    // measured here had policy nine seconds after boot and could not spawn for five minutes.
+    unsubscribe = policyStore.onBundleChanged(() => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      tryResolve();
+    });
+
     tryResolve();
   });
 }

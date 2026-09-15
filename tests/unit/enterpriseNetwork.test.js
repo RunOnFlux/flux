@@ -2,6 +2,10 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+// Listeners enterpriseNetwork registers with policyStore, so a test can fire the bundle
+// event without reaching into the module.
+const bundleListeners = [];
+
 const MODULE_PATH = '../../ZelBack/src/services/utils/enterpriseNetwork';
 
 const OWNERS = ['ownerA', 'ownerB'];
@@ -24,6 +28,7 @@ function loadModule(overrides = {}) {
     },
   };
 
+  bundleListeners.length = 0;
   const stubs = {
     config: overrides.config || defaultConfig,
     './enterpriseConfig': overrides.enterpriseConfig || {
@@ -43,6 +48,10 @@ function loadModule(overrides = {}) {
       localAppsInformation: 'zelappsinformation',
     },
     '../../lib/log': logStub,
+    '../policyStore': overrides.policyStore || {
+      // Captured so a test can deliver a bundle the way adoption does.
+      onBundleChanged: (listener) => { bundleListeners.push(listener); return () => {}; },
+    },
     '../appLifecycle/appUninstaller': overrides.appUninstaller || {
       removeAppLocally: sinon.stub().resolves(),
     },
@@ -255,6 +264,52 @@ describe('enterpriseNetwork', () => {
       });
       await m.scheduleIdentityResolution({ retryDelayMs: 1000 });
       expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+    });
+
+    it('resolves on the bundle arriving, without waiting out the retry', async () => {
+      // THE TWO FAILURES NEED DIFFERENT ANSWERS. A daemon still coming up has nothing to
+      // announce and the interval is the only thing to do; policy not yet obtained arrives
+      // and says so. The spawner is gated on this identity, so waiting out five minutes for
+      // a fact already in hand is five minutes the node cannot spawn.
+      let policyKnown = false;
+      const { module: m } = loadModule({
+        enterpriseConfig: {
+          isPolicyKnown: () => policyKnown,
+          getEnterpriseAppOwners: () => OWNERS,
+          getEnterpriseNodesPublicKeys: () => (policyKnown ? NODE_PUBKEYS : null),
+          getAllowedOwnersForNode: (pubKey) => NODE_OWNER_MAP[pubKey] || [],
+        },
+      });
+
+      const resolved = m.scheduleIdentityResolution({ retryDelayMs: 5 * 60 * 1000 });
+      await clock.tickAsync(0);
+      expect(m.getCachedEnterpriseIdentity(), 'nothing to judge against yet').to.equal(null);
+
+      policyKnown = true;
+      bundleListeners.forEach((fn) => fn({ seq: 1, source: 'peer' }));
+      await clock.tickAsync(0);
+      await resolved;
+
+      expect(m.getCachedEnterpriseIdentity(), 'resolved on the event, not on the clock').to.equal(true);
+    });
+
+    it('still waits out the retry when the failure is not about policy', async () => {
+      // A pubkey the daemon cannot yet answer for. No event is coming, so the interval is
+      // the mechanism and must survive the subscription added beside it.
+      const getPubKey = sinon.stub();
+      getPubKey.onFirstCall().rejects(new Error('daemon down'));
+      getPubKey.onSecondCall().resolves('pubA');
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: getPubKey },
+      });
+
+      const resolved = m.scheduleIdentityResolution({ retryDelayMs: 1000 });
+      await clock.tickAsync(0);
+      expect(m.getCachedEnterpriseIdentity()).to.equal(null);
+
+      await clock.tickAsync(1000);
+      await resolved;
+      expect(getPubKey.callCount).to.equal(2);
     });
 
     it('retries on failure and resolves once the pubkey becomes available', async () => {
