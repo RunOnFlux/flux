@@ -231,6 +231,10 @@ export function nodeClient(nodeNum) {
         'policy:bundleChanged',
         // And the other half of that pair: a verified table actually installed.
         'ipLocation:tableInstalled',
+        // The node looked and had nothing to look for - the bundle it holds names no
+        // table. A fleet in that posture makes no requests at all, so this is what tells
+        // "decided to decline" from "has not got there yet".
+        'ipLocation:noStatement',
         'syncthing:folderErrors',
         'syncthing:eventsResync',
         'syncthing:holderRetained',
