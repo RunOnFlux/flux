@@ -18,14 +18,36 @@ const { Privilege, authOf } = require('./utils/privileges');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
-// FLUXOS_PATH, as everywhere else that asks this question. SYNCTHING_PATH is a
-// path override that happens to be Arcane-only today, and it decides whether
-// FluxOS supervises syncthing at all: stop, reinstall, spawn, and the ownership
-// dance. A marker that is really a path stops being true the moment the path is
-// set for its own sake - a legacy operator relocating syncthing's config would
-// have had FluxOS stand back from a daemon nobody else supervises. Verified on
-// a live Arcane node (8.18.0) that both are set, so this changes nothing there.
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+// Whether this process is the one that installs, spawns and owns the syncthing
+// daemon - the question the repair path, the ownership fix and the binary wait
+// are really asking. "Is this Arcane" was only ever a proxy for it, and reading
+// either environment variable alone gets a case wrong.
+//
+// Two conditions, because they are two different facts:
+//   - Arcane ships syncthing and supervises it itself, so FluxOS stands back.
+//   - A syncthing that is not on this host cannot be stopped, reinstalled or
+//     chowned by this process whatever the node type. Today's code would try.
+//
+// config.syncthing.ip defaults to 127.0.0.1, so an ordinary legacy node
+// supervises exactly as before and an ordinary Arcane node does not.
+const SYNCTHING_LOCAL_ADDRESSES = ['127.0.0.1', 'localhost', '::1'];
+
+/**
+ * Whether this process owns the syncthing daemon, given where syncthing is and
+ * whether this is Arcane. A pure function of the two facts so the rule can be
+ * exercised - the module-level answer below is fixed at load and a test cannot
+ * reach the other branches through it.
+ * @param {string} syncthingIp config.syncthing.ip
+ * @param {boolean} arcane
+ * @returns {boolean}
+ */
+function supervisesSyncthing(syncthingIp, arcane) {
+  return SYNCTHING_LOCAL_ADDRESSES.includes(syncthingIp) && !arcane;
+}
+
+const fluxosSupervisesSyncthing = supervisesSyncthing(config.syncthing.ip, isArcane);
 
 /**
  * If the binary is executable
@@ -125,7 +147,7 @@ async function getConfigFile() {
   const syncthingDir = process.env.SYNCTHING_PATH || path.join(configDir, 'syncthing');
   const configFile = path.join(syncthingDir, 'config.xml');
 
-  if (!isArcane) {
+  if (fluxosSupervisesSyncthing) {
     const ownershipChanged = await changeSyncthingOwnership(configDir, syncthingDir, configFile);
     if (!ownershipChanged) return null;
   }
@@ -1692,7 +1714,7 @@ async function runSyncthingSentinel() {
   }
 
   try {
-    if (!isArcane) {
+    if (fluxosSupervisesSyncthing) {
       await ensureSyncthingRunning(installed);
     }
 
@@ -1725,7 +1747,7 @@ async function runSyncthingSentinel() {
  * @returns {<void>}
  */
 async function startSyncthingSentinel() {
-  while (!isArcane && !syncthingBinaryPresent) {
+  while (fluxosSupervisesSyncthing && !syncthingBinaryPresent) {
     // eslint-disable-next-line no-await-in-loop
     const { error } = await serviceHelper.runCommand('syncthing', { logError: false, params: ['--version'] });
 
@@ -2533,6 +2555,7 @@ module.exports = {
   getDeviceIdApi,
   probeSyncthing,
   refreshSyncthingHealth,
+  supervisesSyncthing,
   getMeta,
   getHealth,
   postSystemError,

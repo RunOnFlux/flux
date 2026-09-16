@@ -268,6 +268,29 @@ describe('syncthingService tests', () => {
       expect(syncthingService.isRunning()).to.equal(false);
     });
 
+    // Who owns the daemon is two facts, not one, and reading either environment
+    // variable alone gets a real case wrong. A legacy node pointed at a syncthing
+    // on another host is the case that has no equivalent in production and is
+    // exactly what the harness boots: FluxOS treating it as its own spawned a
+    // second, unconfigured daemon beside the stub, which then went looking for
+    // discovery servers, relays and STUN.
+    describe('who owns the syncthing daemon', () => {
+      const cases = [
+        ['legacy node, syncthing on this host', '127.0.0.1', false, true],
+        ['the same by name', 'localhost', false, true],
+        ['the same over v6', '::1', false, true],
+        ['Arcane ships and supervises it, so FluxOS stands back', '127.0.0.1', true, false],
+        ['syncthing on another host cannot be stopped or reinstalled from here', '198.18.0.9', false, false],
+        ['and neither can it on Arcane', '198.18.0.9', true, false],
+      ];
+
+      cases.forEach(([name, ip, arcane, expected]) => {
+        it(name, () => {
+          expect(syncthingService.supervisesSyncthing(ip, arcane)).to.equal(expected);
+        });
+      });
+    });
+
     it('keeps health up through a blip: the last success is still fresh', async () => {
       syncthingService.resetDeviceIdCache();
       fakeMeta.throws(new Error('syncthing busy'));
