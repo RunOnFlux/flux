@@ -41,6 +41,23 @@ let pendingAppUpdatesCache = null;
 // Running apps cache - tracks app names that have been broadcasted as running
 const runningAppsCache = new Set();
 
+// Apps this node has told the network it is removing, by the name the removal
+// message carries. An announcement states which apps the node holds, and an app
+// whose removal has been broadcast is no longer one of them.
+//
+// Membership spans the removal: the message goes out before the app's local row is
+// deleted, so an announcement built in that window would still name the app and
+// re-create the location row the removal had just cleared. Peers apply the two
+// messages in arrival order and cannot tell which describes the later state.
+//
+// Only a removal that tells the network belongs here. A removal whose containers
+// are coming straight back - a redeploy - keeps announcing, or its row lapses and
+// the app is placed a second time.
+//
+// In-memory deliberately: a restart ends the removal that entered it, and an entry
+// that survived would silence an app nothing is removing any more.
+const departingApps = new Set();
+
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
 
@@ -249,6 +266,7 @@ module.exports = {
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
+  get departingApps() { return departingApps; },
   get stoppingContainers() { return stoppingContainers; },
   get fluxRemovedContainers() { return fluxRemovedContainers; },
 

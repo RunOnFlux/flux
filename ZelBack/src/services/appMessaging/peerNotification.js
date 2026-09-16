@@ -176,7 +176,12 @@ async function checkAndNotifyPeersOfRunningApps() {
     // Read straight from the installed set: an app's name and hash sit outside
     // the enterprise envelope, so a spec that cannot be decrypted still states
     // its claim, and one unreadable app cannot cost this node its presence.
-    const applicationsToBroadcast = appsInstalled;
+    // An app whose removal this node has broadcast is excluded: it is still
+    // installed until the removal finishes, and naming it here would re-create the
+    // location row the removal just cleared.
+    const applicationsToBroadcast = appsInstalled.filter(
+      (application) => !globalState.departingApps.has(application.name),
+    );
     const apps = [];
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);

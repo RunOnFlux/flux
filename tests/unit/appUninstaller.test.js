@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('appUninstaller tests', () => {
   let appUninstaller;
@@ -624,6 +625,58 @@ describe('appUninstaller tests', () => {
 
       sinon.assert.calledOnceWithExactly(runtimeStateStub.remove, 'testapp');
       sinon.assert.notCalled(logStub.error);
+    });
+
+    // A node stops claiming an app when it decides to hand it back, not when the
+    // container happens to die. The app stays installed until the removal ends, so
+    // without the mark the announcement built in that window re-creates the
+    // location row the removal message had just cleared.
+    describe('the departing mark', () => {
+      afterEach(() => {
+        globalState.removalInProgress = false;
+        globalState.departingApps.clear();
+      });
+
+      it('marks the app while a broadcast removal runs, and clears it when the removal ends', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        let markedDuring = null;
+        uninstaller.setOnComponentRemoved(() => {
+          markedDuring = globalState.departingApps.has('testapp');
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        expect(markedDuring, 'still claimed the app while removing it').to.be.true;
+        expect(globalState.departingApps.has('testapp'), 'left the mark behind, silencing the app for good').to.be.false;
+      });
+
+      it('does not mark a removal the network is never told about', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        let markedDuring = null;
+        uninstaller.setOnComponentRemoved(() => {
+          markedDuring = globalState.departingApps.has('testapp');
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, false);
+
+        expect(
+          markedDuring,
+          'a redeploy keeps announcing - stop, and its row lapses and the app is placed a second time',
+        ).to.be.false;
+      });
+
+      it('releases only the mark this call took, so a refused duplicate cannot unmark a live removal', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalState.departingApps.add('testapp');
+        globalState.removalInProgress = true;
+
+        await uninstaller.removeAppLocally('testapp', res, false, true, true);
+
+        expect(
+          globalState.departingApps.has('testapp'),
+          'unmarked an app whose real removal is still running',
+        ).to.be.true;
+      });
     });
   });
 
