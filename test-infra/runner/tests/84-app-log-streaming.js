@@ -328,6 +328,12 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     // counted as content, or a line counted twice, or a line reported in
     // instalments while its tail was still arriving.
     expect(settled, 'nothing was reported as cut after the backfill').to.not.be.empty;
+    // The sequence, not just the total: a remainder says frames went missing and
+    // only the run of notices says where. Printed on the way through so a failure
+    // carries its own evidence rather than needing the run repeated to get it.
+    // eslint-disable-next-line no-console
+    console.log(`# 84 notices perLine=${perLine} all=[${viewer.truncated.map((n) => n.characters).join(',')}]`
+      + ` backfill=${throughBackfill} lineLengths=[${[...new Set(viewer.lines.map((l) => l.length))].sort((a, b) => b - a).slice(0, 5).join(',')}]`);
     settled.forEach((notice) => {
       expect(notice.container, 'a notice that does not name its container cannot be attributed')
         .to.equal(viewer.subscribed.container);
