@@ -2,7 +2,7 @@ const config = require('config');
 const crypto = require('crypto');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const { newCorrelationId } = require('./utils/messageIntent');
+const { PeerRequests } = require('./utils/peerRequests');
 const globalState = require('./utils/globalState');
 const policyArtifactRepository = require('./appDatabase/policyArtifactRepository');
 const fluxEventBus = require('./utils/fluxEventBus');
@@ -98,13 +98,10 @@ let peerAnswered = null;
 // beside it. A ladder run per boot breaks the same tie by having EVERY node ask the source,
 // moments after the release-wave guard in start() declined to.
 
-// One outstanding ask per peer asked directly, keyed by ip:port, holding the id that
-// names it and the resolver that ends it.
-//
 // Every peer answers - respondWithPolicy replies in all three states - so silence means only
 // "not there". A targeted ask therefore ends on its answer, and PEER_WINDOW_MS is the floor
 // for a peer that has gone away rather than the mechanism.
-const pendingPeerAsks = new Map();
+const peerAsks = new PeerRequests();
 
 // Told when the bundle this node holds changes, so a consumer whose work depends on the
 // bundle runs when it arrives rather than polling for it.
@@ -339,16 +336,9 @@ function offerBundle(raw, peerKey, correlationId) {
  */
 function settlePeerAsk(peerKey, correlationId) {
   if (!peerKey) return;
-  const pending = pendingPeerAsks.get(peerKey);
-  if (!pending) return;
-  // An answer that names an ask settles THAT ask and no other. Without this a reply that
-  // arrives after its own ask timed out settles whichever ask is outstanding now, and the
-  // node reads a stale sequence as the answer to a question it asked later.
-  //
   // An answer naming nothing is from a peer that does not send the id yet, and there the
   // socket it came back on is the only thing identifying it.
-  if (correlationId && pending.correlationId && correlationId !== pending.correlationId) return;
-  pending.settle();
+  peerAsks.settle(peerKey, 'answered', correlationId ? { id: correlationId } : {});
 }
 
 /**
@@ -366,16 +356,16 @@ function settlePeerAsk(peerKey, correlationId) {
 async function askPeer(peerKey) {
   // One outstanding ask per peer. A second is not more informative, and a peer that
   // reconnects repeatedly must not accumulate them.
-  if (pendingPeerAsks.has(peerKey)) return;
-  const correlationId = newCorrelationId();
-  const answered = new Promise((resolve) => {
-    pendingPeerAsks.set(peerKey, { correlationId, settle: () => resolve(true) });
+  if (peerAsks.has(peerKey)) return;
+  const request = peerAsks.open(peerKey, {
+    timeoutMs: PEER_WINDOW_MS,
+    onTimeout: (key) => peerAsks.settle(key, 'timedOut'),
   });
   try {
-    await peerRequestFrom(peerKey, getSeq(), correlationId);
-    await Promise.race([answered, serviceHelper.delay(PEER_WINDOW_MS)]);
+    await peerRequestFrom(peerKey, getSeq(), request.id);
+    await request.settled;
   } finally {
-    pendingPeerAsks.delete(peerKey);
+    peerAsks.discard(peerKey);
     // IN THE FINALLY, so a send that threw still gets here. Otherwise an ask that failed to
     // leave the node would skip the decision, and if it were the last one outstanding the
     // node would sit holding nothing until another peer happened to arrive. Its own error is
@@ -415,7 +405,7 @@ async function askPeer(peerKey) {
  * @returns {Promise<void>}
  */
 async function seedIfPeersHaveNothing() {
-  if (current || pendingPeerAsks.size || seedInFlight) return;
+  if (current || peerAsks.openCount() || seedInFlight) return;
   if (!peerAboveThreshold || !peerAboveThreshold()) return;
   seedInFlight = true;
   try {
@@ -670,7 +660,7 @@ function reset() {
   bundleListeners.clear();
   peerAnswered = null;
   refreshInFlight = null;
-  pendingPeerAsks.clear();
+  peerAsks.discardAll();
   confirmed = false;
   refreshGate();
 }

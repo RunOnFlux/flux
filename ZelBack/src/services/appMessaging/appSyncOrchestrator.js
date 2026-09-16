@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const config = require('config');
 const log = require('../../lib/log');
+const { PeerRequests } = require('../utils/peerRequests');
 const dbHelper = require('../dbHelper');
 const appHashSyncService = require('./appHashSyncService');
 const peerNotification = require('./peerNotification');
@@ -132,22 +133,17 @@ class AppSyncOrchestrator {
   #stateSyncComplete = false;
   #syncTimeout = null;
   /**
-   * peerKey -> the request outstanding to that peer, and how it ended.
+   * The requests this node has outstanding, and how each ended.
    *
-   * ONE record. The deadline hangs off it, the pool counts it, the candidate
-   * filter reads it, and the response path asks it whether an arriving answer
-   * is still wanted. Those were separate records with separate owners and
-   * separate clearing rules, and every way they could disagree was a defect:
-   * a round that ended cleared one and left the others running, and a decline
-   * written onto a socket had no lifetime at all.
+   * ONE record. The deadline hangs off it, the pool counts it, the candidate filter
+   * reads it, and the response path asks it whether an arriving answer is still wanted.
+   * Those were separate records with separate owners and separate clearing rules, and
+   * every way they could disagree was a defect.
    *
-   * A record is OPEN until it has an outcome, then it stands - a peer that has
-   * answered or been set aside is not a candidate - until #sweepRequests
-   * decides it no longer describes anything.
-   * @type {Map<string, {peerKey: string, connectionId: number|null, spoken: boolean,
-   *   timer: ReturnType<typeof setTimeout>|null, outcome: string|null, closedAt: number}>}
+   * A record stands after it ends - a peer that has answered or been set aside is not a
+   * candidate - until the round that opened it discards it.
    */
-  #requests = new Map();
+  #requests = new PeerRequests();
   /**
    * Whether this node has spent its state-sync budget.
    *
@@ -377,33 +373,16 @@ class AppSyncOrchestrator {
   }
 
   /**
-   * How many requests are still waiting on an answer.
-   * @returns {number}
-   */
-  #openRequestCount() {
-    let open = 0;
-    for (const request of this.#requests.values()) if (!request.outcome) open += 1;
-    return open;
-  }
-
-  /**
    * Start waiting on a peer, with a deadline for it saying anything at all.
    * @param {{key: string, connectionId?: number}} peer
    * @returns {void}
    */
   #openRequest(peer) {
-    this.#discardRequest(peer.key);
-    const request = {
-      peerKey: peer.key,
-      connectionId: peer.connectionId ?? null,
-      spoken: false,
-      timer: null,
-      outcome: null,
-      closedAt: 0,
-    };
-    this.#requests.set(peer.key, request);
-    request.timer = setTimeout(() => this.#onRequestDeadline(peer.key, 'said nothing'), FIRST_RESPONSE_MS);
-    if (request.timer.unref) request.timer.unref();
+    this.#requests.open(peer.key, {
+      channel: peer.connectionId ?? null,
+      timeoutMs: FIRST_RESPONSE_MS,
+      onTimeout: (peerKey) => this.#onRequestDeadline(peerKey, 'said nothing'),
+    });
   }
 
   /**
@@ -418,28 +397,9 @@ class AppSyncOrchestrator {
    * @returns {boolean} true if the request was still open.
    */
   #closeRequest(peerKey, outcome) {
-    const request = this.#requests.get(peerKey);
-    if (!request || request.outcome) return false;
-    if (request.timer) {
-      clearTimeout(request.timer);
-      request.timer = null;
-    }
-    request.outcome = outcome;
-    request.closedAt = Date.now();
-    return true;
+    return this.#requests.settle(peerKey, outcome);
   }
 
-  /**
-   * Forget a request entirely, so the peer is a candidate again.
-   * @param {string} peerKey ip:port
-   * @returns {void}
-   */
-  #discardRequest(peerKey) {
-    const request = this.#requests.get(peerKey);
-    if (!request) return;
-    if (request.timer) clearTimeout(request.timer);
-    this.#requests.delete(peerKey);
-  }
 
   /**
    * End every request still outstanding, because the round they belong to has.
@@ -454,12 +414,7 @@ class AppSyncOrchestrator {
    * @returns {number} how many were still outstanding.
    */
   #closeRound(why) {
-    let outstanding = 0;
-    for (const [peerKey, request] of this.#requests) {
-      if (request.outcome) continue;
-      outstanding += 1;
-      this.#closeRequest(peerKey, 'timedOut');
-    }
+    const outstanding = this.#requests.settleAll('timedOut');
     if (outstanding) {
       log.info(`AppSyncOrchestrator - ${outstanding} state-sync ${outstanding === 1 ? 'request was' : 'requests were'} still outstanding when ${why}`);
     }
@@ -479,12 +434,10 @@ class AppSyncOrchestrator {
    * @returns {void}
    */
   #onEphemeralSyncProgress(peerKey) {
-    const request = this.#requests.get(peerKey);
-    if (!request || request.outcome) return;
-    clearTimeout(request.timer);
-    request.spoken = true;
-    request.timer = setTimeout(() => this.#onRequestDeadline(peerKey, 'stopped mid-answer'), STALL_MS);
-    if (request.timer.unref) request.timer.unref();
+    this.#requests.note(peerKey, {
+      timeoutMs: STALL_MS,
+      onTimeout: (key) => this.#onRequestDeadline(key, 'stopped mid-answer'),
+    });
   }
 
   /**
@@ -528,10 +481,7 @@ class AppSyncOrchestrator {
    * @returns {void}
    */
   #onPeerDisconnected(peerKey, connectionId) {
-    const request = this.#requests.get(peerKey);
-    if (!request) return;
-    if (request.connectionId !== (connectionId ?? null)) return;
-    if (!this.#closeRequest(peerKey, 'disconnected')) return;
+    if (!this.#requests.settle(peerKey, 'disconnected', { channel: connectionId ?? null })) return;
     if (this.#stateSyncComplete) return;
     log.info(`AppSyncOrchestrator - ${peerKey} went away with a sync outstanding, asking another peer`);
     fluxEventBus.publish('ephemeralSync:peerDisconnected', { peer: peerKey, connectionId: connectionId ?? null });
@@ -550,9 +500,7 @@ class AppSyncOrchestrator {
    */
   isSyncResponseWanted(peerSocket) {
     if (!peerSocket) return false;
-    const request = this.#requests.get(peerSocket.key);
-    if (!request || request.outcome) return false;
-    return request.connectionId === (peerSocket.connectionId ?? null);
+    return this.#requests.isOpen(peerSocket.key, { channel: peerSocket.connectionId ?? null });
   }
 
   /**
@@ -635,7 +583,7 @@ class AppSyncOrchestrator {
    * @returns {number}
    */
   #syncDeficit() {
-    return MIN_SYNC_COMPLETIONS - this.#completedPeerCount() - this.#openRequestCount();
+    return MIN_SYNC_COMPLETIONS - this.#completedPeerCount() - this.#requests.openCount();
   }
 
   /**
@@ -776,7 +724,7 @@ class AppSyncOrchestrator {
     fluxEventBus.publish('ephemeralSync:requested', {
       peerCount: peersToAsk.length,
       peers: peersToAsk.map((p) => p.key),
-      outstanding: this.#openRequestCount(),
+      outstanding: this.#requests.openCount(),
     });
 
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
@@ -785,7 +733,7 @@ class AppSyncOrchestrator {
         if (this.#stateSyncComplete) return;
         this.#closeRound('the budget ran out');
         this.#syncBudgetSpent = true;
-        for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
+        this.#requests.discardAll();
         const answered = Object.entries(this.#completionCounts())
           .map(([type, count]) => `${type}=${count}`).join(' ');
         log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: ${answered}`);
@@ -838,7 +786,7 @@ class AppSyncOrchestrator {
     // Everything asked in the round that is ending is forgotten outright, not
     // set aside: the sync starts over, so a peer already tried is a peer to
     // try again rather than one to skip.
-    for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
+    this.#requests.discardAll();
     this.#syncBudgetSpent = false;
     this.#syncCompletions = freshSyncCompletions();
     this.#stateSyncComplete = false;
@@ -1248,7 +1196,7 @@ class AppSyncOrchestrator {
     if (this.#peerDisconnectedHandler) {
       this.#offPeerEvent('peerDisconnected', this.#peerDisconnectedHandler);
     }
-    for (const peerKey of [...this.#requests.keys()]) this.#discardRequest(peerKey);
+    this.#requests.discardAll();
     await peerNotification.stopBroadcasting();
     this.#broadcastStarted = null;
     if (this.#syncTimeout) {

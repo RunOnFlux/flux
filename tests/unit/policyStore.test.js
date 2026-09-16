@@ -165,7 +165,7 @@ describe('policyStore', () => {
 
     it('bounds the backstop fetch with the configured timeout', async () => {
       const axiosGet = sinon.stub().resolves({ data: bundle(3) });
-      const { module } = load({ fetchTimeoutMs: 1234, serviceHelper: { axiosGet } });
+      const { module } = load({ fetchTimeoutMs: 1234, peerWindowMs: 5, serviceHelper: { axiosGet } });
       await module.start();
       // Through the seed rather than through start(): boot no longer reaches the source at
       // all, so this is the first request that leaves the node.
@@ -259,6 +259,7 @@ describe('policyStore', () => {
 
     it('a node with nothing on disk is unaffected - it has nothing to confirm', async () => {
       const { module, state } = load({
+        peerWindowMs: 5,
         serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(2) }) },
       });
       await module.start();
