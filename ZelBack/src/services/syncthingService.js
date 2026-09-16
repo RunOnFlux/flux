@@ -1135,6 +1135,31 @@ async function getDbStatus(folder) {
 }
 
 /**
+ * The files a receive-only folder holds that the cluster's index does not.
+ *
+ * db/status counts them (receiveOnlyChangedFiles) but will not say WHAT they are, and
+ * a count cannot tell a customer's world from the scaffolding FluxOS puts on every
+ * volume - the zero-length file an f: mount needs so docker does not create a
+ * directory in its place, and the directories m:/ml: mounts ask for. This returns the
+ * entries themselves, each with its name, size and modification time, so the caller
+ * can answer both "is any of this the owner's" and "how recently was it written"
+ * without walking the volume.
+ *
+ * Only ever populated for a receiveonly or receiveencrypted folder; syncthing reports
+ * nothing here for a sendreceive one whatever is on disk (folder_summary.go). The
+ * default page size is 65536 entries, so one call covers any app volume.
+ *
+ * @param {string} folder Folder ID.
+ * @returns {Promise<object>} { files: [{ name, size, modified, deleted, type }], page, perpage }
+ */
+async function getDbLocalChanged(folder) {
+  if (!folder) {
+    throw new Error('folder parameter is mandatory');
+  }
+  return request('get', `/rest/db/localchanged?folder=${folder}`);
+}
+
+/**
  * Updates the content of the .stignore echoing it back as a response. Takes one parameter {folder}
  * @param {object} req Request.
  * @param {object} res Response.
@@ -2736,6 +2761,7 @@ module.exports = {
   getFolderIgnores,
   setFolderIgnores,
   getDbStatus,
+  getDbLocalChanged,
   postDbIgnores,
   postDbOverride,
   postDbPrio,

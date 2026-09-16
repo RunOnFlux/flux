@@ -56,7 +56,7 @@ const MIN_RESPONDING_PEER_FRACTION = 0.5;
  *   off is the question its callers then have to answer.
  *
  * @param {string} socketAddr Peer socket address
- * @returns {Promise<{reachable: boolean, answerable: boolean, ready: boolean, folders: string[]}>}
+ * @returns {Promise<{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object}>}
  */
 async function probePeer(socketAddr) {
   const ip = extractIp(socketAddr);
@@ -68,16 +68,19 @@ async function probePeer(socketAddr) {
     // nothing" from "I have not looked", so its empty list is not a clearance.
     const ready = answer?.ready === true;
     const folders = Array.isArray(answer?.folders) ? answer.folders : [];
-    return { reachable: true, answerable: true, ready, folders };
+    // Absent on a peer too old to publish it, which reads as "claims nothing" - the
+    // same answer that node's behaviour has always amounted to.
+    const holding = (answer && typeof answer.holding === 'object' && answer.holding) || {};
+    return { reachable: true, answerable: true, ready, folders, holding };
   } catch (error) {
     // error.response exists only when the peer sent one, so this separates a
     // reply we cannot use from no reply at all.
     if (error.response) {
       log.info(`peerFolderLiveness - ${ip} answered ${error.response.status} and cannot say which folders it holds`);
-      return { reachable: true, answerable: false, ready: false, folders: [] };
+      return { reachable: true, answerable: false, ready: false, folders: [], holding: {} };
     }
     log.info(`peerFolderLiveness - could not read ${ip}: ${error.message}`);
-    return { reachable: false, answerable: false, ready: false, folders: [] };
+    return { reachable: false, answerable: false, ready: false, folders: [], holding: {} };
   }
 }
 
