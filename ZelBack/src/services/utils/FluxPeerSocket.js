@@ -6,6 +6,7 @@ const serviceHelper = require('../serviceHelper');
 const { version: FLUX_VERSION } = require('../../../../package.json');
 const peerCodec = require('./peerCodec');
 const rateLimit = require('./rateLimit');
+const { isOrdered } = require('./messageRoutes');
 
 let _fluxNetworkHelper;
 function getFluxNetworkHelper() {
@@ -480,12 +481,8 @@ class FluxPeerSocket {
         return;
       }
 
-      // Route sync responses directly — bypass the gossip pipeline
-      const syncType = msgObj.data?.type;
-      if (syncType === 'fluxapptempsync'
-        || syncType === 'fluxapprunningsync'
-        || syncType === 'fluxappinstallingsync'
-        || syncType === 'fluxappinstallingerrorssync') {
+      // Around the gossip pipeline: these keep their arrival order.
+      if (isOrdered(msgObj.data?.type)) {
         if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
           setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
           return;

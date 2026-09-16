@@ -23,6 +23,7 @@ const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const { INTENT, intentOf } = require('./utils/messageIntent');
+const { ROUTE, register, handlerFor } = require('./utils/messageRoutes');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
@@ -686,43 +687,17 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
     if (timestampOK === true) {
-      try {
-        if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-          setImmediate(() => handleAppMessages(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxapprequest') {
-          setImmediate(() => fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, peerSocket));
-        } else if (msgObj.data.type === 'fluxapprunning') {
-          setImmediate(() => handleAppRunningMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxipchanged') {
-          setImmediate(() => handleIPChangedMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxappremoved') {
-          setImmediate(() => handleAppRemovedMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxappinstalling') {
-          setImmediate(() => handleAppInstallingMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxappinstallingerror') {
-          setImmediate(() => handleAppInstallingErrorMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxnodesigterm') {
-          setImmediate(() => handleNodeSigtermMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxpolicyrequest') {
-          setImmediate(() => fluxCommunicationMessagesSender.respondWithPolicy(msgObj, peerSocket));
-        } else if (msgObj.data.type === 'fluxpolicyseq') {
-          // A claim, not an answer. policyStore decides whether it is worth asking about;
-          // nothing here is believed, because a number cannot be checked.
-          setImmediate(() => policyStore.notePeerSeq(
-            msgObj.data.seq, peerSocket.key, msgObj.data.correlationId,
-          ));
-        } else if (msgObj.data.type === 'fluxpolicy') {
-          // The bundle itself. Verified against the pinned keys before it is adopted, so an
-          // unsolicited one from any peer is no more dangerous than one we asked for -- and
-          // arriving unasked is normal, since peers announce what they adopt.
-          setImmediate(() => policyStore.offerBundle(
-            msgObj.data.bundle, peerSocket.key, msgObj.data.correlationId,
-          ));
-        } else {
-          log.warn(`Unrecognised message type of ${msgObj.data.type}`);
-        }
-      } catch (e) {
-        log.error(e);
+      const handler = handlerFor(msgObj.data.type);
+      if (!handler) {
+        log.warn(`Unrecognised message type of ${msgObj.data.type}`);
+      } else {
+        setImmediate(() => {
+          try {
+            handler(msgObj, peerSocket);
+          } catch (e) {
+            log.error(e);
+          }
+        });
       }
     } else {
       peerSocket.sendNak(messageHash, NAK_REASON.STALE);
@@ -762,23 +737,12 @@ const syncChunkQueues = new Map();
 // a peer signed what it sent is a statement about the peer and the deadline
 // waiting on it needs the answer at arrival, not at the back of a queue.
 async function processSyncChunk(msgObj, peerSocket) {
-  const { type } = msgObj.data;
-  switch (type) {
-    case 'fluxapptempsync':
-      await handleTempSyncResponse(msgObj, peerSocket);
-      break;
-    case 'fluxapprunningsync':
-      await handleAppRunningSyncResponse(msgObj, peerSocket);
-      break;
-    case 'fluxappinstallingsync':
-      await handleAppInstallingSyncResponse(msgObj, peerSocket);
-      break;
-    case 'fluxappinstallingerrorssync':
-      await handleAppInstallingErrorsSyncResponse(msgObj, peerSocket);
-      break;
-    default:
-      log.warn(`Unknown sync response type: ${type}`);
+  const handler = handlerFor(msgObj.data.type);
+  if (!handler) {
+    log.warn(`Unknown sync response type: ${msgObj.data.type}`);
+    return;
   }
+  await handler(msgObj, peerSocket);
 }
 
 /**
@@ -888,6 +852,32 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
 }
 
 // Register message dispatchers on the peerManager singleton
+// Every wire type this node answers.
+register(['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate'],
+  (msg, peer) => handleAppMessages(msg, peer.ip, peer.port));
+register('fluxapprunning', (msg, peer) => handleAppRunningMessage(msg, peer.ip, peer.port));
+register('fluxipchanged', (msg, peer) => handleIPChangedMessage(msg, peer.ip, peer.port));
+register('fluxappremoved', (msg, peer) => handleAppRemovedMessage(msg, peer.ip, peer.port));
+register('fluxappinstalling', (msg, peer) => handleAppInstallingMessage(msg, peer.ip, peer.port));
+register('fluxappinstallingerror', (msg, peer) => handleAppInstallingErrorMessage(msg, peer.ip, peer.port));
+register('fluxnodesigterm', (msg, peer) => handleNodeSigtermMessage(msg, peer.ip, peer.port));
+register('fluxapprequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithAppMessage(msg, peer));
+register('fluxpolicyrequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithPolicy(msg, peer));
+// A claim rather than an answer: a number cannot be checked, so it is a prompt to ask.
+register('fluxpolicyseq', (msg, peer) => policyStore.notePeerSeq(
+  msg.data.seq, peer.key, msg.data.correlationId,
+));
+// Checked against the pinned keys before adoption, so an unsolicited bundle is no more
+// dangerous than one this node asked for - and peers announce what they adopt.
+register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
+  msg.data.bundle, peer.key, msg.data.correlationId,
+));
+
+register('fluxapptempsync', handleTempSyncResponse, ROUTE.ORDERED);
+register('fluxapprunningsync', handleAppRunningSyncResponse, ROUTE.ORDERED);
+register('fluxappinstallingsync', handleAppInstallingSyncResponse, ROUTE.ORDERED);
+register('fluxappinstallingerrorssync', handleAppInstallingErrorsSyncResponse, ROUTE.ORDERED);
+
 peerManager.messageDispatcher = dispatchFluxMessage;
 peerManager.syncResponseDispatcher = dispatchSyncResponse;
 async function verifySyncRequest(peer, decoded) {
