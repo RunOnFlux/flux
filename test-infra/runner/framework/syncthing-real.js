@@ -92,3 +92,11 @@ export async function listFolderFiles(client, path) {
   const r = await execInContainer(client.container, `ls -A "${path}" 2>/dev/null | sort | tr '\\n' ' '`);
   return r.stdout.trim();
 }
+
+// The receive-only local changes the daemon itself accounts for: every file in the
+// folder that the cluster's index does not describe. This is the list FluxOS derives
+// its holdings claim from, so a test asserting what that claim says needs it to show
+// the claim was made over something rather than over an empty list.
+export async function getLocalChanged(client, folderId) {
+  return api(client, `/rest/db/localchanged?folder=${encodeURIComponent(folderId)}`);
+}
