@@ -216,20 +216,6 @@ async function respondWithPolicy(msgObj, peer) {
 }
 
 /**
- * Ask every connected peer for policy newer than what this node holds.
- *
- * One hop, no relay: the handler does not pass this on, so the cost is the peer count rather
- * than the network. Used at boot and by the backstop refresh -- a node catching up asks
- * rather than waiting to be told.
- * @param {number} seq The sequence this node holds.
- */
-async function requestPolicyFromPeers(seq, correlationId) {
-  await broadcastMessageToAll({
-    type: 'fluxpolicyrequest', version: 1, seq, intent: INTENT.ASK, correlationId,
-  });
-}
-
-/**
  * Ask ONE peer. The same question as requestPolicyFromPeers, put to a single socket.
  *
  * respondWithPolicy answers a targeted request exactly as it answers a broadcast one, so
@@ -258,7 +244,17 @@ async function requestPolicyFromPeer(peer, seq, correlationId) {
  * @param {number} seq The sequence just adopted.
  */
 async function announcePolicySeq(seq) {
-  await broadcastMessageToAll({ type: 'fluxpolicyseq', version: 1, seq });
+  // To the peers that speak this, rather than to all of them. A peer without the
+  // capability has no handler for the type, so the announcement reaches it as an
+  // unrecognised-type warning in its log and nothing else - once per adoption, per
+  // node, across the fleet.
+  //
+  // Signed once and sent to each, which is what a broadcast does anyway.
+  const peers = peerManager.getPolicyCapablePeers();
+  if (!peers.length) return;
+  const signed = await serialiseAndSignFluxBroadcast({ type: 'fluxpolicyseq', version: 1, seq });
+  if (!signed) return;
+  peers.forEach((peer) => peer.send(signed));
 }
 
 /**
@@ -574,7 +570,6 @@ async function respondWithAppInstallingErrorsMessages(peer, sinceTimestamp = 0) 
 module.exports = {
   relay,
   announcePolicySeq,
-  requestPolicyFromPeers,
   requestPolicyFromPeer,
   respondWithPolicy,
   sendSignedMessage,

@@ -123,6 +123,20 @@ class PeerRequests {
   }
 
   /**
+   * The settling of a request already in flight to this peer, or null when there is none.
+   *
+   * What a caller waits on instead of opening a second. A second ask is not more
+   * informative, and a caller that returned early instead would report "asked" on a
+   * question it never waited for the answer to.
+   * @param {string} peerKey ip:port
+   * @returns {Promise<string>|null}
+   */
+  pending(peerKey) {
+    const request = this.#requests.get(peerKey);
+    return request && !request.outcome ? request.settled : null;
+  }
+
+  /**
    * Whether a request to this peer is still open, optionally on a given channel.
    * @param {string} peerKey ip:port
    * @param {object} [match] channel the answer arrived on.

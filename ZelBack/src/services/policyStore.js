@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const { PeerRequests } = require('./utils/peerRequests');
+const { newCorrelationId } = require('./utils/messageIntent');
 const globalState = require('./utils/globalState');
 const policyArtifactRepository = require('./appDatabase/policyArtifactRepository');
 const fluxEventBus = require('./utils/fluxEventBus');
@@ -61,13 +62,17 @@ let refreshInterval = null;
 // The one-shot that carries the schedule from boot to this node's own slot in the period.
 let phaseTimer = null;
 
-// Broadcasts the ask to connected peers, and tells them what this node has adopted. Wired
-// once peering is up, so this module does not reach into the communication layer and the
-// ladder can be exercised without one.
-let peerRequest = null;
 // Asks ONE named peer whether it is ahead. One message and one reply, so it needs no
 // rationing and can run on every arrival.
+//
+// THE ONLY WAY THIS NODE ASKS. There was a second - a broadcast that recorded nothing and
+// then waited a fixed moment to see whether the sequence had moved - and it could not say
+// which peers had answered, so "nobody has policy" was a guess made on a timer. A question
+// that is not recorded cannot be answered, only outlived.
 let peerRequestFrom = null;
+// The peers that speak this protocol at all. Not the whole peer set: one that does not
+// advertise the capability has no handler for the ask, so it can only be waited out.
+let peerCapableKeys = null;
 let peerAnnounce = null;
 // Whether the peer set is above appSyncPeerThreshold, as a LEVEL rather than an edge. Without
 // it the peer rung cannot tell "asked and nobody answered" from "asked nobody" -- and the
@@ -82,10 +87,6 @@ let seedInFlight = false;
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
 // prepared to sit doing nothing, not an expectation of how long they take.
 const PEER_WINDOW_MS = config.policy.peerWindowMs;
-
-// Resolved by offerBundle when a peer's answer is adopted, so a refresh waiting on peers is
-// woken rather than polling for it.
-let peerAnswered = null;
 
 // A RESTART is the one moment a node is certain to be behind and cannot tell: it restored a
 // bundle, so it holds something, and its peers may hold the same stale thing. Peer
@@ -325,20 +326,25 @@ async function restore() {
  */
 function offerBundle(raw, peerKey, correlationId) {
   const adopted = consider(raw, 'peer') === VERDICT.ADOPTED;
-  if (adopted && peerAnswered) peerAnswered();
   settlePeerAsk(peerKey, correlationId);
   return adopted;
 }
 
 /**
- * Ends a targeted ask waiting on this peer. Any of the three answers settles it.
+ * Ends the ask this answer names. Any of the three answers settles it.
+ *
+ * THE ID IS THE WHOLE TEST, because the alternative - the socket it arrived on - cannot
+ * tell an answer from an announcement. An adoption announcement carries no sender and no
+ * id, which is what makes it deduplicable, and being deduplicable is what makes it unfit
+ * to settle anything: two peers that adopted the same sequence emit identical bytes, so
+ * whether one peer's announcement arrived at all depends on whether an unrelated peer
+ * had already sent the same message. A fact about one peer cannot ride on that.
  * @param {string} [peerKey] ip:port of the peer that answered.
+ * @param {string} [correlationId] The ask this answer names.
  */
 function settlePeerAsk(peerKey, correlationId) {
-  if (!peerKey) return;
-  // An answer naming nothing is from a peer that does not send the id yet, and there the
-  // socket it came back on is the only thing identifying it.
-  peerAsks.settle(peerKey, 'answered', correlationId ? { id: correlationId } : {});
+  if (!peerKey || !correlationId) return;
+  peerAsks.settle(peerKey, 'answered', { id: correlationId });
 }
 
 /**
@@ -355,7 +361,14 @@ function settlePeerAsk(peerKey, correlationId) {
  */
 async function askPeer(peerKey) {
   // One outstanding ask per peer. A second is not more informative, and a peer that
-  // reconnects repeatedly must not accumulate them.
+  // reconnects repeatedly must not accumulate them. Waited on rather than skipped: a
+  // caller fanning out over the peer set has to end up with every peer's answer, and
+  // returning here would report a peer as asked without ever having heard from it.
+  const inFlight = peerAsks.pending(peerKey);
+  if (inFlight) {
+    await inFlight;
+    return;
+  }
   if (peerAsks.has(peerKey)) return;
   const request = peerAsks.open(peerKey, {
     timeoutMs: PEER_WINDOW_MS,
@@ -373,6 +386,26 @@ async function askPeer(peerKey) {
     await seedIfPeersHaveNothing()
       .catch((error) => log.error(`policyStore - seeding from the source failed: ${error.message}`));
   }
+}
+
+/**
+ * Ask every peer that speaks this protocol, and wait for all of them.
+ *
+ * This is "ask the network", and it is the targeted ask used more than once rather than a
+ * mechanism of its own. Each one is recorded, named by its id, and ends on the answer that
+ * names it or on the peer going away - so when this returns, every capable peer has either
+ * answered or is gone, and that is a fact rather than an interval having elapsed.
+ *
+ * AN EMPTY CAPABLE SET IS NOT AN ANSWER. It is this node having nobody to ask, which is the
+ * ordinary state of the first node in a rollout, and the caller goes to the backstop - which
+ * is what the backstop is for.
+ * @returns {Promise<void>}
+ */
+async function askEveryCapablePeer() {
+  const keys = peerCapableKeys ? peerCapableKeys() : [];
+  if (!keys.length) return;
+  await Promise.all(keys.map((key) => askPeer(key)
+    .catch((error) => log.warn(`policyStore - peer ask failed: ${error.message}`))));
 }
 
 /**
@@ -442,13 +475,14 @@ async function refresh() {
   //
   // A transport that does not report the level is treated as "unknown, ask anyway", so the
   // rung is only skipped on a positive answer of no.
-  if (peerRequest && (!peerAboveThreshold || peerAboveThreshold())) {
-    // Armed before the ask, because a peer can answer while peerRequest is still awaiting.
-    const answered = new Promise((resolve) => { peerAnswered = () => resolve(true); });
-    await peerRequest(getSeq()).catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
-    const adopted = await Promise.race([answered, serviceHelper.delay(PEER_WINDOW_MS).then(() => false)]);
-    peerAnswered = null;
-    if (adopted) return true;
+  if (peerRequestFrom && (!peerAboveThreshold || peerAboveThreshold())) {
+    const before = getSeq();
+    await askEveryCapablePeer();
+    // Whether the ladder's peer rung answered, read off the store rather than off a reply.
+    // A bundle that arrived unprompted while the asks were out is still policy this node
+    // now holds, and having to go to the backstop anyway because it came by the wrong
+    // route would be the ladder disbelieving itself.
+    if (getSeq() > before) return true;
   }
 
   const raw = await fetchFromBackstop();
@@ -561,10 +595,10 @@ function refreshOnce() {
  *   Without it the store asks regardless and waits out the window.
  */
 function setPeerTransport({
-  request, requestFrom, announce, aboveThreshold,
+  requestFrom, announce, aboveThreshold, capableKeys,
 } = {}) {
-  peerRequest = request || null;
   peerRequestFrom = requestFrom || null;
+  peerCapableKeys = capableKeys || null;
   peerAnnounce = announce || null;
   peerAboveThreshold = aboveThreshold || null;
 }
@@ -589,8 +623,18 @@ function notePeerSeq(seq, peerKey, correlationId) {
     markConfirmed('peer');
     return;
   }
-  if (!peerRequest) return;
-  peerRequest(getSeq()).catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
+  // Asked of the peer that made the claim, rather than of everybody. It is the one that
+  // said it has something, and a claim is a prompt to ask its author.
+  //
+  // Outside the ask ledger on purpose: an ask is open to this peer at this moment - this
+  // runs while settling it - so registering a second would replace the one being settled.
+  // The id is here for the flood filter rather than for a reply to name: what comes back
+  // is a bundle, and a bundle is adopted on its signature whether or not anything waited.
+  // An unattributable claim cannot be followed up: there is no author to put the question
+  // to, and there is no longer a broadcast to put it to everybody.
+  if (!peerRequestFrom || !peerKey) return;
+  peerRequestFrom(peerKey, getSeq(), newCorrelationId())
+    .catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
 }
 
 /**
@@ -652,13 +696,12 @@ function reset() {
   stop();
   current = null;
   currentRaw = null;
-  peerRequest = null;
+  peerCapableKeys = null;
   peerRequestFrom = null;
   peerAnnounce = null;
   peerAboveThreshold = null;
   seedInFlight = false;
   bundleListeners.clear();
-  peerAnswered = null;
   refreshInFlight = null;
   peerAsks.discardAll();
   confirmed = false;

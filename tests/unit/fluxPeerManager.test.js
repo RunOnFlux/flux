@@ -10,6 +10,10 @@ const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/uti
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
+// Loaded for its side effect: the transport declares the routing table as it loads, and the
+// ordered-route tests below read it. Declared here rather than relied on - without it this
+// file passes only when another spec file in the same run happened to load it first.
+require('../../ZelBack/src/services/fluxCommunication');
 
 /**
  * Creates a mock WebSocket object suitable for FluxPeerSocket tests.
@@ -723,6 +727,40 @@ describe('FluxPeerManager tests', () => {
   // difference between the spawner starting and never starting: observed, a
   // node asked its own address, timed out at zero completions, and never
   // published SPAWNER_READY.
+  describe('getPolicyCapablePeers', () => {
+    const withCapabilities = (m, ip, capabilities) => {
+      const ws = createMockWs(ip, '16127');
+      const peer = m.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
+      capabilities.forEach((capability) => peer.remoteCapabilities.add(capability));
+      return peer;
+    };
+
+    it('offers only the peers that speak the protocol', () => {
+      // A peer without it has no handler for the ask, so including it buys a deadline's
+      // wait for a reply that cannot come.
+      withCapabilities(manager, '10.0.0.1', ['policyBundle']);
+      withCapabilities(manager, '10.0.0.2', ['appStateSync']);
+      withCapabilities(manager, '10.0.0.3', []);
+
+      expect(manager.getPolicyCapablePeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('never offers this node its own address', () => {
+      withCapabilities(manager, '10.0.0.1', ['policyBundle']);
+      withCapabilities(manager, '10.0.0.2', ['policyBundle']);
+      manager.setOwnSocketAddress('10.0.0.1:16127');
+
+      expect(manager.getPolicyCapablePeers().map((p) => p.key)).to.deep.equal(['10.0.0.2:16127']);
+    });
+
+    it('answers empty rather than everything when nobody speaks it', () => {
+      // The first node of a rollout. Empty means "nobody to ask", which the store treats
+      // differently from "everybody was asked and had nothing".
+      withCapabilities(manager, '10.0.0.1', ['appStateSync']);
+      expect(manager.getPolicyCapablePeers()).to.deep.equal([]);
+    });
+  });
+
   describe('getEligibleSyncPeers', () => {
     // A current build: it can refuse, so it is asked whatever its uptime.
     const eligible = (m, ip) => {

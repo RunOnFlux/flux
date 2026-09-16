@@ -519,9 +519,12 @@ async function startFluxFunctions() {
     // API and keeps its containers running regardless. What waits is acquisition, through
     // globalState.policyReady, which is the one decision that must not be made on a guess.
     policyStore.setPeerTransport({
-      request: (seq) => fluxCommunicationMessagesSender.requestPolicyFromPeers(seq),
-      // Targeted rung, for a node that already holds policy. A key that no longer resolves
-      // is a peer that left between connecting and being asked, which is not an error.
+      // The peers worth asking. One that does not advertise the capability has no handler
+      // for the ask, so including it would buy a deadline's wait and an unrecognised-type
+      // warning in its log.
+      capableKeys: () => peerManager.getPolicyCapablePeers().map((peer) => peer.key),
+      // The only ask. A key that no longer resolves is a peer that left between connecting
+      // and being asked, which is not an error.
       requestFrom: (key, seq, correlationId) => {
         const peer = peerManager.get(key);
         if (!peer) return Promise.resolve();

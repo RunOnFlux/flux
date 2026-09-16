@@ -627,6 +627,29 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
+   * The peers that speak the policy bundle protocol.
+   *
+   * A peer without the capability is not silent, it is not listening: it has no handler
+   * for fluxpolicyrequest, so an ask to it can only end on its deadline, and an adoption
+   * announcement reaches it as an unrecognised type. Both are answered by not asking.
+   *
+   * THE EMPTY ANSWER IS MEANINGFUL AND IS NOT "the network holds nothing". It is this node
+   * having nobody to ask, which during a rollout is the ordinary state of the first node
+   * to upgrade - see policyStore.seedIfPeersHaveNothing, which treats the two differently.
+   * @returns {Array} peers.
+   */
+  getPolicyCapablePeers() {
+    const capable = [];
+    const ownKey = this.#ownSocketAddress;
+    for (const peer of this.#peers.values()) {
+      if (ownKey && peer.key === ownKey) continue;
+      if (!peer.remoteCapabilities.has('policyBundle')) continue;
+      capable.push(peer);
+    }
+    return capable;
+  }
+
+  /**
    * Whether a sync response arriving on this connection is still wanted.
    *
    * Asked with the socket rather than the address because the two are not the

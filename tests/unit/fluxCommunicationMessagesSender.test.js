@@ -458,7 +458,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     // with a hand-built message. A test that never invokes the function under test passes
     // whatever that function does, including nothing.
     describe('what actually goes on the wire', () => {
-      function connectedPeer() {
+      function connectedPeer(capabilities = ['policyBundle']) {
         const ws = {
           ip: '127.0.0.1',
           port: '16127',
@@ -469,7 +469,9 @@ describe('fluxCommunicationMessagesSender tests', () => {
           close: sinon.stub(),
           _socket: { remoteAddress: '127.0.0.1' },
         };
-        peerManager.add(ws, '127.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        peerManager.add(ws, '127.0.0.1', '16127', {
+          source: PEER_SOURCE.RANDOM, remoteCapabilities: capabilities,
+        });
         ws.send.resetHistory();
         return ws;
       }
@@ -490,18 +492,29 @@ describe('fluxCommunicationMessagesSender tests', () => {
         expect(data.bundle).to.equal(undefined);
       });
 
-      it('requestPolicyFromPeers sends the sequence this node holds', async () => {
-        const ws = connectedPeer();
+      it('announcePolicySeq says nothing to a peer that does not speak the protocol', async () => {
+        // It has no handler for the type, so the announcement reaches it as an
+        // unrecognised-type warning in its log and nothing else - once per adoption, per
+        // node, across the fleet.
+        const ws = connectedPeer(['binaryMessages']);
 
-        await fluxCommunicationMessagesSender.requestPolicyFromPeers(7);
+        await fluxCommunicationMessagesSender.announcePolicySeq(12);
+
+        expect(ws.send.called).to.equal(false);
+      });
+
+      it('requestPolicyFromPeer names the ask it expects an answer to', async () => {
+        const ws = connectedPeer();
+        const peer = peerManager.get('127.0.0.1:16127');
+
+        await fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, 7, 'ask-1');
 
         expect(ws.send.calledOnce).to.equal(true);
         // The marker says this is a question, so no peer's flood filter can treat another
-        // node's identical ask as a repeat of it. The broadcast form names no single ask,
-        // and an absent id is dropped by JSON.stringify rather than sent as null.
+        // node's identical ask as a repeat of it, and the id is what its answer echoes.
         expect(JSON.parse(ws.send.firstCall.args[0]).data)
           .to.deep.equal({
-            type: 'fluxpolicyrequest', version: 1, seq: 7, intent: 'ask',
+            type: 'fluxpolicyrequest', version: 1, seq: 7, intent: 'ask', correlationId: 'ask-1',
           });
       });
     });

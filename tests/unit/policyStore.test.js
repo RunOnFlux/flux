@@ -72,6 +72,18 @@ function load(overrides = {}) {
   };
 }
 
+// A peer that speaks the protocol, answering as respondWithPolicy does: the reply echoes
+// the id it was sent, because a reply names the ask it settles. requestFrom is the only
+// way the store asks; capableKeys is who is worth asking.
+const CAPABLE = ['10.0.0.9:16127'];
+const answering = (reply) => ({
+  capableKeys: () => CAPABLE,
+  requestFrom: async (key, seq, id) => reply(key, seq, id),
+});
+// A capable peer that holds nothing. respondWithPolicy replies in all three states, so
+// this settles the ask exactly as a bundle would.
+const holdingNothing = (m) => answering((key, seq, id) => m.notePeerSeq(null, key, id));
+
 describe('policyStore', () => {
   afterEach(() => sinon.restore());
 
@@ -91,7 +103,7 @@ describe('policyStore', () => {
       // The property that makes github a seed rather than a dependency.
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module: m } = load({ serviceHelper: { axiosGet } });
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(5)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(5), key, id); }));
 
       await m.refresh();
 
@@ -102,7 +114,7 @@ describe('policyStore', () => {
     it('falls through to the backstop when no peer answers usefully', async () => {
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module: m } = load({ serviceHelper: { axiosGet } });
-      m.setPeerTransport({ request: async () => {} });
+      m.setPeerTransport(holdingNothing(m));
 
       await m.refresh();
 
@@ -115,12 +127,10 @@ describe('policyStore', () => {
       // ladder prefer whatever is nearest without that being a trust decision.
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const { module: m } = load({ serviceHelper: { axiosGet } });
-      m.setPeerTransport({
-        request: async () => {
-          m.offerBundle(bundle(500, undefined, OTHER.privateKey));
-          m.offerBundle('not json');
-        },
-      });
+      m.setPeerTransport(answering((key, seq, id) => {
+        m.offerBundle(bundle(500, undefined, OTHER.privateKey), key, id);
+        m.offerBundle('not json', key, id);
+      }));
 
       await m.refresh();
 
@@ -129,11 +139,11 @@ describe('policyStore', () => {
 
     it('keeps what it holds when every source fails', async () => {
       const { module: m, state } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(4)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(4), key, id); }));
       await m.refresh();
       expect(m.getSeq()).to.equal(4);
 
-      m.setPeerTransport({ request: async () => { throw new Error('peers gone'); } });
+      m.setPeerTransport(answering(() => { throw new Error('peers gone'); }));
       await m.refresh();
 
       expect(m.getSeq()).to.equal(4);
@@ -186,7 +196,7 @@ describe('policyStore', () => {
       // Disk proves the bundle is real. It cannot prove policy did not move while this
       // node was down, and the documents inside decide who may host what.
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
+      module.setPeerTransport({ announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       module.stop();
       expect(module.getSeq(), 'it holds the bundle').to.equal(4);
@@ -195,7 +205,7 @@ describe('policyStore', () => {
 
     it('a peer at the same sequence confirms it', async () => {
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
+      module.setPeerTransport({ announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       expect(state.policyReady).to.equal(false);
 
@@ -208,7 +218,7 @@ describe('policyStore', () => {
       // It answers, so it is alive - but an empty peer cannot speak to whether what we
       // restored is still the network's.
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => true });
+      module.setPeerTransport({ announce: sinon.stub().resolves(), aboveThreshold: () => true });
       await module.start();
 
       module.notePeerSeq(null);
@@ -219,12 +229,12 @@ describe('policyStore', () => {
     it('a peer AHEAD of us does not confirm - it means we are behind', async () => {
       const request = sinon.stub().resolves();
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request, announce: sinon.stub().resolves(), aboveThreshold: () => true });
+      module.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: sinon.stub().resolves(), aboveThreshold: () => true });
       await module.start();
 
-      module.notePeerSeq(9);
+      module.notePeerSeq(9, CAPABLE[0]);
       expect(state.policyReady, 'still shut: we are the stale one').to.equal(false);
-      expect(request.called, 'and we ask for what they have').to.equal(true);
+      expect(request.calledWith(CAPABLE[0]), 'and we ask the peer that made the claim').to.equal(true);
       module.stop();
     });
 
@@ -233,7 +243,7 @@ describe('policyStore', () => {
         repo: restoredRepo(4),
         serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(9) }) },
       });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
+      module.setPeerTransport({ announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       expect(state.policyReady).to.equal(false);
 
@@ -249,7 +259,7 @@ describe('policyStore', () => {
       // reason. Forcing the gate open on a timer would override a decision the fleet
       // had already made.
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ request: sinon.stub().resolves(), announce: sinon.stub().resolves(), aboveThreshold: () => false });
+      module.setPeerTransport({ announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       await new Promise((resolve) => { setTimeout(resolve, 60); });
       expect(state.policyReady, 'held, unconfirmed, not acting').to.equal(false);
@@ -281,7 +291,7 @@ describe('policyStore', () => {
       // confirmation, kept it, and could never open afterwards.
       const axiosGet = sinon.stub().resolves({ data: '<html>captive portal</html>' });
       const { module, state } = load({ serviceHelper: { axiosGet } });
-      module.setPeerTransport({ request: sinon.stub().resolves() });
+      module.setPeerTransport({});
 
       return module.refresh().then(() => {
         expect(module.getSeq(), 'nothing was adopted').to.equal(0);
@@ -308,7 +318,7 @@ describe('policyStore', () => {
       // is ahead of a node that holds nothing - and there is nothing to act on yet, so it
       // must leave the gate able to open when something does arrive.
       const { module, state } = load();
-      module.setPeerTransport({ request: sinon.stub().resolves() });
+      module.setPeerTransport({});
 
       module.notePeerSeq(0, 'peer-1');
       expect(state.policyReady, 'nothing held, so nothing to act on').to.equal(false);
@@ -396,7 +406,7 @@ describe('policyStore', () => {
     // A peer that answers "I hold nothing". respondWithPolicy replies in all three states,
     // so this settles the ask exactly as a bundle would - which is what makes no open
     // ask mean "everyone answered" rather than "nobody has yet".
-    const holdsNothing = (m) => async (key) => m.notePeerSeq(null, key);
+    const holdsNothing = (m) => async (key, seq, id) => m.notePeerSeq(null, key, id);
 
     it('goes to the source once the peers are up and none of them had anything', async () => {
       const axiosGet = sinon.stub().resolves({ data: bundle(7) });
@@ -473,10 +483,10 @@ describe('policyStore', () => {
       let releaseSlowPeer;
       m.setPeerTransport({
         aboveThreshold: () => true,
-        requestFrom: async (key) => {
-          if (key === PEER) { m.notePeerSeq(null, key); return; }
+        requestFrom: async (key, seq, id) => {
+          if (key === PEER) { m.notePeerSeq(null, key, id); return; }
           // the slow one: still in flight when the first peer's ask settles
-          await new Promise((resolve) => { releaseSlowPeer = () => { m.offerBundle(bundle(5), key); resolve(); }; });
+          await new Promise((resolve) => { releaseSlowPeer = () => { m.offerBundle(bundle(5), key, id); resolve(); }; });
         },
       });
 
@@ -599,7 +609,7 @@ describe('policyStore', () => {
       const delay = sinon.stub().resolves();
       const axiosGet = sinon.stub().resolves({ data: bundle(2) });
       const { module } = load({ serviceHelper: { axiosGet, delay } });
-      module.setPeerTransport({ request, announce: sinon.stub().resolves(), aboveThreshold: () => false });
+      module.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: sinon.stub().resolves(), aboveThreshold: () => false });
 
       await module.refresh();
       expect(request.called, 'nobody to ask, so it did not ask').to.equal(false);
@@ -611,7 +621,7 @@ describe('policyStore', () => {
       const request = sinon.stub().resolves();
       const axiosGet = sinon.stub().resolves({ data: bundle(2) });
       const { module } = load({ serviceHelper: { axiosGet } });
-      module.setPeerTransport({ request, announce: sinon.stub().resolves(), aboveThreshold: () => true });
+      module.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: sinon.stub().resolves(), aboveThreshold: () => true });
 
       await module.refresh();
       expect(request.calledOnce, 'three peers, so it asked them').to.equal(true);
@@ -623,7 +633,7 @@ describe('policyStore', () => {
       const request = sinon.stub().resolves();
       const axiosGet = sinon.stub().resolves({ data: bundle(2) });
       const { module } = load({ serviceHelper: { axiosGet } });
-      module.setPeerTransport({ request, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: sinon.stub().resolves() });
 
       await module.refresh();
       expect(request.calledOnce).to.equal(true);
@@ -644,7 +654,7 @@ describe('policyStore', () => {
     it('asks the peer that arrived, whether or not it holds anything', async () => {
       const { module } = load();
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
       expect(module.isReady(), 'boot obtained nothing').to.equal(false);
@@ -660,7 +670,7 @@ describe('policyStore', () => {
       const axiosGet = sinon.stub().rejects(new Error('offline'));
       const { module } = load({ serviceHelper: { axiosGet } });
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
       const fetchesAtBoot = axiosGet.callCount;
@@ -687,7 +697,7 @@ describe('policyStore', () => {
         repo: { readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }), writeBundle: sinon.stub().resolves(true) },
       });
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
       await module.restore();
       expect(module.getSeq(), 'restored, so it holds something').to.equal(4);
       const fetchesBefore = axiosGet.callCount;
@@ -710,7 +720,7 @@ describe('policyStore', () => {
         repo: { readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }), writeBundle: sinon.stub().resolves(true) },
       });
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
       await module.restore();
       module.notePeerSeq(4, '198.18.0.11:16127');
 
@@ -728,7 +738,7 @@ describe('policyStore', () => {
       const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
       const request = sinon.stub().resolves();
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ request, requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
       const broadcastsAtBoot = request.callCount;
@@ -743,7 +753,7 @@ describe('policyStore', () => {
     it('keeps asking as peers arrive, rather than once since boot', async () => {
       const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
 
@@ -763,7 +773,7 @@ describe('policyStore', () => {
       const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
       let deliver;
       const requestFrom = sinon.stub().returns(new Promise((resolve) => { deliver = resolve; }));
-      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
       await module.start();
       module.stop();
 
@@ -791,7 +801,7 @@ describe('policyStore', () => {
       const axiosGet = sinon.stub().rejects(new Error('offline'));
       const { module } = load({ serviceHelper: { axiosGet } });
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ request: sinon.stub().resolves(), requestFrom, announce: sinon.stub().resolves() });
+      module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
 
       await module.start();
       module.stop();
@@ -810,7 +820,7 @@ describe('policyStore', () => {
     it('announces a sequence it has adopted', async () => {
       const announce = sinon.stub().resolves();
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(6)); }, announce });
+      m.setPeerTransport({ ...answering((key, seq, id) => { m.offerBundle(bundle(6), key, id); }), announce });
 
       await m.refresh();
 
@@ -820,7 +830,7 @@ describe('policyStore', () => {
     it('announces on every adoption, so a change keeps moving outwards', async () => {
       const announce = sinon.stub().resolves();
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => {}, announce });
+      m.setPeerTransport({ ...holdingNothing(m), announce });
 
       m.offerBundle(bundle(6));
       m.offerBundle(bundle(7));
@@ -831,7 +841,7 @@ describe('policyStore', () => {
     it('does not announce a bundle it refused', async () => {
       const announce = sinon.stub().resolves();
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => {}, announce });
+      m.setPeerTransport({ ...holdingNothing(m), announce });
       m.offerBundle(bundle(6));
       announce.resetHistory();
 
@@ -845,25 +855,27 @@ describe('policyStore', () => {
       // Telling peers is best effort. A node that cannot announce still holds the policy.
       const announce = sinon.stub().rejects(new Error('peers gone'));
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => {}, announce });
+      m.setPeerTransport({ ...holdingNothing(m), announce });
 
       m.offerBundle(bundle(6));
 
       expect(m.getSeq()).to.equal(6);
     });
 
-    it('asks the network when a peer claims a higher sequence', () => {
-      // The claim itself is not checkable, so it is a prompt to ask. What comes back is a
-      // signed bundle, which is.
+    it('asks the peer that claimed a higher sequence, not the network', () => {
+      // The claim itself is not checkable, so it is a prompt to ask - and the peer that
+      // made it is the one to ask. What comes back is a signed bundle, which is checkable.
       const request = sinon.stub().resolves();
       const { module: m } = load();
-      m.setPeerTransport({ request, announce: async () => {} });
+      m.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: async () => {} });
       m.offerBundle(bundle(6));
       request.resetHistory();
 
-      m.notePeerSeq(11);
+      m.notePeerSeq(11, CAPABLE[0]);
 
-      expect(request.calledOnceWithExactly(6)).to.equal(true);
+      expect(request.calledOnce).to.equal(true);
+      expect(request.firstCall.args[0], 'the author of the claim').to.equal(CAPABLE[0]);
+      expect(request.firstCall.args[1], 'what this node holds').to.equal(6);
     });
 
     it('ignores a claim at or below what it holds, and a malformed one', () => {
@@ -871,7 +883,7 @@ describe('policyStore', () => {
       // cost one per second, so the cheap checks happen before the ask.
       const request = sinon.stub().resolves();
       const { module: m } = load();
-      m.setPeerTransport({ request, announce: async () => {} });
+      m.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: async () => {} });
       m.offerBundle(bundle(6));
       request.resetHistory();
 
@@ -887,10 +899,10 @@ describe('policyStore', () => {
   describe('sequence', () => {
     it('refuses a bundle older than the one held', async () => {
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(10)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(10), key, id); }));
       await m.refresh();
 
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(3)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(3), key, id); }));
       await m.refresh();
 
       expect(m.getSeq()).to.equal(10);
@@ -898,9 +910,9 @@ describe('policyStore', () => {
 
     it('adopts a newer bundle', async () => {
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(10)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(10), key, id); }));
       await m.refresh();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(11)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(11), key, id); }));
       await m.refresh();
 
       expect(m.getSeq()).to.equal(11);
@@ -908,7 +920,7 @@ describe('policyStore', () => {
 
     it('does not re-adopt the sequence it already holds', async () => {
       const { module: m, repo } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(10)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(10), key, id); }));
       await m.refresh();
       const writes = repo.writeBundle.callCount;
 
@@ -925,7 +937,7 @@ describe('policyStore', () => {
       // point of storing it is to check it again at boot.
       const raw = bundle(12);
       const { module: m, repo } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(raw); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(raw, key, id); }));
       await m.refresh();
 
       expect(repo.writeBundle.calledOnce).to.equal(true);
@@ -967,7 +979,7 @@ describe('policyStore', () => {
       // A name the bundle does not carry answers null so a document can be published before
       // the release that reads it.
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(1, { blockedrepositories: ['x/y'], enterprisenodes: { pubA: ['ownerA'] } })); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(1, { blockedrepositories: ['x/y'], enterprisenodes: { pubA: ['ownerA'] } }), key, id); }));
       await m.refresh();
 
       expect(m.getDocument('blockedrepositories')).to.deep.equal(['x/y']);
@@ -977,7 +989,7 @@ describe('policyStore', () => {
 
     it('answers the artifact the bundle names', async () => {
       const { module: m } = load();
-      m.setPeerTransport({ request: async () => { m.offerBundle(bundle(3)); } });
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(3), key, id); }));
       await m.refresh();
 
       expect(m.getArtifact('iplocation.bin.gz').file).to.equal('iplocation-3.bin.gz');
@@ -1013,7 +1025,7 @@ describe('policyStore', () => {
   // nothing about policy. Both chains hang off the peer threshold and nothing orders them,
   // so a consumer reading getArtifact at some moment of its own was reading a race.
   describe('telling the rest of the node the bundle changed', () => {
-    const peerHands = (m, seq) => m.setPeerTransport({ request: async () => { m.offerBundle(bundle(seq)); } });
+    const peerHands = (m, seq) => m.setPeerTransport(answering((key, _, id) => { m.offerBundle(bundle(seq), key, id); }));
 
     it('fires on adoption, naming the rung it came from', async () => {
       const seen = [];
@@ -1118,6 +1130,16 @@ describe('policyStore', () => {
       serviceHelper: { delay: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }) },
     });
 
+    // Everything that can run without waiting on a real answer, runs. No wall clock: a
+    // promise still pending after the queue drains is pending because it is waiting on
+    // something, not because the test looked too soon.
+    const drain = async () => {
+      for (let i = 0; i < 8; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    };
+
     const settledWithin = (promise, ms) => Promise.race([
       promise.then(() => true),
       new Promise((resolve) => { setTimeout(() => resolve(false), ms); }),
@@ -1125,39 +1147,77 @@ describe('policyStore', () => {
 
     it('names each ask, and ignores an answer naming a different one', async () => {
       const { module } = withRealWindow();
-      let named = null;
+      // Every id this node sent. A claim above what it holds provokes a follow-up ask to
+      // its author, which is a second question with a second id - so the ask being tested
+      // is the first, not the latest.
+      const named = [];
       module.setPeerTransport({
-        requestFrom: async (_key, _seq, correlationId) => { named = correlationId; },
+        requestFrom: async (_key, _seq, correlationId) => { named.push(correlationId); },
         aboveThreshold: () => true,
       });
 
       const inFlight = module.notePeerAvailable(PEER);
       await new Promise((resolve) => { setImmediate(resolve); });
-      expect(named, 'the ask names itself').to.be.a('string');
+      expect(named[0], 'the ask names itself').to.be.a('string');
 
       module.notePeerSeq(3, PEER, 'some-other-ask');
       expect(await settledWithin(inFlight, 30), 'an answer naming another ask ended this one')
         .to.equal(false);
 
-      module.notePeerSeq(3, PEER, named);
+      module.notePeerSeq(3, PEER, named[0]);
       expect(await settledWithin(inFlight, 200), 'the answer naming this ask left it waiting')
         .to.equal(true);
       module.stop();
     });
 
-    it('settles on the peer alone when the answer names nothing', async () => {
-      // A peer that predates the id sends none, and its socket is all there is to go on.
+    it('waits on an ask already in flight rather than counting the peer as answered', async () => {
+      // The fan-out has to come away with every capable peer's answer. Returning early on a
+      // peer that already had an ask outstanding would count it as answered on the strength
+      // of the question having been put, which is the property the old broadcast had.
+      //
+      // Read off the backstop rather than off a stopwatch: the rung below the peers is the
+      // one thing that cannot have happened while an ask is still out.
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module } = load({ peerWindowMs: 10_000, serviceHelper: { axiosGet } });
+      let named = null;
+      module.setPeerTransport({
+        capableKeys: () => [PEER],
+        requestFrom: async (_key, _seq, correlationId) => { named = correlationId; },
+        aboveThreshold: () => true,
+      });
+
+      const arrival = module.notePeerAvailable(PEER);
+      await drain();
+
+      const fanOut = module.refresh();
+      await drain();
+      expect(axiosGet.called, 'it went to the backstop with an ask still outstanding')
+        .to.equal(false);
+
+      module.notePeerSeq(null, PEER, named);
+      await arrival;
+      await fanOut;
+      expect(axiosGet.called, 'and it went on once the peer had answered').to.equal(true);
+      module.stop();
+    });
+
+    it('is not settled by a message that names nothing', async () => {
+      // An adoption announcement carries no id, and that is not an oversight: it is what
+      // keeps its content address identical across the nodes that adopted the same
+      // sequence, which is what lets the flood filter collapse them into one. So whether
+      // a given peer's announcement arrives at all depends on whether an unrelated peer
+      // sent the same bytes first - and a fact about one peer cannot ride on that.
       const { module } = withRealWindow();
       module.setPeerTransport({ requestFrom: async () => {}, aboveThreshold: () => true });
 
-      const inFlight = module.notePeerAvailable(PEER);
-      await new Promise((resolve) => { setImmediate(resolve); });
-      expect(await settledWithin(inFlight, 30), 'it settled before any answer arrived')
-        .to.equal(false);
+      let settled = false;
+      module.notePeerAvailable(PEER).then(() => { settled = true; });
+      await drain();
+      expect(settled, 'it settled before any answer arrived').to.equal(false);
 
       module.notePeerSeq(3, PEER);
-      expect(await settledWithin(inFlight, 200), 'an unnamed answer left its peer waiting')
-        .to.equal(true);
+      await drain();
+      expect(settled, 'an announcement ended an ask it never answered').to.equal(false);
       module.stop();
     });
   });
