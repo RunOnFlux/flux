@@ -108,6 +108,10 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await restartFluxos(env.clients[idx].container);
     await setLocalChangesEmptyGlobal({ ip, folder: aEmpty.folder, files: 2 });
     const client = env.clients[idx];
+    // Anchored BEFORE the revert watch below, because the promotion this leg is about
+    // lands during that watch - and an unanchored wait afterwards would either miss it
+    // or answer from whatever happened to be in the buffer.
+    const afterId = client.getLastEventId();
 
     // THE data-safety property, unchanged: db/revert against an empty global deletes
     // the only copy. Watched across the whole window rather than sampled at the end,
@@ -129,9 +133,16 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     // And the half that was wrong. Holding the only copy is what QUALIFIES this node:
     // there is no source to verify against and none can arrive, so publishing is the
     // only way the data ever reaches the cluster.
-    await waitFor(
-      () => isUp(client, appEmpty),
-      { timeout: 120000, interval: 3000, label: 'the holder publishes its only copy rather than waiting for a source that cannot arrive' },
+    //
+    // Asserted on the PROMOTION, not on the container reaching Up. The container start
+    // is a downstream effect with its own latency, and waiting on it measured something
+    // slower than the decision under test - the first run of this leg timed out with
+    // the promotion already logged 17 seconds earlier.
+    await client.waitForEvent(
+      'reconciler:actuated',
+      (d) => d.identifier === aEmpty.identifier && d.action === 'started',
+      120000,
+      { afterId },
     );
   });
 

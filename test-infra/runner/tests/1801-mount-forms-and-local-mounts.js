@@ -7,7 +7,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
-  isDaemonUp, getDeviceId, getConnectedDevices, getFolders, getFolderStatus,
+  isDaemonUp, getDeviceId, getConnectedDevices, getFolders, getFolderStatus, scanFolder,
 } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -162,17 +162,56 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     const emptyIndex = modes[0] === 'sendreceive' ? 1 : 0;
     await seedSyncScopedData(env, appName, emptyIndex);
 
-    // What each node reports holding is the daemon's own answer about its own disk.
+    // Asked to look, rather than waiting on syncthing's own rescan interval - an hour by
+    // default, so "has not noticed yet" and "never landed" would be one observation. And
+    // waited on the ONE number that answers the question: an OR across two counters
+    // passes on whichever is transiently true, which is how the first run of this
+    // cleared its wait and then read back zero.
+    await scanFolder(env.clients[emptyIndex], folderId);
     await waitFor(async () => {
       const status = await getFolderStatus(env.clients[emptyIndex], folderId).catch(() => null);
-      return (status?.receiveOnlyChangedFiles ?? 0) > 0 || (status?.localBytes ?? 0) > 0;
-    }, { timeout: 180000, interval: 5000, label: 'the seeded node reports the bytes it now holds' });
+      return (status?.localBytes ?? 0) > 0;
+    }, { timeout: 180000, interval: 5000, label: 'the daemon accounts for the bytes written into the volume' });
+  });
 
-    const held = await getFolderStatus(env.clients[emptyIndex], folderId);
-    expect(
-      held.localBytes,
-      'the daemon must account for the bytes written into the volume, or nothing downstream can',
-    ).to.be.greaterThan(0);
+  it('binds each mount into the container, so what the app writes lands on the volume', async function () {
+    this.timeout(180000);
+    // The point of the whole mount model, and the one thing every other test here
+    // would pass without: these all check the HOST side. If a bind were wrong the
+    // directory would still be created, still be excluded from .stignore and still not
+    // replicate - and the app would still be writing into the container's own layer,
+    // which carries a flat 10 GiB quota whatever the customer's hdd says. That is how
+    // an 8.2 GiB game dies with `state is 0x202` on a 60 GB plan.
+    //
+    // So this writes from INSIDE the container and looks for it on the volume.
+    const client = env.clients[nodes[0]];
+    const container = `flux${appName}_${appName}`;
+    const written = [
+      { mount: 'ml:', containerPath: '/var/cache/app/written', hostPath: `${dir}/cache/written` },
+      { mount: 'm:', containerPath: '/var/log/app/written', hostPath: `${dir}/logs/written` },
+      { mount: 'g:', containerPath: '/appdata/written', hostPath: `${dir}/appdata/written` },
+    ];
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const target of written) {
+      // eslint-disable-next-line no-await-in-loop
+      const w = await execInContainer(client.container,
+        `sh -c 'docker exec ${container} sh -c "echo bound > ${target.containerPath}"'`);
+      expect(w.exitCode, `${target.mount} mount: writing ${target.containerPath} inside the container failed: ${w.output}`).to.equal(0);
+      // eslint-disable-next-line no-await-in-loop
+      expect(
+        await pathKind(client, target.hostPath),
+        `${target.mount} mount: the app wrote ${target.containerPath} and it did not appear at ${target.hostPath} - it went to the container's own layer, which is quota-capped`,
+      ).to.equal('file');
+    }
+
+    // And the f: mount is a FILE bind, so writing through it must not have replaced it
+    // with a directory - which is what docker does when a bind source is missing, and
+    // the reason FluxOS touches the file before the container starts.
+    const cfgWrite = await execInContainer(client.container,
+      `sh -c 'docker exec ${container} sh -c "echo {} > /etc/server.json"'`);
+    expect(cfgWrite.exitCode, 'f: mount: writing through the file bind failed').to.equal(0);
+    expect(await pathKind(client, `${dir}/server.json`), 'the f: mount must still be a file').to.equal('file');
   });
 
   it('replicates an m: directory and never an ml: one', async function () {
