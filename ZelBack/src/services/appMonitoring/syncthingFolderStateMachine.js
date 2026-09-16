@@ -1478,6 +1478,7 @@ module.exports = {
   probeFolderSyncCompletion,
   isDesignatedLeader,
   bestHolder,
+  localHoldings,
   verifyFolderMountSafety,
   verifySendReceiveFolderSafety,
   findSyncedPeer,

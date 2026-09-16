@@ -414,6 +414,102 @@ describe('syncthingFolderStateMachine tests', () => {
     });
   });
 
+  // What a node claims to hold, which is the input the ranking above compares. It had
+  // no tests at all while the comparator that consumes it had six - and it is the more
+  // dangerous half, because every exclusion here is the difference between "this node
+  // holds the customer's world" and "this node holds what FluxOS put on the volume when
+  // it built it". Every mount form a spec can declare leaves something in this list.
+  describe('localHoldings', () => {
+    const answer = (files) => { syncthingServiceMock.getDbLocalChanged.resolves({ files }); };
+
+    it('sums the owner\'s files and carries the newest of their timestamps', async () => {
+      answer([
+        localEntry('appdata/world.db', 4096, '2026-09-16T10:00:00Z'),
+        localEntry('appdata/level.dat', 900, '2026-09-16T11:30:00Z'),
+      ]);
+      const held = await stateMachine.localHoldings('test-app', []);
+      expect(held.bytes).to.equal(4996);
+      expect(held.newestModified).to.equal(Date.parse('2026-09-16T11:30:00Z'));
+    });
+
+    // The m: and ml: mounts are mkdir'd on the volume before the app ever runs, and
+    // syncthing gives a directory the legacy synthetic size of 128. Counted, an empty
+    // node claims 256 bytes it does not hold and can outrank a real holder.
+    it('does not count directories, whatever size syncthing gives them', async () => {
+      answer([localDir('logs'), localDir('cache'), localDir('appdata')]);
+      const held = await stateMachine.localHoldings('test-app', []);
+      expect(held.bytes).to.equal(0);
+      expect(held.newestModified).to.equal(0);
+    });
+
+    // The f: mount is touched at volume creation, so its mtime is the moment the volume
+    // was built - which is NEWER than the owner's data on a node that has held it for
+    // weeks. newestModified is the ranking's first key, so a zero-length file that
+    // carried its timestamp would hand the seed to the node holding nothing.
+    it('takes no timestamp from a zero-length file', async () => {
+      answer([localEntry('server.json', 0, '2026-09-16T12:00:00Z')]);
+      const held = await stateMachine.localHoldings('test-app', []);
+      expect(held.bytes).to.equal(0);
+      expect(held.newestModified).to.equal(0);
+    });
+
+    it('ignores a deleted entry, which is the absence of data', async () => {
+      answer([{ ...localEntry('appdata/gone', 5000), deleted: true }]);
+      expect((await stateMachine.localHoldings('test-app', [])).bytes).to.equal(0);
+    });
+
+    // Names in the volume root that belong to something other than the owner.
+    it('ignores syncthing\'s own markers, lost+found and the staging tree', async () => {
+      answer([
+        localEntry('.stignore', 300),
+        localEntry('.stfolder/anything', 400),
+        localEntry('lost+found/recovered', 5000),
+        localEntry('.flux-op-b3f1c2de-4a5b-6c7d-8e9f-0a1b2c3d4e5f/staged', 6000),
+      ]);
+      expect((await stateMachine.localHoldings('test-app', [])).bytes).to.equal(0);
+    });
+
+    // Its own test rather than one more name in the list above: backup is excluded by a
+    // separate term, and folded in with the reserved names it was covered by an
+    // assertion that stayed green with that term deleted.
+    it('ignores the backup directory, which is this node\'s own archive of the data', async () => {
+      answer([localEntry('backup/archive.tar', 9000)]);
+      expect((await stateMachine.localHoldings('test-app', [])).bytes).to.equal(0);
+    });
+
+    // And the other side of that rule, which is not a detail: only a full operation id
+    // is the sweep's, because the sweep DELETES what it matches in a directory the owner
+    // can also write to. `.flux-op-backups` is a name an owner may legitimately choose,
+    // so it is theirs - and it counts.
+    it('counts a .flux-op- name that is not a real operation id, because it is the owner\'s', async () => {
+      answer([localEntry('.flux-op-backups/mine.tar', 7000)]);
+      expect((await stateMachine.localHoldings('test-app', [])).bytes).to.equal(7000);
+    });
+
+    // An ml: directory holds what the component can obtain again for free. It is on the
+    // volume and it is not the owner's data, so it must not buy that node the seed.
+    it('ignores a subdirectory the spec declared local, by its top-level name', async () => {
+      answer([localEntry('cache/pak0.pak', 8200000000), localEntry('appdata/world.db', 12)]);
+      const held = await stateMachine.localHoldings('test-app', ['cache']);
+      expect(held.bytes).to.equal(12);
+    });
+
+    // UNKNOWN IS NOT EMPTY, and the difference is the whole cold start. A node that
+    // cannot read its own holdings must not be ranked as one holding nothing - it would
+    // publish an unknown folder over a known world. Both shapes below produced a fleet
+    // where folderIsEmpty was false on every node at 0/0 bytes and nobody was ever
+    // elected: two holders each waiting for the other, with the app down throughout.
+    it('answers null when the read fails, rather than nothing-held', async () => {
+      syncthingServiceMock.getDbLocalChanged.rejects(new Error('connect ECONNREFUSED'));
+      expect(await stateMachine.localHoldings('test-app', [])).to.equal(null);
+    });
+
+    it('answers null when the reply carries no file list at all', async () => {
+      syncthingServiceMock.getDbLocalChanged.resolves({ total: 0 });
+      expect(await stateMachine.localHoldings('test-app', [])).to.equal(null);
+    });
+  });
+
   describe('bestHolder', () => {
     const peers = (...ips) => ips.map((ip) => ({ ip }));
     // '10.0.0.2' sorts BEFORE '9.0.0.1' as a string, so every case below would come out
