@@ -578,6 +578,95 @@ describe('idService tests', () => {
       });
     });
 
+    // /id/loginphrase is uncached and fluxbench retries it on a 30s sleep while a
+    // node is failing, so a line per refusal is ~2,880 a day for one unchanged
+    // state - and the line that says WHEN it started is buried under thousands
+    // of copies of itself. The transition is the event; the condition is not.
+    describe('fitness logging says when the verdict changed, not that it holds', () => {
+      let warnStub;
+      let infoStub;
+
+      beforeEach(async () => {
+        healthyHardware();
+        // Normalise the module's remembered verdict through the real function,
+        // so these tests do not inherit whatever the previous one left.
+        await idService.checkNodeFitness();
+        warnStub = sinon.stub(log, 'warn');
+        infoStub = sinon.stub(log, 'info');
+      });
+
+      it('says a node is unfit once, however often it is asked', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+
+        await idService.checkNodeFitness();
+        await idService.checkNodeFitness();
+        await idService.checkNodeFitness();
+
+        expect(
+          warnStub.callCount,
+          'every refusal logged, so a node sitting in DOS writes a line every time anyone asks',
+        ).to.equal(1);
+      });
+
+      // The case that makes keying on the code wrong: the score accrues while
+      // the condition is the same one.
+      it('does not speak again as the dos score climbs under the same message', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 13, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        expect(
+          warnStub.callCount,
+          'a climbing score counted as a new fault, which is the flood keying on the message exists to stop',
+        ).to.equal(1);
+      });
+
+      it('speaks again when a different check is the one failing', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 0, dosMessage: null },
+        });
+        osTotalmemStub.returns(1 * 1024 ** 3);
+        osCpusStub.returns([1]);
+        await idService.checkNodeFitness();
+
+        expect(warnStub.callCount, 'the node started failing for a new reason and said nothing').to.equal(2);
+        expect(warnStub.secondCall.args[0]).to.contain('hardware');
+      });
+
+      it('says so once when the node recovers, and not again', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        healthyHardware();
+        await idService.checkNodeFitness();
+        await idService.checkNodeFitness();
+
+        const recovered = infoStub.getCalls().filter((c) => String(c.args[0]).includes('fit to serve'));
+        expect(recovered.length, 'recovery was silent, or repeated on every healthy pass').to.equal(1);
+      });
+    });
+
     // The syncthing gate answers a legacy question - has the operator broken
     // syncthing - and the repair path that question implies is !isArcane too. On
     // Arcane we install it and FluxOS cannot restart it, so failing the node

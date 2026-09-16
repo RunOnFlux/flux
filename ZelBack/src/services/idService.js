@@ -123,9 +123,60 @@ async function confirmNodeTierHardware() {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 /**
+ * The verdict this node last reached, so a failure is logged when it HAPPENS
+ * rather than every time somebody asks.
+ *
+ * The condition is not the event. /id/loginphrase is uncached and fluxbench
+ * retries it on a 30s sleep while a node is failing, so logging at the point of
+ * refusal would put out a line every half minute for a state that has not moved
+ * - roughly 2,880 a day, burying the one line that says when it started under
+ * thousands of copies of itself. A level cannot fix that; it only decides who
+ * sees the flood.
+ *
+ * Keyed on the failing check and its message, never the DOS code: the code
+ * climbs as the score accrues (11, 13, 15), and keying on it would make every
+ * increment a fresh line. A message that genuinely changes IS news.
+ *
+ * The check prefix earns nothing today - all six failures carry distinct
+ * messages, so no test can tell the key with it from the key without it, and
+ * none pretends to. It is there so a check added later that reuses an existing
+ * message still reads as a change of verdict rather than as the same one.
+ *
+ * Starts at ok, so a node that boots fit says nothing and a node that boots
+ * unfit says so once.
+ */
+let lastFitnessVerdict = 'ok';
+
+/**
+ * Refuse the node, logging only if this is not what it was already refusing for.
+ * Every failing return goes through here so a check added later cannot be
+ * silent by omission.
+ */
+function unfit(check, error, checks) {
+  const verdict = `${check}:${error.message}`;
+  if (verdict !== lastFitnessVerdict) {
+    lastFitnessVerdict = verdict;
+    log.warn(`Node is not fit to serve the network: ${check} - ${error.message || error.name}`);
+  }
+  return { ok: false, error, checks };
+}
+
+/**
+ * Pass the node, saying so only if it was previously refusing.
+ */
+function fit(checks) {
+  if (lastFitnessVerdict !== 'ok') {
+    lastFitnessVerdict = 'ok';
+    log.info('Node is fit to serve the network again');
+  }
+  return { ok: true, error: null, checks };
+}
+
+/**
  * Assess node fitness: the checks that decide whether this node can serve the
  * network. Shared by loginPhrase and the health endpoint so both gate
- * identically. Returns the first failing check; never throws.
+ * identically. Returns the first failing check; never throws. Logs a change of
+ * verdict, not the verdict - see lastFitnessVerdict.
  * @returns {Promise<{ok: boolean, error: (object|null), checks: object}>}
  */
 async function checkNodeFitness() {
@@ -139,7 +190,7 @@ async function checkNodeFitness() {
     await dbHelper.findOneInDatabase(database, collection, { loginPhrase: 'TestLoginPhraseForDBTest' }, {});
     checks.db = 'ok';
   } catch (error) {
-    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+    return unfit('db', { message: error.message, name: error.name, code: error.code }, checks);
   }
 
   // syncthing: measured everywhere, but it only decides fitness on legacy.
@@ -155,7 +206,7 @@ async function checkNodeFitness() {
   const syncthingHealthy = syncthingService.isRunning();
   if (!syncthingHealthy && !isArcane) {
     const error = new Error('Syncthing is not running properly');
-    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+    return unfit('syncthing', { message: error.message, name: error.name, code: error.code }, checks);
   }
   checks.syncthing = syncthingHealthy ? 'ok' : 'degraded';
 
@@ -164,14 +215,14 @@ async function checkNodeFitness() {
     await dockerService.dockerListImages();
     checks.docker = 'ok';
   } catch (error) {
-    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+    return unfit('docker', { message: error.message, name: error.name, code: error.code }, checks);
   }
 
   // hardware: the node must still meet its tier requirements
   const hwPassed = await confirmNodeTierHardware();
   if (hwPassed === false) {
     const error = new Error('Node hardware requirements not met');
-    return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
+    return unfit('hardware', { message: error.message, name: error.name, code: error.code }, checks);
   }
   checks.hardware = 'ok';
 
@@ -191,18 +242,18 @@ async function checkNodeFitness() {
     if (dos.dosMessage !== 'Flux IP detection failed' && dos.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
       error = { message: dos.dosMessage, name: 'CONNERROR', code: dos.dosState };
     }
-    return { ok: false, error, checks };
+    return unfit('dos', error, checks);
   }
   checks.dos = 'ok';
 
   // Apps DOS state
   const dosAppsState = appInspector.getAppsDOSState();
   if (dosAppsState.status === 'success' && dosAppsState.data.dosState >= 100) {
-    return { ok: false, error: { message: dosAppsState.data.dosMessage, name: 'DOS', code: dosAppsState.data.dosState }, checks };
+    return unfit('appsDos', { message: dosAppsState.data.dosMessage, name: 'DOS', code: dosAppsState.data.dosState }, checks);
   }
   checks.appsDos = 'ok';
 
-  return { ok: true, error: null, checks };
+  return fit(checks);
 }
 
 /**
