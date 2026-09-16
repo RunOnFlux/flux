@@ -1256,7 +1256,7 @@ describe('volumeExecutor tests', () => {
       // gone.
       containerStub.wait.resolves({ StatusCode: 2 });
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-y');
+      const staging = await vol.resolve('.flux-op/11111111-1111-1111-1111-111111111111', { allowReserved: true });
       const destination = await vol.resolve('out');
 
       await expect(volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } })).to.be.rejected;
@@ -1272,7 +1272,7 @@ describe('volumeExecutor tests', () => {
       // zip cannot create its output's parent; the minted directory has to be
       // there before the command is.
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-123e4567-e89b-12d3-a456-426614174000/backup.zip');
+      const staging = await vol.resolve('.flux-op/123e4567-e89b-12d3-a456-426614174000/backup.zip', { allowReserved: true });
       const destination = await vol.resolve('backup.zip');
 
       await volumeExecutor.run(vol, ['zip'], { publish: { staging, destination } });
@@ -1280,7 +1280,7 @@ describe('volumeExecutor tests', () => {
       const mkdir = serviceHelperStub.runCommand.getCalls().find((call) => call.args[0] === 'mkdir');
       expect(mkdir, 'nothing created the staging directory').to.not.equal(undefined);
       expect(mkdir.args[1].runAsRoot).to.equal(true);
-      expect(mkdir.args[1].params).to.deep.equal(['-p', `${MOUNT}/.flux-op-123e4567-e89b-12d3-a456-426614174000`]);
+      expect(mkdir.args[1].params).to.deep.equal(['-p', `${MOUNT}/.flux-op/123e4567-e89b-12d3-a456-426614174000`]);
       expect(dockerServiceStub.createContainer.calledAfter(serviceHelperStub.runCommand)).to.equal(true);
     });
 
@@ -1289,7 +1289,7 @@ describe('volumeExecutor tests', () => {
       // all - goes with the entry, in one rm of the directory FluxOS minted.
       containerStub.wait.resolves({ StatusCode: 2 });
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-123e4567-e89b-12d3-a456-426614174000/backup.zip');
+      const staging = await vol.resolve('.flux-op/123e4567-e89b-12d3-a456-426614174000/backup.zip', { allowReserved: true });
       const destination = await vol.resolve('backup.zip');
 
       await expect(volumeExecutor.run(vol, ['zip'], { publish: { staging, destination } })).to.be.rejected;
@@ -1297,7 +1297,7 @@ describe('volumeExecutor tests', () => {
 
       const rm = serviceHelperStub.runCommand.getCalls().find((call) => call.args[0] === 'rm');
       expect(rm, 'nothing reclaimed the staging directory').to.not.equal(undefined);
-      expect(rm.args[1].params).to.deep.equal(['-rf', `${MOUNT}/.flux-op-123e4567-e89b-12d3-a456-426614174000`]);
+      expect(rm.args[1].params).to.deep.equal(['-rf', `${MOUNT}/.flux-op/123e4567-e89b-12d3-a456-426614174000`]);
     });
 
     it('spawns no reclaim for an operation that staged nothing', async () => {
@@ -1337,7 +1337,7 @@ describe('volumeExecutor tests', () => {
 
     it('names the operation and the volume root for flux-op', async () => {
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-y');
+      const staging = await vol.resolve('.flux-op/11111111-1111-1111-1111-111111111111', { allowReserved: true });
       const destination = await vol.resolve('out');
 
       await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
@@ -1347,13 +1347,30 @@ describe('volumeExecutor tests', () => {
       expect(Cmd[2]).to.match(UUID);
       expect(flags(Cmd)).to.deep.equal([
         'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging',
-        '/work/.flux-op-y', '/work/out',
+        '/work/.flux-op/11111111-1111-1111-1111-111111111111', '/work/out',
       ]);
+    });
+
+    // What this refuses is an rm -rf. The staging operand decides what gets
+    // registered as live and what reclaimStaging deletes once the container is
+    // gone, so an operand that is not one we minted is an instruction to delete
+    // whatever it points at - here, the owner's own folder. Nothing else checks
+    // it: the containment rules only ask that both operands are inside the
+    // volume, and the owner's data is.
+    it('refuses a staging operand it did not mint, rather than deriving an rm -rf from it', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('photos');
+      const destination = await vol.resolve('out');
+
+      await expect(volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } }))
+        .to.be.rejectedWith('must live under a minted staging directory');
+
+      expect(dockerServiceStub.createContainer.called, 'nothing should have been run').to.equal(false);
     });
 
     it('passes the byte ceiling and link refusal to flux-op', async () => {
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-x');
+      const staging = await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true });
       const destination = await vol.resolve('out');
 
       await volumeExecutor.run(vol, ['tar', '-xzf', '/work/a.tgz'], {
@@ -1363,13 +1380,13 @@ describe('volumeExecutor tests', () => {
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
       expect(flags(Cmd)).to.deep.equal([
         'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
-        '--max-bytes', '1234', '--data-only', '/work/.flux-op-x', '/work/out',
+        '--max-bytes', '1234', '--data-only', '/work/.flux-op/22222222-2222-2222-2222-222222222222', '/work/out',
       ]);
     });
 
     it('passes --merge so a directory result overlays rather than replaces', async () => {
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-m');
+      const staging = await vol.resolve('.flux-op/33333333-3333-3333-3333-333333333333', { allowReserved: true });
       const destination = await vol.resolve('out');
 
       await volumeExecutor.run(vol, ['tar', '-xzf', '/work/a.tgz'], {
@@ -1379,13 +1396,13 @@ describe('volumeExecutor tests', () => {
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
       expect(flags(Cmd)).to.deep.equal([
         'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
-        '--merge', '/work/.flux-op-m', '/work/out',
+        '--merge', '/work/.flux-op/33333333-3333-3333-3333-333333333333', '/work/out',
       ]);
     });
 
     it('omits --merge by default, so an occupied directory is never replaced wholesale', async () => {
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-n');
+      const staging = await vol.resolve('.flux-op/44444444-4444-4444-4444-444444444444', { allowReserved: true });
       const destination = await vol.resolve('out');
 
       await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
@@ -1668,7 +1685,10 @@ describe('volumeExecutor tests', () => {
     // flux-op names a staging directory with a randomUUID, so a fixture that is
     // not one is not a fixture for anything this ever sees.
     const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-    const OP = `.flux-op-${ID}`;
+    const OP = `.flux-op/${ID}`;
+    // What a release before the staging directory left at the volume root. The
+    // sweep is the only thing that will ever reclaim these.
+    const LEGACY_OP = `.flux-op-${ID}`;
 
     const at = (...parts) => nodePath.join(mount, ...parts);
     const exists = (p) => realFs.lstat(p).then(() => true).catch(() => false);
@@ -1728,7 +1748,7 @@ describe('volumeExecutor tests', () => {
     // lands on, the destination holds something complete and the staging entry
     // holds something disposable.
     it('deletes an incomplete operation - nothing was published and nobody waits', async () => {
-      await realFs.mkdir(at(OP));
+      await realFs.mkdir(at(OP), { recursive: true });
       await write(nodePath.join(OP, 'partial'), 'half a copy');
 
       const { removed } = await sweeper.sweepStagingDirectories(session);
@@ -1742,8 +1762,8 @@ describe('volumeExecutor tests', () => {
       // previous process is reclaimed. Reachable because the API answers before
       // recovery runs, so an operation can be mid-write when the sweep fires.
       const live = session.staging();
-      await realFs.mkdir(live.hostPath);
-      await realFs.mkdir(at(OP));
+      await realFs.mkdir(live.hostPath, { recursive: true });
+      await realFs.mkdir(at(OP), { recursive: true });
 
       let finish;
       containerStub.wait.returns(new Promise((resolve) => { finish = resolve; }));
@@ -1761,16 +1781,53 @@ describe('volumeExecutor tests', () => {
       await running.catch(() => {});
     });
 
-    it('leaves a user folder that merely starts with a reserved prefix', async () => {
-      // The prefix alone is not the rule: the sweep DELETES what it matches, in
-      // a directory the app owner can also write to, so `.flux-op-backups` is a
-      // name somebody may legitimately have chosen.
+    // MIGRATION. Volumes in the field carry these at their root, and the pass
+    // that reads inside the staging directory looks somewhere they are not - so
+    // without this they are never reclaimed, stop being hidden, and start
+    // replicating to every peer.
+    it('reclaims what a release before the staging directory left at the root', async () => {
+      await realFs.mkdir(at(LEGACY_OP));
+      await write(nodePath.join(LEGACY_OP, 'partial'), 'half a copy');
+
+      const { removed } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([LEGACY_OP]);
+      expect(await exists(at(LEGACY_OP))).to.equal(false);
+    });
+
+    it('leaves a user folder that merely starts with the legacy prefix', async () => {
+      // That pass reads the owner's namespace, so it keeps the rule the old
+      // sweep had: the prefix plus a full identifier, never the prefix alone.
+      // It DELETES what it matches, and `.flux-op-backups` is a name somebody
+      // may legitimately have chosen.
       await realFs.mkdir(at('.flux-op-backups'));
 
       const { removed } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([]);
       expect(await exists(at('.flux-op-backups'))).to.equal(true);
+    });
+
+    // The one entry the sweep must never take: it is shared by every operation
+    // on this volume, so removing it takes the live ones with it.
+    it('never removes the staging directory itself', async () => {
+      await realFs.mkdir(at('.flux-op'), { recursive: true });
+
+      const { removed } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(await exists(at('.flux-op'))).to.equal(true);
+    });
+
+    it('leaves an entry in the staging directory whose name it did not mint', async () => {
+      // Everything in there is ours by construction, but a name we did not mint
+      // is something we cannot account for - and this deletes what it matches.
+      await realFs.mkdir(at('.flux-op', 'scratch'), { recursive: true });
+
+      const { removed } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(await exists(at('.flux-op', 'scratch'))).to.equal(true);
     });
 
     it('leaves everything else on the volume alone', async () => {
@@ -1808,7 +1865,7 @@ describe('volumeExecutor tests', () => {
     });
 
     const operands = async (vol) => ({
-      staging: await vol.resolve('.flux-op-x'),
+      staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }),
       destination: await vol.resolve('out'),
     });
 
@@ -1838,7 +1895,7 @@ describe('volumeExecutor tests', () => {
       // The staging path is never walked while the operation runs. The one
       // lstat call is the final reading, at the destination.
       const walked = fsStub.lstat.getCalls().map((c) => c.args[0]);
-      expect(walked.filter((p) => p.includes('.flux-op-x'))).to.deep.equal([]);
+      expect(walked.filter((p) => p.includes('22222222-2222-2222-2222-222222222222'))).to.deep.equal([]);
       expect(seen).to.not.deep.equal([]);
     });
 
@@ -2088,7 +2145,7 @@ describe('volumeExecutor tests', () => {
       fsStub.statfs = sinon.stub().resolves(usedBlocks(500));
 
       await expect(volumeExecutor.run(vol, ['cp'], {
-        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+        publish: { staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }), destination: await vol.resolve('out') },
         onBytes: () => {},
       })).to.be.rejectedWith('making no progress');
 
@@ -2106,7 +2163,7 @@ describe('volumeExecutor tests', () => {
       });
 
       await volumeExecutor.run(vol, ['cp'], {
-        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+        publish: { staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }), destination: await vol.resolve('out') },
         onBytes: () => {},
       });
 
@@ -2126,7 +2183,7 @@ describe('volumeExecutor tests', () => {
       });
 
       await volumeExecutor.run(vol, ['rm'], {
-        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+        publish: { staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }), destination: await vol.resolve('out') },
       });
 
       expect(containerStub.stop.called).to.equal(false);
@@ -2145,7 +2202,7 @@ describe('volumeExecutor tests', () => {
       fsStub.statfs = sinon.stub().resolves(usedBlocks(500));
 
       await volumeExecutor.run(vol, ['cp'], {
-        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+        publish: { staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }), destination: await vol.resolve('out') },
       });
 
       expect(containerStub.stop.called, 'stopped because the image was slow to arrive').to.equal(false);
@@ -2207,7 +2264,7 @@ describe('volumeExecutor tests', () => {
     });
 
     const upload = async (vol, source, options = {}) => {
-      const staging = await vol.resolve('.flux-op-upload');
+      const staging = await vol.resolve('.flux-op/55555555-5555-5555-5555-555555555555', { allowReserved: true });
       const destination = await vol.resolve('uploaded.bin');
       return volumeExecutor.run(vol, [], {
         input: source, publish: { staging, destination }, ...options,
@@ -2375,7 +2432,7 @@ describe('volumeExecutor tests', () => {
 
     it('refuses an upload that also carries a command', async () => {
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-upload');
+      const staging = await vol.resolve('.flux-op/55555555-5555-5555-5555-555555555555', { allowReserved: true });
       const destination = await vol.resolve('uploaded.bin');
 
       await expect(volumeExecutor.run(vol, ['cat'], {

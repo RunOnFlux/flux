@@ -3005,7 +3005,7 @@ describe('advancedWorkflows tests', () => {
       expect(
         stignore.body.split('\n').filter(Boolean),
         'the seeded ignores must already carry the spec-declared directory',
-      ).to.deep.equal(['/backup', '/.flux-op-*', '/cache']);
+      ).to.deep.equal(['/backup', '/.flux-op', '/.flux-op-*', '/cache']);
     });
 
     it('preserves the synced-mark when the pre-flight aborts before any volume is touched', async () => {
