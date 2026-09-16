@@ -66,8 +66,9 @@ export async function getPauseWrites(ip) {
 // occur in it. Stating the number is cheap; being handed one is not.
 export async function setSyncState({
   ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles,
+  localChanged = null,
 }) {
-  if (receiveOnlyChangedFiles === undefined) {
+  if (receiveOnlyChangedFiles === undefined && !Array.isArray(localChanged)) {
     throw new Error(
       `setSyncState(${folder}): receiveOnlyChangedFiles must be stated. It is what the node's own `
       + 'disk would report, and the stub cannot read a disk. If the folder genuinely holds nothing, '
@@ -76,7 +77,7 @@ export async function setSyncState({
     );
   }
   return post('/sync-state', {
-    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles,
+    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, localChanged,
   });
 }
 
