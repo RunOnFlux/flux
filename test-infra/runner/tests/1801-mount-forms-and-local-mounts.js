@@ -8,6 +8,7 @@ import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
   isDaemonUp, getDeviceId, getConnectedDevices, getFolders, getFolderStatus, scanFolder,
+  getLocalChanged,
 } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -35,6 +36,14 @@ const appDir = (name) => `/mnt/appdata/flux-apps/flux${name}_${name}`;
 
 async function sh(client, command) {
   return execInContainer(client.container, `sh -c '${command}'`);
+}
+
+// What this node tells a peer about to seed. `holding` is recorded once per monitor
+// pass, only for folders still receiveonly, so a promoted folder answers with nothing.
+async function holdingFor(client, folderId) {
+  const body = await client.get('/apps/promotedfolders');
+  if (body?.data?.ready !== true) return null;
+  return body.data.holding?.[folderId] ?? null;
 }
 
 async function pathKind(client, path) {
@@ -144,22 +153,50 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
   });
 
   // The election's new question - not "is anyone running" but "who holds the owner's
-  // data" - against a REAL daemon, real bytes and a real scan. A stub can only report
-  // what a suite declared, so it can show the rule was implemented and never that it
-  // reads a volume correctly; this can fail for the reason it exists to catch.
-  it('gives the seed to the node holding the data, not the one with the lower address', async function () {
+  // data". The comparator is unit-tested (bestHolder, six cases built so that the
+  // address order would answer each one differently), and what no unit test can reach
+  // is whether the CLAIM it compares is computed correctly from a real volume.
+  //
+  // That claim is the `holding` of /apps/promotedfolders, derived from the daemon's own
+  // receive-only change list - and every mount form this suite declares puts something
+  // in that list which is not the owner's data: an m: and an ml: directory, and a
+  // zero-length f: file whose mtime is the moment FluxOS built the volume. Counted,
+  // a node holding nothing is newer than the node holding the customer's world, and
+  // wins the seed. A stub cannot show any of this: it reports what a suite declared.
+  it('claims the owner\'s data, and not the scaffolding every mount form leaves beside it', async function () {
     this.timeout(420000);
-    const [a, b] = env.clients;
     const folderId = `flux${appName}_${appName}`;
 
-    // Whichever node did NOT seed gets real bytes written into its own copy, then both
-    // are returned to receiveonly so the election runs again with one side holding the
-    // owner's data and the other holding only what FluxOS put there.
-    const modes = await Promise.all([a, b].map(async (client) => {
-      const list = await getFolders(client).catch(() => []);
+    // The node that did NOT seed is the only one that publishes a claim at all:
+    // holdings are recorded where they are computed, inside the receive-only
+    // transition, so a promoted folder never refreshes one.
+    const modes = await Promise.all(nodes.map(async (i) => {
+      const list = await getFolders(env.clients[i]).catch(() => []);
       return list.find((folder) => folder.id === folderId)?.type;
     }));
-    const emptyIndex = modes[0] === 'sendreceive' ? 1 : 0;
+    const emptyIndex = nodes[modes[0] === 'sendreceive' ? 1 : 0];
+    const client = env.clients[emptyIndex];
+
+    // THE CANARY. "Claims nothing" is equally true of a daemon that has not looked at
+    // the volume yet, and that run would pass the assertion below having proved
+    // nothing. So establish first that the scaffolding is in the list the claim is
+    // derived from.
+    let changed = null;
+    await waitFor(async () => {
+      const answer = await getLocalChanged(client, folderId).catch(() => null);
+      changed = answer?.files?.length ? answer : null;
+      return changed !== null;
+    }, { timeout: 180000, interval: 5000, label: 'the daemon lists the scaffolding as receive-only local changes' });
+    const names = changed.files.map((file) => file.name);
+    expect(names, 'the f: file is on the volume, so the daemon must be listing it').to.include('server.json');
+
+    // And the claim reads zero over exactly that list.
+    const before = await holdingFor(client, folderId);
+    expect(before, 'the node must have completed a pass, or it is not answering at all').to.exist;
+    expect(before.bytes, 'scaffolding is not the owner\'s data').to.equal(0);
+    expect(before.newestModified, 'and a zero-length file contributes no timestamp either').to.equal(0);
+
+    // Now the owner's data lands on the same volume, and the same claim must carry it.
     await seedSyncScopedData(env, appName, emptyIndex);
 
     // Asked to look, rather than waiting on syncthing's own rescan interval - an hour by
@@ -167,51 +204,45 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     // waited on the ONE number that answers the question: an OR across two counters
     // passes on whichever is transiently true, which is how the first run of this
     // cleared its wait and then read back zero.
-    await scanFolder(env.clients[emptyIndex], folderId);
+    await scanFolder(client, folderId);
     await waitFor(async () => {
-      const status = await getFolderStatus(env.clients[emptyIndex], folderId).catch(() => null);
+      const status = await getFolderStatus(client, folderId).catch(() => null);
       return (status?.localBytes ?? 0) > 0;
     }, { timeout: 180000, interval: 5000, label: 'the daemon accounts for the bytes written into the volume' });
+
+    let after = null;
+    await waitFor(async () => {
+      const held = await holdingFor(client, folderId);
+      after = held && held.bytes > 0 ? held : null;
+      return after !== null;
+    }, { timeout: 180000, interval: 5000, label: 'the node claims the owner\'s data it now holds' });
+    expect(after.newestModified, 'a claim carrying bytes must carry when they were written').to.be.greaterThan(0);
   });
 
-  it('binds each mount into the container, so what the app writes lands on the volume', async function () {
+  it('binds every declared mount to the volume, not to the container layer', async function () {
     this.timeout(180000);
-    // The point of the whole mount model, and the one thing every other test here
-    // would pass without: these all check the HOST side. If a bind were wrong the
+    // The point of the whole mount model, and the one thing every other test here would
+    // pass without: the rest check the HOST side. If a bind pointed somewhere else the
     // directory would still be created, still be excluded from .stignore and still not
-    // replicate - and the app would still be writing into the container's own layer,
-    // which carries a flat 10 GiB quota whatever the customer's hdd says. That is how
-    // an 8.2 GiB game dies with `state is 0x202` on a 60 GB plan.
+    // replicate, while the app wrote into the container's own layer - which carries a
+    // flat 10 GiB quota whatever the customer's hdd says, and is how an 8.2 GiB game
+    // dies with `state is 0x202` on a 60 GB plan.
     //
-    // So this writes from INSIDE the container and looks for it on the volume.
+    // Read from docker's mount table rather than by writing through each path: the test
+    // image is a static binary with no shell, so there is nothing to exec. This is the
+    // binding itself as docker recorded it, which is what decides where a write lands.
     const client = env.clients[nodes[0]];
     const container = `flux${appName}_${appName}`;
-    const written = [
-      { mount: 'ml:', containerPath: '/var/cache/app/written', hostPath: `${dir}/cache/written` },
-      { mount: 'm:', containerPath: '/var/log/app/written', hostPath: `${dir}/logs/written` },
-      { mount: 'g:', containerPath: '/appdata/written', hostPath: `${dir}/appdata/written` },
-    ];
+    const r = await execInContainer(client.container,
+      `docker inspect ${container} --format '{{range .Mounts}}{{.Source}}=>{{.Destination}} {{end}}'`);
+    expect(r.exitCode, `could not inspect ${container}: ${r.output}`).to.equal(0);
+    const binds = r.stdout.trim();
 
-    // eslint-disable-next-line no-restricted-syntax
-    for (const target of written) {
-      // eslint-disable-next-line no-await-in-loop
-      const w = await execInContainer(client.container,
-        `sh -c 'docker exec ${container} sh -c "echo bound > ${target.containerPath}"'`);
-      expect(w.exitCode, `${target.mount} mount: writing ${target.containerPath} inside the container failed: ${w.output}`).to.equal(0);
-      // eslint-disable-next-line no-await-in-loop
-      expect(
-        await pathKind(client, target.hostPath),
-        `${target.mount} mount: the app wrote ${target.containerPath} and it did not appear at ${target.hostPath} - it went to the container's own layer, which is quota-capped`,
-      ).to.equal('file');
-    }
-
-    // And the f: mount is a FILE bind, so writing through it must not have replaced it
-    // with a directory - which is what docker does when a bind source is missing, and
-    // the reason FluxOS touches the file before the container starts.
-    const cfgWrite = await execInContainer(client.container,
-      `sh -c 'docker exec ${container} sh -c "echo {} > /etc/server.json"'`);
-    expect(cfgWrite.exitCode, 'f: mount: writing through the file bind failed').to.equal(0);
-    expect(await pathKind(client, `${dir}/server.json`), 'the f: mount must still be a file').to.equal('file');
+    // Every declared form, and each must resolve INTO the app's volume directory.
+    expect(binds, 'r: primary mount').to.include(`${dir}/appdata=>/appdata`);
+    expect(binds, 'm: mount must bind to the volume').to.include(`${dir}/logs=>/var/log/app`);
+    expect(binds, 'ml: mount must bind to the volume, not the container layer').to.include(`${dir}/cache=>/var/cache/app`);
+    expect(binds, 'f: mount must bind the file itself').to.include(`${dir}/server.json=>/etc/server.json`);
   });
 
   it('replicates an m: directory and never an ml: one', async function () {
