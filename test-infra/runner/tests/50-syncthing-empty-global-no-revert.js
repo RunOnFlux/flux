@@ -27,14 +27,25 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // and handleReceiveOnlyTransition then evaluates against the (injected) empty
 // global. Issuing db/revert there is the bug; the fix must wait instead.
 //
-//  Leg 1 (empty global, no source): the gate must NOT revert, and MUST publish. The
-//    two were one assertion and only one of them was right. Never reverting is the
-//    data-safety property and is unchanged. Waiting was not: a receive-only folder
-//    publishes its local files with a zeroed version vector, so no peer can take them
-//    and none can become the source being waited for - the peer is healthy and the
-//    second copy is what the rule made conditional on the act it was blocking. Seen
-//    live: 5.8 GB of a customer's world on one node, both instances down, neither able
-//    to promote.
+//  Leg 1 (empty global, a peer holding the writable copy): the gate must NOT revert,
+//    and must NOT promote alongside that peer.
+//
+//    WHAT THIS LEG CANNOT ASSERT, AND WHY. seedSyncthingApp({ forceNonLeader: true })
+//    installs the app on a peer FIRST and lets it seed, so for the whole of this leg
+//    that peer is up, running, and holding the folder sendreceive. The node under test
+//    therefore wins the election every cycle and is refused by findPeerBlockingPromotion
+//    on the last check before promoting - `already holds the writable copy` - which is
+//    correct and is what decides this leg. It is NOT the empty-global gate: at the merge
+//    base the promote guard is `!folderIsEmpty && !(syncStatus && syncStatus.isSynced)`,
+//    and an empty global reads as a vacuous 100%, so that guard lets this node through
+//    too. The `must not promote` half has always been answered by the peer check.
+//
+//    So the other half of the fix - a node holding the ONLY copy must PUBLISH it, because
+//    a receive-only folder publishes its local files with a zeroed version vector and no
+//    peer can ever take them or become the source being waited for (5.8 GB of a customer's
+//    world on one node, both instances down, neither able to promote) - cannot be asserted
+//    in a fixture that puts a live writable copy on a peer. It belongs where the cold start
+//    genuinely has no writable holder: suite 1801, on real daemons.
 //  Leg 2 (populated global + local changes, connected peer): the gate SHOULD
 //    revert (the legitimate pollution path) and then promote+start - guards the
 //    fix against over-correcting.
@@ -97,7 +108,7 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await env?.teardown();
   });
 
-  it('Leg 1: empty global — gate must not revert, and must publish the only copy', async function () {
+  it('Leg 1: empty global — gate must not revert, nor promote alongside the peer holding the writable copy', async function () {
     this.timeout(180000);
     const idx = aEmpty.index;
     const ip = subnet.nodeIp(idx + 1);
@@ -108,15 +119,17 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await restartFluxos(env.clients[idx].container);
     await setLocalChangesEmptyGlobal({ ip, folder: aEmpty.folder, files: 2 });
     const client = env.clients[idx];
-    // Anchored BEFORE the revert watch below, because the promotion this leg is about
-    // lands during that watch - and an unanchored wait afterwards would either miss it
-    // or answer from whatever happened to be in the buffer.
-    const afterId = client.getLastEventId();
 
-    // THE data-safety property, unchanged: db/revert against an empty global deletes
-    // the only copy. Watched across the whole window rather than sampled at the end,
-    // because a revert that fires and is then overtaken by a promotion would leave no
-    // trace in the final state.
+    // A start would be a second writer alongside the peer that already holds the folder
+    // sendreceive; flag it if it fires.
+    let startedSeen = false;
+    client.waitForEvent('reconciler:actuated', (d) => d.identifier === aEmpty.identifier && d.action === 'started', 45000)
+      .then(() => { startedSeen = true; }).catch(() => {});
+
+    // THE data-safety property: db/revert against an empty global deletes the only copy.
+    // Watched across the whole window rather than sampled at the end, because a revert
+    // that fires and is then overtaken by something else would leave no trace in the
+    // final state.
     const windowMs = 45000;
     const startedAt = Date.now();
     while (Date.now() - startedAt < windowMs) {
@@ -126,24 +139,16 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
         nudges.some((n) => n.action === 'revert' && n.device === aEmpty.folder),
         'the gate must NOT issue db/revert against an empty global (it would delete the only copy)',
       ).to.equal(false);
+      expect(
+        startedSeen,
+        'the gate must NOT promote alongside a peer that already holds the writable copy',
+      ).to.equal(false);
       // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    // And the half that was wrong. Holding the only copy is what QUALIFIES this node:
-    // there is no source to verify against and none can arrive, so publishing is the
-    // only way the data ever reaches the cluster.
-    //
-    // Asserted on the PROMOTION, not on the container reaching Up. The container start
-    // is a downstream effect with its own latency, and waiting on it measured something
-    // slower than the decision under test - the first run of this leg timed out with
-    // the promotion already logged 17 seconds earlier.
-    await client.waitForEvent(
-      'reconciler:actuated',
-      (d) => d.identifier === aEmpty.identifier && d.action === 'started',
-      120000,
-      { afterId },
-    );
+    const status = await getAppContainerStatus(client.container, appEmpty, { all: true });
+    expect(status == null || !status.status.startsWith('Up'), 'container must stay down (still receiveonly, waiting)').to.equal(true);
   });
 
   it('Leg 2: a peer demonstrably holds the data — the holder defers rather than publishing over it', async function () {
