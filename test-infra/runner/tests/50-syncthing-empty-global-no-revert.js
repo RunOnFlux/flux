@@ -27,7 +27,14 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // and handleReceiveOnlyTransition then evaluates against the (injected) empty
 // global. Issuing db/revert there is the bug; the fix must wait instead.
 //
-//  Leg 1 (empty global, no source): the gate must NOT revert or promote.
+//  Leg 1 (empty global, no source): the gate must NOT revert, and MUST publish. The
+//    two were one assertion and only one of them was right. Never reverting is the
+//    data-safety property and is unchanged. Waiting was not: a receive-only folder
+//    publishes its local files with a zeroed version vector, so no peer can take them
+//    and none can become the source being waited for - the peer is healthy and the
+//    second copy is what the rule made conditional on the act it was blocking. Seen
+//    live: 5.8 GB of a customer's world on one node, both instances down, neither able
+//    to promote.
 //  Leg 2 (populated global + local changes, connected peer): the gate SHOULD
 //    revert (the legitimate pollution path) and then promote+start - guards the
 //    fix against over-correcting.
@@ -43,9 +50,11 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
   let env;
   dumpLogsOnFailure(() => env);
   const appEmpty = `e2eemptyglobal${Date.now()}`;
+  const appSource = `e2esourceexists${Date.now()}`;
   const appPart = `e2epartrevert${Date.now()}`;
   let aEmpty;
   let aPart;
+  let aSource;
 
   before(async function () {
     this.timeout(420000);
@@ -72,6 +81,12 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await setSyncState({ ip: subnet.nodeIp(aPart.index + 1), folder: aPart.folder, state: 'idle', globalBytes: 100000, inSyncBytes: 40000, receiveOnlyChangedFiles: 0 });
     await setPeerDisconnected({ ip: subnet.nodeIp(aPart.index + 1), folder: aPart.folder });
 
+    aSource = await seedSyncthingApp(env, {
+      name: appSource, mode: 'r', forceNonLeader: true, index: 2,
+    });
+    await setSyncState({ ip: subnet.nodeIp(aSource.index + 1), folder: aSource.folder, state: 'idle', globalBytes: 100000, inSyncBytes: 40000, receiveOnlyChangedFiles: 0 });
+    await setPeerDisconnected({ ip: subnet.nodeIp(aSource.index + 1), folder: aSource.folder });
+
     // let handleNewApp clean + the FSM reach the receiveonly waiting state
     await new Promise((r) => setTimeout(r, 18000)); // eslint-disable-line no-promise-executor-return
   });
@@ -82,47 +97,81 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await env?.teardown();
   });
 
-  it('Leg 1: empty global — gate must not revert or promote', async function () {
+  it('Leg 1: empty global — gate must not revert, and must publish the only copy', async function () {
     this.timeout(180000);
     const idx = aEmpty.index;
     const ip = subnet.nodeIp(idx + 1);
 
     // Reboot the process holding the only copy: handleFirstRun preserves the
     // folder into receiveonly; with peers not reconnected the global is empty
-    // and there is no source - the exact B1 trap.
+    // and there is no source.
     await restartFluxos(env.clients[idx].container);
     await setLocalChangesEmptyGlobal({ ip, folder: aEmpty.folder, files: 2 });
     const client = env.clients[idx];
 
-    // a start would be the promote-on-empty-global regression; flag it if it fires
-    let startedSeen = false;
-    client.waitForEvent('reconciler:actuated', (d) => d.identifier === aEmpty.identifier && d.action === 'started', 45000)
-      .then(() => { startedSeen = true; }).catch(() => {});
-
-    // watch ~45s (≈15 monitor cycles). On the bug the gate issues db/revert
-    // (which against an empty global would delete the only copy); the correct
-    // behaviour is to WAIT.
+    // THE data-safety property, unchanged: db/revert against an empty global deletes
+    // the only copy. Watched across the whole window rather than sampled at the end,
+    // because a revert that fires and is then overtaken by a promotion would leave no
+    // trace in the final state.
     const windowMs = 45000;
     const startedAt = Date.now();
     while (Date.now() - startedAt < windowMs) {
+      // eslint-disable-next-line no-await-in-loop
       const { nudges } = await getNudges(ip);
       expect(
         nudges.some((n) => n.action === 'revert' && n.device === aEmpty.folder),
         'the gate must NOT issue db/revert against an empty global (it would delete the only copy)',
       ).to.equal(false);
-      expect(
-        startedSeen,
-        'the gate must NOT promote/start on an empty global (unverified data)',
-      ).to.equal(false);
       // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    const status = await getAppContainerStatus(client.container, appEmpty, { all: true });
-    expect(status == null || !status.status.startsWith('Up'), 'container must stay down (still receiveonly, waiting)').to.equal(true);
+    // And the half that was wrong. Holding the only copy is what QUALIFIES this node:
+    // there is no source to verify against and none can arrive, so publishing is the
+    // only way the data ever reaches the cluster.
+    await waitFor(
+      () => isUp(client, appEmpty),
+      { timeout: 120000, interval: 3000, label: 'the holder publishes its only copy rather than waiting for a source that cannot arrive' },
+    );
   });
 
-  it('Leg 2: populated global — gate reverts the local changes, then promotes', async function () {
+  it('Leg 2: a peer demonstrably holds the data — the holder defers rather than publishing over it', async function () {
+    this.timeout(180000);
+    // The half of the original guard that was RIGHT, and the one nothing else pins at
+    // fleet level: when a real source exists, this node syncs from it instead of
+    // publishing its own copy over the top. Leg 1 removed the deferral for the case
+    // where no source can ever arrive; without this, removing it altogether would look
+    // like a passing change.
+    const idx = aSource.index;
+    const ip = subnet.nodeIp(idx + 1);
+    const client = env.clients[idx];
+
+    // Its OWN app, never touched by another leg: watching for a start on an app some
+    // earlier leg already started would pass without the deferral doing anything.
+    await restartFluxos(client.container);
+    // this node holds its own local data...
+    await setLocalChangesEmptyGlobal({ ip, folder: aSource.folder, files: 2 });
+    // ...and a connected peer can be SHOWN to hold the folder, which is what makes it
+    // a source rather than merely another placement carrying runningSince.
+    await setPeerHasData({ ip, folder: aSource.folder });
+
+    let startedSeen = false;
+    client.waitForEvent('reconciler:actuated', (d) => d.identifier === aSource.identifier && d.action === 'started', 45000)
+      .then(() => { startedSeen = true; }).catch(() => {});
+
+    const windowMs = 45000;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < windowMs) {
+      expect(
+        startedSeen,
+        'a node must not publish its own copy over a peer that demonstrably holds the data',
+      ).to.equal(false);
+      // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  });
+
+  it('Leg 3: populated global — gate reverts the local changes, then promotes', async function () {
     this.timeout(210000);
     const idx = aPart.index;
     const ip = subnet.nodeIp(idx + 1);
