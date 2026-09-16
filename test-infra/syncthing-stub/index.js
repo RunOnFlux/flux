@@ -85,7 +85,12 @@ patchDelayWaker.setMaxListeners(0);
 // Tests drive these via the control API; the defaults (below) reproduce the
 // original always-synced/empty behaviour so existing suites are unaffected.
 //
-//   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes }
+//   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes,
+//                                                         localChanged }
+//     localChanged is the entry list a receiveonly folder holds that the cluster's index
+//     does not, and db/status's receiveOnlyChanged* counts are DERIVED from it. One
+//     declaration, because a real daemon's count is the length of that list and cannot
+//     disagree with it. db/revert clears the entries for the same reason.
 //   completionOverrides: `${ip}|${folder}|${device}`-> completion (0-100)
 //                        or { completion, remoteState, globalBytes }
 // ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
@@ -605,14 +610,19 @@ app.get('/rest/db/status', (req, res) => {
 app.post('/rest/db/override', (req, res) => res.json({}));
 app.post('/rest/db/prio', (req, res) => res.json({}));
 app.post('/rest/db/revert', (req, res) => {
-  // revert undoes local changes in a receiveonly folder: clear the
-  // receiveOnlyChangedFiles override so the next status reads clean
+  // revert undoes local changes in a receiveonly folder: drop the declared entries so
+  // the next status reads clean. The ENTRIES are the state - clearing a separate count
+  // would leave the file list still describing them, and db/status now derives the
+  // count from that list, so the folder would never read clean and the promotion the
+  // revert exists to unblock would never come.
   const folder = req.query.folder || '';
   const ip = clientIp(req);
   nudgeLog(ip).push({ action: 'revert', device: folder, at: Date.now() });
   [`${ip}|${folder}`, `*|${folder}`].forEach((key) => {
     const ov = syncOverrides.get(key);
-    if (ov && ov.receiveOnlyChangedFiles) syncOverrides.set(key, { ...ov, receiveOnlyChangedFiles: 0 });
+    if (ov && Array.isArray(ov.localChanged) && ov.localChanged.length > 0) {
+      syncOverrides.set(key, { ...ov, localChanged: [] });
+    }
   });
   res.json({});
 });
