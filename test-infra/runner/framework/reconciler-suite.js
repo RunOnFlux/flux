@@ -31,11 +31,34 @@ import { execInContainer } from './container.js';
 // written earlier. seedSyncthingApp runs this ordering itself; only suites
 // installing through another path need to call it directly.
 export async function seedSyncScopedData(env, name, index) {
-  const dataFile = `/mnt/appdata/flux-apps/flux${name}_${name}/appdata/seed-data`;
+  const folder = `flux${name}_${name}`;
+  const dataFile = `/mnt/appdata/flux-apps/${folder}/appdata/seed-data`;
   const r = await execInContainer(env.clients[index].container, `sh -c 'echo seeded > ${dataFile}'`);
   if (r.exitCode !== 0) {
     throw new Error(`seedSyncScopedData: could not write ${dataFile} on node ${index}: ${r.output}`);
   }
+  // Tell the stub what was just written. Against the control-plane stub this is the
+  // only way the bytes on the volume can reach the decision: the stub runs in its own
+  // container and the appdata is a loop-mounted image in the node's namespace, so it
+  // can never read them. Declared HERE rather than left to each suite, because a suite
+  // that seeds data and forgets to say so describes a folder syncthing cannot produce -
+  // real bytes on disk with the local-change list denying them - and the node then
+  // decides as though the volume were empty. That is what let the cold-start suites
+  // pass against a data-holder that could not seed.
+  //
+  // Harmless on a `syncthing: 'binary'` fleet, where the daemon has already scanned the
+  // file and the control surface is not in the path.
+  await setSyncState({
+    ip: getSubnetConfig().nodeIp(index + 1),
+    folder,
+    state: 'idle',
+    globalBytes: 0,
+    inSyncBytes: 0,
+    localChanged: [
+      { name: 'appdata', type: 'FILE_INFO_TYPE_DIRECTORY', size: 128, deleted: false, modified: new Date().toISOString() },
+      { name: 'appdata/seed-data', type: 'FILE_INFO_TYPE_FILE', size: 7, deleted: false, modified: new Date().toISOString() },
+    ],
+  }).catch(() => {});
 }
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install

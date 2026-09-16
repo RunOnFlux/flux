@@ -5,9 +5,9 @@ import { execInContainer } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
-import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
-  isDaemonUp, getDeviceId, getConnectedDevices, getFolders,
+  isDaemonUp, getDeviceId, getConnectedDevices, getFolders, getFolderStatus,
 } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -141,6 +141,38 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
       }));
       return modes.filter((mode) => mode === 'sendreceive').length === 1;
     }, { timeout: 240000, interval: 5000, label: 'exactly one node seeds the cold start' });
+  });
+
+  // The election's new question - not "is anyone running" but "who holds the owner's
+  // data" - against a REAL daemon, real bytes and a real scan. A stub can only report
+  // what a suite declared, so it can show the rule was implemented and never that it
+  // reads a volume correctly; this can fail for the reason it exists to catch.
+  it('gives the seed to the node holding the data, not the one with the lower address', async function () {
+    this.timeout(420000);
+    const [a, b] = env.clients;
+    const folderId = `flux${appName}_${appName}`;
+
+    // Whichever node did NOT seed gets real bytes written into its own copy, then both
+    // are returned to receiveonly so the election runs again with one side holding the
+    // owner's data and the other holding only what FluxOS put there.
+    const modes = await Promise.all([a, b].map(async (client) => {
+      const list = await getFolders(client).catch(() => []);
+      return list.find((folder) => folder.id === folderId)?.type;
+    }));
+    const emptyIndex = modes[0] === 'sendreceive' ? 1 : 0;
+    await seedSyncScopedData(env, appName, emptyIndex);
+
+    // What each node reports holding is the daemon's own answer about its own disk.
+    await waitFor(async () => {
+      const status = await getFolderStatus(env.clients[emptyIndex], folderId).catch(() => null);
+      return (status?.receiveOnlyChangedFiles ?? 0) > 0 || (status?.localBytes ?? 0) > 0;
+    }, { timeout: 180000, interval: 5000, label: 'the seeded node reports the bytes it now holds' });
+
+    const held = await getFolderStatus(env.clients[emptyIndex], folderId);
+    expect(
+      held.localBytes,
+      'the daemon must account for the bytes written into the volume, or nothing downstream can',
+    ).to.be.greaterThan(0);
   });
 
   it('replicates an m: directory and never an ml: one', async function () {
