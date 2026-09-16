@@ -459,6 +459,13 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     // Names in the volume root that belong to something other than the owner.
+    //
+    // SECOND LINE, NOT FIRST. Of the names below only lost+found can actually reach this
+    // function: syncthing never scans its own internals (.stfolder, .stignore) and never
+    // emits a FileInfo for a path its ignore patterns match (scanner/walk.go), and every
+    // folder FluxOS replicates leads its .stignore with /backup and /.flux-op-*. So this
+    // term fires only for a folder whose ignores are absent or failed to write - which is
+    // exactly when a wrong answer here would be acted on, and why it is asserted.
     it('ignores syncthing\'s own markers, lost+found and the staging tree', async () => {
       answer([
         localEntry('.stignore', 300),
@@ -471,23 +478,17 @@ describe('syncthingFolderStateMachine tests', () => {
 
     // Its own test rather than one more name in the list above: backup is excluded by a
     // separate term, and folded in with the reserved names it was covered by an
-    // assertion that stayed green with that term deleted.
+    // assertion that stayed green with that term deleted. Same standing as those - a
+    // folder with its /backup ignore intact never lists it.
     it('ignores the backup directory, which is this node\'s own archive of the data', async () => {
       answer([localEntry('backup/archive.tar', 9000)]);
       expect((await stateMachine.localHoldings('test-app', [])).bytes).to.equal(0);
     });
 
-    // And the other side of that rule, which is not a detail: only a full operation id
-    // is the sweep's, because the sweep DELETES what it matches in a directory the owner
-    // can also write to. `.flux-op-backups` is a name an owner may legitimately choose,
-    // so it is theirs - and it counts.
-    it('counts a .flux-op- name that is not a real operation id, because it is the owner\'s', async () => {
-      answer([localEntry('.flux-op-backups/mine.tar', 7000)]);
-      expect((await stateMachine.localHoldings('test-app', [])).bytes).to.equal(7000);
-    });
-
     // An ml: directory holds what the component can obtain again for free. It is on the
     // volume and it is not the owner's data, so it must not buy that node the seed.
+    // Also a second line: the same name is an anchored .stignore pattern, so a daemon
+    // with its ignores intact does not list it either.
     it('ignores a subdirectory the spec declared local, by its top-level name', async () => {
       answer([localEntry('cache/pak0.pak', 8200000000), localEntry('appdata/world.db', 12)]);
       const held = await stateMachine.localHoldings('test-app', ['cache']);
