@@ -660,6 +660,17 @@ module.exports = {
     ip: '127.0.0.1',
     port: 8384,
     monitorIntervalMs: 30000, // syncthingApps reconfiguration/sync-readiness cycle
+    // How long a node goes without a successful health probe before it reports
+    // syncthing down. Four missed passes of the 60s sentinel loop: wide enough
+    // that a slow adjustSyncthing or a couple of blips cannot mark the node
+    // down, short enough that a real outage is reported within minutes. It is
+    // also the grace the sentinel gets to land its FIRST probe, after which
+    // silence is a fault rather than an absence.
+    healthWindowMs: 300000,
+    // The sentinel's own cadence. The window above is four missed passes of
+    // this, so a suite that shortens one must shorten the other - shorten the
+    // window alone and a healthy node goes stale between two good probes.
+    sentinelIntervalMs: 60000,
     // stall ladder (receive-only convergence): wait -> device pause/resume nudge with
     // doubling backoff -> removal only with a connected synced peer, repeated nudges
     // and zero progress over the minimum window

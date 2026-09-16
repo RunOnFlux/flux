@@ -27,6 +27,19 @@ const utilFake = { promisify: () => runExecStub };
 // Module under test
 const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService', { 'node:util': utilFake });
 
+/**
+ * Move the monotonic clock forward for the duration of a check. Health windows
+ * are measured on process.hrtime.bigint, so faking Date does nothing to them -
+ * which is the property the ntp test below pins.
+ * @param {number} ms
+ * @returns {Function} restores the real clock
+ */
+function advanceMonotonic(ms) {
+  const real = process.hrtime.bigint;
+  process.hrtime.bigint = () => real() + BigInt(ms) * 1000000n;
+  return () => { process.hrtime.bigint = real; };
+}
+
 describe('syncthingService tests', () => {
   // The gui config carries syncthing's apikey - the credential that authenticates
   // every syncthing call on this node - so these ask for fluxteam where their
@@ -316,7 +329,7 @@ describe('syncthingService tests', () => {
 
       // Not one call into the service: this is the sentinel simply never coming
       // back, which is the case a stored flag reports as healthy forever.
-      const clock = sinon.useFakeTimers({ now: Date.now() + 5 * 60 * 1000 + 1, toFake: ['Date'] });
+      const restore = advanceMonotonic(5 * 60 * 1000 + 1);
 
       try {
         expect(
@@ -324,8 +337,114 @@ describe('syncthingService tests', () => {
           'the sentinel stopped landing probes and the node still claimed syncthing was fine',
         ).to.equal(false);
       } finally {
-        clock.restore();
+        restore();
       }
+    });
+
+    // The window is elapsed time, so it is measured on the monotonic clock. A
+    // node boots, ntp steps the wall clock, and a window measured on Date.now()
+    // expires on the spot or never - and boot is precisely when this window is
+    // load-bearing, because it is the one covering the first probe.
+    it('an ntp step does not move health, forwards or backwards', () => {
+      syncthingService.resetDeviceIdCache();
+
+      const realNow = Date.now;
+      Date.now = () => realNow() + 60 * 60 * 1000;
+      try {
+        expect(syncthingService.isRunning(), 'the wall clock jumped an hour forward and expired the window').to.equal(true);
+      } finally {
+        Date.now = realNow;
+      }
+
+      syncthingService.setSyncthingRunningState(false);
+      Date.now = () => realNow() - 60 * 60 * 1000;
+      try {
+        expect(syncthingService.isRunning(), 'the wall clock jumped an hour back and made a stale reading fresh').to.equal(false);
+      } finally {
+        Date.now = realNow;
+      }
+    });
+
+    // Three states, not two. Until the sentinel starts there is no reading to be
+    // stale, and either default is a lie: healthy invents a probe that never
+    // ran, unhealthy blames syncthing for a check this node has not made.
+    describe('before anything has measured syncthing', () => {
+      beforeEach(() => {
+        syncthingService.setSyncthingUnmeasured();
+      });
+
+      it('says so, rather than guessing in either direction', () => {
+        expect(syncthingService.healthState()).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+      });
+
+      it('is not "running" - nothing should scrape a daemon no probe has reached', () => {
+        expect(syncthingService.isRunning()).to.equal(false);
+      });
+
+      // The boot defect this exists for: the sentinel starts behind whatever
+      // else startFluxFunctions is waiting on, and a node that stamped itself
+      // healthy at module load went stale before the first probe ever ran -
+      // then told fluxbench its syncthing was broken.
+      it('stays unmeasured however long the sentinel takes to start', () => {
+        const restore = advanceMonotonic(60 * 60 * 1000);
+
+        try {
+          expect(syncthingService.healthState()).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+        } finally {
+          restore();
+        }
+      });
+    });
+
+    // The other half: unmeasured must not become a place to hide. Once the
+    // sentinel has taken the question on, silence is a fault - and the sentinel
+    // stamps itself before the binary wait, which is where a legacy node with
+    // no syncthing executable sits for ever.
+    describe('once the sentinel has taken responsibility', () => {
+      it('holds unmeasured for one window while the first probe lands', () => {
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+
+        expect(syncthingService.healthState()).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+      });
+
+      // The node that has never worked is the more serious of the two, and it is
+      // the one the old boolean could not say anything about: it reached
+      // UNHEALTHY from UNMEASURED rather than from OK, so a check written as
+      // "was healthy, is not now" stayed silent through the whole outage.
+      it('says so in the log when it gives up on a syncthing that never answered', async () => {
+        const errorSpy = sinon.spy(log, 'error');
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+        fakeMeta.throws(new Error('syncthing has never come up'));
+
+        await syncthingService.refreshSyncthingHealth();
+        sinon.assert.neverCalledWithMatch(errorSpy, /marking syncthing not running/);
+
+        const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+        try {
+          await syncthingService.refreshSyncthingHealth();
+        } finally {
+          restore();
+        }
+
+        sinon.assert.calledWithMatch(errorSpy, /marking syncthing not running/);
+      });
+
+      it('reports unhealthy once that window passes with no probe having succeeded', () => {
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+
+        const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+        try {
+          expect(
+            syncthingService.healthState(),
+            'a node whose syncthing binary is missing never leaves the wait, and unmeasured would hide it for ever',
+          ).to.equal(syncthingService.SYNCTHING_HEALTH.UNHEALTHY);
+        } finally {
+          restore();
+        }
+      });
     });
 
     it('a single success restores health', async () => {
@@ -632,6 +751,36 @@ describe('syncthingService tests', () => {
       sinon.restore();
     });
 
+    // The declaration has to be made BY the sentinel, or unmeasured becomes a
+    // place a broken node hides: nothing else stamps it, so a sentinel that
+    // stopped calling this would leave health permanently without a verdict.
+    it('declares that it is now measuring syncthing, before anything can block', async () => {
+      syncthingService.setSyncthingUnmeasured();
+      expect(
+        syncthingService.healthState(),
+        'fixture: no measurement yet',
+      ).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+
+      // Deliberately not awaited: the declaration is the first statement, so it
+      // has already happened by the time this call yields. That is the property
+      // - a legacy node with no syncthing binary never leaves the wait below it,
+      // and a stamp placed after that wait would never be reached on the one
+      // node whose syncthing is actually broken.
+      const started = syncthingService.startSyncthingSentinel();
+
+      const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+      try {
+        expect(
+          syncthingService.healthState(),
+          'the sentinel never took the question on, so silence could never become a fault',
+        ).to.equal(syncthingService.SYNCTHING_HEALTH.UNHEALTHY);
+      } finally {
+        restore();
+        await syncthingService.stopSyncthingSentinel();
+        await started.catch(() => {});
+      }
+    });
+
     it('never asks syncthing whether a restart is required', async () => {
       // requiresRestart is a one-way latch FluxOS cannot set: it is written only
       // for auditEnabled/auditFile, which FluxOS never touches. So a true here is
@@ -795,6 +944,7 @@ describe('syncthingService tests', () => {
       sinon.assert.calledWithExactly(spawnStub, expected, expectedOptions);
       // sinon.assert.calledOnce(unrefStub);
     });
+
   });
 
   describe('collectSyncthingMetrics error surfacing', () => {

@@ -578,6 +578,43 @@ describe('idService tests', () => {
       });
     });
 
+    // The boot defect, at the layer that reported it. The node stamped itself
+    // healthy at module load and the sentinel started behind an unbounded wait
+    // for the daemon, so a node whose fluxd was slow to warm up went stale
+    // before a single probe had run - and then told fluxbench, for minutes on
+    // end, that the operator's syncthing was broken. Nothing had looked at it.
+    describe('with nothing having measured syncthing yet', () => {
+      beforeEach(() => {
+        syncthingService.setSyncthingUnmeasured();
+      });
+
+      it('does not refuse the node for a check it has not run', async () => {
+        healthyHardware();
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.ok, 'a node was taken off the network over a probe that had never happened').to.equal(true);
+      });
+
+      it('says unmeasured rather than claiming either verdict', async () => {
+        healthyHardware();
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.checks.syncthing).to.equal('unmeasured');
+      });
+
+      it('loginPhrase answers a phrase rather than a syncthing error', async () => {
+        healthyHardware();
+        const res = generateResponse();
+
+        await idService.loginPhrase(undefined, res);
+
+        const [answer] = res.json.firstCall.args;
+        expect(answer.status, 'the boot window refused a login phrase and failed the benchmark').to.equal('success');
+      });
+    });
+
     // /id/loginphrase is uncached and fluxbench retries it on a 30s sleep while a
     // node is failing, so a line per refusal is ~2,880 a day for one unchanged
     // state - and the line that says WHEN it started is buried under thousands

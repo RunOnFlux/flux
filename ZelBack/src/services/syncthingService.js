@@ -55,8 +55,19 @@ const fluxosSupervisesSyncthing = supervisesSyncthing(config.syncthing.ip, isArc
 let syncthingBinaryPresent = false;
 
 /**
- * When a probe last found syncthing up and configured. Health is DERIVED from
- * this rather than stored as a verdict, and only success is ever recorded.
+ * What this node knows about syncthing, which is three answers and not two:
+ * UNMEASURED is the absence of a verdict, not a soft one.
+ */
+const SYNCTHING_HEALTH = Object.freeze({
+  OK: 'ok',
+  UNHEALTHY: 'unhealthy',
+  UNMEASURED: 'unmeasured',
+});
+
+/**
+ * When the sentinel took responsibility for measuring syncthing, and when a
+ * probe last found it up and configured. Health is DERIVED from these rather
+ * than stored as a verdict, and only success is ever recorded.
  *
  * A stored boolean has to be lowered by somebody, so every path that fails to
  * reach the lowering line reports health it has no evidence for: a throw out of
@@ -69,14 +80,34 @@ let syncthingBinaryPresent = false;
  * It also absorbs the blip tolerance. A window is what a consecutive-failure
  * counter was approximating, and it is right even on the passes that never ran.
  *
- * Stamped at startup so the node has exactly one window of grace while the
- * webserver is up and the first probe has not landed.
+ * Staleness only means something once somebody is measuring, which is why there
+ * are two stamps and not one. Before the sentinel starts there is no reading to
+ * be stale, and inventing one gets it wrong in whichever direction it is
+ * invented: a healthy default asserts a probe that never ran, and an unhealthy
+ * one blames syncthing for a check this node has not made. So that state says
+ * so, and the webserver can answer for the node while it holds.
  */
-let lastHealthyProbeAt = Date.now();
-// Four missed passes of a 60s sentinel loop. Wide enough that a slow
-// adjustSyncthing or a couple of blips cannot mark the node down; short enough
-// that a real outage is reported within minutes.
-const SYNCTHING_HEALTH_WINDOW_MS = 5 * 60 * 1000;
+let measurementStartedAt = null;
+let lastHealthyProbeAt = null;
+/**
+ * The health this node last said out loud, so a change is reported when it
+ * HAPPENS rather than on every pass that finds the same thing - the same
+ * bookkeeping idService keeps for the fitness verdict.
+ */
+let lastReportedHealth = SYNCTHING_HEALTH.UNMEASURED;
+
+/**
+ * Milliseconds on the monotonic clock. Both stamps are elapsed-time decisions
+ * and nothing reads them outside this process, so wall time buys nothing and
+ * costs the one case this window exists for: a node boots, ntp steps the clock,
+ * and a window measured on Date.now() either expires on the spot or never.
+ * @returns {number}
+ */
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+const SYNCTHING_HEALTH_WINDOW_MS = config.syncthing.healthWindowMs;
+const SYNCTHING_SENTINEL_INTERVAL_MS = config.syncthing.sentinelIntervalMs;
 // The device id is the SHA-256 of syncthing's cert (protocol.NewDeviceID); it is
 // fixed for the life of the install, so it is read once and served from here.
 // Cleared when syncthing is stopped, the only point a new cert could appear.
@@ -1397,21 +1428,33 @@ async function getDeviceId() {
  * @returns {Promise<boolean>} The probe result.
  */
 async function refreshSyncthingHealth() {
-  const wasHealthy = isRunning(); // eslint-disable-line no-use-before-define
   const { ok, deviceId } = await probeSyncthing();
 
   if (ok) {
-    lastHealthyProbeAt = Date.now();
+    lastHealthyProbeAt = monotonicMs();
     if (deviceId) cachedDeviceId = deviceId;
-    return true;
   }
 
   // Said on the transition only. Every pass logging a failed probe would bury
   // the moment the node actually stopped being usable.
-  if (wasHealthy && !isRunning()) { // eslint-disable-line no-use-before-define
-    log.error(`Syncthing has not answered a health probe for ${SYNCTHING_HEALTH_WINDOW_MS / 1000}s; marking syncthing not running`);
+  //
+  // Against what was last REPORTED, not against a reading taken at the top of
+  // this same call. A derived state changes with the clock rather than with an
+  // event, so the two readings either side of one probe are the same reading
+  // almost every time: the window falls due between passes, not during one, and
+  // a comparison that narrow fires only if it expires inside the probe itself.
+  // Remembering what was said last is what makes arrival detectable at all, and
+  // it catches UNMEASURED -> UNHEALTHY too - a syncthing that never once
+  // answered, which is the more serious of the two.
+  const state = healthState(); // eslint-disable-line no-use-before-define
+  if (state !== lastReportedHealth) {
+    if (state === SYNCTHING_HEALTH.UNHEALTHY) {
+      log.error(`Syncthing has not answered a health probe for ${SYNCTHING_HEALTH_WINDOW_MS / 1000}s; marking syncthing not running`);
+    }
+    lastReportedHealth = state;
   }
-  return false;
+
+  return ok;
 }
 
 /**
@@ -1432,13 +1475,48 @@ async function getDeviceIdApi(_, res) {
 }
 
 /**
- * Whether syncthing is usable: a probe found it up recently enough. Derived, so
- * anything that stops probes landing - a broken repair path, a sentinel that
- * never started, a dead loop - reads as not running rather than as healthy.
+ * What this node can say about syncthing. Derived, so anything that stops
+ * probes landing - a broken repair path, a sentinel that never started, a dead
+ * loop - reads as UNHEALTHY rather than as healthy, and anything that stops
+ * measurement beginning reads as UNMEASURED rather than as either.
+ * @returns {string} A SYNCTHING_HEALTH value.
+ */
+function healthState() {
+  if (measurementStartedAt === null) return SYNCTHING_HEALTH.UNMEASURED;
+
+  if (lastHealthyProbeAt !== null) {
+    return monotonicMs() - lastHealthyProbeAt < SYNCTHING_HEALTH_WINDOW_MS
+      ? SYNCTHING_HEALTH.OK
+      : SYNCTHING_HEALTH.UNHEALTHY;
+  }
+
+  // Measuring, with nothing good yet: one window to land a first probe, and
+  // after that the silence is the answer. A legacy node whose syncthing binary
+  // is missing waits here for ever, so this is the arm that reports it.
+  return monotonicMs() - measurementStartedAt < SYNCTHING_HEALTH_WINDOW_MS
+    ? SYNCTHING_HEALTH.UNMEASURED
+    : SYNCTHING_HEALTH.UNHEALTHY;
+}
+
+/**
+ * FluxOS is now the thing answering for syncthing's health, so from here
+ * silence is a fault rather than an absence. The sentinel calls this before its
+ * binary wait, not after: a legacy node missing the executable never leaves
+ * that loop, and that is a node whose syncthing is broken, not one nobody has
+ * looked at yet.
+ */
+function noteMeasurementStarted() {
+  measurementStartedAt = monotonicMs();
+}
+
+/**
+ * Whether syncthing is known to be up. Unmeasured is not up - nothing should
+ * scrape or depend on a daemon no probe has reached - but it is not a fault
+ * either, which is why fitness asks healthState instead.
  * @returns {Boolean}
  */
 function isRunning() {
-  return Date.now() - lastHealthyProbeAt < SYNCTHING_HEALTH_WINDOW_MS;
+  return healthState() === SYNCTHING_HEALTH.OK;
 }
 
 /**
@@ -1731,12 +1809,12 @@ async function runSyncthingSentinel() {
       await adjustSyncthing();
     }
 
-    return 60 * 1000;
+    return SYNCTHING_SENTINEL_INTERVAL_MS;
   } catch (error) {
     if (error.name === 'AbortError') return 0;
 
     log.error(error);
-    return 2 * 60 * 1000;
+    return 2 * SYNCTHING_SENTINEL_INTERVAL_MS;
   } finally {
     stc.lock.disable();
   }
@@ -1747,6 +1825,8 @@ async function runSyncthingSentinel() {
  * @returns {<void>}
  */
 async function startSyncthingSentinel() {
+  noteMeasurementStarted();
+
   while (fluxosSupervisesSyncthing && !syncthingBinaryPresent) {
     // eslint-disable-next-line no-await-in-loop
     const { error } = await serviceHelper.runCommand('syncthing', { logError: false, params: ['--version'] });
@@ -1765,11 +1845,24 @@ async function startSyncthingSentinel() {
 }
 
 /**
- * Test helper: moves the last-healthy stamp so isRunning() answers `value`.
+ * Test helper: puts the node in a measured state and moves the last-healthy
+ * stamp so isRunning() answers `value`.
  * @param {Boolean} value
  */
 function setSyncthingRunningState(value) {
-  lastHealthyProbeAt = value ? Date.now() : Date.now() - SYNCTHING_HEALTH_WINDOW_MS;
+  measurementStartedAt = monotonicMs() - SYNCTHING_HEALTH_WINDOW_MS;
+  lastHealthyProbeAt = value ? monotonicMs() : monotonicMs() - SYNCTHING_HEALTH_WINDOW_MS;
+  lastReportedHealth = value ? SYNCTHING_HEALTH.OK : SYNCTHING_HEALTH.UNHEALTHY;
+}
+
+/**
+ * Test helper: unsets the measurement stamp, as on a node whose sentinel has
+ * not started.
+ */
+function setSyncthingUnmeasured() {
+  measurementStartedAt = null;
+  lastHealthyProbeAt = null;
+  lastReportedHealth = SYNCTHING_HEALTH.UNMEASURED;
 }
 
 /**
@@ -1777,7 +1870,9 @@ function setSyncthingRunningState(value) {
  */
 function resetDeviceIdCache() {
   cachedDeviceId = null;
-  lastHealthyProbeAt = Date.now();
+  measurementStartedAt = monotonicMs() - SYNCTHING_HEALTH_WINDOW_MS;
+  lastHealthyProbeAt = monotonicMs();
+  lastReportedHealth = SYNCTHING_HEALTH.OK;
 }
 
 // handy for testing
@@ -2605,11 +2700,15 @@ module.exports = {
   adjustConfigDevices,
   // status
   isRunning,
+  healthState,
+  SYNCTHING_HEALTH,
+  noteMeasurementStarted,
   // testing exports
   getAxiosCache,
   configureDirectories,
   installSyncthingIdempotently,
   setSyncthingRunningState,
+  setSyncthingUnmeasured,
   resetDeviceIdCache,
   adjustSyncthing,
   getConfigFile,

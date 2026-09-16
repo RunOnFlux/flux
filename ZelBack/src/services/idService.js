@@ -193,22 +193,30 @@ async function checkNodeFitness() {
     return unfit('db', { message: error.message, name: error.name, code: error.code }, checks);
   }
 
-  // syncthing: measured everywhere, but it only decides fitness on legacy.
+  // syncthing: measured everywhere, but it only decides fitness on legacy, and
+  // only once there is a measurement to decide on.
   //
   // This check exists because a legacy operator's syncthing may be absent,
   // mis-installed, wrongly owned or simply killed - which is why the whole
   // repair path (stop, install, configure, spawn) and the ownership dance are
-  // !isArcane. On Arcane we ship syncthing, we own it, and FluxOS has no way to
-  // restart it, so failing the node here would take it off the network for a
-  // fault it neither caused nor can repair. The app path is unaffected either
-  // way: mount-safety, folder state and the g: election each hold their own
-  // syncthing readiness and stand down on it without help from here.
-  const syncthingHealthy = syncthingService.isRunning();
-  if (!syncthingHealthy && !isArcane) {
+  // held to the nodes that own the daemon. On Arcane we ship syncthing, we own
+  // it, and FluxOS has no way to restart it, so failing the node here would take
+  // it off the network for a fault it neither caused nor can repair. The app
+  // path is unaffected either way: mount-safety, folder state and the g:
+  // election each hold their own syncthing readiness and stand down on it
+  // without help from here.
+  //
+  // Unmeasured refuses nobody. Until the sentinel has started there is no
+  // reading, and a node that answers "Syncthing is not running properly" on the
+  // strength of a check it has not run is reporting its own startup as somebody
+  // else's fault - which is what a slow daemon at boot used to make it do.
+  const syncthingState = syncthingService.healthState();
+  const syncthingBroken = syncthingState === syncthingService.SYNCTHING_HEALTH.UNHEALTHY;
+  if (syncthingBroken && !isArcane) {
     const error = new Error('Syncthing is not running properly');
     return unfit('syncthing', { message: error.message, name: error.name, code: error.code }, checks);
   }
-  checks.syncthing = syncthingHealthy ? 'ok' : 'degraded';
+  checks.syncthing = syncthingBroken ? 'degraded' : syncthingState;
 
   // docker: listing images proves the daemon answers
   try {
