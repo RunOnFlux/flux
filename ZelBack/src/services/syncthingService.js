@@ -378,22 +378,6 @@ async function systemPing() {
 }
 
 /**
- * To erase the current index folderId database and restart Syncthing.
- * @param {string} folderId Request.
- * @param {object} res Response.
- * @returns {object} returns the output of syncthing reponse of rest/system/reset
- */
-async function systemResetFolderId(folderId) {
-  let apiPath = '/rest/system/reset';
-  if (folderId) {
-    apiPath += `?folder=${folderId}`;
-  } else {
-    throw new Error('folder parameter is mandatory');
-  }
-  return performRequest('post', apiPath);
-}
-
-/**
  * Restart the syncthing process. Every folder's transfers stop and start again,
  * which is why the folder-level nudge exists for the cases that only need one
  * folder's index re-exchanged.
@@ -2553,7 +2537,6 @@ module.exports = {
   getHealth,
   postSystemError,
   systemPause,
-  systemResetFolderId,
   systemRestart,
   systemResume,
   postSystemUpgrade,
@@ -2567,12 +2550,9 @@ module.exports = {
   getConfigDevices,
   postConfigFolders,
   postConfigDevices,
-  getConfigDefaultsFolder,
   postConfigDefaultsFolder,
   postConfigDefaultsDevice,
   postConfigDefaultsIgnores,
-  getConfigOptions,
-  getConfigGui,
   postConfigOptions,
   postConfigGui,
   postConfigLdap,
