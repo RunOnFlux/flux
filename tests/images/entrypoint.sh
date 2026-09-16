@@ -43,7 +43,9 @@ export FLUX_DATABASE=mongo
 echo "NODE CONFIG DIR: $NODE_CONFIG_DIR"
 echo "FLUX DATABASE: $FLUX_DATABASE"
 
-# $@ is tests/unit/*.test.js by default (from dockerfile)
+# $@ is tests/unit/**/*.test.js by default (from dockerfile). Quoted, so mocha
+# expands it rather than the shell - /bin/sh has no globstar and would read
+# ** as *, which matches only the nested files.
 echo "DOCKER CMD: $@"
 
 touch {debug,info,warn,error}.log
