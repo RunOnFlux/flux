@@ -673,8 +673,8 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const widen = serviceHelperMock.runCommand.getCalls().find((call) => call.args[0] === 'find');
       expect(widen, 'the app tree must still be widened').to.exist;
-      const params = widen.args[1].params;
-      const appPath = params[0];
+      const { params } = widen.args[1];
+      const [appPath] = params;
 
       // The subtree is pruned, and it is the staging directory that is pruned.
       expect(params).to.include('-prune');
