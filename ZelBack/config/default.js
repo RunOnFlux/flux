@@ -133,7 +133,6 @@ module.exports = {
     '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
   ],
   deterministicNodesStart: 558000,
-  messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
     latestSupportedSpecVersion: 8, // version changes on app updates must target this version
     // reconciler crash-recovery backoff: ladder of waits between restart attempts,

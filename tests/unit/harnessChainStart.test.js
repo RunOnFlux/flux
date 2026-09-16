@@ -93,9 +93,8 @@ describe('harness chain start', () => {
     'fluxapps.hashSyncFallbackRecheckBlocks',
   ]);
 
-  // Whole tree, from the root: messagesBroadcastRefactorStart (1751250) and
-  // deterministicNodesStart (558000) are top-level and were never reached by a
-  // scan that descended only fluxapps and daemon.
+  // Whole tree, from the root: deterministicNodesStart (558000) is top-level and
+  // is never reached by a scan that descends only fluxapps and daemon.
   const gates = (config) => {
     const found = [];
     const walk = (value, prefix) => {
@@ -148,7 +147,6 @@ describe('harness chain start', () => {
     const scanned = gates(CONFIGS.production.config).map((gate) => gate.at);
 
     expect(scanned).to.include.members([
-      'messagesBroadcastRefactorStart',
       'deterministicNodesStart',
       'fluxapps.multisigAddressChange',
       'fluxapps.epochstart',

@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const sinon = require('sinon');
+const objectHash = require('object-hash');
 const WebSocket = require('ws');
 const { expect } = require('chai');
 const log = require('../../ZelBack/src/lib/log');
@@ -155,14 +156,14 @@ describe('fluxCommunication tests', () => {
   describe('handleAppMessages tests', () => {
     const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
     const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
-    let relaySpy;
+    let broadcastHashSpy;
 
     before(requireMongo);
 
     beforeEach(async () => {
       peerManager.reset();
       await dbHelper.initiateDB();
-      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
+      broadcastHashSpy = sinon.stub(peerManager, 'broadcastHash');
     });
 
     afterEach(() => {
@@ -244,11 +245,9 @@ describe('fluxCommunication tests', () => {
       wsIncoming.on = sinon.stub();
       peerManager.add(wsIncoming, wsIncoming.ip, port, { source: PEER_SOURCE.INBOUND });
 
-      const messageString = JSON.stringify(message);
-
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(relaySpy, messageString, `${fromIp}:${port}`);
+      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`);
     }).timeout(10000);
 
     it('should not send broadcast if signature is invalid', async () => {
@@ -306,7 +305,7 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('should not send broadcast if app data is invalid', async () => {
@@ -337,19 +336,19 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
   });
 
   describe('handleAppRunningMessage tests', () => {
-    let relaySpy;
+    let broadcastHashSpy;
 
     before(requireMongo);
 
     beforeEach(async () => {
       peerManager.reset();
       await dbHelper.initiateDB();
-      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
+      broadcastHashSpy = sinon.stub(peerManager, 'broadcastHash');
     });
 
     afterEach(() => {
@@ -382,11 +381,9 @@ describe('fluxCommunication tests', () => {
         timestamp,
       };
 
-      const messageString = JSON.stringify(message);
-
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(relaySpy, messageString, `${fromIp}:${port}`);
+      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`);
     }).timeout(10000);
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
@@ -434,7 +431,7 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     }).timeout(5000);
   });
 
@@ -1679,7 +1676,7 @@ describe('fluxCommunication tests', () => {
   });
 
   describe('handleNodeSigtermMessage tests', () => {
-    let relaySpy;
+    let broadcastHashSpy;
     let findInDatabaseStub;
     let updateInDatabaseStub;
     let logInfoSpy;
@@ -1689,7 +1686,7 @@ describe('fluxCommunication tests', () => {
     beforeEach(async () => {
       peerManager.reset();
       await dbHelper.initiateDB();
-      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
+      broadcastHashSpy = sinon.stub(peerManager, 'broadcastHash');
       sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000000 } });
 
@@ -1740,7 +1737,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
       sinon.assert.calledOnce(updateInDatabaseStub);
-      sinon.assert.calledOnce(relaySpy);
+      sinon.assert.calledOnce(broadcastHashSpy);
     }).timeout(10000);
 
     it('should not rebroadcast when no apps exist for the node', async () => {
@@ -1763,7 +1760,7 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
       sinon.assert.notCalled(updateInDatabaseStub);
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('should not rebroadcast when message timestamp is too old', async () => {
@@ -1784,7 +1781,7 @@ describe('fluxCommunication tests', () => {
 
       // Should not proceed to database lookup
       sinon.assert.notCalled(findInDatabaseStub);
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('should exclude sender from rebroadcast list', async () => {
@@ -1822,8 +1819,8 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
       // Verify that relay was called with the sender's key as the excludeKey
-      sinon.assert.calledOnce(relaySpy);
-      const excludeKey = relaySpy.getCall(0).args[1];
+      sinon.assert.calledOnce(broadcastHashSpy);
+      const excludeKey = broadcastHashSpy.getCall(0).args[1];
       expect(excludeKey).to.equal(`${fromIp}:${port}`);
     }).timeout(10000);
 
@@ -1846,7 +1843,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
   });
 
