@@ -280,6 +280,30 @@ describe('an app log stream loses nothing and is shared between viewers', functi
       { timeout: 60000, interval: 500, label: 'a line too long to hold was cut' },
     );
 
+    // THE BACKFILL OPENS AT AN ENTRY BOUNDARY, NOT A LINE ONE. `tail` counts
+    // docker's entries, and a blob this size is eighty of them, so the window
+    // can begin in the MIDDLE of a line: the viewer's first line is then a
+    // fragment whose front was never sent, and the notice for it honestly
+    // reports the overflow of what arrived - short by however much docker
+    // skipped, always a whole number of 16KB frames.
+    //
+    // Measured rather than reasoned: the same assertion failed 65,536 short on a
+    // loaded box and 163,840 short on an idle one - four frames and ten. It is
+    // not a stamp counted as content, a line counted twice, or a line reported
+    // in instalments; it is bytes that never crossed the socket, and no
+    // accounting in the reader can recover them.
+    //
+    // So the whole-line invariant belongs to lines the viewer saw from their
+    // first byte. Everything up to here may carry the fragment; what follows
+    // cannot, because the stream has been following since before those lines
+    // began.
+    const throughBackfill = viewer.truncated.length;
+    await waitFor(
+      async () => viewer.truncated.length > throughBackfill,
+      { timeout: 90000, interval: 500, label: 'a line cut after the viewer was already following' },
+    );
+    const settled = viewer.truncated.slice(throughBackfill);
+
     const cut = viewer.lines.find((line) => line.length === NODE_MAX_LINE_LENGTH);
     const longest = viewer.lines.reduce((max, line) => Math.max(max, line.length), 0);
     expect(longest, 'a line past what the node holds crossed the socket').to.equal(NODE_MAX_LINE_LENGTH);
@@ -303,8 +327,8 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     // them. What must never appear is a remainder: that would be a stamp
     // counted as content, or a line counted twice, or a line reported in
     // instalments while its tail was still arriving.
-    expect(viewer.truncated, 'nothing was reported as cut').to.not.be.empty;
-    viewer.truncated.forEach((notice) => {
+    expect(settled, 'nothing was reported as cut after the backfill').to.not.be.empty;
+    settled.forEach((notice) => {
       expect(notice.container, 'a notice that does not name its container cannot be attributed')
         .to.equal(viewer.subscribed.container);
       expect(notice.characters % perLine, `${notice.characters} is not a whole number of cut lines of ${perLine}`)
