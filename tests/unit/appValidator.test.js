@@ -412,19 +412,51 @@ describe('appValidator tests', () => {
     // so without this the owner's app expires and the only way to keep it is to guess
     // that emptying nodes[] is the escape. The frontend grandfathers the same way.
     it('lets an ordinary owner carry an existing pin forward unchanged', async () => {
-      previousAppSpecs = { nodes: ['203.0.113.7:16127'] };
+      previousAppSpecs = { owner: ORDINARY_OWNER, nodes: ['203.0.113.7:16127'] };
       await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
     });
 
+    it('does not let a stranger inherit the pin of an expired app of the same name', async () => {
+      // The history lookup is by name, the message log outlives the app, and a name is
+      // released once the app expires. Without the owner test, registering that name
+      // inherits what its previous owner held - and the node list is public on chain.
+      previousAppSpecs = { owner: ENTERPRISE_OWNER, nodes: ['203.0.113.7:16127'] };
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('grants nothing on a previous spec that names no owner', async () => {
+      previousAppSpecs = { nodes: ['203.0.113.7:16127'] };
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('knows an ethereum owner written two ways is one owner', async () => {
+      // The capitals in an ethereum address are a checksum, not the address. Reading
+      // them as a different owner would refuse this owner's own renewal and expire the
+      // app, which is the outcome carrying a pin forward exists to prevent.
+      const owner = '0xAbC0000000000000000000000000000000000123';
+      previousAppSpecs = { owner: owner.toLowerCase(), nodes: ['203.0.113.7:16127'] };
+      await appValidator.verifyAppSpecifications(pinnedSpec({ owner }), 1000, true);
+    });
+
     it('ignores the order of an unchanged pin', async () => {
-      previousAppSpecs = { nodes: ['198.51.100.9:16127', '203.0.113.7:16127'] };
+      previousAppSpecs = { owner: ORDINARY_OWNER, nodes: ['198.51.100.9:16127', '203.0.113.7:16127'] };
       const spec = pinnedSpec({ nodes: ['203.0.113.7:16127', '198.51.100.9:16127'] });
       await appValidator.verifyAppSpecifications(spec, 1000, true);
     });
 
     it('does not let an ordinary owner redirect an existing pin', async () => {
       // Carrying a pin forward is not the same privilege as choosing where it points.
-      previousAppSpecs = { nodes: ['203.0.113.7:16127'] };
+      previousAppSpecs = { owner: ORDINARY_OWNER, nodes: ['203.0.113.7:16127'] };
       try {
         await appValidator.verifyAppSpecifications(pinnedSpec({ nodes: ['198.51.100.9:16127'] }), 1000, true);
         expect.fail('Should have thrown error');
@@ -434,7 +466,7 @@ describe('appValidator tests', () => {
     });
 
     it('does not let an ordinary owner widen an existing pin', async () => {
-      previousAppSpecs = { nodes: ['203.0.113.7:16127'] };
+      previousAppSpecs = { owner: ORDINARY_OWNER, nodes: ['203.0.113.7:16127'] };
       const spec = pinnedSpec({ nodes: ['203.0.113.7:16127', '198.51.100.9:16127'] });
       try {
         await appValidator.verifyAppSpecifications(spec, 1000, true);
@@ -512,12 +544,38 @@ describe('appValidator tests', () => {
     it('lets an ordinary owner carry an existing datacenter app forward', async () => {
       // Renewal is an update, so refusing every update expires the app rather than
       // restricting it - the same reason the pin above grandfathers.
-      previousAppSpecs = { datacenter: true };
+      previousAppSpecs = { owner: ORDINARY_OWNER, datacenter: true };
       await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
     });
 
+    it('does not let a stranger inherit the datacenter grant of an expired app', async () => {
+      previousAppSpecs = { owner: ENTERPRISE_OWNER, datacenter: true };
+      try {
+        await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('grants nothing on a previous spec that names no owner', async () => {
+      previousAppSpecs = { datacenter: true };
+      try {
+        await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('knows an ethereum owner written two ways is one owner', async () => {
+      const owner = '0xAbC0000000000000000000000000000000000123';
+      previousAppSpecs = { owner: owner.toLowerCase(), datacenter: true };
+      await appValidator.verifyAppSpecifications(dcSpec({ owner }), 1000, true);
+    });
+
     it('does not let an ordinary owner acquire it on an app that never had it', async () => {
-      previousAppSpecs = { datacenter: false };
+      previousAppSpecs = { owner: ORDINARY_OWNER, datacenter: false };
       try {
         await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
         expect.fail('Should have thrown error');

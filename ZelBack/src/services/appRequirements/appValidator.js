@@ -1246,14 +1246,23 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
   // From the permanent history rather than the live spec, because an app that has already
   // expired still has to be renewable. A lookup that fails reads as no previous spec: these
   // grant privileges, so they fail closed.
+  //
+  // ONLY THIS OWNER'S OWN HISTORY GRANTS ANYTHING. The lookup is by name, the permanent
+  // message log keeps a spec after its app has gone, and a name is released once the app
+  // expires - so without the owner test, registering the name of an expired enterprise app
+  // inherits what that app held. The test lives here rather than in each privilege so that
+  // a third one cannot be added without it.
   let previousSpec = null;
   let previousLookedUp = false;
-  const previousSpecifications = async () => {
+  const previousSpecOfSameOwner = async () => {
     if (!previousLookedUp) {
       previousLookedUp = true;
-      previousSpec = await registryManager
+      const found = await registryManager
         .getPreviousAppSpecifications(appSpecifications, Date.now())
         .catch(() => null);
+      previousSpec = found
+        && signatureVerifier.sameSigningIdentity(found.owner, appSpecifications.owner)
+        ? found : null;
     }
     return previousSpec;
   };
@@ -1284,7 +1293,7 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
       // before this rule existed becomes unupdatable -- renewal is an update, so the app
       // would expire with the owner given no way to keep it other than guessing that
       // emptying nodes[] is the escape.
-      const previous = await previousSpecifications();
+      const previous = await previousSpecOfSameOwner();
       const previousNodes = (previous && previous.nodes) || [];
       const carriedForward = previousNodes.length === appSpecifications.nodes.length
         && [...previousNodes].sort().join('\u0000') === [...appSpecifications.nodes].sort().join('\u0000');
@@ -1305,7 +1314,7 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
     if (!enterpriseOwners.includes(appSpecifications.owner)) {
       // Carried forward, not acquired: renewal is an update, so refusing every update to an
       // ineligible owner expires the app rather than restricting it.
-      const previous = await previousSpecifications();
+      const previous = await previousSpecOfSameOwner();
       if (!previous || previous.datacenter !== true) {
         throw new Error('Datacenter requirement is only available for enterprise app owners.');
       }

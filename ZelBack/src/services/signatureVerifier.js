@@ -45,6 +45,27 @@ function isValidSigningIdentity(identity) {
 }
 
 /**
+ * Whether two identities are the same signer.
+ *
+ * Case is part of a Flux ID, which is base58. It is not part of an Ethereum address:
+ * the capitalisation there is an EIP-55 checksum over an address that is really 20
+ * bytes, which is why verifySignature below compares the recovered address
+ * case-insensitively. Two specs whose owners differ only in that capitalisation name
+ * the same key, and anything that treats them as different owners locks that owner
+ * out of their own app.
+ *
+ * @param {string} a
+ * @param {string} b
+ *
+ * @returns {bool} isSame
+ */
+function sameSigningIdentity(a, b) {
+  if (!a || !b || typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.startsWith('0x') && b.startsWith('0x')) return a.toLowerCase() === b.toLowerCase();
+  return a === b;
+}
+
+/**
  * Verifies signature of application owner on bitcoin or ethereum networks
  *
  * @param {object} message
@@ -83,5 +104,6 @@ function verifySignature(message, address, signature) {
 
 module.exports = {
   isValidSigningIdentity,
+  sameSigningIdentity,
   verifySignature,
 };
