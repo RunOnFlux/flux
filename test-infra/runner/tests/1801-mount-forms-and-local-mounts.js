@@ -123,7 +123,10 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
       expect(lines, `node ${i} does not exclude the f: file`).to.not.include('/server.json');
       // syncthing takes the FIRST pattern that matches, so a policy line below
       // anything is a line something else can answer for.
-      expect(lines.slice(0, 3), `node ${i} leading block`).to.deep.equal(['/backup', '/.flux-op-*', '/cache']);
+      // The staging directory by its exact name, the legacy glob beside it for as
+      // long as volumes in the field still carry `.flux-op-<id>` at their root,
+      // then what this spec declared local.
+      expect(lines.slice(0, 4), `node ${i} leading block`).to.deep.equal(['/backup', '/.flux-op', '/.flux-op-*', '/cache']);
     }));
   });
 
