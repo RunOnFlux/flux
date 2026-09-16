@@ -24,6 +24,7 @@ const {
 const { createMonitorAccelerator } = require('./syncthingMonitorAccelerator');
 const { createPeerFolderLiveness } = require('./peerFolderLiveness');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+const mountParser = require('../utils/mountParser');
 const {
   sortAndFilterLocations,
   buildDeviceConfiguration,
@@ -305,7 +306,7 @@ async function processContainerData(params) {
   // the one pass where a fresh install is not yet configured. A converged
   // folder posts nothing and triggers no rescan.
   if (syncFolder) {
-    await ensureStignoreCovers(id);
+    await ensureStignoreCovers(id, mountParser.getUnsyncedSubdirs(containerData));
   }
 
   // Get and process app locations
@@ -333,6 +334,7 @@ async function processContainerData(params) {
       appId,
       syncFolder,
       containerDataFlags: primaryContainerDataFlags,
+      unsyncedSubdirs: mountParser.getUnsyncedSubdirs(containerData),
       syncthingAppsFirstRun: state.syncthingAppsFirstRun,
       receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
       appLocation,

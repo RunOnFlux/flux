@@ -417,6 +417,41 @@ describe('syncthingMonitorHelpers tests', () => {
       sinon.assert.notCalled(set);
     });
 
+    it('adds the directories the spec declared local, leading', async () => {
+      // An ml: subdir is excluded from replication by the same mechanism that keeps
+      // /backup off the network, and is equally not the owner's to un-exclude - so it
+      // belongs in the leading block, not below their patterns.
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['cache/**'] }));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
+
+      await helpers.ensureStignoreCovers(ID, ['game']);
+
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*', '/game', 'cache/**']);
+    });
+
+    it('posts nothing when the declared directories are already covered', async () => {
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op-*', '/game'] }));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
+
+      await helpers.ensureStignoreCovers(ID, ['game']);
+
+      sinon.assert.notCalled(set);
+    });
+
+    it('keeps an exclusion the spec no longer declares, and names it', async () => {
+      // Nothing in .stignore says which lines FluxOS derived, so a dropped ml: mount
+      // cannot be told from a pattern the owner wrote. The exclusion stays - the safe
+      // direction - and the warning is what stops it being a silent one.
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op-*', '/game'] }));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
+      const warn = sandbox.stub(log, 'warn');
+
+      await helpers.ensureStignoreCovers(ID, []);
+
+      sinon.assert.notCalled(set);
+      expect(warn.getCalls().some((call) => String(call.args[0]).includes('/game'))).to.equal(true);
+    });
+
     it('keeps ignores it did not write, below its own', async () => {
       // An owner can add patterns of their own; asserting OUR lines does not mean
       // destroying theirs. They move below ours rather than away.

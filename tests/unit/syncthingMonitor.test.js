@@ -1190,7 +1190,26 @@ describe('syncthingMonitor tests', () => {
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
-      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, 'testapp');
+      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, 'testapp', []);
+    });
+
+    it('carries the ml: directories of the spec it is converging', async () => {
+      // The exclusion is derived from the spec here, at the one place that holds both
+      // the folder id and the containerData it came from, so every node computes the
+      // same patterns from the same message rather than from its own disk.
+      const localMountApp = { name: 'testapp', version: 3, containerData: 'g:/appdata|ml:game:/srv/game' };
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [localMountApp] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, 'testapp', ['game']);
     });
 
     it('does not converge a folder syncthing does not yet know, so the API is never asked for an unknown folder', async () => {

@@ -5,7 +5,7 @@ const path = require('node:path');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
-const { SYNCTHING_IGNORE_LINES } = require('../appSystem/volumeReservedNames');
+const { syncthingIgnoreLines } = require('../appSystem/volumeReservedNames');
 const syncthingService = require('../syncthingService');
 const {
   DEVICE_ID_REQUEST_TIMEOUT_MS,
@@ -328,16 +328,28 @@ function folderNeedsUpdate(existingFolder, newFolder) {
  * unknown folder the API would answer with an error and nothing would converge.
  *
  * @param {string} folderId - the syncthing folder id (the app identifier)
+ * @param {string[]} unsyncedSubdirs - volume-root names the component declared with ml:
  */
-async function ensureStignoreCovers(folderId) {
+async function ensureStignoreCovers(folderId, unsyncedSubdirs = []) {
   const read = await syncthingService.getFolderIgnores(folderId);
   if (read.status !== 'success') {
     log.error(`ensureStignoreCovers - could not read ignores for ${folderId}: ${read.data?.message ?? 'unknown error'}`);
     return;
   }
+  const policyLines = syncthingIgnoreLines(unsyncedSubdirs);
   const current = Array.isArray(read.data?.ignore) ? read.data.ignore : [];
-  const rest = current.filter((line) => !SYNCTHING_IGNORE_LINES.includes(line));
-  const desired = [...SYNCTHING_IGNORE_LINES, ...rest];
+  const rest = current.filter((line) => !policyLines.includes(line));
+  const desired = [...policyLines, ...rest];
+
+  // A spec that drops an ml: mount leaves its exclusion behind: nothing in the file
+  // says which lines FluxOS derived and which the owner wrote, and guessing wrong
+  // would delete the owner's. The line stays and keeps that directory off the
+  // network, which is the safe direction but not the one the spec now asks for, so
+  // say which line it is rather than leaving a silent exclusion for someone to find.
+  const stale = rest.filter((line) => /^\/[^/*]+$/.test(line));
+  if (stale.length > 0) {
+    log.warn(`ensureStignoreCovers - ${folderId} keeps ${stale.join(', ')}, which this spec does not declare; that path stays unreplicated until the volume is rebuilt`);
+  }
   const converged = desired.length === current.length
     && desired.every((line, index) => line === current[index]);
   if (converged) return;
@@ -346,7 +358,7 @@ async function ensureStignoreCovers(folderId) {
     log.error(`ensureStignoreCovers - could not set ignores for ${folderId}: ${written.data?.message ?? 'unknown error'}`);
     return;
   }
-  log.info(`ensureStignoreCovers - ${folderId} ignores now lead with ${SYNCTHING_IGNORE_LINES.join(', ')}`);
+  log.info(`ensureStignoreCovers - ${folderId} ignores now lead with ${policyLines.join(', ')}`);
 }
 
 module.exports = {
