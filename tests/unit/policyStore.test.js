@@ -394,8 +394,8 @@ describe('policyStore', () => {
     const OTHER_PEER = '10.0.0.2:16127';
 
     // A peer that answers "I hold nothing". respondWithPolicy replies in all three states,
-    // so this settles the ask exactly as a bundle would - which is what makes an empty
-    // pendingPeerAsks mean "everyone answered" rather than "nobody has yet".
+    // so this settles the ask exactly as a bundle would - which is what makes no open
+    // ask mean "everyone answered" rather than "nobody has yet".
     const holdsNothing = (m) => async (key) => m.notePeerSeq(null, key);
 
     it('goes to the source once the peers are up and none of them had anything', async () => {

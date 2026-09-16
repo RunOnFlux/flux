@@ -390,8 +390,7 @@ class AppSyncOrchestrator {
    *
    * The record STANDS after this. It is what keeps a peer that has answered,
    * declined or run out of time from being asked again in the next breath, and
-   * #sweepRequests is the only thing that decides it has stopped meaning
-   * anything.
+   * the round ending is what retires it.
    * @param {string} peerKey ip:port
    * @param {string} outcome answered | declined | timedOut
    * @returns {boolean} true if the request was still open.
