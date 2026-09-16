@@ -785,6 +785,23 @@ control.post('/sync-state', (req, res) => {
       name: `declared-local-${index}`, size: 1024, type: 'FILE_INFO_TYPE_FILE', deleted: false,
       modified: new Date().toISOString(),
     }));
+  // A WILDCARD WRITE IS "THIS IS THE STATE EVERYWHERE", so it has to clear the
+  // per-node ones it is replacing. lookupSync prefers `<ip>|<folder>` over
+  // `*|<folder>`, so without this a node that was ever described specifically
+  // stops hearing the suite: seedSyncthingApp declares what it seeded on that
+  // node, and every later setSynced({ folder }) - which is how nearly every
+  // suite drives sync - writes a wildcard that node never reads. The suite
+  // believes it drove the folder to 100% while the node still sees 0/0, and
+  // then reports whatever the node did instead as a product failure.
+  //
+  // Found in suite 36: the subject sat at `100.00% (0/0 bytes)` while its peer
+  // read 100000/100000, ran the stall ladder it should never have reached, and
+  // had the app REMOVED after three nudges.
+  if (ip === '*') {
+    for (const key of [...syncOverrides.keys()]) {
+      if (key.endsWith(`|${folder}`) && !key.startsWith('*|')) syncOverrides.delete(key);
+    }
+  }
   syncOverrides.set(`${ip}|${folder}`, {
     state, globalBytes, inSyncBytes, localChanged: entries, statusUnreadable,
   });
