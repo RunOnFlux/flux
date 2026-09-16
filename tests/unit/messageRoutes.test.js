@@ -4,7 +4,10 @@ const ROUTES_PATH = '../../ZelBack/src/services/utils/messageRoutes';
 
 // Loaded for its side effect: the transport declares its types as it loads.
 require('../../ZelBack/src/services/fluxCommunication');
-const { registeredTypes, isOrdered, handlerFor } = require(ROUTES_PATH);
+const {
+  registeredTypes, isOrdered, handlerFor, declaredIntent,
+} = require(ROUTES_PATH);
+const { INTENT } = require('../../ZelBack/src/services/utils/messageIntent');
 
 const freshTable = () => {
   delete require.cache[require.resolve(ROUTES_PATH)];
@@ -46,6 +49,24 @@ describe('messageRoutes tests', () => {
       expect(registeredTypes().filter(isOrdered).sort()).to.deep.equal([...ORDERED_TYPES].sort());
     });
 
+    it('lets only fluxpolicyseq take its intent from the message', () => {
+      // A declared intent is ignored if the payload contradicts it; VARIES is the type
+      // saying the payload decides. Anything relayed onward must never be VARIES, or a
+      // node that can sign a message can put an undeduplicated one into the network.
+      const varying = registeredTypes().filter((type) => declaredIntent(type) === INTENT.VARIES);
+      expect(varying).to.deep.equal(['fluxpolicyseq']);
+    });
+
+    it('declares every relayed type an announcement', () => {
+      // These are the types whose handlers rebroadcast, so deduplication is the only
+      // thing that stops one copy becoming one per peer per hop.
+      ['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate',
+        'fluxapprunning', 'fluxipchanged', 'fluxappremoved', 'fluxappinstalling',
+        'fluxappinstallingerror', 'fluxnodesigterm'].forEach((type) => {
+        expect(declaredIntent(type), type).to.equal(INTENT.ANNOUNCE);
+      });
+    });
+
     it('claims nothing it was not given', () => {
       expect(handlerFor('fluxnotathing')).to.equal(null);
       expect(isOrdered('fluxnotathing')).to.equal(false);
@@ -56,24 +77,37 @@ describe('messageRoutes tests', () => {
     it('takes several types onto one handler', () => {
       const table = freshTable();
       const handler = () => 'handled';
-      table.register(['one', 'two'], handler);
+      table.register(['one', 'two'], handler, table.ROUTE.GOSSIP, INTENT.ANNOUNCE);
       expect(table.handlerFor('one')).to.equal(handler);
       expect(table.handlerFor('two')).to.equal(handler);
-    });
-
-    it('defaults to the gossip pipeline', () => {
-      const table = freshTable();
-      table.register('quiet', () => {});
-      expect(table.isOrdered('quiet')).to.equal(false);
     });
 
     it('takes the last declaration for a type', () => {
       const table = freshTable();
       const second = () => 'second';
-      table.register('twice', () => 'first');
-      table.register('twice', second, table.ROUTE.ORDERED);
+      table.register('twice', () => 'first', table.ROUTE.GOSSIP, INTENT.ANNOUNCE);
+      table.register('twice', second, table.ROUTE.ORDERED, INTENT.ANSWER);
       expect(table.handlerFor('twice')).to.equal(second);
       expect(table.isOrdered('twice')).to.equal(true);
+      expect(table.declaredIntent('twice')).to.equal(INTENT.ANSWER);
+    });
+
+    it('refuses a type that does not say how it travels or what it is', () => {
+      // The whole point of making both required. A type registered without an intent
+      // would inherit whatever the default was, and the default that is wrong for one
+      // type is the one that floods the network.
+      const table = freshTable();
+      expect(() => table.register('nothing', () => {})).to.throw(/declares no route/);
+      expect(() => table.register('noroute', () => {}, 'sideways', INTENT.ANNOUNCE)).to.throw(/declares no route/);
+      expect(() => table.register('nointent', () => {}, table.ROUTE.GOSSIP)).to.throw(/declares no intent/);
+      expect(() => table.register('bogus', () => {}, table.ROUTE.GOSSIP, 'whatever')).to.throw(/declares no intent/);
+    });
+
+    it('reads an unregistered type as an announcement', () => {
+      // It has no handler, so it is dropped either way - but deduplicating it first
+      // means a peer cannot make us do the work twice by sending it twice.
+      const table = freshTable();
+      expect(table.declaredIntent('fluxnotathing')).to.equal(INTENT.ANNOUNCE);
     });
   });
 });

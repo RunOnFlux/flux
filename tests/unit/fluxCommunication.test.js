@@ -345,6 +345,87 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('the flood filter cannot be talked out of deduplicating', () => {
+    // The dispatcher is not exported - the transport installs it on the peer manager as
+    // it loads, which is the same object production calls.
+    const peerSocket = {
+      ip: '127.0.0.9',
+      port: '16127',
+      key: '127.0.0.9:16127',
+      direction: 'outgoing',
+      badMessageTimestamps: [],
+      close: () => {},
+      sendNak: () => {},
+    };
+
+    let verify;
+
+    beforeEach(() => {
+      cacheManager.announcementSeen.clear();
+      verify = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast')
+        .resolves(fluxCommunicationUtils.VerifyResult.OK);
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      sinon.stub(peerManager, 'broadcastHash');
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(false);
+      sinon.stub(policyStore, 'notePeerSeq');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const envelope = (data) => ({
+      version: 1, pubKey: '0400', timestamp: Date.now(), signature: 'sig', data,
+    });
+
+    it('deduplicates an announce type that claims to be an ask', async () => {
+      // A marker inside the signed payload survives every relay, so a node that could
+      // sign one would otherwise have every honest node announce it onward again.
+      const data = {
+        type: 'fluxipchanged',
+        version: 1,
+        oldIP: '1.1.1.1',
+        newIP: '2.2.2.2',
+        broadcastedAt: Date.now(),
+        intent: 'ask',
+      };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
+      expect(verify.callCount).to.equal(1);
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      // The filter sits in front of verification, so a second copy costs nothing.
+      expect(verify.callCount).to.equal(1);
+    });
+
+    it('still lets two peers answer the same question', async () => {
+      // The other half, and the reason the marker exists: an answer carries no sender,
+      // so two peers answering "seq 5" are byte-identical and a content filter would
+      // deliver the first and drop the rest.
+      const data = {
+        type: 'fluxpolicyseq', version: 1, seq: 5, intent: 'answer', correlationId: 'abc',
+      };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(false);
+      expect(verify.callCount).to.equal(2);
+    });
+
+    it('deduplicates an unmarked policy announcement, which is what it is', async () => {
+      const data = { type: 'fluxpolicyseq', version: 1, seq: 5 };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
+      expect(verify.callCount).to.equal(1);
+    });
+  });
+
   describe('handleAppRunningMessage tests', () => {
     let broadcastHashSpy;
 

@@ -23,7 +23,9 @@ const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const { INTENT, intentOf } = require('./utils/messageIntent');
-const { ROUTE, register, handlerFor, isOrdered } = require('./utils/messageRoutes');
+const {
+  ROUTE, register, declaredIntent, handlerFor, isOrdered,
+} = require('./utils/messageRoutes');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
@@ -665,7 +667,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
   // Also what a NAK names further down, so it is computed for every message.
   const messageHash = hash(msgObj.data);
-  if (intentOf(msgObj) === INTENT.ANNOUNCE) {
+  if (intentOf(msgObj, declaredIntent(msgObj.data.type)) === INTENT.ANNOUNCE) {
     if (announcementSeen.has(messageHash)) return;
     announcementSeen.set(messageHash, true);
   }
@@ -857,30 +859,37 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
 
 // Register message dispatchers on the peerManager singleton
 // Every wire type this node answers.
+// Everything a node tells the network about itself or about an app it saw. One fact
+// reaching us by many routes is one fact, and a relayed type must be deduplicated.
 register(['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate'],
-  (msg, peer) => handleAppMessages(msg, peer.ip, peer.port));
-register('fluxapprunning', (msg, peer) => handleAppRunningMessage(msg, peer.ip, peer.port));
-register('fluxipchanged', (msg, peer) => handleIPChangedMessage(msg, peer.ip, peer.port));
-register('fluxappremoved', (msg, peer) => handleAppRemovedMessage(msg, peer.ip, peer.port));
-register('fluxappinstalling', (msg, peer) => handleAppInstallingMessage(msg, peer.ip, peer.port));
-register('fluxappinstallingerror', (msg, peer) => handleAppInstallingErrorMessage(msg, peer.ip, peer.port));
-register('fluxnodesigterm', (msg, peer) => handleNodeSigtermMessage(msg, peer.ip, peer.port));
-register('fluxapprequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithAppMessage(msg, peer));
-register('fluxpolicyrequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithPolicy(msg, peer));
+  (msg, peer) => handleAppMessages(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxapprunning', (msg, peer) => handleAppRunningMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxipchanged', (msg, peer) => handleIPChangedMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxappremoved', (msg, peer) => handleAppRemovedMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxappinstalling', (msg, peer) => handleAppInstallingMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxappinstallingerror', (msg, peer) => handleAppInstallingErrorMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxnodesigterm', (msg, peer) => handleNodeSigtermMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+// An ask delivered by broadcast. Delivery is not the classifier: it goes to every peer,
+// and it is still a question from one node that each of them answers separately.
+register('fluxapprequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithAppMessage(msg, peer), ROUTE.GOSSIP, INTENT.ASK);
+register('fluxpolicyrequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithPolicy(msg, peer), ROUTE.GOSSIP, INTENT.ASK);
+// The one type sent both ways: news when a node announces what it adopted, an answer when
+// it settles a peer's ask. Nothing relays it, which is what makes the marker safe to trust.
 // A claim rather than an answer: a number cannot be checked, so it is a prompt to ask.
 register('fluxpolicyseq', (msg, peer) => policyStore.notePeerSeq(
   msg.data.seq, peer.key, msg.data.correlationId,
-));
+), ROUTE.GOSSIP, INTENT.VARIES);
 // Checked against the pinned keys before adoption, so an unsolicited bundle is no more
 // dangerous than one this node asked for - and peers announce what they adopt.
 register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
   msg.data.bundle, peer.key, msg.data.correlationId,
-));
+), ROUTE.GOSSIP, INTENT.ANSWER);
 
-register('fluxapptempsync', handleTempSyncResponse, ROUTE.ORDERED);
-register('fluxapprunningsync', handleAppRunningSyncResponse, ROUTE.ORDERED);
-register('fluxappinstallingsync', handleAppInstallingSyncResponse, ROUTE.ORDERED);
-register('fluxappinstallingerrorssync', handleAppInstallingErrorsSyncResponse, ROUTE.ORDERED);
+// Answers to a sync this node asked for, which is why they are ordered.
+register('fluxapptempsync', handleTempSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
+register('fluxapprunningsync', handleAppRunningSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
+register('fluxappinstallingsync', handleAppInstallingSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
+register('fluxappinstallingerrorssync', handleAppInstallingErrorsSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
 
 peerManager.messageDispatcher = dispatchFluxMessage;
 peerManager.syncResponseDispatcher = dispatchSyncResponse;

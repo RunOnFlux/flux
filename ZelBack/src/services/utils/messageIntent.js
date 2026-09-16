@@ -20,57 +20,58 @@ const crypto = require('crypto');
  * "seq 5" are byte-identical, so a filter keyed on content alone delivers the
  * first and silently drops the rest.
  *
+ * WHICH INTENTS A TYPE MAY HAVE IS DECLARED IN messageRoutes, AND THE MESSAGE
+ * ONLY CHOOSES WHERE THE TYPE ALLOWS IT TO. `fluxpolicyseq` is an announcement
+ * when a node tells its peers what it adopted, and an answer when it settles a
+ * peer's ask; that type sits in two rows and is declared VARIES, so the marker
+ * in `data` decides. Every other type has one row, so its declaration is the
+ * answer and a marker on it is ignored.
+ *
+ * That split is what keeps the filter honest. The marker is inside the signed
+ * payload, so it survives every relay: a type that is relayed onward and also
+ * takes its intent from the message would let any node that can sign one put an
+ * undeduplicated message into the network, and each honest node would announce
+ * it again to every peer for as long as its timestamp stayed valid.
+ *
  * DELIVERY IS A SEPARATE AXIS, AND IT IS NOT THE CLASSIFIER. `fluxapprequest` is
- * an ask delivered by broadcast. `fluxpolicyseq` is an announcement when a node
- * tells its peers what it adopted, and an answer when it settles a peer's ask.
- * A type sits in two rows at once, which is why the intent travels with the
- * message instead of being looked up from its name.
+ * an ask delivered by broadcast, and it is declared ASK.
  *
- * The intent rides inside `data`, so it is covered by the signature and needs no
- * change to the envelope or its preimage. Announcements carry no marker: they
- * are the default, and leaving them unmarked keeps `hash(data)` - the content
- * address every node computes for the hash-announce protocol - byte-identical
- * to what a node that predates this classifier computes for the same message.
- *
- * An intent a peer gets wrong costs that peer and not this node. Claiming `ask`
- * for an announcement forgoes dedup, so the handler runs again on a message the
- * database already refuses; claiming `announce` for an ask lets another peer's
- * identical ask suppress it. Neither reaches past the per-peer token bucket in
- * FluxPeerSocket, which is what actually bounds inbound work.
+ * The marker rides inside `data`, so it is covered by the signature and needs no
+ * change to the envelope or its preimage. Announcements carry none: they are the
+ * default, and leaving them unmarked keeps `hash(data)` - the content address
+ * every node computes for the hash-announce protocol - byte-identical to what a
+ * node that predates this classifier computes for the same message.
  */
 const INTENT = Object.freeze({
   ANNOUNCE: 'announce',
   ASK: 'ask',
   ANSWER: 'answer',
+  /**
+   * Not an intent a message can be: the type saying it is sent both ways, so the
+   * marker in `data` decides and an unmarked message is an announcement. Only a
+   * type that is never relayed onward may be declared this.
+   */
+  VARIES: 'varies',
 });
 
-const INTENTS = Object.freeze(new Set(Object.values(INTENT)));
-
-/**
- * What an unmarked message means, for peers that do not send the marker yet.
- *
- * Only the three types whose intent is unambiguous from the name alone.
- * `fluxpolicyseq` is deliberately absent: unmarked, there is no way to tell an
- * adoption announcement from an answer, and reading it as an announcement is
- * what a node without this classifier does. Retire this map when the version
- * floor is past the release that first sends the marker.
- */
-const UNMARKED_INTENTS = Object.freeze(new Map([
-  ['fluxapprequest', INTENT.ASK],
-  ['fluxpolicyrequest', INTENT.ASK],
-  ['fluxpolicy', INTENT.ANSWER],
-]));
+const CLAIMABLE = Object.freeze(new Set([INTENT.ANNOUNCE, INTENT.ASK, INTENT.ANSWER]));
 
 /**
  * The intent of a received message.
+ *
+ * Runs before verification, on whatever a peer sent, so anything unrecognised
+ * reads as an announcement - the row that costs the sender rather than us.
  * @param {object} msgObj Parsed message object.
- * @returns {string} One of INTENT.
+ * @param {string} declared The type's declared intent, from messageRoutes.
+ * @returns {string} One of INTENT, never VARIES.
  */
-function intentOf(msgObj) {
+function intentOf(msgObj, declared) {
+  if (declared !== INTENT.VARIES) {
+    return CLAIMABLE.has(declared) ? declared : INTENT.ANNOUNCE;
+  }
   const data = msgObj && msgObj.data;
   if (!data || typeof data !== 'object') return INTENT.ANNOUNCE;
-  if (INTENTS.has(data.intent)) return data.intent;
-  return UNMARKED_INTENTS.get(data.type) || INTENT.ANNOUNCE;
+  return CLAIMABLE.has(data.intent) ? data.intent : INTENT.ANNOUNCE;
 }
 
 /**
@@ -88,7 +89,7 @@ function newCorrelationId() {
 
 module.exports = {
   INTENT,
+  CLAIMABLE,
   intentOf,
   newCorrelationId,
-  UNMARKED_INTENTS,
 };
