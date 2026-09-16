@@ -155,6 +155,27 @@ describe('appValidator tests', () => {
     sinon.restore();
   });
 
+  const ENTERPRISE_OWNER = '1GM41a9A4rH8CCkCyzDRahHUccuTRLhoDe';
+  const ORDINARY_OWNER = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
+
+  function v8Component() {
+    return {
+      name: 'component1',
+      description: 'Component 1',
+      repotag: 'nginx:latest',
+      ports: [],
+      domains: [],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [],
+      containerData: '/data',
+      repoauth: '',
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+    };
+  }
+
   describe('verifyAppSpecifications', () => {
     it('should reject specs without name', async () => {
       const invalidSpecs = {
@@ -316,28 +337,9 @@ describe('appValidator tests', () => {
   // node picker has always gated on it; nothing on the chain did, so a spec posted
   // straight to the API pinned regardless and the restriction was decoration.
   describe('node pinning eligibility', () => {
-    const ENTERPRISE_OWNER = '1GM41a9A4rH8CCkCyzDRahHUccuTRLhoDe';
-    const ORDINARY_OWNER = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
 
     // v7 and v8 permit different keys, and the validator rejects an unknown one, so the
     // two shapes are built separately rather than patched from one another.
-    function v8Component() {
-      return {
-        name: 'component1',
-        description: 'Component 1',
-        repotag: 'nginx:latest',
-        ports: [],
-        domains: [],
-        environmentParameters: [],
-        commands: [],
-        containerPorts: [],
-        containerData: '/data',
-        repoauth: '',
-        cpu: 0.5,
-        ram: 500,
-        hdd: 5,
-      };
-    }
 
     function pinnedSpec(overrides = {}) {
       return {
@@ -460,6 +462,97 @@ describe('appValidator tests', () => {
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('network policy not yet obtained');
+      }
+    });
+  });
+
+  describe('datacenter eligibility', () => {
+    function dcSpec(overrides = {}) {
+      return {
+        name: 'dcapp',
+        version: 8,
+        description: 'Datacenter app',
+        owner: ORDINARY_OWNER,
+        nodes: [],
+        datacenter: true,
+        enterprise: 'encrypted-blob',
+        compose: [v8Component()],
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 22000,
+        staticip: false,
+        ...overrides,
+      };
+    }
+
+    it('rejects datacenter=true from an ordinary owner on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('accepts datacenter=true from an enterprise owner', async () => {
+      await appValidator.verifyAppSpecifications(dcSpec({ owner: ENTERPRISE_OWNER }), 1000, true);
+    });
+
+    it('accepts datacenter=false from an ordinary owner', async () => {
+      await appValidator.verifyAppSpecifications(dcSpec({ datacenter: false }), 1000, true);
+    });
+
+    it('does not re-judge a message already on chain', async () => {
+      // The reason this moved out of verifyTypeCorrectnessOfApp: on replay it refused a
+      // spec already registered and paid for, over this node's own transient state.
+      await appValidator.verifyAppSpecifications(dcSpec(), 1000);
+    });
+
+    it('lets an ordinary owner carry an existing datacenter app forward', async () => {
+      // Renewal is an update, so refusing every update expires the app rather than
+      // restricting it - the same reason the pin above grandfathers.
+      previousAppSpecs = { datacenter: true };
+      await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
+    });
+
+    it('does not let an ordinary owner acquire it on an app that never had it', async () => {
+      previousAppSpecs = { datacenter: false };
+      try {
+        await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('treats a failed history lookup as no previous datacenter', async () => {
+      previousAppSpecs = null;
+      try {
+        await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    it('refuses rather than guessing when the policy has not arrived', async () => {
+      enterpriseOwners = null;
+      try {
+        await appValidator.verifyAppSpecifications(dcSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('network policy not yet obtained');
+      }
+    });
+
+    it('still refuses a datacenter value that is not a boolean, on any path', async () => {
+      // Type correctness stays where it was; only the privilege moved.
+      try {
+        await appValidator.verifyAppSpecifications(dcSpec({ datacenter: 'yes' }), 1000);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('Invalid datacenter value obtained');
       }
     });
   });
