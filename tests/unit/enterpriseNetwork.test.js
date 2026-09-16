@@ -267,10 +267,10 @@ describe('enterpriseNetwork', () => {
     });
 
     it('resolves on the bundle arriving, without waiting out the retry', async () => {
-      // THE TWO FAILURES NEED DIFFERENT ANSWERS. A daemon still coming up has nothing to
-      // announce and the interval is the only thing to do; policy not yet obtained arrives
-      // and says so. The spawner is gated on this identity, so waiting out five minutes for
-      // a fact already in hand is five minutes the node cannot spawn.
+      // THE TWO FAILURES NEED DIFFERENT ANSWERS. Policy not yet obtained arrives and says
+      // so; an unreadable config announces nothing and the interval is all there is. The
+      // spawner is gated on this identity, so waiting out five minutes for a fact already
+      // in hand is five minutes the node cannot spawn.
       let policyKnown = false;
       const { module: m } = loadModule({
         enterpriseConfig: {
@@ -293,8 +293,32 @@ describe('enterpriseNetwork', () => {
       expect(m.getCachedEnterpriseIdentity(), 'resolved on the event, not on the clock').to.equal(true);
     });
 
+    it('does not start a second attempt beside one already running', async () => {
+      // The bundle arriving while an attempt is in flight used to start another. Both could
+      // then fail and arm a deadline, and the second wrote over the first one's handle - so
+      // the orphan could never be cancelled and outlived the success meant to end it.
+      let releasePubKey;
+      const getPubKey = sinon.stub().returns(new Promise((resolve) => {
+        releasePubKey = () => resolve('pubA');
+      }));
+      const { module: m } = loadModule({ fluxNetworkHelper: { getFluxNodePublicKey: getPubKey } });
+
+      const resolved = m.scheduleIdentityResolution({ retryDelayMs: 1000 });
+      await clock.tickAsync(0);
+      expect(getPubKey.callCount, 'the first attempt is out').to.equal(1);
+
+      bundleListeners.forEach((fn) => fn({ seq: 1, source: 'peer' }));
+      await clock.tickAsync(0);
+      expect(getPubKey.callCount, 'the event started a second attempt beside it').to.equal(1);
+
+      releasePubKey();
+      await clock.tickAsync(0);
+      await resolved;
+      expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+    });
+
     it('still waits out the retry when the failure is not about policy', async () => {
-      // A pubkey the daemon cannot yet answer for. No event is coming, so the interval is
+      // A key that cannot be read at all. No event is coming for that, so the interval is
       // the mechanism and must survive the subscription added beside it.
       const getPubKey = sinon.stub();
       getPubKey.onFirstCall().rejects(new Error('daemon down'));

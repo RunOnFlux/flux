@@ -1014,8 +1014,13 @@ async function getLocalSocketAddress() {
  * @returns {string} Private key, if already input as parameter or otherwise from the daemon config.
  */
 async function getFluxNodePrivateKey(privatekey) {
-  const privKey = privatekey || daemonServiceUtils.getConfigValue('zelnodeprivkey');
-  return privKey;
+  if (privatekey) return privatekey;
+  // flux.conf is a local file, and deriving this node's key from it needs no daemon. Asked
+  // for here rather than assumed: nothing parses it at boot, so before this the value was
+  // available only once some other code had made an RPC and loaded the config on the way
+  // past - which made a key that was always on disk look like a daemon that was not up.
+  await daemonServiceUtils.ensureConfigLoaded();
+  return daemonServiceUtils.getConfigValue('zelnodeprivkey');
 }
 
 /**

@@ -434,9 +434,11 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('getFluxNodePrivateKey tests', () => {
     let daemonStub;
+    let ensureStub;
 
     beforeEach(() => {
       daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue');
+      ensureStub = sinon.stub(daemonServiceUtils, 'ensureConfigLoaded').resolves();
     });
 
     afterEach(() => {
@@ -460,6 +462,26 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(getKeyResult).to.equal(mockedPrivKey);
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
+    });
+
+    it('reads flux.conf itself rather than waiting for something else to', async () => {
+      // The key is on disk and needs no daemon. Before this it was available only once some
+      // other code had made an RPC and parsed the config on the way past, so a node that had
+      // its key all along looked like a node whose daemon was down.
+      daemonStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+
+      await fluxNetworkHelper.getFluxNodePrivateKey();
+
+      sinon.assert.calledOnce(ensureStub);
+      expect(ensureStub.calledBefore(daemonStub), 'asked for the config before reading it')
+        .to.equal(true);
+    });
+
+    it('does not read the config when it was handed a key', async () => {
+      await fluxNetworkHelper.getFluxNodePrivateKey('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+
+      sinon.assert.notCalled(ensureStub);
+      sinon.assert.notCalled(daemonStub);
     });
   });
 

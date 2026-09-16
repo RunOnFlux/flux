@@ -709,10 +709,11 @@ async function startFluxFunctions() {
       monitoringOrchestrator.startMonitoringOfApps(null).catch((error) => log.error(error));
       portManager.restoreAppsPortsSupport();
     }, bootDelay(1 * 60 * 1000));
-    // Resolve this node's enterprise identity once, up front. Self-reschedules
-    // every 5 minutes until the pubkey resolves (daemon/benchmark may still be
-    // coming up). Once cached, hot paths (spawn loop) read it synchronously
-    // via getCachedEnterpriseIdentity() with no network call and no throws.
+    // Resolve this node's enterprise identity once, up front. The key comes off disk and
+    // policy arrives on an event, so this settles at boot rather than on a timer; the
+    // interval is the fallback for a config that cannot be read at all. Once cached, hot
+    // paths (spawn loop) read it synchronously via getCachedEnterpriseIdentity() with no
+    // network call and no throws.
     const identityReady = enterpriseNetwork.scheduleIdentityResolution();
 
     // Services that read from zelappsinformation wait for the orchestrator

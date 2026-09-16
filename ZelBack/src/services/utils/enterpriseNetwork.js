@@ -44,9 +44,9 @@ function isEnterpriseAppOwner(owner) {
  * interval with no restart. resetEnterpriseNodeCache() forces the pubkey to be
  * re-resolved.
  *
- * Throws if the pubkey cannot be resolved (daemon/benchmark down). Prefer the
- * boot-time scheduleIdentityResolution() + getCachedEnterpriseIdentity() pair
- * over awaiting this from hot paths.
+ * Throws if the pubkey cannot be read from flux.conf, or if policy has not been
+ * obtained. Prefer the boot-time scheduleIdentityResolution() +
+ * getCachedEnterpriseIdentity() pair over awaiting this from hot paths.
  */
 async function isEnterpriseNode() {
   if (cachedNodePubKey === null) {
@@ -103,10 +103,9 @@ function getCachedAllowedOwnersForNode() {
 }
 
 /**
- * Boot-time identity resolution. Calls isEnterpriseNode() to populate the
- * cache; if the pubkey can't be resolved (daemon/benchmark still coming up),
- * reschedules itself every retryDelayMs until a run succeeds. Returns a
- * promise that resolves once the identity is cached.
+ * Boot-time identity resolution. Calls isEnterpriseNode() to populate the cache,
+ * and resolves once it is. Policy arriving is subscribed to; anything else that
+ * can fail reschedules every retryDelayMs until a run succeeds.
  */
 function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
   return new Promise((resolve) => {
@@ -121,7 +120,14 @@ function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
       resolve();
     };
 
+    // One attempt at a time. An attempt in flight will report its own outcome, and a second
+    // one started beside it would arm a second deadline over the first handle - leaving a
+    // chain nothing can cancel, which then outlives the success that was meant to end it.
+    let inFlight = false;
+
     const tryResolve = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         await isEnterpriseNode();
         log.info('enterpriseNetwork: identity resolved');
@@ -129,15 +135,18 @@ function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
       } catch (err) {
         log.warn(`enterpriseNetwork: identity resolution failed, retrying in ${Math.round(retryDelayMs / 1000)}s: ${err.message || err}`);
         timer = setTimeout(tryResolve, retryDelayMs);
+      } finally {
+        inFlight = false;
       }
     };
 
-    // THE TWO REASONS THIS FAILS NEED DIFFERENT ANSWERS. A daemon or benchmark still coming
-    // up has nothing to announce, so waiting out an interval is the only thing to do. Policy
-    // not yet obtained is not like that: it arrives, and it says so.
+    // THE TWO REASONS THIS FAILS NEED DIFFERENT ANSWERS, AND ONLY ONE OF THEM IS A WAIT.
+    // Policy not yet obtained arrives and says so, so it is subscribed to. An unreadable
+    // flux.conf announces nothing, and the interval is all there is - but that is a local
+    // file, not a service coming up, so it is the rare case rather than every boot.
     //
-    // Without this the node waits the full interval for a fact that is already there - the
-    // spawner is gated on this identity (appSpawner: enterprise_unresolved), so a fleet
+    // Without the subscription the node waits the full interval for a fact already in hand:
+    // the spawner is gated on this identity (appSpawner: enterprise_unresolved), and a fleet
     // measured here had policy nine seconds after boot and could not spawn for five minutes.
     unsubscribe = policyStore.onBundleChanged(() => {
       if (timer) clearTimeout(timer);
