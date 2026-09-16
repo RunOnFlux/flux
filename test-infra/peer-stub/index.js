@@ -40,6 +40,10 @@ const messages = new Map();
 let connectionsReceived = 0;
 let requestsReceived = 0;
 let messagesServed = 0;
+// What this peer answers a policy ask with, and how many it has answered. `null` is a peer
+// that holds no policy at all, which is a real answer rather than silence.
+let policyAnswer = { answers: false, seq: null };
+let policyAsksAnswered = 0;
 let unverifiableResponsesSent = 0;
 const requestLog = [];
 
@@ -174,6 +178,22 @@ async function handleMessage(ws, rawData) {
   try {
     const msg = JSON.parse(rawData);
     const { data } = msg;
+
+    if (data && data.type === 'fluxpolicyrequest' && policyAnswer.answers) {
+      // Echoed so the asker can tell which of its asks this settles, and marked an answer
+      // so its filter does not read an identical reply from another peer as a repeat of
+      // this one. A real peer does both; a stub that did neither could not show the
+      // difference between the two.
+      ws.send(await serialiseAndSignBroadcast({
+        type: 'fluxpolicyseq',
+        version: 1,
+        seq: policyAnswer.seq,
+        intent: 'answer',
+        correlationId: data.correlationId,
+      }));
+      policyAsksAnswered += 1;
+      return;
+    }
 
     if (!data || data.type !== 'fluxapprequest') return;
 
@@ -468,6 +488,7 @@ const controlServer = http.createServer(async (req, res) => {
         requestLog,
         promotedFolderRequests,
         broadcastsSent,
+        policyAsksAnswered,
         connectedNodes: connectedNodes.size,
       }));
       return;
@@ -563,6 +584,18 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/answer-policy') {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      policyAnswer = {
+        answers: parsed.answers !== false,
+        seq: parsed.seq === undefined ? null : parsed.seq,
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', policyAnswer }));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/clear') {
       messages.clear();
       requestLog.length = 0;
@@ -576,6 +609,8 @@ const controlServer = http.createServer(async (req, res) => {
       portProbeAnswersBlind = false;
       portProbeAnswersForeign = false;
       broadcastsSent = 0;
+      policyAnswer = { answers: false, seq: null };
+      policyAsksAnswered = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
       return;

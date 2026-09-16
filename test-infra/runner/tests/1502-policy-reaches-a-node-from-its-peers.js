@@ -880,3 +880,85 @@ describe('the location table follows the bundle that names it', function () {
     await waitForLocationTable(env.clients[PEER_NODE], { domains: 3 });
   });
 });
+
+// Two peers answering the same question with the same thing.
+//
+// A reply carries no sender and no timestamp of its own, so `{fluxpolicyseq, seq: null}` is
+// byte-identical from every peer that holds nothing. A filter keyed on content alone reads
+// the second as a repeat of the first and drops it, and the ask it would have settled waits
+// out its window instead. The mirror of the two-askers case above, and the reason a single
+// answering peer cannot show it: the first answer always gets through.
+//
+// The asking node is the only real node in the fleet, because any other would reach the
+// source itself and its fetch would stand in for the one being measured.
+//
+// The window is a minute and the assertion is thirty seconds, so "settled on the answers"
+// and "settled on the window" cannot be confused for one another.
+describe('a node acts on every peer that answers, not just the first', function () {
+  let env;
+  const ASKER = 0;
+  const STUBS = [1, 2];
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      stubPeers: STUBS,
+      // Both wired to the one real node, so it has two peers to ask and they are the only
+      // peers it has.
+      stubPeeredWith: { [STUBS[0]]: [ASKER], [STUBS[1]]: [ASKER] },
+      policy: { available: false },
+      awaitPolicy: false,
+      configOverrides: {
+        policy: {
+          // The tick is the other route to the source and would answer for the seed. A week
+          // puts it out of reach of a run.
+          refreshIntervalMs: 7 * 24 * 60 * 60 * 1000,
+          peerWindowMs: 60000,
+        },
+      },
+    });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('reaches the source once its peers have answered, not once their asks expire', async function () {
+    this.timeout(300000);
+    await Promise.all(STUBS.map((i) => env.stubPeerClients.get(i).answerPolicyWith(null)));
+    await stub(env, '/policy', { available: true });
+    const before = (await stubState(env)).policyFetches.total;
+
+    // Restarted so the asks happen now rather than during boot, where the source was down
+    // and the measurement would be of the wrong round.
+    await env.restartNode(ASKER);
+    await waitForBootSettled(env.clients[ASKER]);
+
+    // THE FIXTURE'S OWN PRECONDITION. One stub answering is the case that always worked, so
+    // without this the assertion below could pass on a fleet where only one peer was ever
+    // asked - which is not the thing being tested.
+    await waitFor(
+      async () => {
+        const answered = await Promise.all(
+          STUBS.map((i) => env.stubPeerClients.get(i).policyAsksAnswered()),
+        );
+        return answered.every((n) => n >= 1);
+      },
+      { timeout: 120000, interval: 2000, label: 'both peers to have answered an ask' },
+    );
+
+    await waitFor(
+      async () => (await stubState(env)).policyFetches.total > before,
+      {
+        timeout: 30000,
+        interval: 1000,
+        label: 'the node to seed from the source once both of its peers had answered',
+      },
+    );
+  });
+});
