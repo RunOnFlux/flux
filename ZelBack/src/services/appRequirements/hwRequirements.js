@@ -299,7 +299,13 @@ async function checkAppNodesRequirements(appSpecs) {
   // bypass lived: this gate skipped v8 entirely, so an app that reached an install by
   // any path other than selection was never checked against its own pin.
   if (appSpecs.version >= 7 && appSpecs.nodes && appSpecs.nodes.length) {
-    const myCollateral = await generalService.obtainNodeCollateralInformation();
+    // A failure narrows pin matching to addresses rather than refusing the install: a spec
+    // naming this node by address needs no daemon, and nodePinning takes a missing outpoint
+    // as "no collateral match" rather than "no match".
+    const myCollateral = await generalService.obtainNodeCollateralInformation().catch((error) => {
+      log.warn(`checkAppNodesRequirements - could not resolve node collateral, pins naming this node by collateral will not match: ${error.message}`);
+      return null;
+    });
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
       throw new Error('Unable to detect Flux IP address');
