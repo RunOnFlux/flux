@@ -21,23 +21,57 @@
  * create and never manage.
  */
 
-/** What a staging directory is called while an operation runs. */
-const STAGING_PREFIX = '.flux-op-';
+/**
+ * The ONE directory at the volume root that operations work in. Every staging
+ * entry is a child of it, named with the operation's identifier.
+ *
+ * It used to be a prefix - `.flux-op-<id>` directly at the root - and that put
+ * FluxOS's names in the owner's namespace, where three separate rules had to
+ * agree on which names were ours: what the sweep deletes, what the browser
+ * hides and refuses to delete, and what .stignore keeps off the network. They
+ * did not agree. The sweep matched the prefix plus a full identifier, because
+ * it DELETES what it matches and a folder an owner called `.flux-op-backups`
+ * must survive; the ignore matched `/.flux-op-*`, every name carrying the
+ * prefix. So that same folder was safe from deletion and silently never
+ * replicated - the owner's data, on one node, invisible to the cluster.
+ *
+ * One directory removes the disagreement rather than settling it. There is no
+ * shape to match in three places: the ignore is this exact name, the browser
+ * hides this exact name, and the sweep reads inside it, where everything is
+ * ours by construction.
+ */
+const STAGING_ROOT = '.flux-op';
 
 /**
- * The identifier flux-op names a staging directory with. A randomUUID, so the
- * shape is exact.
+ * The identifier an operation's staging entry is named with. A randomUUID, so
+ * the shape is exact.
  *
- * Names are matched against this rather than by prefix alone because the sweep
- * DELETES what it matches, in a directory the app owner can also write to.
- * Nothing reserves these prefixes at creation time, so a folder called
- * `.flux-op-backups` is a name a user can legitimately choose - and would lose
- * on the next restart if a prefix test were the whole rule.
+ * Still matched rather than assumed, though everything under STAGING_ROOT is
+ * ours: the sweep DELETES what it matches, and an entry there whose name is not
+ * one we mint is something we did not put there and cannot account for.
  */
 const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const isStagingName = (name) => name.startsWith(STAGING_PREFIX)
-  && OPERATION_ID.test(name.slice(STAGING_PREFIX.length));
+/** The staging path for an operation, relative to the volume root. */
+const stagingRelative = (id) => `${STAGING_ROOT}/${id}`;
+
+/**
+ * MIGRATION, and it comes out one release after the one that introduces
+ * STAGING_ROOT.
+ *
+ * Volumes in the field carry `.flux-op-<id>` directories at their root from
+ * interrupted operations. Nothing else will ever reclaim them: the new sweep
+ * reads inside STAGING_ROOT and they are not there. Left unrecognised they stop
+ * being hidden, stop being ignored, and start replicating to every peer - so
+ * the old shape is still swept, still hidden, and still kept off the network
+ * until the field is clear of it.
+ */
+const LEGACY_STAGING_PREFIX = '.flux-op-';
+
+const isLegacyStagingName = (name) => name.startsWith(LEGACY_STAGING_PREFIX)
+  && OPERATION_ID.test(name.slice(LEGACY_STAGING_PREFIX.length));
+
+const isStagingName = (name) => name === STAGING_ROOT || isLegacyStagingName(name);
 
 /**
  * Names something other than FluxOS puts in the volume root and depends on.
@@ -68,15 +102,20 @@ const SYNCTHING_IGNORE_FILE = '.stignore';
  * The .stignore lines FluxOS asserts on every folder it replicates.
  *
  * `/backup` keeps the owner's local archives off the network. The staging
- * pattern keeps an operation's scratch off it: every byte a copy, extract or
+ * directory keeps an operation's scratch off it: every byte a copy, extract or
  * upload stages would otherwise replicate to every peer only to be deleted
  * again on publish, and a peer's boot sweep could delete a replicated staging
  * directory a live operation on another node still needs. Both are anchored to
  * the folder root, so neither takes a name from the owner deeper in their own
- * tree. Derived from STAGING_PREFIX so the pattern cannot drift from the names
- * the sweep owns.
+ * tree.
+ *
+ * The staging line is now an exact name rather than a pattern, which is what
+ * makes it the same rule the sweep and the browser apply. The legacy glob
+ * beside it is the migration, and goes when the field is clear - see
+ * LEGACY_STAGING_PREFIX. It is the one line here that still takes names from
+ * the owner, which is why it is temporary.
  */
-const SYNCTHING_IGNORE_LINES = ['/backup', `/${STAGING_PREFIX}*`];
+const SYNCTHING_IGNORE_LINES = ['/backup', `/${STAGING_ROOT}`, `/${LEGACY_STAGING_PREFIX}*`];
 
 /**
  * The full leading ignore block for one component: the lines FluxOS asserts on every
@@ -112,7 +151,11 @@ function isReservedName(name) {
 }
 
 module.exports = {
-  STAGING_PREFIX,
+  STAGING_ROOT,
+  LEGACY_STAGING_PREFIX,
+  OPERATION_ID,
+  stagingRelative,
+  isLegacyStagingName,
   SYNCTHING_FOLDER_MARKER,
   SYNCTHING_IGNORE_FILE,
   SYNCTHING_IGNORE_LINES,

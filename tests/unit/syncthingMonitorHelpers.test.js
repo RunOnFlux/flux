@@ -396,7 +396,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
     });
 
     it('seeds both lines when the folder has no ignores yet', async () => {
@@ -405,11 +405,11 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
     });
 
     it('posts nothing when every policy line is already present', async () => {
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op-*'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op', '/.flux-op-*'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID);
@@ -426,11 +426,11 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID, ['game']);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*', '/game', 'cache/**']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*', '/game', 'cache/**']);
     });
 
     it('posts nothing when the declared directories are already covered', async () => {
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op-*', '/game'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op', '/.flux-op-*', '/game'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID, ['game']);
@@ -442,7 +442,7 @@ describe('syncthingMonitorHelpers tests', () => {
       // Nothing in .stignore says which lines FluxOS derived, so a dropped ml: mount
       // cannot be told from a pattern the owner wrote. The exclusion stays - the safe
       // direction - and the warning is what stops it being a silent one.
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op-*', '/game'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op', '/.flux-op-*', '/game'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
       const warn = sandbox.stub(log, 'warn');
 
@@ -460,31 +460,31 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*', 'cache/**']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*', 'cache/**']);
     });
 
     it('lifts a policy line that sits below a pattern of the owners', async () => {
       // Presence is not the guarantee - position is. syncthing takes the FIRST
       // pattern that matches, so a policy line below anything is a policy line
       // something else can answer for.
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['cache/**', '/backup', '/.flux-op-*'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['cache/**', '/backup', '/.flux-op', '/.flux-op-*'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*', 'cache/**']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*', 'cache/**']);
     });
 
     it('demotes a negation that would otherwise answer for a policy line', async () => {
       // The case the position rule exists for: !/backup above /backup un-ignores
       // the backup directory, and the old presence test called that converged.
       // The negation is kept - it is the owner's - it just stops winning.
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['!/backup', '/backup', '/.flux-op-*'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['!/backup', '/backup', '/.flux-op', '/.flux-op-*'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*', '!/backup']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*', '!/backup']);
     });
 
     it('collapses a policy line the folder holds more than once', async () => {
@@ -493,13 +493,13 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*', 'cache/**']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*', 'cache/**']);
     });
 
     it('posts nothing on a folder already led by the policy lines', async () => {
       // Idempotent: a converged folder is neither rewritten nor rescanned, which
       // is what keeps this safe to run on every monitor pass.
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op-*', 'cache/**'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op', '/.flux-op-*', 'cache/**'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID);
