@@ -327,6 +327,14 @@ export async function buildSeedableLegacyApp({
  * state with framework/syncthing-control and its election with framework/fdm-control.
  * Pass `sibling: true` to add a plain (non-synced) component so a test can prove
  * the decider only acts on the g:/r: component and leaves siblings running.
+ *
+ * `extraMounts` appends mount segments after the primary, which is the only way to
+ * build the forms that put something of FluxOS's OWN on the volume: `f:` is touched
+ * as a zero-length file so docker cannot create a directory in its place, `m:` and
+ * `ml:` are mkdir'd. Every one of them lands inside the syncthing folder, so a suite
+ * that never uses them is testing sync against a volume real apps do not have -
+ * which is how a cold start could deadlock on every `g:`+`f:` app on the network
+ * while the suite written for exactly that standoff stayed green.
  */
 export async function buildSeedableSyncthingApp({
   name,
@@ -334,6 +342,7 @@ export async function buildSeedableSyncthingApp({
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
   containerPorts = [80],
   sibling = false,
+  extraMounts = [],
   ...rest
 }) {
   const compose = [{
@@ -345,7 +354,7 @@ export async function buildSeedableSyncthingApp({
     environmentParameters: [],
     commands: [],
     containerPorts,
-    containerData: `${mode}:/appdata`,
+    containerData: [`${mode}:/appdata`, ...extraMounts].join('|'),
     cpu: 0.1,
     ram: 100,
     hdd: 1,

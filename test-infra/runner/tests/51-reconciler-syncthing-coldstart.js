@@ -49,6 +49,10 @@ async function pinColdStart(holders, folder) {
   await Promise.all(holders.map((i) => Promise.all([
     setSyncState({
       ip: subnet.nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+      // Honest only for a bare g:/r: app. A component declaring an f:/m:/ml: mount has
+      // FluxOS scaffolding on its volume that a real daemon counts here, and the stub
+      // cannot see a disk - so those shapes belong on syncthing: 'binary', not here.
+      receiveOnlyChangedFiles: 0,
     }),
     setNoPeerData({ ip: subnet.nodeIp(i + 1), folder }),
   ])));

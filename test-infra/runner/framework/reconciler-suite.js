@@ -167,6 +167,9 @@ export async function placeGAppInOrder(env, app, {
     await Promise.all(placementOrder.map((i) => Promise.all([
       setSyncState({
         ip: getSubnetConfig().nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+        // 0 is a claim about this node's disk, and it holds only while the app declares
+        // no f:/m:/ml: mount - a real daemon counts the scaffolding those leave behind.
+        receiveOnlyChangedFiles: 0,
       }),
       setNoPeerData({ ip: getSubnetConfig().nodeIp(i + 1), folder }),
     ])));
