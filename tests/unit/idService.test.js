@@ -401,7 +401,14 @@ describe('idService tests', () => {
 
     // The gate is two independent terms, and every case above trips both at
     // once - so either could be deleted without a test noticing. One each.
-    it('fails on the dos score alone, with no message to go with it', async () => {
+    //
+    // The score-only case is a guard, not a live shape: every site in
+    // fluxNetworkHelper that pushes the score past the bar sets a message in the
+    // same block, and every reset clears both. It is pinned because that pairing
+    // is hand-maintained across twenty-one separate mutations of the score - the
+    // module says so itself - and the twenty-second added without a message must
+    // still take the node out, rather than reading as healthy.
+    it('fails on the dos score alone, even with no message paired to it', async () => {
       const res = generateResponse();
       tierStub.resolves('basic');
       collateralStub.resolves(1000);
