@@ -34,6 +34,13 @@ const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService
  * @param {number} ms
  * @returns {Function} restores the real clock
  */
+// The paths handed to chown, in call order.
+function chownedPaths(runCmdStub) {
+  return runCmdStub.getCalls()
+    .filter((call) => call.args[0] === 'chown')
+    .map((call) => call.args[1].params[call.args[1].params.length - 1]);
+}
+
 function advanceMonotonic(ms) {
   const real = process.hrtime.bigint;
   process.hrtime.bigint = () => real() + BigInt(ms) * 1000000n;
@@ -431,6 +438,43 @@ describe('syncthingService tests', () => {
         sinon.assert.calledWithMatch(errorSpy, /marking syncthing not running/);
       });
 
+      // A log that says a node went down and never says it came back reads as a
+      // node still down. Only from unhealthy: a first probe landing after boot
+      // is the node starting up, not a recovery.
+      it('says so in the log when syncthing comes back', async () => {
+        const infoSpy = sinon.spy(log, 'info');
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+        fakeMeta.throws(new Error('syncthing is down'));
+
+        const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+        try {
+          await syncthingService.refreshSyncthingHealth();
+        } finally {
+          restore();
+        }
+        sinon.assert.neverCalledWithMatch(infoSpy, /marking syncthing running/);
+
+        fakeMeta.resetBehavior();
+        fakeMeta.resolves({
+          status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
+        });
+
+        await syncthingService.refreshSyncthingHealth();
+
+        sinon.assert.calledWithMatch(infoSpy, /marking syncthing running/);
+      });
+
+      it('says nothing when the first probe of the node\'s life lands', async () => {
+        const infoSpy = sinon.spy(log, 'info');
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+
+        await syncthingService.refreshSyncthingHealth();
+
+        sinon.assert.neverCalledWithMatch(infoSpy, /marking syncthing running/);
+      });
+
       it('reports unhealthy once that window passes with no probe having succeeded', () => {
         syncthingService.setSyncthingUnmeasured();
         syncthingService.noteMeasurementStarted();
@@ -781,6 +825,34 @@ describe('syncthingService tests', () => {
       }
     });
 
+    // Boot asks more than once: startFluxFunctions retries itself every 15s
+    // after a throw. A second declaration would restart the window each time,
+    // so a node whose syncthing never answered would sit in unmeasured - which
+    // refuses nobody - for as long as boot kept failing.
+    it('takes the question on once, so a retrying boot cannot restart the window', async function () {
+      // The first start runs a full sentinel pass, whose repair path sleeps.
+      this.timeout(30000);
+      syncthingService.setSyncthingUnmeasured();
+
+      const started = syncthingService.startSyncthingSentinel();
+
+      const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+      try {
+        const retried = syncthingService.startSyncthingSentinel();
+
+        expect(
+          syncthingService.healthState(),
+          'boot asked again and the window started over, so silence never became a fault',
+        ).to.equal(syncthingService.SYNCTHING_HEALTH.UNHEALTHY);
+
+        await retried.catch(() => {});
+      } finally {
+        restore();
+        await syncthingService.stopSyncthingSentinel();
+        await started.catch(() => {});
+      }
+    });
+
     it('never asks syncthing whether a restart is required', async () => {
       // requiresRestart is a one-way latch FluxOS cannot set: it is written only
       // for auditEnabled/auditFile, which FluxOS never touches. So a true here is
@@ -907,7 +979,7 @@ describe('syncthingService tests', () => {
     it('should spawn a new syncthing process if there is a problem with the service', async () => {
       const clock = sinon.useFakeTimers();
 
-      const expected = 'sudo nohup syncthing --logfile /home/testuser/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home /home/testuser/.config/syncthing >/dev/null 2>&1 </dev/null &';
+      const expected = "sudo nohup syncthing --logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
       // const expectedParams = [
       //   'syncthing',
       //   '--logfile',
@@ -943,6 +1015,11 @@ describe('syncthingService tests', () => {
 
       sinon.assert.calledWithExactly(spawnStub, expected, expectedOptions);
       // sinon.assert.calledOnce(unrefStub);
+
+      expect(
+        chownedPaths(runCmdStub),
+        'the user has to own ~/.config to create the syncthing dir inside it',
+      ).to.include('/home/testuser/.config');
     });
 
     // SYNCTHING_PATH relocates syncthing's home, and every step of the repair
@@ -971,8 +1048,15 @@ describe('syncthingService tests', () => {
         await promise;
 
         sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', relocated] });
-        sinon.assert.calledWithMatch(spawnStub, `--home ${relocated} `);
+        sinon.assert.calledWithMatch(spawnStub, `--home '${relocated}' `);
         sinon.assert.calledWithMatch(fs.readFile, `${relocated}/config.xml`);
+
+        const chowned = chownedPaths(runCmdStub);
+        expect(chowned, 'the relocated dir is the one the user has to own').to.include(relocated);
+        expect(
+          chowned,
+          'nothing is created in ~/.config now, and following the path to its parent would chown whatever the operator named',
+        ).to.not.include('/home/testuser/.config');
       } finally {
         delete process.env.SYNCTHING_PATH;
         clock.restore();

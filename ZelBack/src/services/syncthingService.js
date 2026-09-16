@@ -55,6 +55,11 @@ const fluxosSupervisesSyncthing = supervisesSyncthing(config.syncthing.ip, isArc
 let syncthingBinaryPresent = false;
 
 /**
+ * Whether the sentinel has already taken syncthing on.
+ */
+let sentinelStarted = false;
+
+/**
  * What this node knows about syncthing, which is three answers and not two:
  * UNMEASURED is the absence of a verdict, not a soft one.
  */
@@ -131,31 +136,28 @@ const stc = new FluxController();
 /**
  *
  * Temporary function until Arcane is deployed
- * @param {string} configDir The uesrs config dir
- * @param {string} syncthingDir The syncthing config dir
  * @param {string} configFile  The syncthing config file
  * @returns {Promise<boolean>}
  */
-async function changeSyncthingOwnership(configDir, syncthingDir, configFile) {
+async function changeSyncthingOwnership(configFile) {
   const user = os.userInfo().username;
   const owner = `${user}:${user}`;
 
   // As syncthing is running as root, we need to change owenership to running user
-  const { error: chownConfigDirError } = await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    logError: false,
-    params: [owner, configDir],
-  });
+  // eslint-disable-next-line no-use-before-define
+  const dirs = syncthingOwnedDirs();
 
-  if (chownConfigDirError) return false;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const dir of dirs) {
+    // eslint-disable-next-line no-await-in-loop
+    const { error } = await serviceHelper.runCommand('chown', {
+      runAsRoot: true,
+      logError: false,
+      params: [owner, dir],
+    });
 
-  const { error: chownSyncthingError } = await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    logError: false,
-    params: [owner, syncthingDir],
-  });
-
-  if (chownSyncthingError) return false;
+    if (error) return false;
+  }
 
   const { error: chmodError } = await serviceHelper.runCommand('chmod', {
     runAsRoot: true,
@@ -193,16 +195,29 @@ function syncthingHomeDir() {
 }
 
 /**
+ * The directories the FluxOS user has to own, since syncthing runs as root and
+ * writes its config.xml there. The home always, and ~/.config above it only
+ * while the home is still inside it: the parent is chowned so the user can
+ * create the directory in the first place, and following the home wherever an
+ * operator relocates it would hand the user something like /var/lib.
+ * @returns {string[]}
+ */
+function syncthingOwnedDirs() {
+  const syncthingDir = syncthingHomeDir();
+  const configDir = path.join(os.homedir(), '.config');
+
+  return path.dirname(syncthingDir) === configDir ? [configDir, syncthingDir] : [syncthingDir];
+}
+
+/**
  * To get syncthing config xml file
  * @returns {Promise<(string | null)>} config file (XML).
  */
 async function getConfigFile() {
-  const configDir = path.join(os.homedir(), '.config');
-  const syncthingDir = syncthingHomeDir();
-  const configFile = path.join(syncthingDir, 'config.xml');
+  const configFile = path.join(syncthingHomeDir(), 'config.xml');
 
   if (fluxosSupervisesSyncthing) {
-    const ownershipChanged = await changeSyncthingOwnership(configDir, syncthingDir, configFile);
+    const ownershipChanged = await changeSyncthingOwnership(configFile);
     if (!ownershipChanged) return null;
   }
 
@@ -1473,6 +1488,10 @@ async function refreshSyncthingHealth() {
   if (state !== lastReportedHealth) {
     if (state === SYNCTHING_HEALTH.UNHEALTHY) {
       log.error(`Syncthing has not answered a health probe for ${SYNCTHING_HEALTH_WINDOW_MS / 1000}s; marking syncthing not running`);
+    } else if (state === SYNCTHING_HEALTH.OK && lastReportedHealth === SYNCTHING_HEALTH.UNHEALTHY) {
+      // The other end of the same edge. Only from UNHEALTHY: a first probe
+      // landing after boot is the node starting up, not a recovery.
+      log.info('Syncthing answered a health probe; marking syncthing running');
     }
     lastReportedHealth = state;
   }
@@ -1657,25 +1676,21 @@ async function adjustSyncthing() {
 async function configureDirectories() {
   if (stc.aborted) return;
 
-  const configDir = path.join(os.homedir(), '.config');
-  const syncthingDir = syncthingHomeDir();
-
   const user = os.userInfo().username;
   const owner = `${user}:${user}`;
 
   await serviceHelper.runCommand('mkdir', {
-    params: ['-p', syncthingDir],
+    params: ['-p', syncthingHomeDir()],
   });
 
-  await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    params: [owner, configDir],
-  });
-
-  await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    params: [owner, syncthingDir],
-  });
+  // eslint-disable-next-line no-restricted-syntax
+  for (const dir of syncthingOwnedDirs()) {
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.runCommand('chown', {
+      runAsRoot: true,
+      params: [owner, dir],
+    });
+  }
 }
 
 /**
@@ -1738,6 +1753,9 @@ async function stopSyncthingSentinel() {
   axiosCache.reset();
   // Stop metrics collection
   stopMetricsCollection(); // eslint-disable-line no-use-before-define
+  // Cleared last: a start arriving during the stop is a second sentinel beside
+  // the one being torn down.
+  sentinelStarted = false;
   log.info('Syncthing sentinel stopped');
 }
 
@@ -1770,7 +1788,8 @@ async function ensureSyncthingRunning(installed) {
   // adding old spawn with shell in the interim.
 
   childProcess.spawn(
-    `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
+    // Quoted: both paths come from SYNCTHING_PATH, and this runs through a shell.
+    `sudo nohup syncthing --logfile '${logFile}' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '${syncthingHome}' >/dev/null 2>&1 </dev/null &`,
     { shell: true },
   ).unref();
 
@@ -1842,10 +1861,19 @@ async function runSyncthingSentinel() {
 }
 
 /**
- * Starts the main syncthing monitoring loop
- * @returns {<void>}
+ * Starts the main syncthing monitoring loop. Start-once, because boot asks more
+ * than once: startFluxFunctions retries itself every 15s after a throw and each
+ * retry arrives here. The loop and the metrics interval already refuse a second
+ * start; the stamp and the binary wait above them do not, so the guard sits at
+ * the top. Restarting the window on every retry would leave a node whose
+ * syncthing never answered permanently unmeasured - the one state that refuses
+ * nobody - and stack another binary waiter on each pass.
+ * @returns {Promise<void>}
  */
 async function startSyncthingSentinel() {
+  if (sentinelStarted) return;
+  sentinelStarted = true;
+
   noteMeasurementStarted();
 
   while (fluxosSupervisesSyncthing && !syncthingBinaryPresent) {
@@ -1877,13 +1905,14 @@ function setSyncthingRunningState(value) {
 }
 
 /**
- * Test helper: unsets the measurement stamp, as on a node whose sentinel has
- * not started.
+ * Test helper: unsets the measurement stamp and the start latch, as on a node
+ * whose sentinel has not started.
  */
 function setSyncthingUnmeasured() {
   measurementStartedAt = null;
   lastHealthyProbeAt = null;
   lastReportedHealth = SYNCTHING_HEALTH.UNMEASURED;
+  sentinelStarted = false;
 }
 
 /**
