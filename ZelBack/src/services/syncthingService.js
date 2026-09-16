@@ -169,13 +169,26 @@ async function changeSyncthingOwnership(configDir, syncthingDir, configFile) {
 }
 
 /**
+ * Where syncthing's configuration and identity live. SYNCTHING_PATH relocates
+ * it, so everything that creates, chowns, spawns into or reads that directory
+ * has to resolve it the same way. Resolved in one place because they did not:
+ * the repair path built ~/.config/syncthing directly while the config read
+ * honoured the variable, so an operator who set it had FluxOS start a daemon in
+ * one directory and read another's config.xml - and the api key it
+ * authenticates every syncthing call with comes out of that file.
+ * @returns {string}
+ */
+function syncthingHomeDir() {
+  return process.env.SYNCTHING_PATH || path.join(os.homedir(), '.config', 'syncthing');
+}
+
+/**
  * To get syncthing config xml file
  * @returns {Promise<(string | null)>} config file (XML).
  */
 async function getConfigFile() {
-  const homedir = os.homedir();
-  const configDir = path.join(homedir, '.config');
-  const syncthingDir = process.env.SYNCTHING_PATH || path.join(configDir, 'syncthing');
+  const configDir = path.join(os.homedir(), '.config');
+  const syncthingDir = syncthingHomeDir();
   const configFile = path.join(syncthingDir, 'config.xml');
 
   if (fluxosSupervisesSyncthing) {
@@ -1634,9 +1647,8 @@ async function adjustSyncthing() {
 async function configureDirectories() {
   if (stc.aborted) return;
 
-  const homedir = os.homedir();
-  const configDir = path.join(homedir, '.config');
-  const syncthingDir = path.join(configDir, 'syncthing');
+  const configDir = path.join(os.homedir(), '.config');
+  const syncthingDir = syncthingHomeDir();
 
   const user = os.userInfo().username;
   const owner = `${user}:${user}`;
@@ -1732,8 +1744,7 @@ async function ensureSyncthingRunning(installed) {
   await installSyncthingIdempotently();
   await configureDirectories();
 
-  const homedir = os.homedir();
-  const syncthingHome = path.join(homedir, '.config/syncthing');
+  const syncthingHome = syncthingHomeDir();
   const logFile = path.join(syncthingHome, 'syncthing.log');
 
   log.info('Spawning Syncthing instance...');
@@ -2701,6 +2712,7 @@ module.exports = {
   // status
   isRunning,
   healthState,
+  syncthingHomeDir,
   SYNCTHING_HEALTH,
   noteMeasurementStarted,
   // testing exports

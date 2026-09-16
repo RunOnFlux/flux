@@ -945,6 +945,39 @@ describe('syncthingService tests', () => {
       // sinon.assert.calledOnce(unrefStub);
     });
 
+    // SYNCTHING_PATH relocates syncthing's home, and every step of the repair
+    // path has to agree with the config read about where that is. They did not:
+    // the read honoured the variable while mkdir and the spawn built
+    // ~/.config/syncthing directly, so an operator who set it had FluxOS start a
+    // daemon in one directory and take the api key out of another install's
+    // config.xml. Every authenticated call to its own syncthing then fails, and
+    // the repair path cannot fix it because repairing means spawning into the
+    // same wrong directory again.
+    it('creates, spawns into and reads one directory when syncthing is relocated', async () => {
+      const relocated = '/dat/usr/lib/syncthing';
+      process.env.SYNCTHING_PATH = relocated;
+      const clock = sinon.useFakeTimers();
+
+      fakeMeta.rejects(Error('Fake Meta Error'));
+      runCmdStub.callsFake(async (cmd) => {
+        if (cmd === 'pgrep') return { stdout: '' };
+        if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+        return { error: null };
+      });
+
+      try {
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', relocated] });
+        sinon.assert.calledWithMatch(spawnStub, `--home ${relocated} `);
+        sinon.assert.calledWithMatch(fs.readFile, `${relocated}/config.xml`);
+      } finally {
+        delete process.env.SYNCTHING_PATH;
+        clock.restore();
+      }
+    });
   });
 
   describe('collectSyncthingMetrics error surfacing', () => {
