@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForDaemonReady } from '../framework/wait.js';
+import { waitForDaemonReady, waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // GET /flux/health reports node fitness from a real node, and gates on the same
@@ -19,7 +19,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // that decides anything.
 
 const FLEETS = [
-  { name: 'legacy, where syncthing decides fitness', options: { nodes: 1, legacyNodes: [0] } },
+  // binary so FluxOS owns the daemon - the gate is held to that, and a stubbed
+  // syncthing on another host is carved out exactly as Arcane is.
+  { name: 'legacy, where syncthing decides fitness', options: { nodes: 1, legacyNodes: [0], syncthing: 'binary' } },
   { name: 'Arcane, where that check is carved out', options: { nodes: 1 } },
 ];
 
@@ -31,10 +33,23 @@ FLEETS.forEach(({ name, options }) => {
     dumpLogsOnFailure(() => env);
 
     before(async function () {
-      this.timeout(120000);
+      // Above the syncthing wait below it - a hook that times out first turns a
+      // slow install into an abort with nothing said about what it was waiting for.
+      this.timeout(300000);
       env = await createTestEnv({ hookCtx: this, ...options });
       [node] = env.clients;
       await waitForDaemonReady(node);
+
+      // Wait for a READING, not for the answer. A node that owns its syncthing
+      // installs, configures and spawns it before any probe can land, so at
+      // daemon-ready the check has no measurement yet and honestly says so -
+      // asserting on it here would be sampling a transition. Waiting until the
+      // state is anything but unmeasured leaves the assertion able to fail:
+      // a syncthing that came up broken reads degraded, and the node unfit.
+      await waitFor(
+        async () => (await node.get('/flux/health').catch(() => null))?.data?.syncthing !== 'unmeasured',
+        { timeout: 180000, interval: 2000, label: 'syncthing measured at least once' },
+      );
     });
 
     after(async function () {

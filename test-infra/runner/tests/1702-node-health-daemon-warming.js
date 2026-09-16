@@ -41,11 +41,16 @@ describe('Node health: a daemon still warming is not a syncthing fault', functio
   dumpLogsOnFailure(() => env);
 
   before(async function () {
-    this.timeout(180000);
+    // Above the boot wait plus the window this suite deliberately sleeps out.
+    this.timeout(300000);
     env = await createTestEnv({
       hookCtx: this,
       nodes: 1,
       legacyNodes: [0],
+      // binary, not the default stub: the gate only applies where FluxOS owns
+      // the daemon, and a stub on another host is not owned. On the default the
+      // fitness assertions below cannot fail, whatever the node reports.
+      syncthing: 'binary',
       tickerAutostart: false,
       rpcFailures: [subnet.nodeIp(NODE)],
       configOverrides: {
