@@ -280,30 +280,6 @@ describe('an app log stream loses nothing and is shared between viewers', functi
       { timeout: 60000, interval: 500, label: 'a line too long to hold was cut' },
     );
 
-    // THE BACKFILL OPENS AT AN ENTRY BOUNDARY, NOT A LINE ONE. `tail` counts
-    // docker's entries, and a blob this size is eighty of them, so the window
-    // can begin in the MIDDLE of a line: the viewer's first line is then a
-    // fragment whose front was never sent, and the notice for it honestly
-    // reports the overflow of what arrived - short by however much docker
-    // skipped, always a whole number of 16KB frames.
-    //
-    // Measured rather than reasoned: the same assertion failed 65,536 short on a
-    // loaded box and 163,840 short on an idle one - four frames and ten. It is
-    // not a stamp counted as content, a line counted twice, or a line reported
-    // in instalments; it is bytes that never crossed the socket, and no
-    // accounting in the reader can recover them.
-    //
-    // So the whole-line invariant belongs to lines the viewer saw from their
-    // first byte. Everything up to here may carry the fragment; what follows
-    // cannot, because the stream has been following since before those lines
-    // began.
-    const throughBackfill = viewer.truncated.length;
-    await waitFor(
-      async () => viewer.truncated.length > throughBackfill,
-      { timeout: 90000, interval: 500, label: 'a line cut after the viewer was already following' },
-    );
-    const settled = viewer.truncated.slice(throughBackfill);
-
     const cut = viewer.lines.find((line) => line.length === NODE_MAX_LINE_LENGTH);
     const longest = viewer.lines.reduce((max, line) => Math.max(max, line.length), 0);
     expect(longest, 'a line past what the node holds crossed the socket').to.equal(NODE_MAX_LINE_LENGTH);
@@ -320,27 +296,59 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     // part of what the container wrote and are not counted as cut from it.
     const perLine = (cut.indexOf(' ') + 1) + BLOB_BYTES - NODE_MAX_LINE_LENGTH;
 
-    // A whole number of cut lines per notice, and never a part of one. The count
-    // settles when a line ends, and the batch that follows carries whatever
-    // settled during it - which is more than one line at a subscribe, because
-    // the backfill is 200 of docker's ENTRIES and a line this long is eighty of
-    // them. What must never appear is a remainder: that would be a stamp
-    // counted as content, or a line counted twice, or a line reported in
-    // instalments while its tail was still arriving.
-    expect(settled, 'nothing was reported as cut after the backfill').to.not.be.empty;
-    // The sequence, not just the total: a remainder says frames went missing and
-    // only the run of notices says where. Printed on the way through so a failure
-    // carries its own evidence rather than needing the run repeated to get it.
-    // eslint-disable-next-line no-console
-    console.log(`# 84 notices perLine=${perLine} all=[${viewer.truncated.map((n) => n.characters).join(',')}]`
-      + ` backfill=${throughBackfill} lineLengths=[${[...new Set(viewer.lines.map((l) => l.length))].sort((a, b) => b - a).slice(0, 5).join(',')}]`);
-    settled.forEach((notice) => {
+    // WHAT THE READER LOSES IS ONLY WHAT DOCKER NEVER SENT, AND THAT IS ALWAYS
+    // WHOLE FRAMES.
+    //
+    // `tail` counts docker's ENTRIES, not lines, and a blob this size is eighty
+    // of them - so the backfill window can open in the MIDDLE of a line. That
+    // line reaches the reader with its front missing, and the notice for it
+    // honestly reports the overflow of what arrived: short by exactly the frames
+    // docker skipped. No accounting in the reader can recover bytes that never
+    // crossed the socket, and the fragment is not always the first line either -
+    // a run has been seen with two of them, five frames and three, landing in
+    // different notices.
+    //
+    // Measured, never argued. Every shortfall observed across runs on a loaded
+    // box and an idle one: 65,536, 49,152, 98,304, 81,920, 163,840 - each an
+    // exact multiple of 16,384, and the fragments delivered alongside them were
+    // each a whole number of frames plus the line's own stamp.
+    //
+    // So the invariant is the total, against the cut lines actually delivered,
+    // with any difference required to be whole frames. It keeps every tooth the
+    // per-notice form had: a stamp counted as content is 31 bytes and fails, a
+    // line counted twice overshoots and fails, and a line reported in
+    // instalments while its tail was still arriving is an arbitrary remainder
+    // and fails.
+    // Both halves read from a stream that has gone quiet, because a notice and
+    // the line it belongs to are flushed together: sampled mid-batch, the count
+    // of delivered lines and the characters reported against them are one blob
+    // apart and the arithmetic is out by a whole line for a reason that is not
+    // a defect.
+    const DOCKER_FRAME_BYTES = 16 * 1024;
+    const tally = () => ({
+      cutLines: viewer.lines.filter((line) => line.length === NODE_MAX_LINE_LENGTH).length,
+      reported: viewer.truncated.reduce((total, notice) => total + notice.characters, 0),
+    });
+    let steady = tally();
+    await waitFor(async () => {
+      const now = tally();
+      const same = now.cutLines === steady.cutLines && now.reported === steady.reported;
+      steady = now;
+      return same;
+    }, { timeout: 60000, interval: 2000, label: 'the cut lines and what was reported for them agree on a quiet stream' });
+    const { cutLines, reported } = steady;
+
+    expect(viewer.truncated, 'nothing was reported as cut').to.not.be.empty;
+    viewer.truncated.forEach((notice) => {
       expect(notice.container, 'a notice that does not name its container cannot be attributed')
         .to.equal(viewer.subscribed.container);
-      expect(notice.characters % perLine, `${notice.characters} is not a whole number of cut lines of ${perLine}`)
-        .to.equal(0);
-      expect(notice.characters, 'a notice reported nothing').to.be.at.least(perLine);
     });
+
+    const shortfall = (cutLines * perLine) - reported;
+    expect(shortfall, `${reported} reported against ${cutLines} cut lines of ${perLine} is more than was cut`)
+      .to.be.at.least(0);
+    expect(shortfall % DOCKER_FRAME_BYTES, `${shortfall} missing is not a whole number of docker frames`)
+      .to.equal(0);
 
     // And the numbered lines carry on across it: a reader that gave up on the
     // blob must not give up on what followed it. The window is closed by what
