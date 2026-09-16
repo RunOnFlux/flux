@@ -3,7 +3,6 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
-const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('appUninstaller tests', () => {
   let appUninstaller;
@@ -11,6 +10,7 @@ describe('appUninstaller tests', () => {
   let messageHelperStub;
   let logStub;
   let configStub;
+  let globalStateStub;
 
   beforeEach(() => {
     configStub = {
@@ -463,7 +463,19 @@ describe('appUninstaller tests', () => {
 
     function buildUninstaller(spec) {
       runtimeStateStub = { remove: sinon.stub().resolves() };
+      // Stubbed rather than shared: globalState is a singleton another suite
+      // drops from the require cache, so a reference taken at file load and the
+      // one the module under test resolves are two different objects - and a
+      // mark set on one is invisible to the other.
+      globalStateStub = {
+        departingApps: new Set(),
+        removalInProgress: false,
+        installationInProgress: false,
+        runningAppsCache: new Set(),
+        receiveOnlySyncthingAppsCache: new Map(),
+      };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../utils/globalState': globalStateStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -632,29 +644,24 @@ describe('appUninstaller tests', () => {
     // without the mark the announcement built in that window re-creates the
     // location row the removal message had just cleared.
     describe('the departing mark', () => {
-      afterEach(() => {
-        globalState.removalInProgress = false;
-        globalState.departingApps.clear();
-      });
-
       it('marks the app while a broadcast removal runs, and clears it when the removal ends', async () => {
         const uninstaller = buildUninstaller(v2Spec);
         let markedDuring = null;
         uninstaller.setOnComponentRemoved(() => {
-          markedDuring = globalState.departingApps.has('testapp');
+          markedDuring = globalStateStub.departingApps.has('testapp');
         });
 
         await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
         expect(markedDuring, 'still claimed the app while removing it').to.be.true;
-        expect(globalState.departingApps.has('testapp'), 'left the mark behind, silencing the app for good').to.be.false;
+        expect(globalStateStub.departingApps.has('testapp'), 'left the mark behind, silencing the app for good').to.be.false;
       });
 
       it('does not mark a removal the network is never told about', async () => {
         const uninstaller = buildUninstaller(v2Spec);
         let markedDuring = null;
         uninstaller.setOnComponentRemoved(() => {
-          markedDuring = globalState.departingApps.has('testapp');
+          markedDuring = globalStateStub.departingApps.has('testapp');
         });
 
         await uninstaller.removeAppLocally('testapp', res, true, true, false);
@@ -667,13 +674,13 @@ describe('appUninstaller tests', () => {
 
       it('releases only the mark this call took, so a refused duplicate cannot unmark a live removal', async () => {
         const uninstaller = buildUninstaller(v2Spec);
-        globalState.departingApps.add('testapp');
-        globalState.removalInProgress = true;
+        globalStateStub.departingApps.add('testapp');
+        globalStateStub.removalInProgress = true;
 
         await uninstaller.removeAppLocally('testapp', res, false, true, true);
 
         expect(
-          globalState.departingApps.has('testapp'),
+          globalStateStub.departingApps.has('testapp'),
           'unmarked an app whose real removal is still running',
         ).to.be.true;
       });
