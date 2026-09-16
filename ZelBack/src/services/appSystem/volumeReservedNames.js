@@ -78,6 +78,26 @@ const SYNCTHING_IGNORE_FILE = '.stignore';
  */
 const SYNCTHING_IGNORE_LINES = ['/backup', `/${STAGING_PREFIX}*`];
 
+/**
+ * The full leading ignore block for one component: the lines FluxOS asserts on every
+ * folder, followed by the ones its spec asks for.
+ *
+ * A component declares a directory unsynced with `ml:` and this turns those names into
+ * anchored patterns. They join the leading block rather than the owner's own list
+ * because they are equally non-overridable: an `!` above one would replicate the very
+ * directory the spec asked to keep local, on a volume the owner shares with nobody.
+ *
+ * Derived from the spec, never from disk, so every node computes the same block for
+ * the same app and no node's ignores depend on what it happens to be holding.
+ *
+ * @param {string[]} unsyncedSubdirs - volume-root names from mountParser.getUnsyncedSubdirs
+ * @returns {string[]} the patterns that must lead this folder's .stignore, in order
+ */
+function syncthingIgnoreLines(unsyncedSubdirs = []) {
+  const declared = unsyncedSubdirs.map((name) => `/${name}`);
+  return [...SYNCTHING_IGNORE_LINES, ...declared.filter((line) => !SYNCTHING_IGNORE_LINES.includes(line))];
+}
+
 const FOREIGN_NAMES = new Set([SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, 'lost+found']);
 
 /**
@@ -96,6 +116,7 @@ module.exports = {
   SYNCTHING_FOLDER_MARKER,
   SYNCTHING_IGNORE_FILE,
   SYNCTHING_IGNORE_LINES,
+  syncthingIgnoreLines,
   isStagingName,
   isReservedName,
 };
