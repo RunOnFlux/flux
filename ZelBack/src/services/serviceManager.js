@@ -522,10 +522,10 @@ async function startFluxFunctions() {
       request: (seq) => fluxCommunicationMessagesSender.requestPolicyFromPeers(seq),
       // Targeted rung, for a node that already holds policy. A key that no longer resolves
       // is a peer that left between connecting and being asked, which is not an error.
-      requestFrom: (key, seq) => {
+      requestFrom: (key, seq, correlationId) => {
         const peer = peerManager.get(key);
         if (!peer) return Promise.resolve();
-        return fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, seq);
+        return fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, seq, correlationId);
       },
       announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
       // The latched level: peerManager already defines "enough peers to gossip with" with

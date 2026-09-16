@@ -496,8 +496,13 @@ describe('fluxCommunicationMessagesSender tests', () => {
         await fluxCommunicationMessagesSender.requestPolicyFromPeers(7);
 
         expect(ws.send.calledOnce).to.equal(true);
+        // The marker says this is a question, so no peer's flood filter can treat another
+        // node's identical ask as a repeat of it. The broadcast form names no single ask,
+        // and an absent id is dropped by JSON.stringify rather than sent as null.
         expect(JSON.parse(ws.send.firstCall.args[0]).data)
-          .to.deep.equal({ type: 'fluxpolicyrequest', version: 1, seq: 7 });
+          .to.deep.equal({
+            type: 'fluxpolicyrequest', version: 1, seq: 7, intent: 'ask',
+          });
       });
     });
   });

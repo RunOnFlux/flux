@@ -1102,4 +1102,62 @@ describe('policyStore', () => {
       m.stop();
     });
   });
+
+  describe('an answer settles the ask it names', () => {
+    const PEER = '10.0.0.1:16127';
+    // A reply carries no sender and no timestamp of its own, so before it named its ask the
+    // only thing tying it to one was the socket it came back on. A reply arriving after its
+    // own ask had timed out then settled whichever ask was outstanding next.
+    //
+    // The window has to be REAL here. The shared helper resolves delay() instantly, which
+    // makes every ask settle on its window the moment it is made - and an assertion that the
+    // ask is still outstanding then passes whatever the answer did.
+    const withRealWindow = () => load({
+      peerWindowMs: 10_000,
+      serviceHelper: { delay: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }) },
+    });
+
+    const settledWithin = (promise, ms) => Promise.race([
+      promise.then(() => true),
+      new Promise((resolve) => { setTimeout(() => resolve(false), ms); }),
+    ]);
+
+    it('names each ask, and ignores an answer naming a different one', async () => {
+      const { module } = withRealWindow();
+      let named = null;
+      module.setPeerTransport({
+        requestFrom: async (_key, _seq, correlationId) => { named = correlationId; },
+        aboveThreshold: () => true,
+      });
+
+      const inFlight = module.notePeerAvailable(PEER);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(named, 'the ask names itself').to.be.a('string');
+
+      module.notePeerSeq(3, PEER, 'some-other-ask');
+      expect(await settledWithin(inFlight, 30), 'an answer naming another ask ended this one')
+        .to.equal(false);
+
+      module.notePeerSeq(3, PEER, named);
+      expect(await settledWithin(inFlight, 200), 'the answer naming this ask left it waiting')
+        .to.equal(true);
+      module.stop();
+    });
+
+    it('settles on the peer alone when the answer names nothing', async () => {
+      // A peer that predates the id sends none, and its socket is all there is to go on.
+      const { module } = withRealWindow();
+      module.setPeerTransport({ requestFrom: async () => {}, aboveThreshold: () => true });
+
+      const inFlight = module.notePeerAvailable(PEER);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(await settledWithin(inFlight, 30), 'it settled before any answer arrived')
+        .to.equal(false);
+
+      module.notePeerSeq(3, PEER);
+      expect(await settledWithin(inFlight, 200), 'an unnamed answer left its peer waiting')
+        .to.equal(true);
+      module.stop();
+    });
+  });
 });

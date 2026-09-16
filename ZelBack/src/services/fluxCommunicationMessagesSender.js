@@ -9,6 +9,7 @@ const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
+const { INTENT } = require('./utils/messageIntent');
 const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
 
@@ -153,6 +154,9 @@ async function respondWithPolicy(msgObj, peer) {
     const message = msgObj.data;
     if (!message || message.version !== 1) return;
     const askerSeq = Number.isInteger(message.seq) ? message.seq : 0;
+    // Echoed so the asker can tell which of its asks this settles. A peer that does not
+    // send one gets undefined back, and the asker falls back to identifying it by socket.
+    const { correlationId } = message;
 
     // A node with no bundle answers `seq: null` - it says so, rather than saying nothing.
     //
@@ -170,7 +174,9 @@ async function respondWithPolicy(msgObj, peer) {
     // node the NETWORK is empty rather than unreachable, which is the cold-start case.
     const raw = await policyStore.getRawBundle();
     if (!raw) {
-      await sendSignedMessage({ type: 'fluxpolicyseq', version: 1, seq: null }, peer);
+      await sendSignedMessage({
+        type: 'fluxpolicyseq', version: 1, seq: null, intent: INTENT.ANSWER, correlationId,
+      }, peer);
       return;
     }
 
@@ -195,11 +201,15 @@ async function respondWithPolicy(msgObj, peer) {
       // would have to be at or below this node - which is the network being level, and
       // confirmation being correct. A peer that lies high costs one request and a
       // refused bundle.
-      await sendSignedMessage({ type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq() }, peer);
+      await sendSignedMessage({
+        type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq(), intent: INTENT.ANSWER, correlationId,
+      }, peer);
       return;
     }
 
-    await sendSignedMessage({ type: 'fluxpolicy', version: 1, bundle: raw }, peer);
+    await sendSignedMessage({
+      type: 'fluxpolicy', version: 1, bundle: raw, intent: INTENT.ANSWER, correlationId,
+    }, peer);
   } catch (error) {
     log.error(error);
   }
@@ -213,8 +223,10 @@ async function respondWithPolicy(msgObj, peer) {
  * rather than waiting to be told.
  * @param {number} seq The sequence this node holds.
  */
-async function requestPolicyFromPeers(seq) {
-  await broadcastMessageToAll({ type: 'fluxpolicyrequest', version: 1, seq });
+async function requestPolicyFromPeers(seq, correlationId) {
+  await broadcastMessageToAll({
+    type: 'fluxpolicyrequest', version: 1, seq, intent: INTENT.ASK, correlationId,
+  });
 }
 
 /**
@@ -225,8 +237,10 @@ async function requestPolicyFromPeers(seq) {
  * @param {object} peer The peer socket to ask.
  * @param {number} seq What this node holds.
  */
-async function requestPolicyFromPeer(peer, seq) {
-  await sendSignedMessage({ type: 'fluxpolicyrequest', version: 1, seq }, peer);
+async function requestPolicyFromPeer(peer, seq, correlationId) {
+  await sendSignedMessage({
+    type: 'fluxpolicyrequest', version: 1, seq, intent: INTENT.ASK, correlationId,
+  }, peer);
 }
 
 /**
