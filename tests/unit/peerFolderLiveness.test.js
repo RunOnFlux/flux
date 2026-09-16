@@ -126,7 +126,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: false, answerable: false, ready: false, folders: [],
+        reachable: false, answerable: false, ready: false, folders: [], holding: {},
       });
     });
 
@@ -142,7 +142,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: false, ready: false, folders: [],
+        reachable: true, answerable: false, ready: false, folders: [], holding: {},
       });
     });
 
@@ -186,7 +186,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: true, ready: false, folders: [],
+        reachable: true, answerable: true, ready: false, folders: [], holding: {},
       });
     });
 
