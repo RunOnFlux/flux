@@ -140,6 +140,7 @@ describe('a backup refuses to archive a copy that is not there', function () {
     // the same breath as refusing it.
     await setSyncState({
       ip: nodeIp, folder: folderId, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+      receiveOnlyChangedFiles: 0,
     });
 
     const body = await client.appendBackupTask(appName, [comp], auth.zelidauth);
