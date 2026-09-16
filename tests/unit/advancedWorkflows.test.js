@@ -2980,6 +2980,34 @@ describe('advancedWorkflows tests', () => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
     });
 
+    it('seeds .stignore from the spec, at volume creation', async () => {
+      // The seed is what closes the window the converge pass cannot: syncthing indexes
+      // whatever it finds on its first scan, so an ml: directory populated before the
+      // first converge would replicate once and need a db/revert to unwind. A fleet
+      // test cannot pin this - the converge repairs .stignore within a monitor pass, so
+      // by the time any assertion runs the two are indistinguishable.
+      const syncComponent = { name: 'frontend', hdd: 1, containerData: 'g:/appdata|ml:cache:/var/cache' };
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').resolves({});
+      const writes = [];
+      // eslint-disable-next-line global-require
+      const nodeFs = require('node:fs');
+      sinon.stub(nodeFs.promises, 'writeFile').callsFake(async (target, body) => {
+        writes.push({ target: String(target), body: String(body) });
+      });
+
+      await advancedWorkflows.createAppVolume(syncComponent, 'TestApp', true, null).catch(() => {});
+
+      const stignore = writes.find((write) => write.target.endsWith('.stignore'));
+      expect(stignore, 'volume creation wrote no .stignore').to.not.equal(undefined);
+      expect(
+        stignore.body.split('\n').filter(Boolean),
+        'the seeded ignores must already carry the spec-declared directory',
+      ).to.deep.equal(['/backup', '/.flux-op-*', '/cache']);
+    });
+
     it('preserves the synced-mark when the pre-flight aborts before any volume is touched', async () => {
       // a recreate whose pre-flight fails (a resources-query blip, or out of
       // space - the LIKELY population for failed recreates) leaves the existing
