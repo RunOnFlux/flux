@@ -169,6 +169,16 @@ async function changeSyncthingOwnership(configDir, syncthingDir, configFile) {
 }
 
 /**
+ * Whether this process owns the syncthing daemon on this node. The rule above,
+ * answered for this process - exported so nothing else has to re-derive it from
+ * the node type and get a different answer.
+ * @returns {boolean}
+ */
+function ownsSyncthing() {
+  return fluxosSupervisesSyncthing;
+}
+
+/**
  * Where syncthing's configuration and identity live. SYNCTHING_PATH relocates
  * it, so everything that creates, chowns, spawns into or reads that directory
  * has to resolve it the same way. Resolved in one place because they did not:
@@ -2662,6 +2672,7 @@ module.exports = {
   probeSyncthing,
   refreshSyncthingHealth,
   supervisesSyncthing,
+  ownsSyncthing,
   getMeta,
   getHealth,
   postSystemError,

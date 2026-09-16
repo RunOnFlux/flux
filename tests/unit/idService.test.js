@@ -704,40 +704,27 @@ describe('idService tests', () => {
       });
     });
 
-    // The syncthing gate answers a legacy question - has the operator broken
-    // syncthing - and the repair path that question implies is !isArcane too. On
-    // Arcane we install it and FluxOS cannot restart it, so failing the node
-    // here would take it off the network for a fault it cannot repair. Reported,
-    // not fatal.
-    describe('on Arcane the same outage is reported, not fatal', () => {
-      let originalFluxOSPath;
-      let arcaneIdService;
-      const idServicePath = '../../ZelBack/src/services/idService';
-
+    // The syncthing gate asks whether the operator has broken a syncthing FluxOS
+    // can do something about, so it is held to the nodes that own the daemon -
+    // the same question the repair path is held to. Where we do not own it,
+    // FluxOS cannot restart it, and failing the node would take it off the
+    // network for a fault it cannot repair. Reported, not fatal.
+    //
+    // Stubbed on ownsSyncthing rather than set through FLUXOS_PATH: the node
+    // type is no longer what decides this, and a test that reaches the branch
+    // through the old variable would pass while the branch had moved.
+    describe('where FluxOS does not own syncthing, the outage is reported, not fatal', () => {
       beforeEach(() => {
-        originalFluxOSPath = process.env.FLUXOS_PATH;
-        process.env.FLUXOS_PATH = '/flux';
-        delete require.cache[require.resolve(idServicePath)];
-        // eslint-disable-next-line global-require
-        arcaneIdService = require(idServicePath);
-      });
-
-      afterEach(() => {
-        if (originalFluxOSPath !== undefined) {
-          process.env.FLUXOS_PATH = originalFluxOSPath;
-        } else {
-          delete process.env.FLUXOS_PATH;
-        }
-        delete require.cache[require.resolve(idServicePath)];
+        sinon.stub(syncthingService, 'ownsSyncthing').returns(false);
       });
 
       it('reports syncthing degraded and stays fit', async () => {
         healthyHardware();
         syncthingService.setSyncthingRunningState(false);
 
-        const fitness = await arcaneIdService.checkNodeFitness();
+        const fitness = await idService.checkNodeFitness();
 
-        expect(fitness.ok, 'an Arcane node was failed for a syncthing it cannot restart').to.equal(true);
+        expect(fitness.ok, 'a node was failed for a syncthing it cannot restart').to.equal(true);
         expect(fitness.checks.syncthing, 'the outage went unreported instead of being shown').to.equal('degraded');
       });
 
@@ -747,11 +734,25 @@ describe('idService tests', () => {
         osTotalmemStub.returns(1 * 1024 ** 3);
         osCpusStub.returns([1]);
 
-        const fitness = await arcaneIdService.checkNodeFitness();
+        const fitness = await idService.checkNodeFitness();
 
-        expect(fitness.ok, 'the Arcane branch let a genuinely unfit node through').to.equal(false);
+        expect(fitness.ok, 'the carve-out let a genuinely unfit node through').to.equal(false);
         expect(fitness.error.message).to.equal('Node hardware requirements not met');
       });
+    });
+
+    // The other side of the same question, and the case that used to be decided
+    // differently here than in syncthingService: a node whose syncthing FluxOS
+    // does own is still refused for it.
+    it('refuses a node whose own syncthing is broken', async () => {
+      healthyHardware();
+      sinon.stub(syncthingService, 'ownsSyncthing').returns(true);
+      syncthingService.setSyncthingRunningState(false);
+
+      const fitness = await idService.checkNodeFitness();
+
+      expect(fitness.ok).to.equal(false);
+      expect(fitness.error.message).to.equal('Syncthing is not running properly');
     });
   });
 
