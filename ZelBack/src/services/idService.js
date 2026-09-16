@@ -175,22 +175,23 @@ async function checkNodeFitness() {
   }
   checks.hardware = 'ok';
 
-  // DOS state (contains daemon checks)
-  const dosState = fluxNetworkHelper.getDOSState();
-  if (dosState.status === 'error') {
-    return { ok: false, error: { message: 'Unable to check DOS state' }, checks };
-  }
-  if (dosState.status === 'success') {
-    if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
-      let error = { message: dosState.data.dosMessage, name: 'DOS', code: dosState.data.dosState };
-      if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
-        error = { message: dosState.data.dosMessage, name: 'CONNERROR', code: dosState.data.dosState };
-      }
-      if (dosState.data.nodeHardwareSpecsGood === false) {
-        error = { message: 'Minimum hardware required for FluxNode tier not met', name: 'DOS', code: 100 };
-      }
-      return { ok: false, error, checks };
+  // DOS state (contains daemon checks). getDOSState answers with
+  // createDataMessage, which hardcodes status 'success', so there is no error
+  // shape to branch on and no success to test for.
+  //
+  // It answers with dosState and dosMessage and nothing else. The checks here
+  // used to also read nodeHardwareSpecsGood, a field no caller in this repo,
+  // fluxbench or the frontend has ever emitted - so `undefined === false` made
+  // both of its conditions permanently false, including the one that returned
+  // code 100. The hardware question it was reaching for is answered live four
+  // lines above, by confirmNodeTierHardware.
+  const { data: dos } = fluxNetworkHelper.getDOSState();
+  if (dos.dosState > 10 || dos.dosMessage !== null) {
+    let error = { message: dos.dosMessage, name: 'DOS', code: dos.dosState };
+    if (dos.dosMessage !== 'Flux IP detection failed' && dos.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
+      error = { message: dos.dosMessage, name: 'CONNERROR', code: dos.dosState };
     }
+    return { ok: false, error, checks };
   }
   checks.dos = 'ok';
 

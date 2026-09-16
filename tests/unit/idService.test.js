@@ -315,34 +315,6 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return error if dos status returns an error', async () => {
-      const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
-      osTotalmemStub.returns(8 * 1024 ** 3);
-      osCpusStub.returns([1, 1, 1, 1]);
-      getDOSStateStub.returns({
-        status: 'error',
-        data: {
-          dosState: null,
-          dosMessage: null,
-        },
-      });
-
-      const expectedResponse = {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: 'Unable to check DOS state',
-        },
-      };
-
-      await idService.loginPhrase(undefined, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-
     it('should return error if dosState > 11 and message is Flux IP detection failed', async () => {
       const res = generateResponse();
       tierStub.resolves('basic');
@@ -354,7 +326,6 @@ describe('idService tests', () => {
         data: {
           dosState: 11,
           dosMessage: 'Flux IP detection failed',
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -383,7 +354,6 @@ describe('idService tests', () => {
         data: {
           dosState: 11,
           dosMessage: 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -412,7 +382,6 @@ describe('idService tests', () => {
         data: {
           dosState: 11,
           dosMessage: 'test',
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -430,7 +399,9 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return  error if nodeHardwareSpecsGood is false', async () => {
+    // The gate is two independent terms, and every case above trips both at
+    // once - so either could be deleted without a test noticing. One each.
+    it('fails on the dos score alone, with no message to go with it', async () => {
       const res = generateResponse();
       tierStub.resolves('basic');
       collateralStub.resolves(1000);
@@ -440,23 +411,40 @@ describe('idService tests', () => {
         status: 'success',
         data: {
           dosState: 11,
-          dosMessage: 'test',
-          nodeHardwareSpecsGood: false,
+          dosMessage: null,
         },
       });
 
-      const expectedResponse = {
+      await idService.loginPhrase(undefined, res);
+
+      // createErrorMessage substitutes its own text for a null message, so a
+      // score-only failure reaches the caller as 'Unknown error'.
+      sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
+        data: { code: 11, name: 'CONNERROR', message: 'Unknown error' },
+      });
+    });
+
+    it('fails on a message alone, with the score still at zero', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
         data: {
-          code: 100,
-          name: 'DOS',
-          message: 'Minimum hardware required for FluxNode tier not met',
+          dosState: 0,
+          dosMessage: 'Flux IP detection failed',
         },
-      };
+      });
 
       await idService.loginPhrase(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: 0, name: 'DOS', message: 'Flux IP detection failed' },
+      });
     });
 
     it('should return write new phrase into the db', async () => {
@@ -473,7 +461,6 @@ describe('idService tests', () => {
         data: {
           dosState: 0,
           dosMessage: null,
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -502,7 +489,7 @@ describe('idService tests', () => {
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
         status: 'success',
-        data: { dosState: 0, dosMessage: null, nodeHardwareSpecsGood: true },
+        data: { dosState: 0, dosMessage: null },
       });
     };
 
