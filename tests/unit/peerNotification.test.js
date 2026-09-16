@@ -2,8 +2,6 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
-const globalState = require('../../ZelBack/src/services/utils/globalState');
-
 describe('peerNotification tests', () => {
   let peerNotification;
   let logStub;
@@ -15,6 +13,11 @@ describe('peerNotification tests', () => {
   let nodeSignerStub;
   let installedAppsStub;
   let listRunningAppsStub;
+  // Stubbed rather than shared: globalState is a singleton another suite drops
+  // from the require cache, so a reference taken here and the one the module
+  // under test resolves are two different objects, and a mark set on one is
+  // invisible to the other.
+  let departingApps;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -103,6 +106,10 @@ describe('peerNotification tests', () => {
       canSendMessages: sinon.stub().returns(true),
       onMessageCapabilityChange: sinon.stub(),
     },
+    '../utils/globalState': {
+      departingApps,
+      runningAppsCache: new Set(),
+    },
     '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
     '../../lib/log': logStub,
   });
@@ -128,15 +135,13 @@ describe('peerNotification tests', () => {
       status: 'success',
       data: [{ Names: ['/fluxc1_app1'] }],
     });
+    departingApps = new Set();
 
     peerNotification = loadPeerNotification();
   });
 
   afterEach(() => {
     sinon.restore();
-    // Module-level and shared across the suite: an entry left behind silences
-    // that app for every later test.
-    globalState.departingApps.clear();
   });
 
   describe('checkAndNotifyPeersOfRunningApps', () => {
@@ -204,7 +209,7 @@ describe('peerNotification tests', () => {
           { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
-      globalState.departingApps.add('app2');
+      departingApps.add('app2');
 
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
@@ -218,11 +223,11 @@ describe('peerNotification tests', () => {
     // The claim returns on its own: the mark lives only for the removal, so a
     // removal that fails leaves the app announced rather than silently unplaced.
     it('announces the app again once the removal has finished', async () => {
-      globalState.departingApps.add('app1');
+      departingApps.add('app1');
       await peerNotification.checkAndNotifyPeersOfRunningApps();
       expect(storeAppRunningMessageStub.called, 'announced while departing').to.be.false;
 
-      globalState.departingApps.delete('app1');
+      departingApps.delete('app1');
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       const [message] = storeAppRunningMessageStub.firstCall.args;
@@ -230,7 +235,7 @@ describe('peerNotification tests', () => {
     });
 
     it('announces nothing when every installed app is departing', async () => {
-      globalState.departingApps.add('app1');
+      departingApps.add('app1');
 
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
