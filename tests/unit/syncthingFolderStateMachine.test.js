@@ -647,6 +647,42 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(volumeServiceMock.isPathMounted);
     });
 
+    // The 777 exists for the app's own mounts. The volume root holds one directory
+    // that is NOT the app's - the executor's staging directory - and it is
+    // permanent now rather than per-operation. Handed to the app at 777 it is a
+    // place to write that the sweep never empties (it removes only names it
+    // minted), the browser never shows, resolve refuses to delete and .stignore
+    // keeps off the network: bytes spending the owner's quota where they can
+    // neither see nor clear them.
+    //
+    // Skipped rather than widened-and-put-back. Putting it back leaves a window
+    // where it is open, and does not reach what is INSIDE it - a live operation's
+    // staging entry, already widened by the same recursive pass.
+    it('widens the app\'s own tree and skips the staging directory entirely', async () => {
+      fsMock.promises.readdir.resolves([]);
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+      expect(result.syncthingFolder.type, 'the fixture must reach a promotion, or nothing is chmodded').to.equal('sendreceive');
+
+      const widen = serviceHelperMock.runCommand.getCalls().find((call) => call.args[0] === 'find');
+      expect(widen, 'the app tree must still be widened').to.exist;
+      const params = widen.args[1].params;
+      const appPath = params[0];
+
+      // The subtree is pruned, and it is the staging directory that is pruned.
+      expect(params).to.include('-prune');
+      expect(params[params.indexOf('-path') + 1]).to.equal(`${appPath}/.flux-op`);
+      // And what survives the prune is still made writable by any UID.
+      expect(params.slice(params.indexOf('-exec'))).to.deep.equal(['-exec', 'chmod', '777', '{}', '+']);
+    });
+
     it('should elect leader and start immediately', async () => {
       // A cold start holds nothing, so the volume is empty too - the seed guard reads
       // the disk, and the suite default puts files there for verifyFolderMountSafety.

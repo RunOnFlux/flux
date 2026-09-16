@@ -26,7 +26,7 @@ const {
 
 const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
-const { isReservedName } = require('../appSystem/volumeReservedNames');
+const { STAGING_ROOT, isReservedName } = require('../appSystem/volumeReservedNames');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -339,10 +339,24 @@ async function fixAppdataPermissions(appId) {
     // (appdata, logs, config, file mounts, etc.)
     const appPath = `${appsFolder}${appId}`;
 
-    // Recursively set 777 permissions to allow any container user to write
-    // This ensures containers running as any UID/GID can access their data
-    // Covers both appdata (primary mount) and all additional mounts at the same level
-    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', appPath] });
+    // Everything the app was given, set so a container running as any UID can
+    // write its own data - and nothing else. The volume root holds one directory
+    // that is not the app's: the staging directory the executor works in.
+    //
+    // PRUNED RATHER THAN PUT BACK. Widening it and narrowing it afterwards leaves
+    // two holes a single pass does not: a window where it is open, and everything
+    // INSIDE it - a live operation's staging entry - already widened by the
+    // recursive pass and not reached by narrowing the top. Skipping the subtree
+    // has neither, and says what is meant: this widens the app's tree, and the
+    // staging directory is not part of it.
+    //
+    // Root owns that directory and the executor runs in the container as root, so
+    // it needs nothing from this.
+    const stagingPath = `${appPath}/${STAGING_ROOT}`;
+    const chmod = await serviceHelper.runCommand('find', {
+      runAsRoot: true,
+      params: [appPath, '-path', stagingPath, '-prune', '-o', '-exec', 'chmod', '777', '{}', '+'],
+    });
     if (chmod.error) throw chmod.error;
     log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
   } catch (error) {
