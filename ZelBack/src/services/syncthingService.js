@@ -18,7 +18,14 @@ const { Privilege, authOf } = require('./utils/privileges');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
-const isArcane = Boolean(process.env.SYNCTHING_PATH);
+// FLUXOS_PATH, as everywhere else that asks this question. SYNCTHING_PATH is a
+// path override that happens to be Arcane-only today, and it decides whether
+// FluxOS supervises syncthing at all: stop, reinstall, spawn, and the ownership
+// dance. A marker that is really a path stops being true the moment the path is
+// set for its own sake - a legacy operator relocating syncthing's config would
+// have had FluxOS stand back from a daemon nobody else supervises. Verified on
+// a live Arcane node (8.18.0) that both are set, so this changes nothing there.
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 /**
  * If the binary is executable
