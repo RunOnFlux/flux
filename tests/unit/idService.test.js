@@ -583,6 +583,56 @@ describe('idService tests', () => {
         data: { code: undefined, name: 'Error', message: 'Syncthing is not running properly' },
       });
     });
+
+    // The syncthing gate answers a legacy question - has the operator broken
+    // syncthing - and the repair path that question implies is !isArcane too. On
+    // Arcane we install it and FluxOS cannot restart it, so failing the node
+    // here would take it off the network for a fault it cannot repair. Reported,
+    // not fatal.
+    describe('on Arcane the same outage is reported, not fatal', () => {
+      let originalFluxOSPath;
+      let arcaneIdService;
+      const idServicePath = '../../ZelBack/src/services/idService';
+
+      beforeEach(() => {
+        originalFluxOSPath = process.env.FLUXOS_PATH;
+        process.env.FLUXOS_PATH = '/flux';
+        delete require.cache[require.resolve(idServicePath)];
+        // eslint-disable-next-line global-require
+        arcaneIdService = require(idServicePath);
+      });
+
+      afterEach(() => {
+        if (originalFluxOSPath !== undefined) {
+          process.env.FLUXOS_PATH = originalFluxOSPath;
+        } else {
+          delete process.env.FLUXOS_PATH;
+        }
+        delete require.cache[require.resolve(idServicePath)];
+      });
+
+      it('reports syncthing degraded and stays fit', async () => {
+        healthyHardware();
+        syncthingService.setSyncthingRunningState(false);
+
+        const fitness = await arcaneIdService.checkNodeFitness();
+
+        expect(fitness.ok, 'an Arcane node was failed for a syncthing it cannot restart').to.equal(true);
+        expect(fitness.checks.syncthing, 'the outage went unreported instead of being shown').to.equal('degraded');
+      });
+
+      it('still fails on a check that is not syncthing', async () => {
+        healthyHardware();
+        syncthingService.setSyncthingRunningState(false);
+        osTotalmemStub.returns(1 * 1024 ** 3);
+        osCpusStub.returns([1]);
+
+        const fitness = await arcaneIdService.checkNodeFitness();
+
+        expect(fitness.ok, 'the Arcane branch let a genuinely unfit node through').to.equal(false);
+        expect(fitness.error.message).to.equal('Node hardware requirements not met');
+      });
+    });
   });
 
   describe('emergencyPhrase tests', () => {

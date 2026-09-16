@@ -15,6 +15,8 @@ const appInspector = require('./appManagement/appInspector');
 const signatureVerifier = require('./signatureVerifier');
 const { Privilege, authOf } = require('./utils/privileges');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 /**
  * What /id/checkprivilege answers.
  *
@@ -140,13 +142,22 @@ async function checkNodeFitness() {
     return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
   }
 
-  // syncthing: the flag is maintained by the sentinel with debounce, so a single
-  // probe blip cannot land here - only a sustained outage does.
-  if (!syncthingService.isRunning()) {
+  // syncthing: measured everywhere, but it only decides fitness on legacy.
+  //
+  // This check exists because a legacy operator's syncthing may be absent,
+  // mis-installed, wrongly owned or simply killed - which is why the whole
+  // repair path (stop, install, configure, spawn) and the ownership dance are
+  // !isArcane. On Arcane we ship syncthing, we own it, and FluxOS has no way to
+  // restart it, so failing the node here would take it off the network for a
+  // fault it neither caused nor can repair. The app path is unaffected either
+  // way: mount-safety, folder state and the g: election each hold their own
+  // syncthing readiness and stand down on it without help from here.
+  const syncthingHealthy = syncthingService.isRunning();
+  if (!syncthingHealthy && !isArcane) {
     const error = new Error('Syncthing is not running properly');
     return { ok: false, error: { message: error.message, name: error.name, code: error.code }, checks };
   }
-  checks.syncthing = 'ok';
+  checks.syncthing = syncthingHealthy ? 'ok' : 'degraded';
 
   // docker: listing images proves the daemon answers
   try {

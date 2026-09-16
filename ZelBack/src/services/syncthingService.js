@@ -26,21 +26,32 @@ const isArcane = Boolean(process.env.SYNCTHING_PATH);
 let syncthingBinaryPresent = false;
 
 /**
- * If syncthing is running okay. This does several checks. (See getDeviceId function)
- * We optimistically set this to true to avoid race conditions, as the webserver
- * is started before the syncthing checks. If there is actually a problem with
- * syncthing, it will get set to false on the next iteration.
+ * When a probe last found syncthing up and configured. Health is DERIVED from
+ * this rather than stored as a verdict, and only success is ever recorded.
+ *
+ * A stored boolean has to be lowered by somebody, so every path that fails to
+ * reach the lowering line reports health it has no evidence for: a throw out of
+ * the repair path, a sentinel that never starts because the binary is missing, a
+ * probe that throws rather than returning, or the sentinel dying outright. None
+ * of those can be fixed by patching the lowering line, because the fault is in a
+ * default that asserts health with nothing behind it. Staleness cannot be
+ * skipped - no fresh success IS the failure, whatever the reason.
+ *
+ * It also absorbs the blip tolerance. A window is what a consecutive-failure
+ * counter was approximating, and it is right even on the passes that never ran.
+ *
+ * Stamped at startup so the node has exactly one window of grace while the
+ * webserver is up and the first probe has not landed.
  */
-let syncthingStatusOk = true;
+let lastHealthyProbeAt = Date.now();
+// Four missed passes of a 60s sentinel loop. Wide enough that a slow
+// adjustSyncthing or a couple of blips cannot mark the node down; short enough
+// that a real outage is reported within minutes.
+const SYNCTHING_HEALTH_WINDOW_MS = 5 * 60 * 1000;
 // The device id is the SHA-256 of syncthing's cert (protocol.NewDeviceID); it is
 // fixed for the life of the install, so it is read once and served from here.
 // Cleared when syncthing is stopped, the only point a new cert could appear.
 let cachedDeviceId = null;
-// A single failed probe is not an outage - syncthing is briefly unresponsive
-// under load or mid-scan. The health flag only drops after this many consecutive
-// failed probes, so a blip cannot flip the node's benchmark health.
-let syncthingHealthFailures = 0;
-const SYNCTHING_HEALTH_FAILURE_THRESHOLD = 3;
 
 const parserOptions = {
   ignoreAttributes: false,
@@ -1323,12 +1334,19 @@ async function probeSyncthing() {
   let healthy = null;
   let pingResponse = null;
 
+  let deviceId = null;
+
   try {
     // if aborted, axios will reject immediately, without any network activity
     meta = await getMeta();
     healthy = await getHealth();
     // check that flux has proper api key
     pingResponse = await systemPing();
+    // Parsed in here too: a meta body that answers but does not parse is a
+    // failed probe, not an exception thrown at whoever asked.
+    if (meta && pingResponse?.ping === 'pong' && healthy?.status === 'OK') {
+      deviceId = JSON.parse(meta.slice(15).slice(0, -2)).deviceID || null;
+    }
   } catch {
     // do nothing
   } finally {
@@ -1337,12 +1355,7 @@ async function probeSyncthing() {
 
   if (stc.aborted) return { ok: false, deviceId: null };
 
-  if (meta && pingResponse?.ping === 'pong' && healthy?.status === 'OK') {
-    const deviceObject = JSON.parse(meta.slice(15).slice(0, -2));
-    return { ok: true, deviceId: deviceObject.deviceID };
-  }
-
-  return { ok: false, deviceId: null };
+  return deviceId ? { ok: true, deviceId } : { ok: false, deviceId: null };
 }
 
 /**
@@ -1362,28 +1375,28 @@ async function getDeviceId() {
 }
 
 /**
- * Refresh the shared syncthing health flag from one probe, with debounce. The
- * sentinel calls this on its loop so the flag reflects a deliberate schedule
- * rather than whatever incoming peer traffic last happened to trigger. A success
- * clears the flag immediately; failures must reach the threshold before it drops.
- * @returns {Promise<boolean>} The probe result (not the debounced flag).
+ * Probe syncthing and record the result. The sentinel calls this on its loop so
+ * health reflects a deliberate schedule rather than whatever incoming peer
+ * traffic last happened to trigger.
+ *
+ * Only a success is written, and it writes a time, not a verdict. There is
+ * deliberately no "mark it down" branch to skip - see lastHealthyProbeAt.
+ * @returns {Promise<boolean>} The probe result.
  */
 async function refreshSyncthingHealth() {
+  const wasHealthy = isRunning(); // eslint-disable-line no-use-before-define
   const { ok, deviceId } = await probeSyncthing();
 
   if (ok) {
-    syncthingHealthFailures = 0;
-    syncthingStatusOk = true;
+    lastHealthyProbeAt = Date.now();
     if (deviceId) cachedDeviceId = deviceId;
     return true;
   }
 
-  syncthingHealthFailures += 1;
-  if (syncthingHealthFailures >= SYNCTHING_HEALTH_FAILURE_THRESHOLD) {
-    if (syncthingStatusOk) {
-      log.error(`Syncthing health probe failed ${syncthingHealthFailures} times in a row; marking syncthing not running`);
-    }
-    syncthingStatusOk = false;
+  // Said on the transition only. Every pass logging a failed probe would bury
+  // the moment the node actually stopped being usable.
+  if (wasHealthy && !isRunning()) { // eslint-disable-line no-use-before-define
+    log.error(`Syncthing has not answered a health probe for ${SYNCTHING_HEALTH_WINDOW_MS / 1000}s; marking syncthing not running`);
   }
   return false;
 }
@@ -1406,11 +1419,13 @@ async function getDeviceIdApi(_, res) {
 }
 
 /**
- * Returns if syncthing service is running ok
- * @returns {Boolean} True if getDeviceId last execution was successful
+ * Whether syncthing is usable: a probe found it up recently enough. Derived, so
+ * anything that stops probes landing - a broken repair path, a sentinel that
+ * never started, a dead loop - reads as not running rather than as healthy.
+ * @returns {Boolean}
  */
 function isRunning() {
-  return syncthingStatusOk;
+  return Date.now() - lastHealthyProbeAt < SYNCTHING_HEALTH_WINDOW_MS;
 }
 
 /**
@@ -1737,19 +1752,19 @@ async function startSyncthingSentinel() {
 }
 
 /**
- * Test helper
+ * Test helper: moves the last-healthy stamp so isRunning() answers `value`.
  * @param {Boolean} value
  */
 function setSyncthingRunningState(value) {
-  syncthingStatusOk = value;
+  lastHealthyProbeAt = value ? Date.now() : Date.now() - SYNCTHING_HEALTH_WINDOW_MS;
 }
 
 /**
- * Test helper: clears the cached device id and the health debounce counter.
+ * Test helper: clears the cached device id and restores the health window.
  */
 function resetDeviceIdCache() {
   cachedDeviceId = null;
-  syncthingHealthFailures = 0;
+  lastHealthyProbeAt = Date.now();
 }
 
 // handy for testing
@@ -2176,7 +2191,7 @@ async function getSyncthingMetricsHistory(req, res) {
  */
 async function collectAndSaveMetrics() {
   try {
-    if (!syncthingStatusOk) {
+    if (!isRunning()) {
       log.debug('Syncthing not running, skipping metrics collection');
       return undefined;
     }

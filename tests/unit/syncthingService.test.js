@@ -268,31 +268,64 @@ describe('syncthingService tests', () => {
       expect(syncthingService.isRunning()).to.equal(false);
     });
 
-    it('refreshSyncthingHealth keeps the flag up through a blip, drops it only after three failures', async () => {
-      syncthingService.setSyncthingRunningState(true);
+    it('keeps health up through a blip: the last success is still fresh', async () => {
       syncthingService.resetDeviceIdCache();
-
       fakeMeta.throws(new Error('syncthing busy'));
 
       await syncthingService.refreshSyncthingHealth();
-      expect(syncthingService.isRunning(), 'one failure must not drop the flag').to.equal(true);
       await syncthingService.refreshSyncthingHealth();
-      expect(syncthingService.isRunning(), 'two failures must not drop the flag').to.equal(true);
       await syncthingService.refreshSyncthingHealth();
-      expect(syncthingService.isRunning(), 'the third consecutive failure drops it').to.equal(false);
+
+      expect(
+        syncthingService.isRunning(),
+        'a run of failed probes inside the window flipped the node, which is what fails a benchmark over nothing',
+      ).to.equal(true);
     });
 
-    it('a single success clears the failure streak and restores the flag', async () => {
+    // The point of deriving health rather than storing it: NOTHING has to write
+    // a failure. Every way the sentinel can fail to land a probe - a throw out
+    // of the repair path, a sentinel that never starts because the binary is
+    // missing, the loop dying outright - arrives here as the same thing. No
+    // probe has succeeded lately, so the node is not running syncthing.
+    it('reports not running once no probe has succeeded inside the window, with nothing having written a failure', () => {
       syncthingService.resetDeviceIdCache();
-      fakeMeta.throws(new Error('syncthing busy'));
-      await syncthingService.refreshSyncthingHealth();
-      await syncthingService.refreshSyncthingHealth();
-      await syncthingService.refreshSyncthingHealth();
+      expect(syncthingService.isRunning(), 'fixture: healthy to begin with').to.equal(true);
+
+      // Not one call into the service: this is the sentinel simply never coming
+      // back, which is the case a stored flag reports as healthy forever.
+      const clock = sinon.useFakeTimers({ now: Date.now() + 5 * 60 * 1000 + 1, toFake: ['Date'] });
+
+      try {
+        expect(
+          syncthingService.isRunning(),
+          'the sentinel stopped landing probes and the node still claimed syncthing was fine',
+        ).to.equal(false);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('a single success restores health', async () => {
+      syncthingService.setSyncthingRunningState(false);
       expect(syncthingService.isRunning()).to.equal(false);
 
       fakeMeta.resolves({ status: 'success', data: metaBody });
       await syncthingService.refreshSyncthingHealth();
+
       expect(syncthingService.isRunning()).to.equal(true);
+    });
+
+    // probeSyncthing promises {ok, deviceId}. It used to parse the meta body
+    // outside its own try, so a body that answered but did not parse threw at
+    // the caller instead - and a throw out of refreshSyncthingHealth is one more
+    // way for a pass to record nothing.
+    it('a meta body that does not parse is a failed probe, not a throw', async () => {
+      syncthingService.resetDeviceIdCache();
+      fakeMeta.resolves({ status: 'success', data: 'not json at all' });
+
+      const result = await syncthingService.refreshSyncthingHealth();
+
+      expect(result, 'the probe reported success on a body it could not read').to.equal(false);
     });
 
     it('stopSyncthing drops the cached id, so the next read re-probes', async () => {
