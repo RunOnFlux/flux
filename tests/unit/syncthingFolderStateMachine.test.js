@@ -164,9 +164,10 @@ describe('syncthingFolderStateMachine tests', () => {
     appReconcilerMock.requestStopAndClearData.reset();
     appReconcilerMock.enqueue.reset();
 
-    // Default filesystem state: app dir exists, is a mountpoint, holds files.
-    // This makes verifyFolderMountSafety return isSafe: true
-    fsMock.promises.stat.resolves({ isDirectory: () => true });
+    // Default filesystem state: app dir exists, is a mountpoint, holds files with
+    // bytes in them. This makes verifyFolderMountSafety return isSafe: true, and it
+    // is what "holds data" means to the cold-start seed guard - a size, not a count.
+    fsMock.promises.stat.resolves({ isDirectory: () => true, size: 4096 });
     volumeServiceMock.isPathMounted.resolves(true);
     fsMock.promises.readdir.resolves([dirent('state.db'), dirent('config.yaml')]);
   });
@@ -484,6 +485,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('should elect leader and start immediately', async () => {
+      // A cold start holds nothing, so the volume is empty too - the seed guard reads
+      // the disk, and the suite default puts files there for verifyFolderMountSafety.
+      fsMock.promises.readdir.resolves([]);
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
@@ -541,6 +545,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('confirms again after a heal - isolation resets the streak, it does not end the candidacy', async () => {
+      // A cold start holds nothing, so the volume is empty too - the seed guard reads
+      // the disk, and the suite default puts files there for verifyFolderMountSafety.
+      fsMock.promises.readdir.resolves([]);
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
@@ -849,6 +856,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('promotes once that peer has determined it holds nothing', async () => {
+      // A cold start holds nothing, so the volume is empty too - the seed guard reads
+      // the disk, and the suite default puts files there for verifyFolderMountSafety.
+      fsMock.promises.readdir.resolves([]);
       // The wait needs no bound because it resolves itself: the peer completes its
       // pass and answers, or it stops responding and becomes the unreachable case,
       // which does not block.
@@ -881,6 +891,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('promotes when no peer holds the writable copy', async () => {
+      // A cold start holds nothing, so the volume is empty too - the seed guard reads
+      // the disk, and the suite default puts files there for verifyFolderMountSafety.
+      fsMock.promises.readdir.resolves([]);
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
@@ -902,6 +915,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('promotes over an unreachable peer when this node is evidently well connected', async () => {
+      // A cold start holds nothing, so the volume is empty too - the seed guard reads
+      // the disk, and the suite default puts files there for verifyFolderMountSafety.
+      fsMock.promises.readdir.resolves([]);
       // A node still trading pings with the fleet is watching one peer fall over,
       // not sitting in a partition. Deferring there would let a dead node strand the
       // app with no writable copy anywhere.
@@ -927,6 +943,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('still seeds a cold start when a peer cannot be asked, instead of waiting to be upgraded', async () => {
+      // A cold start holds nothing, so the volume is empty too - the seed guard reads
+      // the disk, and the suite default puts files there for verifyFolderMountSafety.
+      fsMock.promises.readdir.resolves([]);
       // The other half, and the reason a peer that cannot answer must not be filed
       // as "not ready yet": unready blocks with no bound, which it earns by
       // resolving itself. A peer that predates the endpoint never will. Blocking
@@ -1072,6 +1091,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('should let a confirmed leader start even while stall evidence is accumulating', async () => {
+      // A cold start holds nothing, so the volume is empty too - the seed guard reads
+      // the disk, and the suite default puts files there for verifyFolderMountSafety.
+      fsMock.promises.readdir.resolves([]);
       // The old machinery stopped the container during its stall recovery, so
       // leadership had to be suppressed mid-recovery. The ladder never stops the
       // container before an (atomic) removal, so a confirmed leader simply starts -
@@ -1205,6 +1227,104 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(syncthingServiceMock.dbRevert);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.not.equal(true);
+    });
+
+    // The scaffolding FluxOS puts on a volume before anything runs is not data, and a
+    // guard that reads it as data defers on every node at once - nobody seeds and the
+    // app never starts. An f: mount leaves a zero-length file (docker would otherwise
+    // create a directory there), mkfs leaves lost+found and the primary mount leaves
+    // appdata, and syncthing reports all three as receive-only local changes on a
+    // folder whose global index is empty. Measured live on a stuck app:
+    // globalBytes 0, receiveOnlyChangedFiles 1, receiveOnlyChangedBytes 256 - and not
+    // one byte of it the owner's.
+    it('seeds a cold start whose only local changes are FluxOS scaffolding', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.onFirstCall().resolves([
+        dirent('appdata', false),
+        dirent('lost+found', false),
+        dirent('.stignore'),
+        dirent('server.json'),
+      ]);
+      fsMock.promises.stat.resolves({ isDirectory: () => true, size: 0 });
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: 2000, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 1, receiveOnlyChangedBytes: 256,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+    });
+
+    // The same shape with one byte in the file is the B1 hazard, and must still defer.
+    it('does not seed a cold start when the scaffolding file holds content', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.onFirstCall().resolves([
+        dirent('appdata', false),
+        dirent('server.json'),
+      ]);
+      fsMock.promises.stat.resolves({ isDirectory: () => true, size: 1 });
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: 2000, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 1, receiveOnlyChangedBytes: 256,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
+    });
+
+    // A directory the spec declared local with ml: is excluded from replication, so its
+    // bytes are not the cluster's to hold and must not make this node defer - otherwise
+    // the standoff returns the first time a game finishes downloading.
+    it('seeds a cold start though an ml: directory is full', async () => {
+      // Keyed on the path, not on call order: a skipped directory is never pushed, so
+      // ordering would silently renumber the calls. And the ml: directory has to HOLD
+      // something, or skipping it and descending into it look identical and the test
+      // cannot fail.
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir
+        .withArgs(sinon.match((dir) => String(dir).endsWith('appdata')), sinon.match.any)
+        .resolves([dirent('game', false)]);
+      fsMock.promises.readdir
+        .withArgs(sinon.match((dir) => String(dir).endsWith('game')), sinon.match.any)
+        .resolves([dirent('enshrouded_server_000.dat')]);
+      fsMock.promises.stat.resolves({ isDirectory: () => true, size: 9000000 });
+      mockParams.unsyncedSubdirs = ['game'];
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: 2000, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 3,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
     });
 
     it('should NOT promote when the revert of local changes fails', async () => {

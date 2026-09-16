@@ -25,8 +25,14 @@ const {
 } = require('./syncthingMonitorConstants');
 
 const { isPathMounted } = require('../utils/volumeService');
+const { isReservedName } = require('../appSystem/volumeReservedNames');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+
+// Entries folderHoldsFileBytes will look at before it gives up and answers "holds
+// bytes". A volume with this many entries and not one byte among them is not the
+// fresh volume the cold-start seed is for.
+const EMPTINESS_SCAN_LIMIT = 5000;
 
 // Per-folder mount-safety observation log gate: a persistent condition writes
 // one line when first seen (re-logged at most every OBSERVATION_RELOG_MS while
@@ -159,6 +165,77 @@ async function checkDirectoryHasSyncScopedContent(dirPath) {
     hasContent: fileCount > 0,
     fileCount,
   };
+}
+
+/**
+ * Whether this folder holds any file BYTES of its own - the question a node has to
+ * answer before it may seed an empty cluster index.
+ *
+ * Asked of the disk rather than of syncthing's counters, because those count ITEMS.
+ * A volume FluxOS has just built is never item-free: `mkfs` leaves `lost+found`, the
+ * primary mount leaves `appdata`, and an `f:` mount leaves a zero-length file that
+ * docker would otherwise have created as a directory. Syncthing reports every one of
+ * them as a receive-only local change, so an item count says "I am holding something"
+ * on a volume that holds nothing, on every node at once - and a guard that is true
+ * everywhere defers everywhere, which is the standoff it exists to avoid.
+ *
+ * Bytes carry the intent exactly: if nothing on disk has a byte in it, seeding can
+ * lose nothing. Names that belong to FluxOS rather than the owner are skipped through
+ * the same predicate the file browser refuses them by, `backup` is skipped because
+ * .stignore already keeps it off the network, and the directories a spec declared
+ * local are skipped for the same reason - none of them is the cluster's to hold.
+ *
+ * Fails CLOSED. A directory it cannot read, or a file it cannot stat, answers "holds
+ * bytes": the alternative is to treat unreadable as empty and seed over data nobody
+ * could see.
+ *
+ * Bounded, and the bound fails closed too: a tree this cannot finish walking within
+ * EMPTINESS_SCAN_LIMIT entries is a tree too big to call empty.
+ *
+ * @param {string} dirPath - the syncthing folder's root on disk
+ * @param {string[]} skipNames - volume-root names the spec declared unsynced
+ * @returns {Promise<boolean>} true if any regular file under it has a non-zero size
+ */
+async function folderHoldsFileBytes(dirPath, skipNames = []) {
+  const pending = [dirPath];
+  let examined = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    let entries;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      entries = await fs.promises.readdir(current, { withFileTypes: true });
+    } catch (error) {
+      log.warn(`folderHoldsFileBytes - ${dirPath}: cannot read ${current} (${error.message}); answering "holds bytes", so this node will not seed`);
+      return true;
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of entries) {
+      examined += 1;
+      if (examined >= EMPTINESS_SCAN_LIMIT) {
+        log.warn(`folderHoldsFileBytes - ${dirPath}: more than ${EMPTINESS_SCAN_LIMIT} entries and no bytes yet; answering "holds bytes", so this node will not seed`);
+        return true;
+      }
+      const atRoot = current === dirPath;
+      const skipped = isReservedName(entry.name)
+        || (atRoot && (entry.name === 'backup' || skipNames.includes(entry.name)));
+      if (!skipped) {
+        if (entry.isDirectory()) {
+          pending.push(path.join(current, entry.name));
+        } else if (entry.isFile()) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const stats = await fs.promises.stat(path.join(current, entry.name));
+            if (stats.size > 0) return true;
+          } catch (error) {
+            log.warn(`folderHoldsFileBytes - ${dirPath}: cannot stat ${entry.name} (${error.message}); answering "holds bytes", so this node will not seed`);
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -839,6 +916,7 @@ async function handleReceiveOnlyTransition(params) {
     runningAppList,
     localSocketAddr,
     containerDataFlags,
+    unsyncedSubdirs,
     syncthingFolder,
     liveness,
   } = params;
@@ -858,8 +936,13 @@ async function handleReceiveOnlyTransition(params) {
   // db/revert deletes the only copy). NOTE this intent holds only while a running peer
   // exists to defer to - see the RESIDUAL LIMITATION on the seed below for where it stops.
   const syncStatus = await getFolderSyncCompletion(appId);
+  // "Seeding loses nothing": the cluster holds no index, this node has synced nothing
+  // from it, and nothing on disk has a byte in it. The last term used to be
+  // receiveOnlyChangedFiles === 0, an ITEM count - see folderHoldsFileBytes for why a
+  // freshly built volume is never item-free and what that cost.
   const folderIsEmpty = !!syncStatus && syncStatus.globalBytes === 0
-    && syncStatus.inSyncBytes === 0 && (syncStatus.receiveOnlyChangedFiles || 0) === 0;
+    && syncStatus.inSyncBytes === 0
+    && !await folderHoldsFileBytes(folderPath, unsyncedSubdirs || []);
   // Designated-leader election, debounced: require leadership to hold for
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader. Defer to a running peer UNLESS this is a true,
@@ -1200,6 +1283,7 @@ async function manageFolderSyncState(params) {
     appId,
     syncFolder,
     containerDataFlags,
+    unsyncedSubdirs,
     syncthingAppsFirstRun,
     receiveOnlySyncthingAppsCache,
     appLocation,
@@ -1257,6 +1341,7 @@ async function manageFolderSyncState(params) {
       runningAppList,
       localSocketAddr,
       containerDataFlags,
+      unsyncedSubdirs,
       syncthingFolder,
       liveness,
     });
