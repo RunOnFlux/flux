@@ -22,9 +22,10 @@ const { extractIp, extractPort, parseSocketAddress, socketAddressesMatch } = req
 const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
+const { INTENT, intentOf } = require('./utils/messageIntent');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-const { messageCache, wsPeerCache } = cacheManager;
+const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
 
 /* const LRUTest = {
   max: 25000000, // 25M
@@ -69,7 +70,7 @@ async function handleAppMessages(message, fromIP, port) {
     const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data);
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
-      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -362,9 +363,28 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
   }
 }
 
+/**
+ * Tell peers this node holds a message, and keep it for whichever of them asks.
+ *
+ * The store is written here rather than at dispatch because this is where a message
+ * becomes something a peer can ask for: a request follows an announcement, and only a
+ * verified message reaches a handler. Nothing this node never announced is ever asked
+ * of it, so nothing else needs keeping.
+ * @param {object} message The verified signed envelope, as it will be handed over.
+ * @param {string} excludeKey The peer it came from, which has it already.
+ */
+function announceToPeers(message, excludeKey) {
+  const messageHash = hash(message.data);
+  announcementStore.set(messageHash, message);
+  peerManager.broadcastHash(messageHash, excludeKey);
+}
+
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
   try {
-    if (!messageCache.has(messageHash)) {
+    // The filter, not the store: the question is whether this node already has the
+    // message, and it has plenty it never announced - anything the database already
+    // held when it arrived. Asking the store would re-request those.
+    if (!announcementSeen.has(messageHash)) {
       peerManager.sendHashRequest(`${fromIP}:${port}`, messageHash);
     }
   } catch (error) {
@@ -381,8 +401,11 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
  */
 async function handleRequestMessageHash(messageHash, fromIP, port) {
   try {
-    if (messageCache.has(messageHash)) {
-      const message = messageCache.get(messageHash);
+    // The store, not the filter: this hands the message over, so it needs the message.
+    // A request follows an announcement, so what a peer can ask for is what this node
+    // announced, which is exactly what the store holds.
+    if (announcementStore.has(messageHash)) {
+      const message = announcementStore.get(messageHash);
       if (message) {
         const messageString = serviceHelper.ensureString(message);
         const peer = peerManager.get(`${fromIP}:${port}`);
@@ -412,7 +435,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (result.rebroadcast && timestampOK) {
-      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -441,7 +464,7 @@ async function handleAppInstallingMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
-      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -464,7 +487,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
-      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -488,7 +511,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
-      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -514,7 +537,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
-      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -561,7 +584,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
     // Rebroadcast to other peers
-    peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+    announceToPeers(message, `${fromIP}:${port}`);
   } catch (error) {
     log.error(error);
   }
@@ -574,47 +597,22 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
  * @param {object} msgObj Parsed message object.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket FluxPeerSocket instance.
  */
-// Message types whose meaning depends on WHO sent them.
+// Only an announcement is a fact whose identity is its payload, so only an announcement
+// is deduplicated. An ask and an answer are about the two nodes exchanging them, and
+// `hash(data)` throws the sender away - see utils/messageIntent for the table.
 //
-// messageCache is a flood filter keyed on the payload alone, and for news that is right:
-// two copies of "I have seq 2" are the same fact whoever relayed them, and acting once is
-// the point. A question is not news. `{fluxapprequest, hash: X}` is what EVERY node missing
-// X sends, so the sender is the only thing distinguishing one from another - and it is the
-// one part the key throws away. The second asker then looks like a repeat of the first and
-// is dropped: no answer, no NAK, no log.
+// THE FILTER WAS NEVER WHAT BOUNDED THESE. It keys on the payload, which a peer sending a
+// question controls: varying the hash on a fluxapprequest defeats it in one line. What it
+// suppresses is accidental duplicates, which is the job it is for. The per-peer bound is
+// FluxPeerSocket's inbound token bucket - lruRateLimit(ip:port, 120), applied to every
+// frame before dispatch.
 //
-// Directed types skip the cache in both directions. They are point-to-point, so they cannot
-// arrive twice by different routes and there is nothing to suppress; and nothing ever
-// fetches a question from the store by hash, so there is nothing to keep. The cache is
-// smaller for their absence.
-//
-// The test for this list is NOT "is it relayed" - fluxpolicyseq is relayed by nobody and is
-// still news, spread by each adopter announcing to its own peers. It is "does the sender's
-// identity change what the message means".
-//
-// THE CACHE WAS NEVER WHAT BOUNDED THESE, so removing them from it takes no bound away.
-// messageCache keys on the payload, which a peer sending a question controls: varying the
-// hash on a fluxapprequest defeats it in one line. What it suppressed was accidental
-// duplicates, which is the job it is for. The per-peer bound is FluxPeerSocket's inbound
-// token bucket - lruRateLimit(ip:port, 120), applied to every frame before dispatch.
-//
-// That bucket counts messages, not bytes, and a ~60-byte fluxpolicyrequest draws the whole
+// That bucket counts messages, not bytes, and a ~60-byte fluxpolicyrequest draws a whole
 // bundle back. It is still not a reflection vector: these arrive on an established
 // websocket, so the sender cannot be spoofed and receives every byte it asks for. A peer
 // can make this node serve it quickly; it cannot make this node serve anyone else. If a
 // byte budget is ever wanted it belongs in lruRateLimit, covering every type, not in a
 // second counter here.
-const DIRECTED_TYPES = Object.freeze(['fluxapprequest', 'fluxpolicyrequest']);
-
-/**
- * Whether this message is a question rather than news, and so must never be suppressed by
- * another node having asked the same thing.
- * @param {object} msgObj Parsed message object.
- * @returns {boolean}
- */
-function isDirectedMessage(msgObj) {
-  return DIRECTED_TYPES.includes(msgObj?.data?.type);
-}
 
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
@@ -663,14 +661,12 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     return;
   }
 
-  // check if we have the message in cache. If yes, return false. If not, store it and continue
   await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
+  // Also what a NAK names further down, so it is computed for every message.
   const messageHash = hash(msgObj.data);
-  if (!isDirectedMessage(msgObj)) {
-    if (messageCache.has(messageHash)) {
-      return;
-    }
-    messageCache.set(messageHash, msgObj);
+  if (intentOf(msgObj) === INTENT.ANNOUNCE) {
+    if (announcementSeen.has(messageHash)) return;
+    announcementSeen.set(messageHash, true);
   }
 
   // check blocked list
@@ -1880,8 +1876,6 @@ function logSocketsEvery(intervalMs) {
 }
 
 module.exports = {
-  isDirectedMessage,
-  DIRECTED_TYPES,
   connectedPeers,
   removePeer,
   removeIncomingPeer,

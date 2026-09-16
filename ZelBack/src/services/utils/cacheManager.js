@@ -150,13 +150,30 @@ class FluxCacheManager {
       ttl: 15 * FluxCacheManager.oneSecond,
       updateAgeOnGet: true,
     },
-    // fluxCommunication
-    // this is basically all messageHashPresent and requestMessageHash messages
-    // They receive around 2.4k messages a minute (26 peers). Of those 2.4k, there are about
-    // 135 unique messages. Every node doesn't need to broadcast to every other node
-    // it causes huge volumes of traffic and uses quite a bit of horsepower to hash
-    // every message, and check if it's in the cache. We should come up with a better algo here.
-    messageCache: {
+    // fluxCommunication. Two stores, because remembering a fact and being able to
+    // hand it over are different jobs with different keys, contents and membership:
+    //
+    //   store              | key -> value          | holds              | why its own
+    //   -------------------|-----------------------|--------------------|---------------------
+    //   announcementSeen   | hash(data) -> true    | every announcement | runs before signature
+    //                      |                       |                    | verification, so it is
+    //                      |                       |                    | what bounds that cost
+    //   announcementStore  | hash(data) -> message | announcements this | serves a peer that
+    //                      |                       | node announced     | asks for the hash
+    //
+    // A node receives around 2.4k messages a minute from 26 peers, of which about 135
+    // are distinct - so the filter collapses roughly eighteen copies into one, and it
+    // sits in front of verification because that is the work being saved.
+    //
+    // The store holds only what this node announced, which is exactly the set a peer
+    // can legitimately request: a request follows an announcement. Policy bundles,
+    // asks and answers never enter it, so its entries no longer carry the payload of
+    // messages nobody will ever fetch by hash.
+    announcementSeen: {
+      max: 1_000,
+      ttl: 5 * FluxCacheManager.oneMinute,
+    },
+    announcementStore: {
       max: 1_000,
       ttl: 5 * FluxCacheManager.oneMinute,
     },

@@ -6,6 +6,7 @@ const { expect } = require('chai');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
+const { default: cacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const policyStore = require('../../ZelBack/src/services/policyStore');
@@ -248,6 +249,8 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
       sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`);
+      // Announcing is what makes it fetchable: a peer answering the hash asks for it here.
+      expect(cacheManager.announcementStore.has(objectHash(message.data))).to.equal(true);
     }).timeout(10000);
 
     it('should not send broadcast if signature is invalid', async () => {
@@ -306,6 +309,8 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
       sinon.assert.notCalled(broadcastHashSpy);
+      // Nothing this node did not announce is kept, because nothing else can be asked of it.
+      expect(cacheManager.announcementStore.has(objectHash(message.data))).to.equal(false);
     });
 
     it('should not send broadcast if app data is invalid', async () => {
@@ -2141,39 +2146,6 @@ describe('fluxCommunication tests', () => {
         expect(progressAtWork, 'the peer was still silent when its own answer was already in hand')
           .to.deep.equal([PEER]);
       });
-    });
-  });
-
-  describe('a question is not news: the flood filter and directed messages', () => {
-    // messageCache is keyed on the payload alone. For news that is correct - two copies of
-    // the same announcement are the same fact. For a question it is not: the sender is the
-    // only thing telling two askers apart, and it is the part the key drops.
-    it('classifies the request types as directed, and news as not', () => {
-      expect(fluxCommunication.isDirectedMessage({ data: { type: 'fluxapprequest', hash: 'abc' } })).to.equal(true);
-      expect(fluxCommunication.isDirectedMessage({ data: { type: 'fluxpolicyrequest', seq: 1 } })).to.equal(true);
-
-      // fluxpolicyseq is relayed by NOBODY and is still news - it spreads by each adopter
-      // announcing to its own peers. If "is it relayed" were the test it would land here
-      // wrongly, and 26 peers announcing one sequence would become 26 broadcast requests.
-      expect(fluxCommunication.isDirectedMessage({ data: { type: 'fluxpolicyseq', seq: 2 } })).to.equal(false);
-      expect(fluxCommunication.isDirectedMessage({ data: { type: 'fluxapprunning' } })).to.equal(false);
-      expect(fluxCommunication.isDirectedMessage({ data: { type: 'fluxappregister' } })).to.equal(false);
-      expect(fluxCommunication.isDirectedMessage({ data: { type: 'fluxpolicy', bundle: 'x' } })).to.equal(false);
-    });
-
-    it('survives a message with no data or no type rather than throwing', () => {
-      // The predicate runs before verification, on whatever a peer sent.
-      expect(fluxCommunication.isDirectedMessage(undefined)).to.equal(false);
-      expect(fluxCommunication.isDirectedMessage({})).to.equal(false);
-      expect(fluxCommunication.isDirectedMessage({ data: {} })).to.equal(false);
-      expect(fluxCommunication.isDirectedMessage({ data: { type: null } })).to.equal(false);
-    });
-
-    it('lists only types whose meaning depends on who sent them', () => {
-      // A guard on the list itself. Every entry must be a question - something where two
-      // nodes sending identical bytes are two different messages. Adding a news type here
-      // would remove its flood suppression, which is what the cache is FOR.
-      expect([...fluxCommunication.DIRECTED_TYPES].every((t) => t.endsWith('request'))).to.equal(true);
     });
   });
 
