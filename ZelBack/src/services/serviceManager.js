@@ -471,6 +471,14 @@ async function startFluxFunctions() {
       log.error(`App startup manager error: ${error.message}`);
     });
 
+    // Above the daemon wait, because syncthing has nothing to do with the
+    // daemon: the sentinel talks to syncthing's own API and reads userconfig,
+    // and the webserver is already answering. Below it, a node whose fluxd is
+    // slow or dead never starts measuring syncthing at all, and a check nobody
+    // is making cannot report a fault - see syncthingService's health stamps.
+    syncthingService.startSyncthingSentinel();
+    log.info('Syncthing service started');
+
     // Wait for daemon RPC — manageAppsOnBoot (above) is fire-and-forget and gates
     // on waitForDaemonReady() internally with a 5-min timeout. It must be running
     // before daemonReady is set so its timeout/removal logic can trigger.
@@ -605,8 +613,6 @@ async function startFluxFunctions() {
     // in progress: at boot the expected names are simply what the database
     // holds, with no window in which an app has a network and no record yet.
     await networkRecovery.reclaimOrphanedAppNetworks();
-    syncthingService.startSyncthingSentinel();
-    log.info('Syncthing service started');
     // Awaited: generating an identity rewrites config/userconfig.js, and that
     // write is not atomic - a reload landing inside it leaves the process with
     // no userconfig.initial at all. A node that already has an identity returns

@@ -50,8 +50,19 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
+const { AsyncLock } = require('../utils/asyncLock');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+// Taken at the door of reinstallOldApplications, and held for the whole pass.
+// Deliberately NOT globalState.reinstallationOfOldAppsInProgress: that flag is a
+// signal to other subsystems that this node is being torn down, so it is raised
+// late, only for the destructive part, and forceAppRemovals and the spawner
+// stand aside on it. Raise it at the door instead and they would stand aside for
+// every scan, including the ones that find nothing to do. A re-entrancy lock has
+// the opposite requirement - it is worthless anywhere but the first line - so
+// the two are separate mechanisms rather than one flag doing both jobs badly.
+const reinstallPassLock = new AsyncLock();
 
 // Master/slave app tracking
 const mastersRunningGSyncthingApps = new Map();
@@ -4131,6 +4142,34 @@ async function checkAndRemoveApplicationInstance() {
  * @returns {Promise<void>} Completion status
  */
 async function reinstallOldApplications() {
+  // This pass is not re-entrant, and everything around it already knows that:
+  // forceAppRemovals stands aside on reinstallationOfOldAppsInProgress, as do
+  // the soft and hard redeploy paths on theirs. What was missing is this
+  // function standing aside for ITSELF, which that flag cannot do - see
+  // reinstallPassLock. It is started fire-and-forget from the block scanner, so
+  // a pass that outlives the gap between blocks is simply run again on top of
+  // itself.
+  //
+  // Two passes on one app destroy it. Observed: the first soft-uninstalled a
+  // component and was sleeping out composedDelay before reinstalling it; the
+  // second started on the same app, asked docker to remove the container the
+  // first had already begun removing, and got `(HTTP code 409) removal of
+  // container ... is already in progress`. That throw lands in the redeployment
+  // catch below, whose cleanup force-removes the ENTIRE app - so when the first
+  // pass woke and tried to install, it was refused with "Another application is
+  // undergoing removal" and the app was left deleted with nothing to put it
+  // back. A specification update is an ordinary thing to do to a running app.
+  //
+  // Skipped rather than queued: the scanner runs this again on a later block,
+  // and the app is still obsolete then, so the work is not lost by declining it
+  // now. The lock cannot strand a later pass - it is released in a finally, so
+  // no return or throw inside the body can leave it held.
+  if (reinstallPassLock.locked) {
+    log.info('reinstallOldApplications - a reinstall pass is already running, leaving this block to it');
+    return;
+  }
+  reinstallPassLock.register();
+
   try {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
@@ -4562,10 +4601,14 @@ async function reinstallOldApplications() {
         }
       }
     }
-    globalState.reinstallationOfOldAppsInProgress = false;
   } catch (error) {
-    globalState.reinstallationOfOldAppsInProgress = false;
     log.error(error);
+  } finally {
+    reinstallPassLock.disable();
+    // Cleared here rather than at each exit: the signal is raised inside the
+    // loop, on a path that can return or throw from several places, and a leaked
+    // true would make every neighbour stand aside indefinitely.
+    globalState.reinstallationOfOldAppsInProgress = false;
   }
 }
 

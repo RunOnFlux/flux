@@ -2516,5 +2516,46 @@ describe('appInspector tests', () => {
       written.forEach((chunk) => expect(chunk).to.be.a('string'));
       expect(written.join('')).to.contain('no such exec');
     });
+
+    // An owner may ask any node about their app and most nodes do not run it, so
+    // this is the common answer rather than an edge: unguarded, the find returns
+    // undefined and the owner is told it cannot read Id.
+    it('says the app is not on this node, rather than failing to read Id', async () => {
+      const dockerStub = {
+        ...dockerServiceStub,
+        dockerListContainers: sinon.stub().resolves([{ Id: 'abc', Names: ['/fluxsomeoneelse_theirapp'] }]),
+        getAppDockerNameIdentifier: sinon.stub().returns('/fluxmycomponent_myapp'),
+        getDockerContainer: sinon.stub().returns({}),
+        dockerContainerExec: sinon.stub(),
+      };
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: configStub,
+        '../utils/globalState': globalStateStub,
+        '../dockerService': dockerStub,
+        '../messageHelper': messageHelperStub,
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().returnsArg(0) },
+        '../dbHelper': { databaseConnection: sinon.stub() },
+        '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+        '../utils/appConstants': { appConstants: {} },
+        '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+        '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+        'node-cmd': { run: sinon.stub() },
+      });
+
+      const handlers = {};
+      const req = { on: (event, cb) => { handlers[event] = cb; }, headers: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), end: sinon.stub(), write: sinon.stub() };
+
+      inspector.appExec(req, res);
+      handlers.data(JSON.stringify({ appname: 'mycomponent_myapp', cmd: ['ls'] }));
+      await handlers.end();
+
+      sinon.assert.calledWith(
+        messageHelperStub.createErrorMessage,
+        'Application mycomponent_myapp is not installed on this node',
+      );
+      sinon.assert.notCalled(dockerStub.dockerContainerExec);
+    });
   });
 });

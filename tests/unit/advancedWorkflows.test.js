@@ -4771,6 +4771,76 @@ describe('advancedWorkflows tests', () => {
       globalState.reinstallationOfOldAppsInProgress = false;
     });
 
+    // TWO PASSES ON ONE APP DESTROY IT. The scanner starts this fire-and-forget
+    // on a block, so a pass that outlives the gap between blocks is run again on
+    // top of itself. Observed on a node: the first pass had soft-uninstalled the
+    // component and was sleeping out composedDelay; the second asked docker to
+    // remove the container the first was already removing, got `(HTTP code 409)
+    // removal of container ... is already in progress`, and its error cleanup
+    // force-removed the whole app - so the first pass woke to "Another
+    // application is undergoing removal" and the app stayed deleted.
+    //
+    // Every neighbour already stands aside on reinstallationOfOldAppsInProgress
+    // (forceAppRemovals does); the gap was this function not standing aside for
+    // itself, and that flag cannot close it. It is raised late, deep inside the
+    // loop, because it also tells the spawner and forceAppRemovals to stand
+    // aside - raised at the door it would hold them off for every scan. So the
+    // overlap is driven here, rather than by pre-setting a flag: a test that
+    // sets the flag and calls once proves only that some guard reads it, and
+    // would pass just as happily against the window that is actually open.
+    it('declines a second pass that starts before the first has announced itself', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      // Park the first pass in checkSynced - the start of the setup it has to
+      // get through (a daemon call, a database read and one spec lookup per
+      // installed app) before it reaches the line that raises the flag.
+      let releaseSync;
+      const syncGate = new Promise((resolve) => { releaseSync = resolve; });
+      generalService.checkSynced.returns(syncGate);
+
+      const first = advancedWorkflows.reinstallOldApplications();
+      const second = advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        globalState.reinstallationOfOldAppsInProgress,
+        'the fixture is wrong: the first pass has already announced itself, so this is not the window under test',
+      ).to.be.false;
+
+      releaseSync(true);
+      await Promise.all([first, second]);
+
+      expect(
+        softUninstallComponent.calledOnce,
+        'a second reinstall pass tore down a component the running pass owns',
+      ).to.be.true;
+    });
+
+    it('runs when no other pass holds the lock', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.calledOnce,
+        'the guard refused a pass that was the only one running',
+      ).to.be.true;
+    });
+
+    // The lock outlives the call, so a pass that fails to release it declines
+    // every later block for the life of the process - a quieter failure than the
+    // one it is there to prevent, and one no single-call test can see.
+    it('releases the lock, so a later block gets its own pass', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.calledTwice,
+        'the lock was not released, so every pass after the first is declined',
+      ).to.be.true;
+    });
+
     it('tears the component down under the bare app name', async () => {
       const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
 

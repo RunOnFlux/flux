@@ -398,6 +398,8 @@ module.exports = {
     ip: '127.0.0.1', // local
     port: 8384, // local
     monitorIntervalMs: 30000,
+    healthWindowMs: 300000,
+    sentinelIntervalMs: 60000,
     stallNudgeAfterMs: 180000,
     stallNudgeMaxIntervalMs: 900000,
     stallRemoveMinWindowMs: 1200000,

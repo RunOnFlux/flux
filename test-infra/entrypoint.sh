@@ -123,12 +123,17 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # which node-config loads last. No socat either way: whoever
   # starts the daemon, it binds apiport+2 itself.
   #
-  # WHO starts it depends on the node type, and SYNCTHING_PATH is the same
-  # signal FluxOS reads to decide. Set, FluxOS takes the node for ArcaneOS and
-  # leaves supervision to the OS - so the harness stands in for the OS here.
-  # Unset, it is a legacy node and FluxOS supervises the daemon itself, so this
-  # must keep its hands off or there would be two.
-  if [ -n "$SYNCTHING_PATH" ]; then
+  # WHO starts it is the complement of FluxOS's own rule, which is that it
+  # supervises a syncthing that is on this host and not Arcane. Binary mode is
+  # the on-this-host half - the runner points the node at 127.0.0.1 for exactly
+  # these nodes - so what is left to decide here is the Arcane half. Set, FluxOS
+  # stands back and the OS supervises the daemon, and the harness stands in for
+  # the OS. Unset, FluxOS supervises it itself and this must keep its hands off
+  # or the node gets two.
+  #
+  # The two must stay complements. Answer this from a signal FluxOS does not
+  # read and a node with one of them gets either two syncthings or none.
+  if [ -n "$FLUXOS_PATH" ]; then
     # the flags a real Arcane node is supervised with, read off a live one
     mkdir -p /dat/var/log
     nohup syncthing --no-browser --allow-newer-config --home "$SYNCTHING_PATH" \
