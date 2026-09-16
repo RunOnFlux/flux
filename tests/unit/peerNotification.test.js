@@ -2,6 +2,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+
 describe('peerNotification tests', () => {
   let peerNotification;
   let logStub;
@@ -132,6 +134,9 @@ describe('peerNotification tests', () => {
 
   afterEach(() => {
     sinon.restore();
+    // Module-level and shared across the suite: an entry left behind silences
+    // that app for every later test.
+    globalState.departingApps.clear();
   });
 
   describe('checkAndNotifyPeersOfRunningApps', () => {
@@ -185,6 +190,52 @@ describe('peerNotification tests', () => {
       await peerNotification.checkAndNotifyPeersOfRunningApps();
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name).sort()).to.deep.equal(['app1', 'app2']);
+    });
+
+    // A removal tells the network the app is gone, and the app stays installed
+    // until that removal finishes. An announcement built in between names an app
+    // the node has given up, and because peers apply the two messages in arrival
+    // order it re-creates the location row the removal had just cleared.
+    it('does not announce an app whose removal it has broadcast', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+        ],
+      });
+      globalState.departingApps.add('app2');
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.apps.map((a) => a.name),
+        'the departing app is excluded and the rest still announced',
+      ).to.deep.equal(['app1']);
+    });
+
+    // The claim returns on its own: the mark lives only for the removal, so a
+    // removal that fails leaves the app announced rather than silently unplaced.
+    it('announces the app again once the removal has finished', async () => {
+      globalState.departingApps.add('app1');
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+      expect(storeAppRunningMessageStub.called, 'announced while departing').to.be.false;
+
+      globalState.departingApps.delete('app1');
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
+    });
+
+    it('announces nothing when every installed app is departing', async () => {
+      globalState.departingApps.add('app1');
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.called, 'wrote its own location').to.be.false;
+      expect(broadcastMessageToAllStub.called, 'sent an announcement').to.be.false;
     });
 
     it('announces an app with no container running at all', async () => {

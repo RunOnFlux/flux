@@ -785,6 +785,10 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @returns {Promise<void>}
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
+  // Names what this call marked as departing, and nothing else: the guards below
+  // return through the same finally without having marked anything, and a refused
+  // duplicate must not unmark the removal that is actually running.
+  let departingName = null;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -833,6 +837,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
+
+    // The node stops claiming the app here, at the decision to hand it back, and
+    // not when its container happens to die. Keyed by the name the removal message
+    // carries below, so the two can never name different things.
+    if (sendMessage) {
+      departingName = appName;
+      globalState.departingApps.add(departingName);
+    }
 
     // Find app specifications in database
     const dbopen = dbHelper.databaseConnection();
@@ -1064,6 +1076,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     }
   } finally {
     globalState.removalInProgress = false;
+    if (departingName) {
+      globalState.departingApps.delete(departingName);
+    }
   }
 }
 
