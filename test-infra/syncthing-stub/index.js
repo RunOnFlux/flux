@@ -529,10 +529,6 @@ function setIgnores(req, res) {
 app.post('/rest/db/ignores', setIgnores);
 app.put('/rest/db/ignores', setIgnores);
 
-app.get('/rest/db/localchanged', (req, res) => {
-  res.json({ files: [], folders: [], symlinks: [], deletes: [], total: 0 });
-});
-
 app.get('/rest/db/need', (req, res) => {
   res.json({ progress: [], queued: [], rest: [], total: 0, page: 1, perpage: 65536 });
 });
