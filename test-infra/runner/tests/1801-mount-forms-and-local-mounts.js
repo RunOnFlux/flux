@@ -8,7 +8,6 @@ import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
   isDaemonUp, getDeviceId, getConnectedDevices, getFolders, getFolderStatus, scanFolder,
-  getLocalChanged,
 } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -177,27 +176,12 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     const emptyIndex = nodes[modes[0] === 'sendreceive' ? 1 : 0];
     const client = env.clients[emptyIndex];
 
-    // THE CANARY. "Claims nothing" is equally true of a daemon that has not looked at
-    // the volume yet, and that run would pass the assertion below having proved
-    // nothing. So establish first that the scaffolding is in the list the claim is
-    // derived from.
-    let changed = null;
-    await waitFor(async () => {
-      const answer = await getLocalChanged(client, folderId).catch(() => null);
-      changed = answer?.files?.length ? answer : null;
-      return changed !== null;
-    }, { timeout: 180000, interval: 5000, label: 'the daemon lists the scaffolding as receive-only local changes' });
-    const names = changed.files.map((file) => file.name);
-    expect(names, 'the f: file is on the volume, so the daemon must be listing it').to.include('server.json');
-
-    // And the claim reads zero over exactly that list.
-    const before = await holdingFor(client, folderId);
-    expect(before, 'the node must have completed a pass, or it is not answering at all').to.exist;
-    expect(before.bytes, 'scaffolding is not the owner\'s data').to.equal(0);
-    expect(before.newestModified, 'and a zero-length file contributes no timestamp either').to.equal(0);
-
-    // Now the owner's data lands on the same volume, and the same claim must carry it.
+    // The owner's data, written into a volume that already carries every mount form's
+    // scaffolding - test 1 asserts all three of them on this node.
     await seedSyncScopedData(env, appName, emptyIndex);
+    const sized = await sh(client, `stat -c %s ${dir}/appdata/seed-data`);
+    const ownerBytes = Number(sized.stdout.trim());
+    expect(ownerBytes, 'the owner file must be on the volume before its size can be claimed').to.be.greaterThan(0);
 
     // Asked to look, rather than waiting on syncthing's own rescan interval - an hour by
     // default, so "has not noticed yet" and "never landed" would be one observation. And
@@ -210,13 +194,28 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
       return (status?.localBytes ?? 0) > 0;
     }, { timeout: 180000, interval: 5000, label: 'the daemon accounts for the bytes written into the volume' });
 
-    let after = null;
+    let held = null;
     await waitFor(async () => {
-      const held = await holdingFor(client, folderId);
-      after = held && held.bytes > 0 ? held : null;
-      return after !== null;
+      held = await holdingFor(client, folderId);
+      return (held?.bytes ?? 0) > 0;
     }, { timeout: 180000, interval: 5000, label: 'the node claims the owner\'s data it now holds' });
-    expect(after.newestModified, 'a claim carrying bytes must carry when they were written').to.be.greaterThan(0);
+
+    // EXACTLY the owner's file and nothing else on the volume. Asserted as equality
+    // rather than "> 0", which is equally true of a claim that counted all of it: beside
+    // that file sit an m: directory, an ml: directory and a zero-length f: file, and
+    // syncthing gives a directory the synthetic size of 128 - so counting them is not a
+    // rounding error, it is an empty node outranking a node holding the customer's world.
+    //
+    // Equality holds whether or not the seeder's index has reached this node. Before it
+    // does, the scaffolding is in this folder's local-change list and must be excluded by
+    // type and by size; after it does, the list is only the owner's file, which a
+    // receive-only folder publishes with a zeroed version vector and so never loses.
+    // An earlier version asserted the claim read zero BEFORE the data was written, and
+    // that is the one thing here which is not deterministic - it passed on one run and
+    // timed out on the next, because the seeder's index had arrived in between and the
+    // scaffolding had stopped being a local change at all.
+    expect(held.bytes, `the claim must be the owner's ${ownerBytes} bytes and nothing else on the volume`).to.equal(ownerBytes);
+    expect(held.newestModified, 'a claim carrying bytes must carry when they were written').to.be.greaterThan(0);
   });
 
   it('binds every declared mount to the volume, not to the container layer', async function () {
