@@ -71,9 +71,13 @@ The service:
       "countryCode": "DE",
       "region": "BE",
       "regionName": "Berlin",
-      "city": "Berlin",
       "lat": 52.52,
       "lon": 13.405,
+      "isp": "Hetzner Online GmbH",
+      "asn": "AS24940 Hetzner Online GmbH",
+      "mobile": false,
+      "proxy": false,
+      "hosting": true,
       "static": true,
       "dataCenter": true
     },
@@ -149,7 +153,7 @@ The public IP address of the Flux node.
 
 ### Geolocation Data (`geo`)
 
-Geographic location information for the node. The `ip` and `org` fields from the raw geolocation data are removed for privacy.
+Geographic location information for the node. The node's own geolocation record less its `ip` and `org` fields: the address is already `ip` above, live from the benchmark, while the record's copy of it is only as fresh as the last lookup.
 
 **Type:** `object`
 
@@ -161,11 +165,22 @@ Geographic location information for the node. The `ip` and `org` fields from the
 | `countryCode` | string | Two-letter country code (ISO 3166-1) | `"DE"` |
 | `region` | string | Region/state code | `"BE"` |
 | `regionName` | string | Region/state name | `"Berlin"` |
-| `city` | string | City name | `"Berlin"` |
 | `lat` | number | Latitude coordinate | `52.52` |
 | `lon` | number | Longitude coordinate | `13.405` |
-| `static` | boolean | Whether the IP has a static address | `true` |
-| `dataCenter` | boolean | Whether the node is hosted in a data center | `true` |
+| `static` | boolean | The address sits on a hosting or proxy range | `true` |
+| `dataCenter` | boolean | The address sits on a hosting range | `true` |
+
+These five are present only when the primary geolocation source answered; the fallback source carries none of them.
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `isp` | string | Network operator | `"Hetzner Online GmbH"` |
+| `asn` | string | Autonomous system carrying the address | `"AS24940 Hetzner Online GmbH"` |
+| `mobile` | boolean | Mobile network | `false` |
+| `proxy` | boolean | Proxy, VPN or Tor exit | `false` |
+| `hosting` | boolean | Hosting or data-centre range | `true` |
+
+`static` and `dataCenter` describe the **range** the address sits on, taken from the fields above. They are not this node's own verdict on whether it holds a fixed address or runs in a data centre — that verdict is reached from evidence the node observes about itself, and an app requiring `staticip` is placed on it rather than on these.
 
 **Use Cases:**
 - Geo-aware load balancing
@@ -300,6 +315,11 @@ $ curl -s http://fluxnode.service:16101/hostinfo | jq .
       "regionName": "England",
       "lat": 51.5081,
       "lon": -0.1278,
+      "isp": "Example Hosting Ltd",
+      "asn": "AS64496 Example Hosting Ltd",
+      "mobile": false,
+      "proxy": false,
+      "hosting": true,
       "static": true,
       "dataCenter": true
     },
