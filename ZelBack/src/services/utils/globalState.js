@@ -55,7 +55,53 @@ const runningAppsCache = new Set();
 //
 // In-memory deliberately: a restart ends the removal that entered it, and an entry
 // that survived would silence an app nothing is removing any more.
-const departingApps = new Set();
+//
+// Counted, not a set. A forced removal skips the single-removal guard, so two of
+// them can run against one app at once - a surplus trim and an expiry removal, or
+// an app and one of its components, which share the name the message carries. The
+// first to finish would clear a set outright and hand the announcement back to the
+// removal still running.
+const departingCounts = new Map();
+
+const departingApps = {
+  /**
+   * Record that a broadcast removal of this app has begun.
+   * @param {string} appName Name the removal message carries.
+   * @returns {void}
+   */
+  enter(appName) {
+    departingCounts.set(appName, (departingCounts.get(appName) || 0) + 1);
+  },
+
+  /**
+   * Record that one broadcast removal of this app has finished.
+   * @param {string} appName Name the removal message carries.
+   * @returns {void}
+   */
+  leave(appName) {
+    const held = departingCounts.get(appName);
+    if (!held) return;
+    if (held === 1) departingCounts.delete(appName);
+    else departingCounts.set(appName, held - 1);
+  },
+
+  /**
+   * Whether any broadcast removal of this app is in flight.
+   * @param {string} appName Name the removal message carries.
+   * @returns {boolean}
+   */
+  has(appName) {
+    return departingCounts.has(appName);
+  },
+
+  /**
+   * How many apps have a broadcast removal in flight.
+   * @returns {number}
+   */
+  get size() {
+    return departingCounts.size;
+  },
+};
 
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();

@@ -843,7 +843,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     // carries below, so the two can never name different things.
     if (sendMessage) {
       departingName = appName;
-      globalState.departingApps.add(departingName);
+      globalState.departingApps.enter(departingName);
     }
 
     // Find app specifications in database
@@ -1077,7 +1077,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   } finally {
     globalState.removalInProgress = false;
     if (departingName) {
-      globalState.departingApps.delete(departingName);
+      globalState.departingApps.leave(departingName);
     }
   }
 }

@@ -192,6 +192,68 @@ describe('globalState tests', () => {
     });
   });
 
+  // The removals this counts overlap: a forced removal skips the single-removal
+  // guard, so a surplus trim and an expiry removal can run against one app at
+  // once, as can an app and one of its components - they share the name the
+  // removal message carries. Counting is what stops the first to finish handing
+  // the announcement back to the one still running.
+  describe('departingApps tests', () => {
+    it('is empty by default, and an unknown app is not departing', () => {
+      expect(globalState.departingApps.size).to.equal(0);
+      expect(globalState.departingApps.has('app1')).to.equal(false);
+    });
+
+    it('an app is departing from the moment one removal enters', () => {
+      globalState.departingApps.enter('app1');
+
+      expect(globalState.departingApps.has('app1')).to.equal(true);
+      expect(globalState.departingApps.size).to.equal(1);
+    });
+
+    it('stays departing while a second removal still holds it', () => {
+      globalState.departingApps.enter('app1');
+      globalState.departingApps.enter('app1');
+
+      globalState.departingApps.leave('app1');
+
+      expect(
+        globalState.departingApps.has('app1'),
+        'the first removal to finish released the second one\'s mark',
+      ).to.equal(true);
+    });
+
+    it('stops departing once every removal has left', () => {
+      globalState.departingApps.enter('app1');
+      globalState.departingApps.enter('app1');
+
+      globalState.departingApps.leave('app1');
+      globalState.departingApps.leave('app1');
+
+      expect(globalState.departingApps.has('app1')).to.equal(false);
+      expect(globalState.departingApps.size).to.equal(0);
+    });
+
+    it('leaving an app that never entered changes nothing', () => {
+      globalState.departingApps.enter('app1');
+
+      globalState.departingApps.leave('app2');
+
+      expect(globalState.departingApps.has('app1')).to.equal(true);
+      expect(globalState.departingApps.has('app2')).to.equal(false);
+      expect(globalState.departingApps.size).to.equal(1);
+    });
+
+    it('tracks apps independently', () => {
+      globalState.departingApps.enter('app1');
+      globalState.departingApps.enter('app2');
+
+      globalState.departingApps.leave('app1');
+
+      expect(globalState.departingApps.has('app1')).to.equal(false);
+      expect(globalState.departingApps.has('app2')).to.equal(true);
+    });
+  });
+
   describe('cache collections tests', () => {
     it('should have empty collections by default', () => {
       expect(globalState.appsToBeCheckedLater).to.be.an('array').that.is.empty;

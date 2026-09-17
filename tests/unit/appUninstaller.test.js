@@ -467,8 +467,14 @@ describe('appUninstaller tests', () => {
       // drops from the require cache, so a reference taken at file load and the
       // one the module under test resolves are two different objects - and a
       // mark set on one is invisible to the other.
+      // The REAL departing tracker, taken fresh per test rather than reimplemented
+      // here: a fake that counts differently from the module would pass this suite
+      // over the defect the counting exists to prevent.
+      delete require.cache[require.resolve('../../ZelBack/src/services/utils/globalState')];
+      // eslint-disable-next-line global-require
+      const { departingApps } = require('../../ZelBack/src/services/utils/globalState');
       globalStateStub = {
-        departingApps: new Set(),
+        departingApps,
         removalInProgress: false,
         installationInProgress: false,
         runningAppsCache: new Set(),
@@ -674,7 +680,7 @@ describe('appUninstaller tests', () => {
 
       it('releases only the mark this call took, so a refused duplicate cannot unmark a live removal', async () => {
         const uninstaller = buildUninstaller(v2Spec);
-        globalStateStub.departingApps.add('testapp');
+        globalStateStub.departingApps.enter('testapp');
         globalStateStub.removalInProgress = true;
 
         await uninstaller.removeAppLocally('testapp', res, false, true, true);
@@ -682,6 +688,21 @@ describe('appUninstaller tests', () => {
         expect(
           globalStateStub.departingApps.has('testapp'),
           'unmarked an app whose real removal is still running',
+        ).to.be.true;
+      });
+
+      it('a removal that finishes does not unmark an overlapping one still running', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        // A second broadcast removal of this app, already under way. Force skips
+        // the single-removal guard, so a surplus trim and an expiry removal - or an
+        // app and one of its components, which share this name - both get here.
+        globalStateStub.departingApps.enter('testapp');
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        expect(
+          globalStateStub.departingApps.has('testapp'),
+          'the removal that finished first handed the announcement back to the one still running',
         ).to.be.true;
       });
     });
