@@ -1031,7 +1031,9 @@ describe('appInstaller tests', () => {
     // install errors before reaching it - which nothing revealed while that guard
     // and the catch both answered `false`. It is a real test of the failure path,
     // so it is named for that instead.
-    it('answers FAILED when an install errors and cleans up after itself', async () => {
+    // One failing install, built twice: the teardown's own behaviour is the
+    // uninstaller's, so what these tests own is which answer it is given.
+    function buildFailingInstaller(removeAppLocallyStub) {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub(),
         findInDatabase: sinon.stub(),
@@ -1039,7 +1041,7 @@ describe('appInstaller tests', () => {
         insertOneToDatabase: sinon.stub(),
       };
 
-      const appInstallerWithDb = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+      return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1070,7 +1072,7 @@ describe('appInstaller tests', () => {
         },
         '../dockerService': makeDockerServiceStub(),
         './appUninstaller': {
-          removeAppLocally: sinon.stub().resolves(),
+          removeAppLocally: removeAppLocallyStub,
         },
         './advancedWorkflows': {
           createAppVolume: sinon.stub().resolves(),
@@ -1130,6 +1132,11 @@ describe('appInstaller tests', () => {
           promisify: (fn) => fn,
         },
       });
+    }
+
+    it('answers FAILED when an install errors and cleans up after itself', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
 
       const componentSpecs = false;
       const res = {
@@ -1147,13 +1154,34 @@ describe('appInstaller tests', () => {
       expect(result).to.equal(InstallOutcome.FAILED);
     });
 
+    // A caller that already holds the app keeps its claim: a redeploy's teardown
+    // says nothing, so peers hold the location row until the app comes back.
+    it('leaves the network uninformed when the caller keeps the app', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, false);
+
+      expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
+      expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app the caller is keeping').to.equal(false);
+    });
+
+    // A placement this node does not hold: an announcement landing during the
+    // install claimed it, and only this retracts that claim before it expires.
+    it('tells the network when the caller holds nothing to keep', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+      expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
+      expect(removeAppLocallyStub.firstCall.args[4], 'tore the app down without telling the network').to.equal(true);
+    });
+
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
-      // Regression guard for the post-install broadcast ordering bug.
-      // onInstallComplete() -> checkAndNotifyPeersOfRunningApps() must run with the
-      // install lock already cleared, otherwise containerHealthMonitor.monitorAndRecoverApps
-      // bails on globalState.isOperationInProgress() and the just-installed (syncthing)
-      // app is excluded from its own running-apps announcement.
-      // Pre-fix: the broadcast ran while installationInProgress was still true.
+      // The announcement runs for as long as a broadcast cycle takes, and every
+      // other install, removal and redeploy on this node refuses while the install
+      // lock is up - so the lock is released before onInstallComplete is called.
       let lockHeldWhenBroadcasting = null;
       const onInstallComplete = sinon.stub().callsFake(() => {
         lockHeldWhenBroadcasting = globalStateStub.installationInProgress;

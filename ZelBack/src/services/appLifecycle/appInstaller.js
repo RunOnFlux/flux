@@ -365,7 +365,10 @@ async function ensureAppDockerNetwork(appName, res) {
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
- * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
+ * @param {boolean} sendRemovalMessage whether the teardown broadcasts the removal.
+ *   True wherever this node does not already hold the app: an announcement landing
+ *   during the install claims it, and nothing else takes that claim back before it
+ *   expires. False for a rebuild, whose claim the node is keeping.
  * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
  */
 async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
@@ -695,15 +698,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     }
   }
 
-  // Announced with the node already released, which is what the finally above
-  // has just done. checkAndNotifyPeersOfRunningApps leans on
-  // containerHealthMonitor.monitorAndRecoverApps() to force-include syncthing
-  // apps whose components are not all simultaneously "running" at this instant
-  // (e.g. a component mid receive-only resync), and that recovery path bails out
-  // while globalState.isOperationInProgress() is true - so announcing from
-  // inside the hold left the app just installed out of its own announcement.
-  // Below the block rather than ordered by hand inside it, so the release
-  // cannot drift back after it. checkAndNotifyPeersOfRunningApps never throws.
+  // Announced once the finally above has released the install hold: a broadcast
+  // cycle takes as long as it takes, and every other install, removal and redeploy
+  // on this node refuses while the hold is up. Below the block rather than ordered
+  // by hand inside it, so the release cannot drift back after it.
+  // checkAndNotifyPeersOfRunningApps never throws.
   if (!test && onInstallComplete) {
     await onInstallComplete();
     fluxEventBus.publish('app:installed', { name: appSpecs.name, hash: appSpecs.hash });
@@ -1093,7 +1092,9 @@ async function installAppLocally(req, res) {
       await checkAppRequirements(appSpecifications); // entire app
 
       res.setHeader('Content-Type', 'application/json');
-      await registerAppLocally(appSpecifications, undefined, res); // can throw
+      // A placement this node does not hold yet - refused above if it did - so a
+      // failed install retracts the claim rather than keeping it.
+      await registerAppLocally(appSpecifications, undefined, res, false, true); // can throw
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
