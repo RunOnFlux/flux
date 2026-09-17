@@ -151,4 +151,43 @@ describe('peerRequests tests', () => {
       expect(requests.has('a:1')).to.equal(false);
     });
   });
+
+  describe('which peers have been heard from', () => {
+    // What a caller deciding something about the peer SET reads, rather than keeping a
+    // ledger of its own beside this one.
+    it('separates a peer that answered from one still being waited on', () => {
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      requests.open('b:1');
+      requests.settle('a:1', 'answered');
+      expect(requests.settled('a:1')).to.equal(true);
+      expect(requests.settled('b:1'), 'still open, so not yet heard from').to.equal(false);
+    });
+
+    it('counts a deadline as having been heard from, because the question is over', () => {
+      // A deadline ends the question, so the peer counts as heard from: it told us nothing,
+      // and nothing is waiting on it.
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      requests.settle('a:1', 'timedOut');
+      expect(requests.settled('a:1')).to.equal(true);
+    });
+
+    it('says nothing of a peer never asked, or one since discarded', () => {
+      const requests = new PeerRequests();
+      expect(requests.settled('a:1'), 'never asked').to.equal(false);
+      requests.open('a:1');
+      requests.settle('a:1', 'answered');
+      requests.discard('a:1');
+      expect(requests.settled('a:1'), 'discarded with the peer that answered it').to.equal(false);
+    });
+
+    it('is reset by a fresh question to the same peer', () => {
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      requests.settle('a:1', 'answered');
+      requests.open('a:1');
+      expect(requests.settled('a:1'), 'asked again, so it is outstanding again').to.equal(false);
+    });
+  });
 });

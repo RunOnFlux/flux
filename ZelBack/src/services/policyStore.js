@@ -102,6 +102,10 @@ const PEER_WINDOW_MS = config.policy.peerWindowMs;
 // Every peer answers - respondWithPolicy replies in all three states - so silence means only
 // "not there". A targeted ask therefore ends on its answer, and PEER_WINDOW_MS is the floor
 // for a peer that has gone away rather than the mechanism.
+//
+// A SETTLED ASK IS KEPT until its peer disconnects: the question belongs to the connection, so
+// an arrival does not repeat one this peer has already answered and a reconnect is a new
+// question. The tick asks again regardless.
 const peerAsks = new PeerRequests();
 
 // Told when the bundle this node holds changes, so a consumer whose work depends on the
@@ -369,7 +373,7 @@ async function askPeer(peerKey) {
     await inFlight;
     return;
   }
-  if (peerAsks.has(peerKey)) return;
+  // Replacing what this peer last said, which is what putting the question again means.
   const request = peerAsks.open(peerKey, {
     timeoutMs: PEER_WINDOW_MS,
     onTimeout: (key) => peerAsks.settle(key, 'timedOut'),
@@ -378,12 +382,12 @@ async function askPeer(peerKey) {
     await peerRequestFrom(peerKey, getSeq(), request.id);
     await request.settled;
   } finally {
-    peerAsks.discard(peerKey);
-    // IN THE FINALLY, so a send that threw still gets here. Otherwise an ask that failed to
-    // leave the node would skip the decision, and if it were the last one outstanding the
-    // node would sit holding nothing until another peer happened to arrive. Its own error is
-    // kept separate so it cannot mask the one the ask is already propagating.
-    await seedIfPeersHaveNothing()
+    // The ask is over however it ended. A send that throws leaves it open otherwise, and an
+    // open ask is what the decision below waits on. A no-op where an answer settled it.
+    peerAsks.settle(peerKey, 'notSent', { id: request.id });
+    // IN THE FINALLY, so that throw still reaches the decision. Its own error is kept
+    // separate so it cannot mask the one the ask is already propagating.
+    await considerSeeding()
       .catch((error) => log.error(`policyStore - seeding from the source failed: ${error.message}`));
   }
 }
@@ -409,35 +413,45 @@ async function askEveryCapablePeer() {
 }
 
 /**
- * The peers have been asked and have answered. If none of them had anything, seed from the
- * published source.
+ * Whether this peer speaks the policy protocol.
  *
- * THE ONLY PLACE A NODE WITHOUT POLICY REACHES THE SOURCE. Derived from three facts rather
- * than fired by an event, because any of the three can be the last to become true and a latch
- * on one of them records a conjunction it cannot track - the mistake refreshGate above exists
- * to avoid:
+ * A transport that cannot say treats every peer as capable. Not knowing is not a reason to
+ * stop asking, and it is how this reads before peering is wired.
+ * @param {string} peerKey ip:port
+ * @returns {boolean}
+ */
+function isPolicyCapable(peerKey) {
+  const keys = peerCapableKeys ? peerCapableKeys() : null;
+  return keys === null || keys.includes(peerKey);
+}
+
+/**
+ * Nobody reachable has policy, so seed from the published source.
  *
- *   nothing is outstanding  every peer this node has was asked AND has answered. Peers reply
- *                           in all three states, so "holds nothing" settles an ask exactly as
- *                           a bundle does, and a peer that vanished settles on PEER_WINDOW_MS.
+ * THE ONLY PLACE A NODE WITHOUT POLICY REACHES THE SOURCE. Derived from three facts and
+ * evaluated wherever one of them changes - a peer arriving, a peer leaving, an ask settling.
+ * Any of them can be the last to become true, and a latch on one records a conjunction it
+ * cannot track, which is the mistake refreshGate above exists to avoid:
+ *
+ *   this node holds nothing  anything at all, however old, is carried forward by peers and
+ *                           by this node's own tick.
  *   the set is above threshold  enough peers to have been worth asking, as the network
  *                           already defines it. Below it, an empty store says only that
  *                           peering is young.
- *   this node holds nothing  anything at all, however old, is carried forward by peers and
- *                           by this node's own tick.
+ *   nothing is outstanding  every peer that could answer has. A peer that cannot speak the
+ *                           protocol is never asked, so nothing waits on it; a capable one
+ *                           is asked as it arrives, so it is outstanding until it replies.
  *
- * Together they mean: nobody reachable has policy. That is the first rollout, and seeding it
- * is what the published source is for.
+ * EVERY ARRIVAL EVALUATES IT, asked or not. A node whose peers all predate the protocol asks
+ * nobody, and holds nothing until its own tick - a day, with the acquisition gate shut for
+ * all of it - unless an arrival it could not ask still reaches this.
  *
- * Evaluated here rather than on peerThresholdReached because the edge can never satisfy it.
- * The peer that crosses the threshold is asked first - peerConnected is emitted before the
- * edge, and askPeer registers synchronously - so its own ask is always outstanding at the
- * moment the edge fires. Reading the threshold as a LEVEL here also means there is no latch
- * of ours to re-arm: a node that fell below the degraded level and peered back up asks its
- * new peers, and the last of those answers arrives here with the level true again.
+ * Reading the threshold as a LEVEL means there is no latch of ours to re-arm either: a node
+ * that fell below the degraded level and peered back up asks its new peers, and the last of
+ * those answers arrives here with the level true again.
  * @returns {Promise<void>}
  */
-async function seedIfPeersHaveNothing() {
+async function considerSeeding() {
   if (current || peerAsks.openCount() || seedInFlight) return;
   if (!peerAboveThreshold || !peerAboveThreshold()) return;
   seedInFlight = true;
@@ -514,20 +528,57 @@ async function refresh() {
  * covers that, and it works just as well when this node holds nothing: it asks for anything
  * above seq 0.
  *
- * The answer settles this node's ask, and the last ask to settle is where the decision to
- * seed from the source is made - see seedIfPeersHaveNothing. So this rung reaches the source
- * only through a peer set that has been asked in full and had nothing, never through an
- * arrival on its own. Otherwise the source is this node's phased tick, which across the fleet
- * is what makes github a seed: spread over the period by identity, some node is always the
- * one that looks.
+ * Every arrival reconsiders seeding, whether or not it was asked - see considerSeeding. So
+ * this rung reaches the source only through a peer set that has been asked in full and had
+ * nothing, never through an arrival on its own. Otherwise the source is this node's phased
+ * tick, which across the fleet is what makes github a seed: spread over the period by
+ * identity, some node is always the one that looks.
  * @param {string} peerKey ip:port of the peer that connected.
  */
 function notePeerAvailable(peerKey) {
   if (!peerKey || !peerRequestFrom) return Promise.resolve();
+  // NOT ASKED, BUT STILL COUNTED. A peer that does not advertise the protocol has no handler
+  // for the question - it would spend a deadline here and log an unrecognised type there -
+  // and a peer already asked on this connection has said what it has to say. Either way the
+  // peer set has changed, which is what the decision below is about.
+  if (!isPolicyCapable(peerKey) || peerAsks.settled(peerKey)) {
+    return considerSeeding()
+      .catch((error) => log.error(`policyStore - seeding from the source failed: ${error.message}`));
+  }
   // Returned rather than dropped so a caller CAN wait for the ask and the seed decision that
   // follows it. Nothing in production does - a peer arriving must not hold up the event that
   // announced it - but a fire-and-forget chain is otherwise only observable by sleeping.
   return askPeer(peerKey).catch((error) => log.warn(`policyStore - peer ask failed: ${error.message}`));
+}
+
+/**
+ * A peer has gone. Forget what it said, and decide again without it.
+ *
+ * Discarding ends an ask still outstanding to it, so a node holding nothing is not held back
+ * by a question that cannot be answered, and the deadline is not what decides it. A record
+ * belongs to the connection that produced it, so a peer that returns is asked again.
+ * @param {string} peerKey ip:port of the peer that disconnected.
+ */
+function notePeerGone(peerKey) {
+  if (!peerKey) return Promise.resolve();
+  peerAsks.discard(peerKey);
+  return considerSeeding()
+    .catch((error) => log.error(`policyStore - seeding from the source failed: ${error.message}`));
+}
+
+/**
+ * The peer set has reached the level at which it is worth asking, so decide again.
+ *
+ * ITS OWN EVENT BECAUSE THE LEVEL IS WRITTEN AFTER THE ARRIVAL THAT CROSSES IT. peerManager
+ * emits peerConnected and sets the latch on the next line, so that arrival reads the level as
+ * false. A set that grows past the threshold is covered by the arrivals behind it; one that
+ * stops exactly there has nothing else to re-trigger this, and waits out the backstop period
+ * holding nothing.
+ * @returns {Promise<void>}
+ */
+function noteThresholdReached() {
+  return considerSeeding()
+    .catch((error) => log.error(`policyStore - seeding from the source failed: ${error.message}`));
 }
 
 
@@ -657,10 +708,10 @@ async function start() {
   // nothing" the same answer, and sent a node whose neighbour held the bundle to github
   // instead of across the local network.
   //
-  // What replaces it is seedIfPeersHaveNothing, evaluated as each peer answers: once the
-  // set is above the threshold and every ask has settled, an empty store is evidence about
-  // the NETWORK rather than about how far boot has got. A node that restored a bundle needs
-  // no seed at all; its own slot brings anything newer, and an ahead peer sends it sooner.
+  // considerSeeding decides it instead, as the peer set changes: once the set is above the
+  // threshold and every peer that could answer has, an empty store is evidence about the
+  // NETWORK rather than about how far boot has got. A node that restored a bundle needs no
+  // seed at all; its own slot brings anything newer, and an ahead peer sends it sooner.
 
   // The first tick lands on this node's own slot rather than one period from boot, so the
   // schedule is a property of the node and not of when it happened to start. Aligned to
@@ -716,6 +767,8 @@ module.exports = {
   getSeq,
   isReady,
   notePeerAvailable,
+  notePeerGone,
+  noteThresholdReached,
   onBundleChanged,
   notePeerSeq,
   offerBundle,

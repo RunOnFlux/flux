@@ -740,7 +740,7 @@ function nodeReadyWaitStrategy(nodeIp) {
 // nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
-  unverifiableSyncPeers = [], stubPeeredWith = null,
+  unverifiableSyncPeers = [], policyUnawarePeers = [], stubPeeredWith = null,
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
@@ -863,6 +863,14 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: stub ${index} cannot be both silent and unverifiable`);
     }
   }
+  // A stub from before the policy protocol: it advertises no policyBundle capability, so a
+  // node neither asks it for policy nor announces an adoption to it. Only a stub can be one -
+  // the fleet runs a single image, so every real node advertises what that image speaks.
+  for (const index of policyUnawarePeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: policyUnawarePeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+  }
   const syncedOverrides = {};
   for (const index of establishedNodes) {
     syncedOverrides[index] = mergeConfigs(
@@ -981,7 +989,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1010,7 +1018,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1457,6 +1465,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
         NODE_IP: nodeIp,
         SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
         UNVERIFIABLE_APP_STATE_SYNC: String(unverifiableSyncPeers.includes(stubIdx)),
+        POLICY_UNAWARE: String(policyUnawarePeers.includes(stubIdx)),
         // Every stub asks, for the nodes it is declared a peer of. It repeats
         // on an interval, so a node held back at boot is asked once it starts.
         DIAL_TARGETS: (stubPeerings.get(stubIdx) ?? [])

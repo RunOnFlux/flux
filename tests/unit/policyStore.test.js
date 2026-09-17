@@ -557,6 +557,189 @@ describe('policyStore', () => {
     });
   });
 
+  describe('only a peer that speaks the protocol is asked', () => {
+    const LEGACY = '10.0.0.1:16127';
+    const SPEAKS = '10.0.0.2:16127';
+    const answersNothing = (m) => async (key, seq, id) => m.notePeerSeq(null, key, id);
+
+    it('does not put the question to a peer that has no handler for it', async () => {
+      const { module: m } = load();
+      const requestFrom = sinon.stub().resolves();
+      await m.start();
+      m.setPeerTransport({ capableKeys: () => [], requestFrom, aboveThreshold: () => false });
+
+      await m.notePeerAvailable(LEGACY);
+
+      expect(requestFrom.called, 'asking buys a deadline here and an unrecognised type in its log').to.equal(false);
+      m.stop();
+    });
+
+    it('seeds from the source when NO peer speaks the protocol', async () => {
+      // DAY ONE OF A ROLLOUT, and the case that decides the shape of this. An empty capable
+      // set is nobody who could have said the network holds something, so the published
+      // source is the only rung left.
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m, state } = load({ serviceHelper: { axiosGet } });
+      const requestFrom = sinon.stub().resolves();
+      await m.start();
+      m.setPeerTransport({ capableKeys: () => [], requestFrom, aboveThreshold: () => true });
+
+      await m.notePeerAvailable(LEGACY);
+
+      expect(requestFrom.called, 'nobody was asked, because nobody could answer').to.equal(false);
+      expect(axiosGet.calledOnce, 'and that is the network having nothing, not this node having asked nobody').to.equal(true);
+      expect(m.getSeq()).to.equal(7);
+      expect(state.policyReady).to.equal(true);
+      m.stop();
+    });
+
+    it('still waits for the one peer that can answer while others arrive', async () => {
+      // The mixed fleet. An arrival that could never answer must not read as the set having
+      // been asked, or a node seeds past the neighbour that was about to hand it a bundle.
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      let answer;
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => [SPEAKS],
+        requestFrom: (key, seq, id) => new Promise((resolve) => {
+          answer = () => { m.notePeerSeq(null, key, id); resolve(); };
+        }),
+        aboveThreshold: () => true,
+      });
+
+      const asking = m.notePeerAvailable(SPEAKS);
+      await m.notePeerAvailable(LEGACY);
+      expect(axiosGet.called, 'the only peer that can answer has not').to.equal(false);
+
+      answer();
+      await asking;
+
+      expect(axiosGet.calledOnce, 'and it held nothing, which is the whole set answering').to.equal(true);
+      m.stop();
+    });
+
+    it('does not repeat the question to a peer that already answered on this connection', async () => {
+      const { module: m } = load();
+      const requestFrom = sinon.stub().callsFake(answersNothing(m));
+      await m.start();
+      m.setPeerTransport({ capableKeys: () => [SPEAKS], requestFrom, aboveThreshold: () => false });
+
+      await m.notePeerAvailable(SPEAKS);
+      await m.notePeerAvailable(SPEAKS);
+
+      expect(requestFrom.callCount, 'one connection, one question').to.equal(1);
+      m.stop();
+    });
+
+    it('the tick asks again, though that peer answered on arrival', async () => {
+      // The retained answer is what the seed decision reads. It must not turn the periodic
+      // refresh into a question asked once per connection.
+      const { module: m } = load({ serviceHelper: { axiosGet: sinon.stub().rejects(new Error('offline')) } });
+      const requestFrom = sinon.stub().callsFake(answersNothing(m));
+      await m.start();
+      m.setPeerTransport({ capableKeys: () => [SPEAKS], requestFrom, aboveThreshold: () => true });
+
+      await m.notePeerAvailable(SPEAKS);
+      expect(requestFrom.callCount).to.equal(1);
+
+      await m.refresh();
+
+      expect(requestFrom.callCount, 'the tick puts the question again').to.equal(2);
+      m.stop();
+    });
+  });
+
+  describe('the threshold is reached after the arrival that reached it', () => {
+    const LEGACY = '10.0.0.4:16127';
+
+    it('seeds on the level being written, not on the arrival that wrote it', async () => {
+      // peerManager emits peerConnected and sets the latch on the next line, so the arrival
+      // that takes the set over the threshold reads the level as false. A set that grows past
+      // it is covered by the arrivals behind it; one that stops exactly there waits out the
+      // backstop period holding nothing.
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      let above = false;
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => [],
+        requestFrom: sinon.stub().resolves(),
+        aboveThreshold: () => above,
+      });
+
+      await m.notePeerAvailable(LEGACY);
+      expect(axiosGet.called, 'the level is not written yet, so there is nothing to act on').to.equal(false);
+
+      above = true;
+      await m.noteThresholdReached();
+
+      expect(axiosGet.calledOnce, 'and the level being written is what decides it').to.equal(true);
+      expect(m.getSeq()).to.equal(7);
+      m.stop();
+    });
+
+    it('does nothing on a threshold reached by a node that already holds policy', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const repo = {
+        readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
+        writeBundle: sinon.stub().resolves(true),
+      };
+      const { module: m } = load({ repo, serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({ capableKeys: () => [], requestFrom: sinon.stub().resolves(), aboveThreshold: () => true });
+
+      await m.noteThresholdReached();
+
+      expect(axiosGet.called, 'a restored node needs no seed').to.equal(false);
+      expect(m.getSeq()).to.equal(4);
+      m.stop();
+    });
+  });
+
+  describe('a peer leaving', () => {
+    const GOING = '10.0.0.3:16127';
+
+    it('stops the decision waiting on an answer that is no longer coming', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+      const { module: m } = load({ serviceHelper: { axiosGet } });
+      let capable = [GOING];
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => capable,
+        // Never answers, so only its departure can end the ask.
+        requestFrom: () => new Promise(() => {}),
+        aboveThreshold: () => true,
+      });
+
+      m.notePeerAvailable(GOING);
+      await new Promise(setImmediate);
+      expect(axiosGet.called, 'its ask is outstanding').to.equal(false);
+
+      capable = [];
+      await m.notePeerGone(GOING);
+
+      expect(axiosGet.calledOnce, 'and it is gone, so nothing is waiting on it').to.equal(true);
+      m.stop();
+    });
+
+    it('asks a peer again when it comes back', async () => {
+      // A reconnect is peerDisconnected then peerConnected, and the question belongs to the
+      // connection: a record is dropped with the socket that produced it.
+      const { module: m } = load();
+      const requestFrom = sinon.stub().callsFake(async (key, seq, id) => m.notePeerSeq(null, key, id));
+      await m.start();
+      m.setPeerTransport({ capableKeys: () => [GOING], requestFrom, aboveThreshold: () => false });
+
+      await m.notePeerAvailable(GOING);
+      await m.notePeerGone(GOING);
+      await m.notePeerAvailable(GOING);
+
+      expect(requestFrom.callCount, 'two connections, two questions').to.equal(2);
+      m.stop();
+    });
+  });
+
   describe('when in the period this node ticks', () => {
     const DAY = 24 * 60 * 60 * 1000;
     const { backstopPhaseMs } = load().module;
@@ -734,20 +917,24 @@ describe('policyStore', () => {
 
     it('asks the peer that arrived, not the whole set', async () => {
       // A broadcast here would have to be rationed, and a rationed ask cannot serve a node
-      // that is merely behind.
+      // that is merely behind. Three capable peers and one arrival, so a fan-out is visible
+      // as a count rather than having to be inferred.
       const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
-      const request = sinon.stub().resolves();
       const requestFrom = sinon.stub().resolves();
-      module.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom, announce: sinon.stub().resolves() });
+      const arriving = '198.18.0.11:16127';
+      module.setPeerTransport({
+        capableKeys: () => [arriving, '198.18.0.12:16127', '198.18.0.13:16127'],
+        requestFrom,
+        announce: sinon.stub().resolves(),
+      });
       await module.start();
       module.stop();
-      const broadcastsAtBoot = request.callCount;
 
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable(arriving);
       await new Promise(setImmediate);
 
       expect(requestFrom.callCount, 'one targeted ask').to.equal(1);
-      expect(request.callCount, 'and no broadcast').to.equal(broadcastsAtBoot);
+      expect(requestFrom.firstCall.args[0], 'put to the peer that arrived').to.equal(arriving);
     });
 
     it('keeps asking as peers arrive, rather than once since boot', async () => {

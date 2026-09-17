@@ -158,6 +158,20 @@ class PeerRequests {
     return this.#requests.has(peerKey);
   }
 
+  /**
+   * Whether this peer has answered the question put to it, or ended it some other way.
+   *
+   * "Asked and heard from", as distinct from `isOpen`'s "waiting on right now". A caller
+   * deciding something about the peer SET reads this of each of them, which is why a
+   * settled request is kept rather than cleared by the waiting ending.
+   * @param {string} peerKey ip:port
+   * @returns {boolean}
+   */
+  settled(peerKey) {
+    const request = this.#requests.get(peerKey);
+    return Boolean(request && request.outcome);
+  }
+
   /** How many are still open. */
   openCount() {
     let open = 0;

@@ -135,6 +135,13 @@ export function stubPeerClient(ip) {
       return stats.policyAsksAnswered ?? 0;
     },
 
+    // How many adoption announcements this peer has been sent. A node announces only to
+    // peers advertising policyBundle, so a peer that does not is expected to see none.
+    async policyAnnouncementsReceived() {
+      const stats = await this.getStats();
+      return stats.policyAnnouncementsReceived ?? 0;
+    },
+
     // Claim an app, as a peer that got there first. broadcastedAt decides the
     // ranking every contender sorts on, so an earlier one makes this peer the
     // rival the others must stand down behind.

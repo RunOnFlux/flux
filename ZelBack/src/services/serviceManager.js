@@ -561,6 +561,14 @@ async function startFluxFunctions() {
     // The orchestrator next door draws the same distinction for its sync pool, and for the
     // same reason: a latched edge says nothing about a pool that has changed since it fired.
     peerManager.on('peerConnected', (key) => policyStore.notePeerAvailable(key));
+    // Both edges, because the store's decision is about the peer SET. A peer leaving takes
+    // its answer with it, and a node waiting on one that has gone waits out a deadline for an
+    // answer that cannot come.
+    peerManager.on('peerDisconnected', (key) => policyStore.notePeerGone(key));
+    // AND the threshold itself, which is written one line after the arrival that crosses it.
+    // Without this the crossing arrival decides while the level still reads false, and a set
+    // that stops exactly at the threshold has nothing left to re-trigger the decision.
+    peerManager.on('peerThresholdReached', () => policyStore.noteThresholdReached());
     policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();

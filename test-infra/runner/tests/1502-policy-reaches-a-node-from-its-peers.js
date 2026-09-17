@@ -962,3 +962,81 @@ describe('a node acts on every peer that answers, not just the first', function 
     );
   });
 });
+
+// THE FIRST WAVE OF A ROLLOUT. Every peer this node has predates the policy protocol, so
+// there is nobody it can ask - and a node that reached the source only as a consequence of
+// some peer having answered would hold nothing at all until its own tick, a day away, with
+// the acquisition gate shut for the whole of it.
+//
+// The tick is a week out and the peers cannot answer, so the arrival of a peer that cannot
+// answer is the only thing left that can reach the source. That is the case, exactly.
+//
+// The asking node is the only real node in the fleet: any other would reach the source
+// itself and its fetch would stand in for the one being measured.
+describe('a node whose peers all predate the policy protocol', function () {
+  let env;
+  const ASKER = 0;
+  const STUBS = [1, 2];
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      stubPeers: STUBS,
+      // Advertising no policyBundle capability, which is what every peer looks like to the
+      // first node in the fleet to carry this release.
+      policyUnawarePeers: STUBS,
+      stubPeeredWith: { [STUBS[0]]: [ASKER], [STUBS[1]]: [ASKER] },
+      policy: { available: false },
+      awaitPolicy: false,
+      configOverrides: {
+        policy: {
+          // The tick is the other route to the source and would answer for the seed. A week
+          // puts it out of reach of a run.
+          refreshIntervalMs: 7 * 24 * 60 * 60 * 1000,
+          peerWindowMs: 60000,
+        },
+      },
+    });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('asks none of them, announces to none of them, and still reaches the source', async function () {
+    this.timeout(300000);
+    // Both stubs set to ANSWER, so that an ask reaching one is counted. Left silent they
+    // would count nothing whether or not they were asked, and the assertion below could
+    // not fail.
+    await Promise.all(STUBS.map((i) => env.stubPeerClients.get(i).answerPolicyWith(7)));
+    await stub(env, '/policy', { available: true });
+
+    // Restarted so the peerings, and any ask they would produce, happen after the stubs
+    // were told to answer. It comes back holding nothing: the source was down for its
+    // first boot, so there is nothing on disk to restore.
+    await env.restartNode(ASKER);
+    await waitForBootSettled(env.clients[ASKER]);
+
+    await waitFor(
+      async () => (await heldSeq(ASKER)) !== null,
+      { timeout: 180000, interval: 2000, label: 'the node to seed from the published source' },
+    );
+    expect(await heldSeq(ASKER), 'and it holds what the source published')
+      .to.equal((await stubState(env)).policySeq);
+
+    const asked = await Promise.all(
+      STUBS.map((i) => env.stubPeerClients.get(i).policyAsksAnswered()),
+    );
+    expect(asked, 'a peer with no handler for the question is never asked it').to.deep.equal([0, 0]);
+
+    const told = await Promise.all(
+      STUBS.map((i) => env.stubPeerClients.get(i).policyAnnouncementsReceived()),
+    );
+    expect(told, 'nor told what this node adopted').to.deep.equal([0, 0]);
+  });
+});
