@@ -1844,6 +1844,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
         // to do, so that refusal is transient by construction. Wait it out here,
         // bounded; authenticate() itself stays one-shot so a suite asserting a
         // node is genuinely unavailable still sees the refusal.
+        //
+        // Keyed on the error NAME: the node words this refusal differently depending on
+        // which reachability check set it, and the name is the part that identifies the
+        // condition rather than one of its phrasings.
         const deadline = Date.now() + 120000;
         let auth;
         for (;;) {
@@ -1852,8 +1856,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, sile
             auth = await authenticate(client.url, teamKey);
             break;
           } catch (error) {
-            if (!error.message.includes('not available for outside communication')
-              || Date.now() >= deadline) throw error;
+            if (!error.message.includes('CONNERROR') || Date.now() >= deadline) throw error;
             // eslint-disable-next-line no-await-in-loop
             await sleepUnlessInfraDead(2000);
           }
