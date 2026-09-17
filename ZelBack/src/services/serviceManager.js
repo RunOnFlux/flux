@@ -722,7 +722,7 @@ async function startFluxFunctions() {
     // interval is the fallback for a config that cannot be read at all. Once cached, hot
     // paths (spawn loop) read it synchronously via getCachedEnterpriseIdentity() with no
     // network call and no throws.
-    const identityReady = enterpriseNetwork.scheduleIdentityResolution();
+    enterpriseNetwork.scheduleIdentityResolution();
 
     // Services that read from zelappsinformation wait for the orchestrator
     // to finish rebuilding it rather than guessing a setTimeout delay.
@@ -737,13 +737,9 @@ async function startFluxFunctions() {
       // degrades to /16 arithmetic without a table.
       ipLocationSync.startSync().catch((err) => log.error(`ipLocationSync start error: ${err.message}`));
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
-      await identityReady;
-      try {
-        await enterpriseNetwork.cleanupOwnershipViolations();
-        log.info('Enterprise network cleanup completed');
-      } catch (error) {
-        log.error(`Enterprise network cleanup failed: ${error.message || error}`);
-      }
+      // Detached. The sweep uninstalls apps, so it waits for policy this node has confirmed
+      // is the network's, and everything below here starts whether or not that ever arrives.
+      enterpriseNetwork.startOwnershipSweeps();
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);

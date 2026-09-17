@@ -4,6 +4,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appConstants = require('./appConstants');
 const enterpriseConfig = require('./enterpriseConfig');
 const policyStore = require('../policyStore');
+const globalState = require('./globalState');
 const log = require('../../lib/log');
 
 // This node's own fluxnode pubkey, cached once resolved. The pubkey never
@@ -14,6 +15,10 @@ const log = require('../../lib/log');
 // the sync interval without a node restart. See getCachedEnterpriseIdentity()
 // and getCachedAllowedOwnersForNode().
 let cachedNodePubKey = null;
+
+// The sweep in progress, and whether anything asked for another while it ran.
+let sweepInFlight = null;
+let sweepAgain = false;
 
 function getEnterpriseAppOwners() {
   return enterpriseConfig.getEnterpriseAppOwners();
@@ -160,6 +165,8 @@ function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
 
 function resetEnterpriseNodeCache() {
   cachedNodePubKey = null;
+  sweepInFlight = null;
+  sweepAgain = false;
 }
 
 /**
@@ -208,18 +215,19 @@ function getSpawnDelays(isEnterprise, appsAvailable) {
  *   - every other node must never host apps owned by ANY enterprise app owner
  *
  * sendMessage=true so peers receive fluxappremoved and drop this IP from
- * appLocations. Intended to run once, ~5 minutes after boot.
+ * appLocations. Driven by startOwnershipSweeps, which runs it whenever this node's view of
+ * who may host what changes.
  */
 async function cleanupOwnershipViolations() {
   // eslint-disable-next-line global-require
   const appUninstaller = require('../appLifecycle/appUninstaller');
 
-  // Nothing is uninstalled on a policy this node never obtained. The caller already
-  // awaits identityReady, which cannot resolve while the policy is unknown, so this is
-  // the second of two locks on the only destructive path in this module — the one that
-  // removed customer apps when a stale release-time seed was mistaken for the truth.
-  if (!enterpriseConfig.isPolicyKnown()) {
-    log.warn('enterpriseNetwork: network policy unknown, skipping ownership cleanup');
+  // NOTHING IS UNINSTALLED ON POLICY THIS NODE HAS NOT ESTABLISHED IS THE NETWORK'S.
+  // Holding a bundle is not that: one off disk is whatever this node last had, and a map
+  // that has since granted an owner reads here as that owner's apps being violations. This
+  // is the only destructive path in the module, so it takes the gate acquisition takes.
+  if (!globalState.policyReady) {
+    log.warn('enterpriseNetwork: network policy not confirmed, skipping ownership cleanup');
     return;
   }
 
@@ -258,8 +266,60 @@ async function cleanupOwnershipViolations() {
   }
 }
 
+/**
+ * Run the sweep, and once more if anything asked for one while it ran.
+ *
+ * COALESCED RATHER THAN QUEUED. The sweep is a function of the bundle this node holds now,
+ * so a second request arriving during a pass needs exactly one more pass - a queue of them
+ * would each re-read the same final state and walk the whole local app table again.
+ * @returns {Promise<void>} The run in progress, so a caller can wait for it.
+ */
+function requestOwnershipSweep() {
+  if (sweepInFlight) {
+    sweepAgain = true;
+    return sweepInFlight;
+  }
+  sweepInFlight = (async () => {
+    do {
+      // Cleared BEFORE the pass, so a request arriving during it is not read as one this
+      // pass already accounted for.
+      sweepAgain = false;
+      // eslint-disable-next-line no-await-in-loop
+      await cleanupOwnershipViolations()
+        .catch((error) => log.error(`enterpriseNetwork: ownership cleanup failed: ${error.message || error}`));
+    } while (sweepAgain);
+  })().finally(() => { sweepInFlight = null; });
+  return sweepInFlight;
+}
+
+/**
+ * Sweep whenever this node's view of who may host what changes.
+ *
+ * TWO TRIGGERS, BECAUSE NEITHER COVERS THE OTHER. The gate opening is what makes the map
+ * safe to act on at all, and it opens without the bundle changing - a node confirmed by its
+ * peers holds exactly what it restored. A bundle changing is what makes an already-safe map
+ * say something different, and that happens for the rest of the node's life: an owner
+ * granted or revoked after boot is not visible to a sweep that ran once at boot.
+ *
+ * NOTHING WAITS ON THIS. The sweep uninstalls apps, so it runs only on policy this node has
+ * established is the network's - which may be a long time coming, and may never come.
+ * @returns {Function} Ends the subscription.
+ */
+function startOwnershipSweeps() {
+  const unsubscribe = policyStore.onBundleChanged(() => {
+    // A bundle this node may not act on yet changes nothing it may do. The gate opening
+    // carries its own trigger.
+    if (!globalState.policyReady) return;
+    requestOwnershipSweep();
+  });
+  globalState.waitForPolicyReady().then(() => requestOwnershipSweep());
+  return unsubscribe;
+}
+
 module.exports = {
   cleanupOwnershipViolations,
+  requestOwnershipSweep,
+  startOwnershipSweeps,
   filterAppsByOwnership,
   getCachedAllowedOwnersForNode,
   getCachedEnterpriseIdentity,
