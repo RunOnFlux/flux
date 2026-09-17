@@ -324,19 +324,21 @@ describe('a node that restored STALE policy catches up before it acts', function
       // Well above the seeded bundle, so the node is unambiguously behind.
       policy: { seq: 40 },
       policySeeds: { 0: STALE_SEQ },
-      // SOMEBODY HAS TO REACH THE SOURCE, and in a three-node fleet nobody would.
+      // SOMEBODY HAS TO REACH THE SOURCE, and this fleet has two routes there.
       //
       // Nodes 1 and 2 boot empty, and the first thing that answers them is node 0 holding
       // the seeded seq 4. They adopt it - correctly: a node with no policy takes what a
-      // peer offers, which is the whole point of asking peers before the source. But
-      // having policy, none of them is a candidate for the seed any more, and the fleet
-      // settles on seq 4 with the network at 40.
+      // peer offers, which is the whole point of asking peers before the source. Node 0
+      // holds seq 4 off disk, which no peer has settled, and a peer set that cannot settle
+      // what a node holds sends it to the publisher itself.
       //
-      // That is the stale-neighbourhood case, and what corrects it in production is the
-      // phased tick: 6,370 nodes on a 24-hour period is one node looking every ~13
-      // seconds. Three nodes on the same period is one look every eight hours, so the
-      // tick is compressed on one of them - the fixture supplying at three nodes what the
-      // fleet supplies by its size. Node 0 is left alone; it is the subject.
+      // The other route is the phased tick: 6,370 nodes on a 24-hour period is one node
+      // looking every ~13 seconds. Three nodes on the same period is one look every eight
+      // hours, so the tick is compressed on node 1 - the fixture supplying at three nodes
+      // what the fleet supplies by its size. Node 0 is left alone; it is the subject.
+      //
+      // Which route arrives first is decided by milliseconds, so what is asserted below is
+      // that the fleet reaches the network's policy without every node fetching it.
       nodeConfigOverrides: { 1: { policy: { refreshIntervalMs: 15000 } } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
@@ -361,15 +363,16 @@ describe('a node that restored STALE policy catches up before it acts', function
     );
 
     // BY WHICH ROUTE, because "everyone reached 40" is true of a fleet that all went to
-    // github independently, which is the thing this design exists to stop. The ticking
-    // node is the one that reaches the source; node 0 - the subject - is told by a peer.
+    // github independently, which is the thing this design exists to stop. One node fetches
+    // it and the others are told.
     const rungsFor = (index, seq) => env.clients[index].getEventBuffer()
       .filter((e) => e.event === 'policy:bundleChanged' && e.data.seq === seq)
       .map((e) => e.data.source);
-    expect(rungsFor(1, published), 'node 1 reached the source on its compressed tick')
-      .to.include('backstop');
-    expect(rungsFor(0, published), 'and node 0 was told by a peer, never by github')
-      .to.deep.equal(['peer']);
+    const routes = [0, 1, 2].map((i) => rungsFor(i, published));
+    expect(routes.some((r) => r.includes('backstop')), 'a node reached the source')
+      .to.equal(true);
+    expect(routes.some((r) => r.length && !r.includes('backstop')), 'and a node was told by a peer, never by github')
+      .to.equal(true);
   });
 
   it('and only then starts considering apps', async function () {
@@ -1073,7 +1076,6 @@ describe('a node does not open its gate on fewer peers than it takes', function 
           // The tick is the other route to the source and would answer for the rung under
           // test. A week puts it out of reach of a run.
           refreshIntervalMs: 7 * 24 * 60 * 60 * 1000,
-          peerWindowMs: 60000,
         },
       },
     });

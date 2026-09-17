@@ -481,11 +481,11 @@ describe('a peered fleet where nobody holds policy and the source is gone', func
   it('asks its peers, finds nothing, and holds nothing rather than guessing', async function () {
     this.timeout(240000);
     // EVERY NODE REACHED A DECISION, which is the difference between this posture and a
-    // fleet that has not got there yet - the seed log is each node saying its peer set is
-    // up and none of them had a bundle.
+    // fleet that has not got there yet - the backstop log is each node saying its peer set
+    // answered and could not settle what it holds.
     await waitFor(
-      () => env.clients.every((_c, i) => env.nodeHasLog(i, /policyStore - peers are up and none of them holds policy/)),
-      { timeout: 180000, interval: 2000, label: 'every node asked its peers and found none holding policy' },
+      () => env.clients.every((_c, i) => env.nodeHasLog(i, /policyStore - the peer set has not settled what this node holds/)),
+      { timeout: 180000, interval: 2000, label: 'every node asked its peers and could not settle it' },
     );
 
     for (const n of [1, 2, 3]) {

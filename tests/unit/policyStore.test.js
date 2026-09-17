@@ -415,7 +415,7 @@ describe('policyStore', () => {
     });
   });
 
-  describe('seeding from the source when the peers have nothing', () => {
+  describe('asking the source when the peers cannot settle it', () => {
     const PEER = '10.0.0.1:16127';
     const OTHER_PEER = '10.0.0.2:16127';
 
