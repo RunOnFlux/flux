@@ -22,6 +22,7 @@ const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const os = require('os');
 const util = require('util');
+const config = require('config');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -797,6 +798,16 @@ describe('fluxNetworkHelper tests', () => {
       Object.defineProperty(process.versions, 'node', { value: version, configurable: true });
     }
 
+    // node-config seals its values once the module graph has loaded, so the
+    // floor is varied by loading the helper over a config that carries a
+    // different one. The instance is its own, which is also what keeps its DOS
+    // state out of the tests either side.
+    function helperWithFloor(floor) {
+      return proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        config: { ...config, minimumNodeJsAllowedVersion: floor },
+      });
+    }
+
     afterEach(() => {
       runningOn(realNodeJsVersion);
       fluxNetworkHelper.clearStickyDosMessage();
@@ -850,6 +861,39 @@ describe('fluxNetworkHelper tests', () => {
       const reported = fluxNetworkHelper.getDOSState().data;
       expect(reported.dosMessage).to.include('16.20.2');
       expect(reported.dosState).to.equal(100);
+    });
+
+    it('allows when no floor is configured, on a runtime a floor would refuse', () => {
+      // Unsetting the key is how the floor comes off a live fleet. The check runs
+      // bare in startFluxFunctions, whose catch re-enters it after 15s, so a
+      // throw here is a boot loop - and a node held out of service by a missing
+      // floor has nothing left to tell it when to come back.
+      const helper = helperWithFloor(undefined);
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(helper.getStickyDosMessage()).to.equal(null);
+      expect(helper.getDOSState().data.dosState).to.equal(0);
+    });
+
+    it('allows when the configured floor is empty', () => {
+      const helper = helperWithFloor('');
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(helper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('refuses on the loaded floor, so the instance is reading the one it was given', () => {
+      // The canary for the two above: a helper loaded the same way, with a floor
+      // present, must still take the node out of service. Without it, a config
+      // stub that silently failed to reach the module would pass both.
+      const helper = helperWithFloor('20.8.0');
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(helper.getDOSState().data.dosState).to.equal(100);
+      helper.clearStickyDosMessage();
     });
 
     it("leaves another owner's sticky DOS alone rather than overwriting it", () => {
