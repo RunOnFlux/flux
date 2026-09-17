@@ -851,6 +851,42 @@ describe('fluxNetworkHelper tests', () => {
       expect(reported.dosMessage).to.include('16.20.2');
       expect(reported.dosState).to.equal(100);
     });
+
+    it("leaves another owner's sticky DOS alone rather than overwriting it", () => {
+      // The slot takes one message and has several writers. Taking it from an
+      // owner that already holds it leaves that owner unable to recognise or
+      // release its own state - it reads the slot back to decide both.
+      const theirs = 'Residential node not running ArcaneOS. Migrate this node to ArcaneOS or move it to a data center connection.';
+      fluxNetworkHelper.setStickyDosMessage(theirs);
+      fluxNetworkHelper.setStickyDosStateValue(100);
+      runningOn('16.20.2');
+
+      // still unfit - the verdict is about the runtime, not about the slot
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(theirs);
+    });
+
+    it('states its verdict once, however often startup re-enters the check', () => {
+      // startFluxFunctions catches any throw and re-enters itself after 15s, so
+      // this is asked again on every retry - and by then the other writers of
+      // the slot have started.
+      //
+      // Asserted on the LOG rather than on the message, because re-setting the
+      // slot to the same string leaves it equal to itself: the message alone
+      // cannot tell a second write from no second write.
+      const errorLog = sinon.spy(log, 'error');
+      try {
+        runningOn('16.20.2');
+        expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+        expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+
+        const stated = errorLog.getCalls().filter((call) => String(call.args[0]).includes('NodeJS Version Error'));
+        expect(stated).to.have.lengthOf(1);
+        expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
+      } finally {
+        errorLog.restore();
+      }
+    });
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
