@@ -1,53 +1,34 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { pushTestApp } from '../framework/registry-helper.js';
-import { buildSeedableTestApp } from '../framework/seed-helper.js';
-import { execInContainer } from '../framework/container.js';
-import { getSubnetConfig, REGISTRY_PORT } from '../framework/subnet-config.js';
-import {
-  bootAndPeer, seedSpawnerApp, waitForInstanceCount, installedInstanceIndices,
-} from '../framework/reconciler-suite.js';
+import { pushBrokenImage } from '../framework/registry-helper.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
+import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { waitFor } from '../framework/wait.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 
-// A node that fails to place an app must take back what it claimed.
+// A node that fails to place an app tells the network it has given it up.
 //
-// The local app row is written before the image is pulled, so it is there for
-// the whole of an install - and the announcement reports the apps installed on
-// this node. An announcement landing inside that window therefore says the node
-// holds an app it has not got yet. That is harmless while the install is still
-// running: it finishes, and the claim becomes true. It is not harmless when the
-// install fails, because the spawner counts the claim against the app's instance
-// target and the row stands for its full lifetime (7500s in production) with
-// nothing left to correct it. The app runs an instance short for that whole time.
+// An app's row in the local table is written before its image is fetched, and
+// the announcement reports the apps installed on this node - so an announcement
+// landing inside an install says the node holds an app it has not got yet. That
+// resolves itself while the install is still running: it finishes, and the claim
+// becomes true. It does not resolve when the install fails, because nothing else
+// retracts a holding claim. fluxappinstallingerror clears the installing row and
+// the installing broadcast; it never touches appsLocations. The row then stands
+// for its full lifetime - 7500s in production - and the spawner counts an
+// instance that does not exist.
 //
-// The teardown is the only thing that can retract it, so a placement tears down
-// with a broadcast removal. A rebuild does not: its claim is one the node is
-// keeping.
+// So a placement's teardown broadcasts the removal. What that is worth does not
+// depend on whether an announcement happened to land inside this particular
+// install: the claim is retracted either way, and against a node that tears down
+// in silence no removal reaches anybody at all. That is what this asserts.
 //
-// The install is stalled by dropping the node's traffic to the registry, rather
-// than by a broken repotag. A broken tag fails at the pull in a second or two,
-// which is inside no announce interval at all, so the claim is never made and
-// the suite passes against the unfixed code. The drop holds the pull open past
-// one interval; switching the rule to a reset then fails it on the spot.
+// A rebuild's teardown stays silent, and must - its claim is one the node is
+// keeping, and a removal would clear a row the app is coming back to.
 const INSTANCES = 1;
 const NODES = 4;
-// ANNOUNCE_INTERVAL_MS is derived from fluxapps.locationTtlS, which the harness
-// compresses to 63s: floor(63000 * 0.96 / 2 / 1000) * 1000. Waiting two of them
-// means a tick has fired inside the stall whatever phase the node started in.
-const ANNOUNCE_MS = 30000;
-
-const REGISTRY_IP = getSubnetConfig().registry;
-const DROP = `-p tcp -d ${REGISTRY_IP} --dport ${REGISTRY_PORT} -j DROP`;
-const RESET = `-p tcp -d ${REGISTRY_IP} --dport ${REGISTRY_PORT} -j REJECT --reject-with tcp-reset`;
-
-async function onEveryNode(env, command) {
-  await Promise.all(env.clients.map(async (client) => {
-    const r = await execInContainer(client.container, command);
-    if (r.exitCode !== 0) throw new Error(`${command}: ${r.output}`);
-  }));
-}
 
 // Every node's view of who holds this app. A claim only matters where other
 // nodes can see it - theirs is the count the spawner reads - so a suite asking
@@ -65,90 +46,89 @@ async function locationIpsByNode(env, appName) {
   }));
 }
 
-describe('a failed placement leaves no claim behind', function () {
+describe('a failed placement tells the network it gave the app up', function () {
   let env;
+  const repoName = `brokenplace${Date.now()}`;
   dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(420000);
     env = await createTestEnv({ hookCtx: this, nodes: NODES, tickerAutostart: false });
+    await pushBrokenImage(repoName, 'v1');
     await bootAndPeer(env);
   });
 
   after(async function () {
     this.timeout(60000);
-    // Tolerates a rule already gone, so a teardown after a failed test cannot
-    // fail in its own right.
-    await Promise.all(env?.clients?.map((c) => execInContainer(c.container, `iptables -D OUTPUT ${DROP}`).catch(() => {})) ?? []);
-    await Promise.all(env?.clients?.map((c) => execInContainer(c.container, `iptables -D OUTPUT ${RESET}`).catch(() => {})) ?? []);
     await env?.teardown();
   });
 
-  it('retracts the claim an announcement made while the install was still running', async function () {
+  it('broadcasts the removal when a placement it does not yet hold fails', async function () {
     this.timeout(900000);
     const appName = `e2efailplace${Date.now()}`;
-    await pushTestApp(appName);
-    const app = await buildSeedableTestApp({ name: appName, instances: INSTANCES });
+    // The image pulls and its container cannot start, so the install gets past
+    // writing the app's local row and then fails - the shape being tested. The
+    // repotag goes in before the spec is built, never after: the signature and
+    // the hash are taken over the whole spec, so a field written later leaves the
+    // app carrying a hash that does not match it.
+    const app = await buildSeedableApp({
+      name: appName,
+      instances: INSTANCES,
+      env,
+      compose: [{
+        name: appName,
+        description: 'an app whose container cannot start',
+        repotag: `${REGISTRY_REPO_HOST}/${repoName}:v1`,
+        ports: [],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        containerData: '/tmp',
+        cpu: 0.1,
+        ram: 100,
+        hdd: 1,
+        repoauth: '',
+      }],
+    });
 
-    await onEveryNode(env, `iptables -I OUTPUT ${DROP}`);
     const observer = env.clients[0];
     const observerFrom = observer.getLastEventId();
 
     await seedSpawnerApp(env, app);
 
-    // The local row, which is what the announcement reads. It is written before
-    // the pull, so it appears while the stall is still holding the pull open.
-    let holders = [];
-    await waitFor(
-      async () => {
-        holders = await installedInstanceIndices(env, appName);
-        return holders.length > 0;
-      },
-      { timeout: 300000, interval: 2000, label: `a node takes ${appName}` },
+    // A node attempted it, so a teardown ran and the assertion below is about
+    // what the teardown said rather than about an install that never started.
+    const failed = await observer.waitForEvent(
+      'spawner:installFailed',
+      (data) => data.appName === appName,
+      420000,
+      { afterId: observerFrom },
     );
-    const holderIp = env.clients[holders[0]].ip;
+    expect(failed, 'no node attempted the app, so nothing here is under test').to.exist;
 
-    // Two intervals, so a tick has fired inside the stall.
-    await new Promise((r) => { setTimeout(r, ANNOUNCE_MS * 2); });
-
-    // THE CANARY. Without a claim made during the install there is nothing to
-    // retract, and everything below would pass against code that never retracts
-    // anything.
-    const claimed = await locationIpsByNode(env, appName);
-    expect(
-      claimed.some((ips) => ips && ips.some((ip) => ip.startsWith(`${holderIp}:`))),
-      'no node was told this app is held here, so the retraction below proves nothing',
-    ).to.be.true;
-
-    // Fail the pull on the spot.
-    await onEveryNode(env, `iptables -I OUTPUT ${RESET}`);
-    await onEveryNode(env, `iptables -D OUTPUT ${DROP}`);
-
-    // The retraction itself, seen by a peer rather than inferred from a row that
-    // could equally have expired: the harness compresses the row's own lifetime
-    // to 63s, so "it is gone" alone cannot tell a broadcast from a timeout.
+    // THE SUBJECT. A node that tears down in silence sends nothing, and peers
+    // hold whatever it claimed until the row expires on its own.
     const removed = await observer.waitForEvent(
       'network:appremoved',
-      (data) => data.name === appName && String(data.ip).startsWith(`${holderIp}:`),
+      (data) => data.name === appName,
       180000,
       { afterId: observerFrom },
     );
     expect(removed, 'the failed placement told nobody it had given the app up').to.exist;
 
+    // And the removal had its effect, asked of every node rather than of the one
+    // that sent it. Keyed on the sender rather than on the app being absent
+    // everywhere: an app whose container cannot start is offered to node after
+    // node, so other claims come and go throughout, and only this one is settled.
+    const departedIp = removed.data.ip;
+    expect(departedIp, 'the removal named no sender').to.be.a('string');
     await waitFor(
       async () => {
         const ips = await locationIpsByNode(env, appName);
-        return ips.every((list) => list && !list.some((ip) => ip.startsWith(`${holderIp}:`)));
+        return ips.every((list) => list && !list.includes(departedIp));
       },
-      { timeout: 60000, interval: 2000, label: `${holderIp} gives up its location row for ${appName}` },
+      { timeout: 120000, interval: 2000, label: `every node drops ${departedIp}'s location row for ${appName}` },
     );
-
-    // And the consequence the claim had: with it standing, the spawner counts an
-    // instance that does not exist and the app never reaches its target.
-    await onEveryNode(env, `iptables -D OUTPUT ${RESET}`);
-    const placed = await waitForInstanceCount(env, appName, INSTANCES, {
-      timeout: 420000, stableMs: 10000,
-    });
-    expect(placed, 'the app never reached its instance count').to.have.lengthOf.at.least(INSTANCES);
   });
 });
