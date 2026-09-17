@@ -1174,18 +1174,15 @@ function checkNodeJsVersionAllowed() {
   const message = `${NODEJS_DOS_MESSAGE_PREFIX}. Current lower version allowed is v${minimumVersion} found v${nodeJsVersion}`;
   const sticky = getStickyDosMessage();
   if (sticky) {
-    // The slot holds one message and has several writers, so it is taken only
-    // while free. Another owner's DOS already has this node out of service for
-    // its own reason, and taking the slot would leave that owner unable to
-    // recognise or release its own state; our own message is already there, and
-    // restating it on every pass through here is noise rather than news.
+    // One message, several writers, so the slot is taken only while free. Each
+    // writer decides both whether to set and whether to clear by recognising its
+    // own message, so an owner whose message is replaced holds a DOS it can
+    // never release. startFluxFunctions re-enters itself 15s after any throw and
+    // the other writers start partway through it, so every retry reaches here
+    // with all of them live.
     //
-    // This does NOT run only once. startFluxFunctions re-enters itself 15s after
-    // any throw, and the other writers of this slot start partway through it, so
-    // a retry runs this with all of them already live.
-    //
-    // The verdict does not move with the slot either way: a node below the floor
-    // is unfit whether or not this check is the reason an operator reads.
+    // The verdict is independent of the slot: a node below the floor is unfit
+    // whether or not this check is the reason an operator reads.
     if (!isOurNodeJsStickyDos()) {
       log.error(`${message} - another sticky DOS is active, not overwriting it`);
     }

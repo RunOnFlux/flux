@@ -120,12 +120,10 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.13.1',
-  // The NodeJS the process itself runs on. A node on a runtime the code was not
-  // written against fails whichever paths need what it lacks, one at a time and
-  // silently, rather than reporting itself unfit. 20.8.0 is where the fleet
-  // already is: every ArcaneOS node runs 24.x, nothing at all runs between
-  // 16.20.2 and 20.8.0, so the number costs no node a lower one would keep and
-  // leaves nothing in service on a line unsupported upstream.
+  // The NodeJS this process runs on. Below the floor a node fails whichever
+  // paths need what the runtime lacks, one at a time and silently, instead of
+  // reporting itself unfit. Unset allows: the check runs bare in
+  // startFluxFunctions, whose catch re-enters it.
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
