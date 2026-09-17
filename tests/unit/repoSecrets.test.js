@@ -26,6 +26,7 @@ describe('private key material in the tree', () => {
     'docs/registry-auth/REPOAUTH_STRING_FORMAT.md',
     'docs/registry-auth/google-gar/GOOGLE_GAR_SETUP.md',
     'test-infra/fixtures/registry-tls/server-key.pem',
+    'test-infra/fixtures/registry-tls/storage-key.pem',
     'tests/ZelBack/apiTests.js',
     'tests/unit/registryAuth/authProviderFactory.test.js',
     'tests/unit/registryAuth/googleGarAuthProvider.test.js',

@@ -28,6 +28,12 @@
 export const REGISTRY_ALIAS = 'fluxregistry';
 export const REGISTRY_PORT = 5000;
 
+// The one host a storage link may address. It matches fluxapps.storageHost in
+// the node config, the SAN on fixtures/registry-tls/storage-cert.pem and the
+// network alias the external HTTP stub is given; all three must name the same
+// host or a node resolves, refuses or distrusts it.
+export const STORAGE_HOST = 'storage.runonflux.io';
+
 export function resolveBase() {
   const base = process.env.TEST_SUBNET_BASE || '198.18.0';
   if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(base)) {
