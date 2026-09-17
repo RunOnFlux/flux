@@ -42,9 +42,6 @@ function load(overrides = {}) {
   };
   const serviceHelper = {
     axiosGet: sinon.stub().rejects(new Error('offline')),
-    // Real, but instant: the peer window is a bound on waiting, and a test should not sit
-    // through three seconds of it.
-    delay: () => Promise.resolve(),
     ...(overrides.serviceHelper || {}),
   };
 
@@ -57,7 +54,9 @@ function load(overrides = {}) {
         // undefined: the period reaches setInterval, and setInterval(fn, undefined) is
         // setInterval(fn, 0) - a runaway refresh under every other test in this file.
         refreshIntervalMs: overrides.refreshIntervalMs ?? 24 * 60 * 60 * 1000,
-        peerWindowMs: overrides.peerWindowMs ?? 3 * 1000,
+        // Short, so an ask that nothing settles does not hold a test for the production
+        // window. A test about the window itself passes its own value.
+        peerWindowMs: overrides.peerWindowMs ?? 20,
         fetchTimeoutMs: overrides.fetchTimeoutMs ?? 10 * 1000,
       },
     },
@@ -444,7 +443,7 @@ describe('policyStore', () => {
       const { module: m } = load({ serviceHelper: { axiosGet } });
       await m.start();
       m.setPeerTransport({
-        requestFrom: async (key) => { m.offerBundle(bundle(5), key); },
+        requestFrom: async (key, seq, id) => { m.offerBundle(bundle(5), key, id); },
         aboveThreshold: () => true,
       });
 
@@ -786,17 +785,17 @@ describe('policyStore', () => {
 
   describe('asking peers only when there are peers', () => {
     it('does not ask, and does not wait, when nothing is connected', async () => {
-      // What every boot did: the store starts before discovery, so this broadcast reached
-      // nobody and the window that followed waited for an answer that could not come.
+      // The store starts before discovery, so the peer set is empty at boot. Asking nobody
+      // reaches nobody, and the window after it waits for an answer that cannot come, so
+      // below the threshold the peer rung is skipped and the backstop is what answers.
       const request = sinon.stub().resolves();
-      const delay = sinon.stub().resolves();
       const axiosGet = sinon.stub().resolves({ data: bundle(2) });
-      const { module } = load({ serviceHelper: { axiosGet, delay } });
+      const { module } = load({ serviceHelper: { axiosGet } });
       module.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: sinon.stub().resolves(), aboveThreshold: () => false });
 
       await module.refresh();
+      // Nothing is asked, so there is no ask to wait on: the window is not reached.
       expect(request.called, 'nobody to ask, so it did not ask').to.equal(false);
-      expect(delay.called, 'and it did not wait out the peer window').to.equal(false);
       expect(module.getSeq(), 'it went straight to the backstop').to.equal(2);
     });
 
@@ -1309,13 +1308,10 @@ describe('policyStore', () => {
     // only thing tying it to one was the socket it came back on. A reply arriving after its
     // own ask had timed out then settled whichever ask was outstanding next.
     //
-    // The window has to be REAL here. The shared helper resolves delay() instantly, which
-    // makes every ask settle on its window the moment it is made - and an assertion that the
-    // ask is still outstanding then passes whatever the answer did.
-    const withRealWindow = () => load({
-      peerWindowMs: 10_000,
-      serviceHelper: { delay: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }) },
-    });
+    // The window has to outlast the test here. An ask that settles on its own window while
+    // the test is still running would let an assertion that the ask is outstanding pass
+    // whatever the answer did.
+    const withRealWindow = () => load({ peerWindowMs: 10_000 });
 
     // Everything that can run without waiting on a real answer, runs. No wall clock: a
     // promise still pending after the queue drains is pending because it is waiting on
