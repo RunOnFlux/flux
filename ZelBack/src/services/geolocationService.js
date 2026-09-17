@@ -555,12 +555,10 @@ async function setNodeGeolocation() {
  * Method responsible for getting stored node geolocation information.
  * If not available in memory, attempts to retrieve from database.
  *
- * The result is a copy. This is the node's own record of where it is, and a
- * caller shaping it for a reply would otherwise edit that record: a field
- * dropped to keep it out of a response is a field the node no longer knows
- * about itself, and the next refresh persists the gap. The record is flat
- * scalars, so one level copies all of it - a nested field added later would
- * need this to deepen with it.
+ * The result is a copy, so a caller may shape it for a reply. The original is
+ * the node's own record of where it is, and the next refresh persists whatever
+ * it holds. The record is flat scalars, so one level copies all of it - a
+ * nested field added later needs this to deepen with it.
  * @returns {Promise<object|null>} The geolocation object or null
  */
 async function getNodeGeolocation() {

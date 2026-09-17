@@ -35,10 +35,10 @@ async function getHostInfo(req, res) {
         hostInfo.ip = extractIp(localSocketAddr);
         const nodeGeo = await geolocationService.getNodeGeolocation();
         if (nodeGeo) {
-          // The node's own address and the operator holding it are not the
-          // container's business. getNodeGeolocation answers with a copy, so
-          // these removals shape this reply and leave the node's own record of
-          // where it is intact.
+          // One address per reply, from the source that cannot be stale:
+          // hostInfo.ip above is live from bench, this record's copy is as fresh
+          // as the last ip-api pass. Neither field is withheld - the address is
+          // above and /flux/geolocation serves the whole record unauthenticated.
           delete nodeGeo.ip;
           delete nodeGeo.org;
           hostInfo.geo = nodeGeo;
