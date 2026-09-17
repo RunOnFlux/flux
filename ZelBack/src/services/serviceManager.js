@@ -322,13 +322,6 @@ async function startFluxFunctions() {
     await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
       { key: { createdAt: 1 }, expireAfterSeconds: 900 },
     ]);
-    await ensureIndexes(database.collection(config.database.local.collections.activePaymentRequests), [
-      { key: { createdAt: 1 }, expireAfterSeconds: 3600 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.completedPayments), [
-      { key: { paymentId: 1 } },
-      { key: { createdAt: 1 }, expireAfterSeconds: 7 * 24 * 60 * 60 },
-    ]);
     // legacy pre-incident-schema rows expire via detectedAt; current incident
     // documents expire via lastSeen. The tamper service purges pre-schema
     // rows at startup, so the detectedAt pair only matters where old code

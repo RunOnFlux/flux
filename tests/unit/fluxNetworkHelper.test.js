@@ -27,7 +27,6 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -903,7 +902,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       ];
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicFluxnodeListResponse);
-      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
+      sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       getRandomExternalObserver = sinon.stub(networkStateService, 'getRandomExternalObserver');
       // An IP change hands off to the geolocation service, which reschedules
@@ -1152,8 +1151,8 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
 
-      // Stub daemonServiceWalletRpcs
-      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').resolves({ status: 'success' });
+      // Stub the fluxnode confirmation transaction
+      sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').resolves({ status: 'success' });
 
       // Stub serviceHelper.delay
       sinon.stub(serviceHelper, 'delay').resolves();
@@ -1225,7 +1224,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1302,7 +1300,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1367,7 +1364,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1428,7 +1424,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1477,7 +1472,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1546,7 +1540,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
       fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
-      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
+      sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       // The check defers and re-arms while the node list is unknown, the same

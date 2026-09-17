@@ -257,6 +257,77 @@ describe('appValidator tests', () => {
     });
   });
 
+  // A storage link decides where a node sends a request carrying its own
+  // signature. Refused when a specification is submitted, so the owner is told
+  // then rather than discovering it when every node fails to start the
+  // container - and accepted on replay, because the links already on chain were
+  // accepted under no rule and a node that reached a different verdict from its
+  // peers would build a different app list from the same chain.
+  describe('storage link validation', () => {
+    function specsWithParameter(parameter) {
+      return {
+        name: 'testapp',
+        version: 4,
+        description: 'Test app',
+        owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
+        compose: [{
+          name: 'component1',
+          description: 'Component 1',
+          repotag: 'nginx:latest',
+          ports: [],
+          domains: [],
+          environmentParameters: [parameter],
+          commands: [],
+          containerPorts: [],
+          containerData: '/data',
+          cpu: 0.5,
+          ram: 500,
+          hdd: 5,
+          tiered: false,
+        }],
+        instances: 3,
+      };
+    }
+
+    it('should reject a storage link to another host on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsWithParameter('F_S_ENV=https://example.com/env'), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('must address Flux storage');
+      }
+    });
+
+    it('should reject a storage link whose host merely ends with the storage name', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsWithParameter('F_S_ENV=https://storage.runonflux.io.example.com/env'), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('must address Flux storage');
+      }
+    });
+
+    it('should accept a storage link to Flux storage on a live submission', async () => {
+      await appValidator.verifyAppSpecifications(specsWithParameter('F_S_ENV=https://storage.runonflux.io/v1/env/1'), 1000, true);
+    });
+
+    it('should accept a parameter that carries no storage link on a live submission', async () => {
+      await appValidator.verifyAppSpecifications(specsWithParameter('DATABASE_URL=https://example.com'), 1000, true);
+    });
+
+    it('should accept a contacts link, which no node dereferences', async () => {
+      await appValidator.verifyAppSpecifications(specsWithParameter('F_S_CONTACTS=https://example.com/contacts'), 1000, true);
+    });
+
+    it('should accept a storage link to another host when replaying a message already on chain', async () => {
+      await appValidator.verifyAppSpecifications(specsWithParameter('F_S_ENV=https://example.com/env'), 1000);
+    });
+
+    it('should accept the malformed links already on chain when replaying', async () => {
+      await appValidator.verifyAppSpecifications(specsWithParameter('F_S_ENV=undefined'), 1000);
+    });
+  });
+
   describe('exported functions', () => {
     it('should export validation functions', () => {
       expect(appValidator.verifyAppSpecifications).to.be.a('function');

@@ -4,22 +4,54 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const { sendFile } = require('./utils/fileTransfer');
 const IOUtils = require('./IOUtils');
+const dockerService = require('./dockerService');
+const { appsFolder } = require('./utils/appConstants');
 const fs = require('fs').promises;
 const { sanitizePath, verifyRealPath } = require('./utils/pathSecurity');
 const { Privilege, authOf } = require('./utils/privileges');
 
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-const appsFolder = `${appsFolderPath}/`;
 
 /**
- * Validates if a file path belongs to a specific set of upload types within the appsFolder.
- * Uses sanitizePath for security validation, then checks for valid backup types.
- * @param {string} filepath - The file path to be validated.
- * @returns {string|false} - The sanitized filepath if valid, otherwise false.
+ * Whether an app volume directory directly beneath appsFolder belongs to a
+ * named app. A single-component app is mounted at `flux<app>` and a composed one
+ * at `flux<component>_<app>` per component, so the directory is rebuilt from the
+ * authorized app name and compared whole. Neither an app name nor a component
+ * name may contain an underscore, so the field after the separator is the entire
+ * app name and no other app's directory can satisfy the comparison.
+ * @param {string} volumeDir - Directory name directly beneath appsFolder.
+ * @param {string} appname - The app the caller holds a privilege over.
+ * @returns {boolean} - True when the directory is that app's own volume.
  */
-function pathValidation(filepath) {
+function volumeDirectoryBelongsToApp(volumeDir, appname) {
+  // An appname carrying the separator could otherwise be spelled to rebuild
+  // another app's composed directory, so it is refused here rather than left to
+  // the caller's ordering.
+  if (!volumeDir || !appname || appname.includes('_')) {
+    return false;
+  }
+  if (volumeDir === dockerService.getAppIdentifier(appname)) {
+    return true;
+  }
+  const separatorIndex = volumeDir.indexOf('_');
+  if (separatorIndex === -1) {
+    return false;
+  }
+  const component = dockerService.getBaseAppName(volumeDir.slice(0, separatorIndex));
+  return volumeDir === dockerService.getAppIdentifier(`${component}_${appname}`);
+}
+
+/**
+ * Validates that a path names a backup file or directory inside the volume of
+ * one named app. The tenancy check belongs here with the other path checks
+ * because every caller authorizes against `appname` and then operates on a path
+ * supplied separately: without binding the two, a valid privilege over any app
+ * reaches every app's backups on the node.
+ * @param {string} filepath - The file path to be validated.
+ * @param {string} appname - The app the caller holds a privilege over.
+ * @returns {string|false} - The filepath if valid, otherwise false.
+ */
+function pathValidation(filepath, appname) {
   if (!filepath || typeof filepath !== 'string') {
     return false;
   }
@@ -36,6 +68,14 @@ function pathValidation(filepath) {
     // Use sanitizePath for security validation (handles traversal, null bytes, etc.)
     sanitizePath(relativePath, appsFolder);
   } catch (error) {
+    return false;
+  }
+
+  // An app volume is mounted at `<appsFolder>/<identifier>` and sanitizePath has
+  // already refused any traversal leaving it, so the first segment of the
+  // relative path is the volume the request would reach.
+  const [volumeDir] = relativePath.split('/');
+  if (!volumeDirectoryBelongsToApp(volumeDir, appname)) {
     return false;
   }
 
@@ -129,13 +169,13 @@ async function getLocalBackupList(req, res) {
     let { number } = req.params;
     number = (number !== undefined && number !== null) ? number : (req.query.number || 'false');
     let { appname } = req.params;
-    appname = (appname !== undefined && appname !== null) ? appname : (req.query.number || '');
-    if (!path) {
+    appname = appname ?? req.query.appname ?? '';
+    if (!vPath || !appname) {
       throw new Error('path and appname parameters are required');
     }
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized === true) {
-      if (!pathValidation(vPath)) {
+      if (!pathValidation(vPath, appname)) {
         throw new Error('Path validation failed..');
       }
       const listData = await IOUtils.getPathFileList(vPath, multiplier, decimal, ['.tar.gz'], number);
@@ -226,7 +266,7 @@ async function removeBackupFile(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized === true) {
-      if (!pathValidation(filepath)) {
+      if (!pathValidation(filepath, appname)) {
         throw new Error('Path validation failed..');
       }
       const output = await IOUtils.removeFile(filepath);
@@ -267,7 +307,7 @@ async function downloadLocalFile(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: appname });
     if (authorized) {
-      if (!pathValidation(filepath)) {
+      if (!pathValidation(filepath, appname)) {
         throw new Error('Path validation failed..');
       }
       // Verify real path after symlink resolution to prevent symlink escape attacks

@@ -252,7 +252,24 @@ async function fluxNodeCurrentWinner(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To create a fluxnode confirmation transaction. The node re-confirms itself on
+ * chain with its own node identity; no wallet funds are involved, which is why
+ * this lives here and not with the wallet RPCs FluxOS no longer exposes.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function createConfirmationTransaction(req, res) {
+  const rpccall = 'createconfirmationtransaction';
+
+  response = await daemonServiceUtils.executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
 module.exports = {
+  createConfirmationTransaction,
   createFluxNodeKey,
   getFluxNodeCount,
   getFluxNodeOutputs,
