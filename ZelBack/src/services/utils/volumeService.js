@@ -17,23 +17,156 @@ const {
 const BYTES_PER_GIB = 1024 ** 3;
 
 /**
- * The host filesystems eligible to hold an app's FLUXFSVOL image.
+ * Filesystems whose contents do not survive a reboot. A volume image placed on
+ * one would take the app's data with it, however much room it reports free.
+ */
+const EPHEMERAL_FSTYPES = new Set(['tmpfs', 'ramfs', 'devtmpfs', 'overlay', 'squashfs']);
+
+/**
+ * A mount row in the unit node capacity is spent in.
+ * @param {object} volume One mount row from deviceHelper.
+ * @returns {{filesystem: string, mount: string, size: number, used: number,
+ *   available: number}} The same mount, in whole GiB.
+ */
+function inGib(volume) {
+  return {
+    filesystem: volume.source,
+    mount: volume.target,
+    size: Math.round(volume.sizeBytes / BYTES_PER_GIB),
+    used: Math.round(volume.usedBytes / BYTES_PER_GIB),
+    available: Math.round(volume.availableBytes / BYTES_PER_GIB),
+  };
+}
+
+/**
+ * One row per filesystem.
  *
- * Block-backed, and neither the root nor a boot filesystem. Loop devices are
- * excluded because a loop mount IS an app volume - treating one as a candidate
- * host would place an app's image inside another app's volume.
+ * `findmnt` names a bind mount `<device>[<subpath>]`, so a single disk is
+ * reported once per bind - in a containerised FluxOS that is `/etc/hostname`,
+ * `/etc/hosts` and `/etc/resolv.conf` beside the data volume, four views of one
+ * disk whose free space would otherwise be added up four times. The shortest
+ * target is kept, which is the mount the others are subpaths of.
  *
- * Throws when the mount table cannot be read; callers narrow their search to
- * the appvolumes directories rather than treating that as "no disks".
+ * @param {Array<object>} rows Mount rows from deviceHelper.
+ * @returns {Array<object>} One row per distinct device.
+ */
+function oneRowPerFilesystem(rows) {
+  const byDevice = new Map();
+  rows.forEach((row) => {
+    const device = String(row.source).split('[')[0];
+    const held = byDevice.get(device);
+    if (!held || row.target.length < held.target.length) byDevice.set(device, row);
+  });
+  return Array.from(byDevice.values());
+}
+
+/**
+ * Whether this is a filesystem the node may use for its own storage.
+ *
+ * `findmnt --real` has already dropped the pseudo filesystems and a container's
+ * own overlay, so what is left to exclude is the boot disk and the app volumes
+ * this node has already placed: an app's image is carved out of one of these
+ * filesystems, so counting it counts the same bytes twice. A loop mount IS such
+ * an image - except at the root, where a loop is the host disk itself.
+ *
+ * Says nothing about writing: that is a separate question, asked where an image
+ * is actually placed.
+ *
+ * @param {object} mount One mount row from deviceHelper.
+ * @returns {boolean} True when the filesystem is the node's to use.
+ */
+function isHostFilesystem(mount) {
+  if (EPHEMERAL_FSTYPES.has(mount.fstype)) return false;
+  if (mount.fstype === 'vfat') return false;
+  if (mount.target === '/boot' || mount.target.startsWith('/boot/')) return false;
+  const device = String(mount.source).split('[')[0];
+  if (device.startsWith('/dev/loop') && mount.target !== '/') return false;
+  // Under the apps folder, not the folder itself: an app's volume is mounted at
+  // <appsFolder>/<appId>, while the folder is an ordinary directory an operator
+  // may well have given its own disk. An image there is <appId>FLUXFSVOL, which
+  // collides with no mount point.
+  const appsRoot = appsFolder.replace(/\/+$/, '');
+  return !mount.target.startsWith(`${appsRoot}/`);
+}
+
+/**
+ * Every filesystem the node may use, as many times as it is mounted.
+ *
+ * Deliberately not deduplicated: how many times one disk should count depends
+ * on the question being asked of it, so each caller decides.
+ *
+ * Throws when the mount table cannot be read, so a caller cannot read "no
+ * disks" as "no space".
+ *
+ * @returns {Promise<Array<object>>} mount rows from deviceHelper
+ */
+async function hostFilesystems() {
+  const mounts = await deviceHelper.listMountedFilesystems();
+  return mounts.filter(isHostFilesystem);
+}
+
+/**
+ * Whether a FLUXFSVOL image can be created in this mount.
+ *
+ * The image is a file written into the mount point, so the mount point has to
+ * be a directory and has to be writable. A device cannot answer either.
+ *
+ * @param {object} mount One mount row from deviceHelper.
+ * @returns {Promise<boolean>} True when an image can be written there.
+ */
+async function canHoldAppVolume(mount) {
+  if (mount.readOnly) return false;
+  const stats = await fs.stat(mount.target).catch(() => null);
+  return Boolean(stats && stats.isDirectory());
+}
+
+/**
+ * The filesystems an app's FLUXFSVOL image may be placed on, most free space
+ * first, one row per filesystem, sized in whole GiB.
+ *
+ * Ranked rather than merely listed, because the caller takes the first that
+ * fits: ordering by free space makes that the emptiest disk, where mount-table
+ * order would make it whichever the kernel happened to report first.
+ *
+ * Deduplicated after the write check and not before, so a disk is not lost to a
+ * bind of it that happens to be a file.
+ *
+ * @returns {Promise<Array<{filesystem: string, mount: string, size: number,
+ *   used: number, available: number}>>}
+ */
+async function placementVolumesInGib() {
+  const hosts = await hostFilesystems();
+  const writable = [];
+  for (const mount of hosts) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await canHoldAppVolume(mount)) writable.push(mount);
+  }
+  return oneRowPerFilesystem(writable)
+    .sort((a, b) => b.availableBytes - a.availableBytes)
+    .map(inGib);
+}
+
+/**
+ * The mounts an app's FLUXFSVOL image may be found on.
+ *
+ * The same filesystems placement writes to, so an image is looked for exactly
+ * where one can be put. The root is left out because an image the root hosts is
+ * written to the appvolumes directory instead, which callers search separately.
+ *
+ * Not deduplicated: two directories on one disk are two places an image can
+ * sit, and a search that visited only one of them would miss it.
  *
  * @returns {Promise<Array<object>>} mount rows from deviceHelper
  */
 async function eligibleHostMounts() {
-  const filesystems = await deviceHelper.listMountedFilesystems();
-  return filesystems.filter((entry) => entry.source.includes('/dev/')
-    && !entry.source.includes('loop')
-    && !entry.target.includes('boot')
-    && entry.target !== '/');
+  const hosts = await hostFilesystems();
+  const eligible = [];
+  for (const mount of hosts) {
+    if (mount.target === '/') continue;
+    // eslint-disable-next-line no-await-in-loop
+    if (await canHoldAppVolume(mount)) eligible.push(mount);
+  }
+  return eligible;
 }
 
 /**
@@ -54,17 +187,7 @@ async function eligibleHostMounts() {
  *   used: number, available: number}>>}
  */
 async function capacityVolumesInGib() {
-  const mounts = await deviceHelper.listMountedFilesystems();
-  return mounts
-    .filter((volume) => (volume.source.includes('/dev/') && !volume.source.includes('loop') && !volume.target.includes('boot'))
-      || (volume.source.includes('loop') && volume.target === '/'))
-    .map((volume) => ({
-      filesystem: volume.source,
-      mount: volume.target,
-      size: Math.round(volume.sizeBytes / BYTES_PER_GIB),
-      used: Math.round(volume.usedBytes / BYTES_PER_GIB),
-      available: Math.round(volume.availableBytes / BYTES_PER_GIB),
-    }));
+  return oneRowPerFilesystem(await hostFilesystems()).map(inGib);
 }
 
 /**
@@ -453,6 +576,7 @@ async function clearAppVolumeData(identifier) {
 
 module.exports = {
   verifyAppVolumeMount,
+  placementVolumesInGib,
   ensureMountPathsExist,
   capacityVolumesInGib,
   isPathMounted,

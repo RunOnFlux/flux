@@ -37,7 +37,16 @@ describe('volumeService tests', () => {
     // readFile rejecting drives isPathMounted onto its mountpoint-command
     // fallback, so tests can keep expressing mountedness via runCommand; the
     // isPathMounted describe covers the mountinfo path with real fixtures
-    fsStub = { promises: { access: sinon.stub(), readdir: sinon.stub().resolves([]), readFile: sinon.stub().rejects(new Error('no mountinfo')) } };
+    fsStub = {
+      promises: {
+        access: sinon.stub(),
+        readdir: sinon.stub().resolves([]),
+        readFile: sinon.stub().rejects(new Error('no mountinfo')),
+        // A mount point is a directory unless a test says otherwise: that is
+        // what makes it somewhere a volume image can be written.
+        stat: sinon.stub().resolves({ isDirectory: () => true }),
+      },
+    };
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]) };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
@@ -127,8 +136,8 @@ describe('volumeService tests', () => {
   });
 
   describe('capacityVolumesInGib tests', () => {
-    const mount = (source, target, sizeBytes) => ({
-      source, target, sizeBytes, usedBytes: 0, availableBytes: sizeBytes,
+    const mount = (source, target, sizeBytes, fstype = 'ext4') => ({
+      source, target, fstype, sizeBytes, usedBytes: 0, availableBytes: sizeBytes,
     });
 
     it('counts block-backed volumes', async () => {
@@ -141,10 +150,10 @@ describe('volumeService tests', () => {
       expect(result.map((v) => v.mount)).to.deep.equal(['/dat', '/dat2']);
     });
 
-    it('excludes a volume that is not block-backed', async () => {
+    it('excludes a volume whose contents would not survive a reboot', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([
         mount('/dev/sda1', '/dat', 1e12),
-        mount('tmpfs', '/run', 2e12),
+        mount('tmpfs', '/run', 2e12, 'tmpfs'),
       ]);
 
       const result = await volumeService.capacityVolumesInGib();

@@ -523,7 +523,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res.flush) res.flush();
   }
 
-  const okVolumes = await volumeService.capacityVolumesInGib();
+  const okVolumes = await volumeService.placementVolumesInGib();
 
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
@@ -559,11 +559,11 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     throw new Error('Insufficient space on Flux Node. Space is already assigned to system files');
   }
 
-  // check if space is not sharded in some bad way. Always count the minSystemReserve
+  // Emptiest first, so the first that fits is the disk with the most room left
+  // rather than whichever the mount table happened to name first.
   let useThisVolume = null;
   const totalVolumes = okVolumes.length;
   for (let i = 0; i < totalVolumes; i += 1) {
-    // check available volumes one by one. If a sufficient is found. Use this one.
     if (okVolumes[i].available > appSpecifications.hdd + minSystemReserve) {
       useThisVolume = okVolumes[i];
       break;
@@ -3319,13 +3319,13 @@ async function testAppMount() {
     log.info('Mount Test: started');
     log.info('Mount Test: Searching available space...');
 
-    const okVolumes = await volumeService.capacityVolumesInGib();
+    const okVolumes = await volumeService.placementVolumesInGib();
 
-    // check if space is not sharded in some bad way. Always count the fluxSystemReserve
+    // The same volumes a real install would be offered, emptiest first: a test
+    // that mounted somewhere an install never would proves nothing about it.
     let useThisVolume = null;
     const totalVolumes = okVolumes.length;
     for (let i = 0; i < totalVolumes; i += 1) {
-      // check available volumes one by one. If a sufficient is found. Use this one.
       if (okVolumes[i].available > appSize + overHeadRequired) {
         useThisVolume = okVolumes[i];
         break;

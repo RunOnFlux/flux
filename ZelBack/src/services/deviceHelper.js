@@ -35,13 +35,13 @@ const serviceHelper = require('./serviceHelper');
  * "no disks" as "no space" and act on it.
  *
  * @returns {Promise<Array<{source: string, target: string, fstype: string,
- *   sizeBytes: number, usedBytes: number, availableBytes: number,
- *   usePercent: number}>>}
+ *   options: string, readOnly: boolean, sizeBytes: number, usedBytes: number,
+ *   availableBytes: number, usePercent: number}>>}
  */
 async function listMountedFilesystems() {
   const res = await serviceHelper.runCommand('findmnt', {
     logError: false,
-    params: ['--real', '--list', '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,SIZE,USED,AVAIL,USE%'],
+    params: ['--real', '--list', '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,SIZE,USED,AVAIL,USE%'],
   });
   if (res.error) {
     throw new Error(`findmnt --real --list failed: ${res.error.message || res.error}`);
@@ -51,6 +51,8 @@ async function listMountedFilesystems() {
     source: entry.source,
     target: entry.target,
     fstype: entry.fstype,
+    options: String(entry.options || ''),
+    readOnly: String(entry.options || '').split(',').includes('ro'),
     sizeBytes: Number(entry.size),
     usedBytes: Number(entry.used),
     availableBytes: Number(entry.avail),

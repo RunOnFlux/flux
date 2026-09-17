@@ -2981,11 +2981,13 @@ describe('advancedWorkflows tests', () => {
       // disks the machine running the suite happens to have.
       // eslint-disable-next-line global-require
       const volumeService = require('../../ZelBack/src/services/utils/volumeService');
-      sinon.stub(volumeService, 'capacityVolumesInGib').resolves([
+      const oneDisk = [
         {
           filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: 900,
         },
-      ]);
+      ];
+      sinon.stub(volumeService, 'capacityVolumesInGib').resolves(oneDisk);
+      sinon.stub(volumeService, 'placementVolumesInGib').resolves(oneDisk);
     });
 
     afterEach(() => {
