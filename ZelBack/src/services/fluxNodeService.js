@@ -137,4 +137,5 @@ function stop() {
 module.exports = {
   start,
   stop,
+  getHostInfo,
 };
