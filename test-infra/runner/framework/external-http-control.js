@@ -2,7 +2,7 @@
 // fetch over real HTTP from inside the subnet. The restore suites need this
 // because the remote path - the download, the content-length comparison, the
 // file landing in backup/remote - cannot be reached with a local archive.
-import { getSubnetConfig } from './subnet-config.js';
+import { getSubnetConfig, STORAGE_HOST } from './subnet-config.js';
 
 const HOST = getSubnetConfig().externalStub;
 const CONTROL = process.env.EXTERNAL_HTTP_CONTROL || `http://${HOST}:3001`;
@@ -108,4 +108,60 @@ export async function expectNoUnexpectedDns({ allowed = [] } = {}) {
     .map((a) => `${a.name} (node ${a.node})`)
     .join(', ');
   throw new Error(`nodes reached for names the fleet does not serve: ${detail}`);
+}
+
+/**
+ * Stage what Flux storage answers for a link.
+ *
+ * The body is what the node receives as the container's environment or command
+ * parameters, so it is a JSON array of strings.
+ *
+ * @param {string} name - the last path segment of the link
+ * @param {string[]} body - the parameters the payload carries
+ */
+export async function stageStoragePayload(name, body) {
+  return post('/storage', { name, body });
+}
+
+/**
+ * Stage a link that answers 302 to somewhere else.
+ *
+ * The host is the whole of the rule, so a followed redirect would put the node
+ * back to fetching an address the response chose.
+ *
+ * @param {string} name - the last path segment of the link
+ * @param {string} redirectTo - the location header to answer with
+ */
+export async function stageStorageRedirect(name, redirectTo) {
+  return post('/storage', { name, redirectTo });
+}
+
+/**
+ * The link a specification should carry to reach a staged payload.
+ * @param {string} name - the staged payload's name
+ * @returns {string} an https link addressing Flux storage
+ */
+export function storageUrl(name) {
+  return `https://${STORAGE_HOST}/${name}`;
+}
+
+/**
+ * Every storage request the fleet made, in order.
+ *
+ * Only requests that arrived over TLS at the storage host are here, so an entry
+ * is a fetch that satisfied both halves of the rule - and an empty list after a
+ * container start is a node that refused before asking.
+ *
+ * @returns {Promise<Array<{name: string, at: string, fluxApp: string|null,
+ *   fluxMessage: string|null, fluxSignature: string|null}>>}
+ */
+export async function storageRequests() {
+  const res = await fetch(`${CONTROL}/storage-requests`);
+  const { requests } = await res.json();
+  return requests;
+}
+
+/** Forget every storage request, so what follows is this test's doing. */
+export async function resetStorageRequests() {
+  return post('/storage-requests/reset');
 }
