@@ -504,6 +504,11 @@ async function considerBackstopFetch() {
   backstopFetchInFlight = true;
   try {
     log.info('policyStore - the peer set has not settled what this node holds, asking the published source');
+    // The decision, not its outcome. A node whose peers cannot settle what it holds is in a
+    // posture nothing downstream reveals: the source may serve nothing, so no bundle change
+    // follows, and the sequence it holds is the same before and after. This is what
+    // separates "asked and got nothing" from "has not got there yet".
+    fluxEventBus.publish('policy:backstopAsked', { seq: getSeq() });
     const raw = await fetchFromBackstop();
     if (!raw) return;
     // A body that verifies is the publisher answering, which is the one answer that means

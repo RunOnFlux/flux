@@ -229,6 +229,10 @@ export function nodeClient(nodeNum) {
         // driven by it - the location table is fetched on this, not on a timer - so a suite
         // proving that wiring needs the two facts in order, not just both eventually.
         'policy:bundleChanged',
+        // The node consulted the published source because its peers could not settle what
+        // it holds. Nothing downstream carries that: a source serving nothing produces no
+        // bundle change and leaves the held sequence where it was.
+        'policy:backstopAsked',
         // And the other half of that pair: a verified table actually installed.
         'ipLocation:tableInstalled',
         // The node looked and had nothing to look for - the bundle it holds names no
