@@ -190,4 +190,54 @@ describe('peerRequests tests', () => {
       expect(requests.settled('a:1'), 'asked again, so it is outstanding again').to.equal(false);
     });
   });
+
+  // A caller deciding something about the peer set needs to know WHAT a peer answered, not
+  // only that it did: "answered" covers a peer that agreed, one that holds nothing and one
+  // that is ahead, and those mean different things about the asker.
+  describe('what a peer answered', () => {
+    it('is null while the question is still open', () => {
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      expect(requests.outcomeOf('a:1'), 'open, so it has established nothing').to.equal(null);
+    });
+
+    it('is null for a peer that was never asked', () => {
+      const requests = new PeerRequests();
+      expect(requests.outcomeOf('a:1')).to.equal(null);
+    });
+
+    it('is what settled it', () => {
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      requests.open('b:1');
+      requests.settle('a:1', 'notAhead');
+      requests.settle('b:1', 'holdsNothing');
+      expect(requests.outcomeOf('a:1')).to.equal('notAhead');
+      expect(requests.outcomeOf('b:1'), 'two answers, told apart').to.equal('holdsNothing');
+    });
+
+    it('keeps the first outcome, because settling happens once', () => {
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      requests.settle('a:1', 'notAhead');
+      requests.settle('a:1', 'timedOut');
+      expect(requests.outcomeOf('a:1')).to.equal('notAhead');
+    });
+
+    it('goes with the peer, so a record does not outlive its connection', () => {
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      requests.settle('a:1', 'notAhead');
+      requests.discard('a:1');
+      expect(requests.outcomeOf('a:1'), 'what the old socket said is not what a new one holds').to.equal(null);
+    });
+
+    it('is null again once the peer is asked afresh', () => {
+      const requests = new PeerRequests();
+      requests.open('a:1');
+      requests.settle('a:1', 'notAhead');
+      requests.open('a:1');
+      expect(requests.outcomeOf('a:1'), 'a new question has no answer yet').to.equal(null);
+    });
+  });
 });

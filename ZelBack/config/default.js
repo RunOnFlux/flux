@@ -760,6 +760,13 @@ module.exports = {
     // Bound on a single backstop fetch, so a boot is never stuck on one source. Absolute,
     // for the same reason as above.
     fetchTimeoutMs: 10 * 1000,
+    // How many capable peers must answer "not ahead of you" before their agreement stands as
+    // confirmation. A sequence is a claim the asker cannot check, so one peer is not
+    // evidence: a single stale or lying neighbour would otherwise open the acquisition gate
+    // on policy the network has moved past. A peer that is genuinely ahead sends the signed
+    // bundle instead, which stands on its own, and a node whose capable peers cannot reach
+    // this many asks the publisher, whose answer is signed.
+    minConfirmingPeers: 4,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

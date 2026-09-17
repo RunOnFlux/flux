@@ -172,6 +172,19 @@ class PeerRequests {
     return Boolean(request && request.outcome);
   }
 
+  /**
+   * How the request against this peer ended, or null while it is open or absent.
+   *
+   * What a caller reads to decide something about the peer SET: the outcome records what the
+   * peer's answer established, not merely that one arrived.
+   * @param {string} peerKey ip:port
+   * @returns {string|null}
+   */
+  outcomeOf(peerKey) {
+    const request = this.#requests.get(peerKey);
+    return (request && request.outcome) || null;
+  }
+
   /** How many are still open. */
   openCount() {
     let open = 0;

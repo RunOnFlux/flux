@@ -93,6 +93,19 @@ module.exports = {
     // Absolute latency bounds: these do not compress with the clocks.
     peerWindowMs: 3 * 1000,
     fetchTimeoutMs: 10 * 1000,
+    // Compressed hard, because a suite fleet is a handful of nodes and production's quorum
+    // would send every suite to the stub source instead - the rung most of them exist to
+    // prove is NOT taken.
+    //
+    // ONE, NOT TWO, because a stub peer advertises the policy capability and answers only
+    // when a suite tells it to. Every fleet carrying one therefore has a peer that is asked
+    // and says nothing, and any bar above one would be unreachable for a node whose set is
+    // one real peer and one stub - leaving it unconfirmed, and its spawner shut, in suites
+    // that have nothing to do with policy.
+    //
+    // The bar itself is the subject of exactly one scenario, which sets its own above what
+    // its fleet can field.
+    minConfirmingPeers: 1,
   },
   fluxapps: {
     minOutgoing: 4,

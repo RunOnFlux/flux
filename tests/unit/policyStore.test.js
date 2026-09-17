@@ -57,6 +57,11 @@ function load(overrides = {}) {
         // Short, so an ask that nothing settles does not hold a test for the production
         // window. A test about the window itself passes its own value.
         peerWindowMs: overrides.peerWindowMs ?? 20,
+        // One, so a test that is not about the quorum can confirm from a single peer. A test
+        // about the quorum passes its own value. Supplied rather than left undefined: the
+        // comparison against it decides confirmation, and `n < undefined` is false for every
+        // n - which would confirm a node whose peers said nothing at all.
+        minConfirmingPeers: overrides.minConfirmingPeers ?? 1,
         fetchTimeoutMs: overrides.fetchTimeoutMs ?? 10 * 1000,
       },
     },
@@ -202,13 +207,20 @@ describe('policyStore', () => {
       expect(state.policyReady, 'but may not act on it yet').to.equal(false);
     });
 
-    it('a peer at the same sequence confirms it', async () => {
+    it('a peer that answers "not ahead" confirms it', async () => {
       const { module, state } = load({ repo: restoredRepo(4) });
-      module.setPeerTransport({ announce: sinon.stub().resolves(), aboveThreshold: () => false });
       await module.start();
       expect(state.policyReady).to.equal(false);
 
-      module.notePeerSeq(4); // "I am at 4 too" - so we are not behind
+      // Below the threshold throughout, so the publisher cannot answer for the peer.
+      module.setPeerTransport({
+        capableKeys: () => CAPABLE,
+        requestFrom: async (key, seq, id) => module.notePeerSeq(4, key, id), // "I am at 4 too"
+        announce: sinon.stub().resolves(),
+        aboveThreshold: () => false,
+      });
+      await module.notePeerAvailable(CAPABLE[0]);
+
       expect(state.policyReady, 'a peer that is not ahead of us is the evidence').to.equal(true);
       module.stop();
     });
@@ -357,8 +369,13 @@ describe('policyStore', () => {
       // then land in the opposite order to the usual one. Nothing about the node's state
       // differs afterwards, so the gate must not depend on which came first.
       const { module, state } = load({ repo: restoredRepo(2) });
+      module.setPeerTransport({
+        capableKeys: () => CAPABLE,
+        requestFrom: async (key, seq, id) => module.notePeerSeq(0, key, id),
+        aboveThreshold: () => false,
+      });
 
-      module.notePeerSeq(0, 'peer-1');
+      await module.notePeerAvailable(CAPABLE[0]);
       expect(state.policyReady, 'confirmed, but holding nothing yet').to.equal(false);
 
       expect(await module.restore()).to.equal(true);
@@ -454,20 +471,44 @@ describe('policyStore', () => {
       m.stop();
     });
 
-    it('does not go to the source for a node that restored a bundle', async () => {
+    it('asks the source for a restored bundle its peers cannot settle', async () => {
+      // Disk says what this node last held, never that it is still the network's. A peer
+      // holding nothing cannot settle that, so the publisher is the only party left who can.
       const axiosGet = sinon.stub().resolves({ data: bundle(9) });
       const repo = {
         readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
         writeBundle: sinon.stub().resolves(true),
       };
-      const { module: m } = load({ repo, serviceHelper: { axiosGet } });
+      const { module: m, state } = load({ repo, serviceHelper: { axiosGet } });
       await m.start();
       m.setPeerTransport({ requestFrom: holdsNothing(m), aboveThreshold: () => true });
 
       await m.notePeerAvailable(PEER);
 
-      expect(axiosGet.called, 'a restored node needs no seed - peers and its own tick carry it').to.equal(false);
+      expect(axiosGet.calledOnce, 'nobody could settle it, so the publisher was asked').to.equal(true);
+      expect(m.getSeq(), 'and it carried something newer').to.equal(9);
+      expect(state.policyReady).to.equal(true);
+      m.stop();
+    });
+
+    it('leaves the source alone when its peers settle the restored bundle', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const repo = {
+        readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
+        writeBundle: sinon.stub().resolves(true),
+      };
+      const { module: m, state } = load({ repo, serviceHelper: { axiosGet } });
+      await m.start();
+      m.setPeerTransport({
+        requestFrom: async (key, seq, id) => m.notePeerSeq(4, key, id),
+        aboveThreshold: () => true,
+      });
+
+      await m.notePeerAvailable(PEER);
+
+      expect(axiosGet.called, 'the peer set settled it, so the publisher is not consulted').to.equal(false);
       expect(m.getSeq()).to.equal(4);
+      expect(state.policyReady).to.equal(true);
       m.stop();
     });
 
@@ -678,20 +719,21 @@ describe('policyStore', () => {
       m.stop();
     });
 
-    it('does nothing on a threshold reached by a node that already holds policy', async () => {
+    it('asks the source on a threshold reached with nobody able to settle it', async () => {
       const axiosGet = sinon.stub().resolves({ data: bundle(7) });
       const repo = {
         readBundle: sinon.stub().resolves({ raw: bundle(4), seq: 4 }),
         writeBundle: sinon.stub().resolves(true),
       };
-      const { module: m } = load({ repo, serviceHelper: { axiosGet } });
+      const { module: m, state } = load({ repo, serviceHelper: { axiosGet } });
       await m.start();
       m.setPeerTransport({ capableKeys: () => [], requestFrom: sinon.stub().resolves(), aboveThreshold: () => true });
 
       await m.noteThresholdReached();
 
-      expect(axiosGet.called, 'a restored node needs no seed').to.equal(false);
-      expect(m.getSeq()).to.equal(4);
+      expect(axiosGet.calledOnce, 'an empty capable set settles nothing, so the publisher does').to.equal(true);
+      expect(m.getSeq()).to.equal(7);
+      expect(state.policyReady).to.equal(true);
       m.stop();
     });
   });
@@ -1402,6 +1444,210 @@ describe('policyStore', () => {
       await drain();
       expect(settled, 'an announcement ended an ask it never answered').to.equal(false);
       module.stop();
+    });
+  });
+
+  // A sequence is a claim the asker cannot check, so one peer making it is one peer's word.
+  // A stale or lying neighbour would otherwise open the acquisition gate on policy the
+  // network has moved past, and the publisher - whose answer is signed and therefore stands
+  // on its own - is reached only above a peer threshold. What counts here is enough of the
+  // set agreeing, once all of it has answered.
+  describe('the peer set settles it, not the first peer to answer', () => {
+    const held = (seq) => ({
+      readBundle: sinon.stub().resolves({ raw: bundle(seq), seq }),
+      writeBundle: sinon.stub().resolves(true),
+    });
+    const peerSet = (n) => Array.from({ length: n }, (unused, i) => `10.9.0.${i + 1}:16127`);
+
+    // Everything that can run without waiting on a real answer, runs. No wall clock.
+    const drain = async () => {
+      for (let i = 0; i < 8; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    };
+
+    // Below the threshold throughout, so the publisher cannot answer for the set under test.
+    const askAll = (m, keys, answer) => {
+      m.setPeerTransport({
+        capableKeys: () => keys,
+        requestFrom: async (key, seq, id) => answer(key, seq, id),
+        aboveThreshold: () => false,
+      });
+      return Promise.all(keys.map((key) => m.notePeerAvailable(key)));
+    };
+    const notAhead = (m) => (key, seq, id) => m.notePeerSeq(4, key, id);
+
+    it('one peer is not enough', async () => {
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      await askAll(m, peerSet(1), notAhead(m));
+      expect(state.policyReady, "one peer is one peer's word").to.equal(false);
+      m.stop();
+    });
+
+    it('one short of the quorum is not enough', async () => {
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      await askAll(m, peerSet(3), notAhead(m));
+      expect(state.policyReady).to.equal(false);
+      m.stop();
+    });
+
+    it('the quorum exactly confirms', async () => {
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      await askAll(m, peerSet(4), notAhead(m));
+      expect(state.policyReady).to.equal(true);
+      m.stop();
+    });
+
+    it('a peer holding nothing does not count towards it', async () => {
+      // It answered, so its ask is over and the set has been heard in full - but an empty
+      // peer has said nothing about whether the policy this node holds is current.
+      const keys = peerSet(4);
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      await askAll(m, keys, (key, seq, id) => (
+        key === keys[3] ? m.notePeerSeq(null, key, id) : m.notePeerSeq(4, key, id)));
+      expect(state.policyReady, 'three said not-ahead, the fourth said nothing at all').to.equal(false);
+      m.stop();
+    });
+
+    it('a peer that is ahead does not count towards it', async () => {
+      const keys = peerSet(4);
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      await askAll(m, keys, (key, seq, id) => (
+        key === keys[3] ? m.notePeerSeq(9, key, id) : m.notePeerSeq(4, key, id)));
+      expect(state.policyReady, 'a peer ahead of us is evidence we are behind').to.equal(false);
+      m.stop();
+    });
+
+    it('a peer that never answers does not count towards it', async () => {
+      const keys = peerSet(4);
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      await askAll(m, keys, (key, seq, id) => (
+        key === keys[3] ? undefined : m.notePeerSeq(4, key, id)));
+      expect(state.policyReady, 'an ask that timed out is not an answer').to.equal(false);
+      m.stop();
+    });
+
+    it('does not confirm while asks are outstanding, even once enough have answered', async () => {
+      // Deciding as soon as the count is reached would open the gate before the peers behind
+      // it answered, and one of those may be sending the bundle that says this node is
+      // behind. The quorum is deliberately met here while two asks are still open, so that
+      // what holds the gate shut is the waiting rather than the count.
+      const keys = peerSet(4);
+      const outstanding = [];
+      const { module: m, state } = load({
+        minConfirmingPeers: 2, peerWindowMs: 10_000, repo: held(4),
+      });
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => keys,
+        requestFrom: async (key, seq, id) => { outstanding.push([key, id]); },
+        aboveThreshold: () => false,
+      });
+      const asks = Promise.all(keys.map((key) => m.notePeerAvailable(key)));
+      await drain();
+      expect(outstanding, 'every capable peer was asked').to.have.lengthOf(4);
+
+      outstanding.slice(0, 2).forEach(([key, id]) => m.notePeerSeq(4, key, id));
+      await drain();
+      expect(state.policyReady, 'the quorum is met, but two peers have not answered').to.equal(false);
+
+      outstanding.slice(2).forEach(([key, id]) => m.notePeerSeq(4, key, id));
+      await asks;
+      expect(state.policyReady, 'and now the set has been heard in full').to.equal(true);
+      m.stop();
+    });
+
+    it('a peer that leaves without answering does not complete the quorum', async () => {
+      const keys = peerSet(4);
+      let present = [...keys];
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => present,
+        requestFrom: async (key, seq, id) => m.notePeerSeq(4, key, id),
+        aboveThreshold: () => false,
+      });
+      await Promise.all(keys.slice(0, 3).map((key) => m.notePeerAvailable(key)));
+      expect(state.policyReady, 'three of the four').to.equal(false);
+
+      present = keys.slice(0, 3);
+      await m.notePeerGone(keys[3]);
+      expect(state.policyReady, 'the fourth left rather than answering').to.equal(false);
+      m.stop();
+    });
+
+    it('an answer to no ask confirms nothing', async () => {
+      // A sequence arriving unprompted is news about its sender. Nothing asked for it, so
+      // nothing records it against the set.
+      const keys = peerSet(1);
+      const { module: m, state } = load({ minConfirmingPeers: 1, repo: held(4) });
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => keys,
+        requestFrom: sinon.stub().resolves(),
+        aboveThreshold: () => false,
+      });
+
+      m.notePeerSeq(4, keys[0], 'an-id-nothing-is-waiting-on');
+      expect(state.policyReady, 'nothing asked, so nothing was answered').to.equal(false);
+      m.stop();
+    });
+
+    it('counts the peers it asked when the transport cannot name the capable ones', async () => {
+      const keys = peerSet(4);
+      const { module: m, state } = load({ minConfirmingPeers: 4, repo: held(4) });
+      await m.start();
+      m.setPeerTransport({
+        requestFrom: async (key, seq, id) => m.notePeerSeq(4, key, id),
+        aboveThreshold: () => false,
+      });
+      await Promise.all(keys.map((key) => m.notePeerAvailable(key)));
+      expect(state.policyReady, 'not knowing which peers are capable is not a reason to refuse').to.equal(true);
+      m.stop();
+    });
+
+    it('asks the publisher when the set cannot reach the quorum', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const keys = peerSet(2);
+      const { module: m, state } = load({
+        minConfirmingPeers: 4, repo: held(4), serviceHelper: { axiosGet },
+      });
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => keys,
+        requestFrom: async (key, seq, id) => m.notePeerSeq(4, key, id),
+        aboveThreshold: () => true,
+      });
+      await Promise.all(keys.map((key) => m.notePeerAvailable(key)));
+
+      expect(axiosGet.calledOnce, 'two peers cannot settle it, so the publisher is asked').to.equal(true);
+      expect(state.policyReady, 'and its answer is signed').to.equal(true);
+      m.stop();
+    });
+
+    it('asks the publisher once, however many peers arrive', async () => {
+      const axiosGet = sinon.stub().resolves({ data: bundle(9) });
+      const keys = peerSet(6);
+      const { module: m } = load({
+        minConfirmingPeers: 99, repo: held(4), serviceHelper: { axiosGet },
+      });
+      await m.start();
+      m.setPeerTransport({
+        capableKeys: () => keys,
+        requestFrom: async (key, seq, id) => m.notePeerSeq(4, key, id),
+        aboveThreshold: () => true,
+      });
+      await Promise.all(keys.map((key) => m.notePeerAvailable(key)));
+
+      expect(axiosGet.calledOnce, 'confirmation latches, so the source is consulted once').to.equal(true);
+      m.stop();
     });
   });
 });

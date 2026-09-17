@@ -1040,3 +1040,110 @@ describe('a node whose peers all predate the policy protocol', function () {
     expect(told, 'nor told what this node adopted').to.deep.equal([0, 0]);
   });
 });
+
+// A sequence is a claim the asker cannot check, so how MANY peers make it is what decides
+// whether their agreement is worth anything. The publisher's answer is signed and stands on
+// its own; a peer's is one node's word, and a stale or lying neighbour would otherwise open
+// the acquisition gate on policy the network has moved past.
+//
+// This fleet can field two answering peers and the node is told it takes three, so what its
+// peers say is true, unverifiable, and not enough. The bundle is on disk throughout: holding
+// one is what makes this the interesting case, because holding is not confirming and the node
+// has to go on refusing to act on something it already has.
+describe('a node does not open its gate on fewer peers than it takes', function () {
+  let env;
+  const NODE = 0;
+  const STUBS = [1, 2];
+  let held = null;
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      stubPeers: STUBS,
+      stubPeeredWith: { [STUBS[0]]: [NODE], [STUBS[1]]: [NODE] },
+      configOverrides: {
+        policy: {
+          // One more than this fleet can field, so the peer rung cannot carry it on its own
+          // and the decision has to fall through to the publisher.
+          minConfirmingPeers: STUBS.length + 1,
+          // The tick is the other route to the source and would answer for the rung under
+          // test. A week puts it out of reach of a run.
+          refreshIntervalMs: 7 * 24 * 60 * 60 * 1000,
+          peerWindowMs: 60000,
+        },
+      },
+    });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('holds what its peers agree on, and still refuses to act on it', async function () {
+    this.timeout(300000);
+    held = await heldSeq(NODE);
+    expect(held, 'it boots holding the published bundle').to.not.be.null;
+
+    // Both stubs answer "I am level with you" - true, unverifiable, and one short of what it
+    // takes. Set to ANSWER before the restart so that an ask reaching one is counted: left
+    // silent they would count nothing whether or not they were asked, and the assertion that
+    // they were consulted could not fail.
+    await Promise.all(STUBS.map((i) => env.stubPeerClients.get(i).answerPolicyWith(held)));
+    // Resets the stub's fetch counters, so what they read below is this boot's traffic.
+    await stub(env, '/policy', { available: false });
+
+    await env.restartNode(NODE);
+    await waitForBootSettled(env.clients[NODE]);
+
+    expect(await heldSeq(NODE), 'the bundle is back off disk').to.equal(held);
+    await waitFor(
+      async () => (await Promise.all(
+        STUBS.map((i) => env.stubPeerClients.get(i).policyAsksAnswered()),
+      )).every((n) => n > 0),
+      { timeout: 120000, interval: 2000, label: 'both peers to answer the ask' },
+    );
+
+    // THE RUNG UNDER TEST. Two peers agreed and it asked the publisher anyway, which is the
+    // whole point: a node holding a bundle its peers cannot settle does not stop there.
+    await waitFor(
+      async () => (await stubState(env)).policyFetches.total > 0,
+      { timeout: 120000, interval: 2000, label: 'the node to ask the publisher as well' },
+    );
+    expect((await stubState(env)).policyFetches.ok, 'which had nothing to give it').to.equal(0);
+
+    const blocked = await env.clients[NODE].waitForEvent(
+      'spawner:blocked',
+      (payload) => payload.reason === 'policy_not_ready',
+      240000,
+    );
+    expect(blocked.data.reason, 'held, agreed with, and still not acted on').to.equal('policy_not_ready');
+  });
+
+  it('opens it once the publisher settles what its peers could not', async function () {
+    this.timeout(300000);
+    // Published anew, so what comes back is adopted and therefore says which rung it came
+    // from. The stubs stay where they were, so the peer rung goes on answering "not ahead"
+    // and goes on being one short.
+    await stub(env, '/policy', { available: true });
+    const published = (await stubState(env)).policySeq;
+    expect(published, 'the publisher is ahead of what the node holds').to.be.greaterThan(held);
+
+    await env.restartNode(NODE);
+    await waitForBootSettled(env.clients[NODE]);
+
+    await waitFor(
+      async () => (await heldSeq(NODE)) === published,
+      { timeout: 240000, interval: 2000, label: `node ${NODE} to reach seq ${published}` },
+    );
+    const rungs = env.clients[NODE].getEventBuffer()
+      .filter((e) => e.event === 'policy:bundleChanged' && e.data.seq === published)
+      .map((e) => e.data.source);
+    expect(rungs, 'by the one route its peer set could not stand in for').to.include('backstop');
+    expect((await stubState(env)).policyFetches.ok, 'and the publisher answered it').to.be.greaterThan(0);
+  });
+});
