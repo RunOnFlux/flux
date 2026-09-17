@@ -9,6 +9,7 @@ import { bootAndPeer, waitForLocationTable } from '../framework/reconciler-suite
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { buildAppSpec } from '../framework/app-helper.js';
 
 // Policy arriving from a PEER rather than from the published source.
 //
@@ -1059,6 +1060,15 @@ describe('a node does not open its gate on fewer peers than it takes', function 
   const STUBS = [1, 2];
   let held = null;
 
+  // A legacy req.on('data') handler: express.json() would consume the stream first and its
+  // 'end' would never fire, so the request hangs until the test times out. text/plain
+  // leaves the body for the handler to read.
+  const verify = (spec) => env.clients[NODE].post(
+    '/apps/verifyappregistrationspecifications',
+    spec,
+    { 'Content-Type': 'text/plain' },
+  );
+
   dumpLogsOnFailure(() => env);
 
   before(async function () {
@@ -1101,7 +1111,6 @@ describe('a node does not open its gate on fewer peers than it takes', function 
 
     await env.restartNode(NODE);
     await waitForBootSettled(env.clients[NODE]);
-
     expect(await heldSeq(NODE), 'the bundle is back off disk').to.equal(held);
     await waitFor(
       async () => (await Promise.all(
@@ -1118,12 +1127,14 @@ describe('a node does not open its gate on fewer peers than it takes', function 
     );
     expect((await stubState(env)).policyFetches.ok, 'which had nothing to give it').to.equal(0);
 
-    const blocked = await env.clients[NODE].waitForEvent(
-      'spawner:blocked',
-      (payload) => payload.reason === 'policy_not_ready',
-      240000,
-    );
-    expect(blocked.data.reason, 'held, agreed with, and still not acted on').to.equal('policy_not_ready');
+    // THE GATE ITSELF, read through the validator: it holds a live submission to the same
+    // bar the spawner holds acquisition to, so one condition decides both. Asked of the
+    // validator rather than the spawner because the spawn loop starts on the orchestrator's
+    // readiness signal, and a fleet whose only peers are stubs never raises it.
+    const judged = await verify(buildAppSpec({ name: `quorum${Date.now()}` }));
+    expect(judged.status, 'held, agreed with, and still not acted on').to.equal('error');
+    expect(judged.data.message, 'and it says which precondition is missing')
+      .to.include('network policy not yet obtained');
   });
 
   it('opens it once the publisher settles what its peers could not', async function () {
