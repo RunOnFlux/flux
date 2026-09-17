@@ -12,7 +12,6 @@ describe('peerNotification tests', () => {
   let broadcastMessageToAllStub;
   let nodeSignerStub;
   let installedAppsStub;
-  let listRunningAppsStub;
   // Stubbed rather than shared: globalState is a singleton another suite drops
   // from the require cache, so a reference taken here and the one the module
   // under test resolves are two different objects, and a mark set on one is
@@ -88,7 +87,6 @@ describe('peerNotification tests', () => {
     },
     '../appQuery/appQueryService': {
       installedApps: opts.installedApps ?? installedAppsStub,
-      listRunningApps: opts.listRunningApps ?? listRunningAppsStub,
       decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
     },
     '../appTamperingDetectionService': {
@@ -131,11 +129,12 @@ describe('peerNotification tests', () => {
       status: 'success',
       data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
     });
-    listRunningAppsStub = sinon.stub().resolves({
-      status: 'success',
-      data: [{ Names: ['/fluxc1_app1'] }],
-    });
-    departingApps = new Set();
+    // The REAL departing tracker, taken fresh per test rather than reimplemented
+    // here: a fake that counts differently from the module would pass this suite
+    // over the defect the counting exists to prevent.
+    delete require.cache[require.resolve('../../ZelBack/src/services/utils/globalState')];
+    // eslint-disable-next-line global-require
+    ({ departingApps } = require('../../ZelBack/src/services/utils/globalState'));
 
     peerNotification = loadPeerNotification();
   });
@@ -209,7 +208,7 @@ describe('peerNotification tests', () => {
           { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
-      departingApps.add('app2');
+      departingApps.enter('app2');
 
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
@@ -223,11 +222,11 @@ describe('peerNotification tests', () => {
     // The claim returns on its own: the mark lives only for the removal, so a
     // removal that fails leaves the app announced rather than silently unplaced.
     it('announces the app again once the removal has finished', async () => {
-      departingApps.add('app1');
+      departingApps.enter('app1');
       await peerNotification.checkAndNotifyPeersOfRunningApps();
       expect(storeAppRunningMessageStub.called, 'announced while departing').to.be.false;
 
-      departingApps.delete('app1');
+      departingApps.leave('app1');
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       const [message] = storeAppRunningMessageStub.firstCall.args;
@@ -235,7 +234,7 @@ describe('peerNotification tests', () => {
     });
 
     it('announces nothing when every installed app is departing', async () => {
-      departingApps.add('app1');
+      departingApps.enter('app1');
 
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
@@ -244,8 +243,6 @@ describe('peerNotification tests', () => {
     });
 
     it('announces an app with no container running at all', async () => {
-      listRunningAppsStub.resolves({ status: 'success', data: [] });
-
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       const [message] = storeAppRunningMessageStub.firstCall.args;
@@ -281,8 +278,6 @@ describe('peerNotification tests', () => {
     // A node with apps installed can no longer produce an empty snapshot: the set
     // comes from what is installed, so containers not started yet do not empty it.
     it('announces its installed apps on the first run after boot, containers not started yet', async () => {
-      listRunningAppsStub.resolves({ status: 'success', data: [] });
-
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       expect(storeAppRunningMessageStub.calledOnce, 'the node announces what it holds').to.be.true;
@@ -292,7 +287,6 @@ describe('peerNotification tests', () => {
 
     it('never broadcasts an empty snapshot - wiped-node shape (nothing installed)', async () => {
       installedAppsStub.resolves({ status: 'success', data: [] });
-      listRunningAppsStub.resolves({ status: 'success', data: [] });
       await peerNotification.checkAndNotifyPeersOfRunningApps(); // first run after boot
       expect(storeAppRunningMessageStub.called, 'must not store an empty snapshot (self-wipe)').to.be.false;
       expect(broadcastMessageToAllStub.called, 'must not broadcast an empty snapshot').to.be.false;
