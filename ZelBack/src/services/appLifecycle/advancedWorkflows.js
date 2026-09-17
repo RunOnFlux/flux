@@ -3,7 +3,7 @@ const util = require('util');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, SYNCTHING_IGNORE_LINES,
+  SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, syncthingIgnoreLines,
 } = require('../appSystem/volumeReservedNames');
 const nodecmd = require('node-cmd');
 const axios = require('axios');
@@ -864,9 +864,16 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
 
       // Create .stignore with the FluxOS policy lines - what keeps backup and
-      // an operation's staging off the network (in parent directory; the app
-      // dir is 777 by now so no elevation is needed)
-      await fs.promises.writeFile(path.join(appDir, SYNCTHING_IGNORE_FILE), `${SYNCTHING_IGNORE_LINES.join('\n')}\n`);
+      // an operation's staging off the network - plus the directories this spec
+      // declared local with ml: (in parent directory; the app dir is 777 by now
+      // so no elevation is needed).
+      //
+      // Written HERE, before the folder is ever handed to syncthing, because the
+      // first scan indexes whatever it finds: an ml: directory populated between
+      // registration and the first converge pass would be replicated once before
+      // any later ignore could stop it, and unwinding that costs a db/revert.
+      const ignoreLines = syncthingIgnoreLines(mountParser.unsyncedSubdirsOf(parsedMounts));
+      await fs.promises.writeFile(path.join(appDir, SYNCTHING_IGNORE_FILE), `${ignoreLines.join('\n')}\n`);
       const stiFileCreation = {
         status: '.stignore created',
       };

@@ -57,6 +57,30 @@ export async function treeOf(container, root) {
   return out.trim().split('\n').filter((line) => line && line !== '.');
 }
 
+// A staging entry, in either layout: a child of the `.flux-op` directory, or a
+// `.flux-op-<uuid>` left at the volume root by a release before that directory
+// existed.
+//
+// Stated once because a substring test on `.flux-op-` now answers neither
+// question. It matches nothing under the directory, so an assertion that
+// staging was reclaimed passes whatever the reclaim did - and it matches
+// `.flux-op-backups`, which is a name the owner is entitled to and which the
+// sweep deliberately leaves alone.
+//
+// The bare `.flux-op` directory is not an entry: it is expected to exist, and a
+// reclaim that emptied it did its job.
+const STAGING_OPERATION_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const LEGACY_STAGING = new RegExp(`(^|/)\\.flux-op-${STAGING_OPERATION_ID}(/|$)`);
+
+export function isStagingPath(relativePath) {
+  return relativePath.includes('/.flux-op/') || LEGACY_STAGING.test(relativePath);
+}
+
+/** The staging entries in a treeOf() listing, in either layout. */
+export function stagingEntries(tree) {
+  return tree.filter(isStagingPath);
+}
+
 /**
  * Contents of a file, for asserting a copy really carried the bytes.
  */

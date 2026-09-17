@@ -156,7 +156,10 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
     switch (mount.type) {
       case MountType.PRIMARY:
       case MountType.DIRECTORY:
-        // Local mounts (current component)
+      case MountType.LOCAL_DIRECTORY:
+        // Local mounts (current component). A LOCAL_DIRECTORY binds exactly like a
+        // DIRECTORY - what makes it local is the .stignore pattern derived from the
+        // spec, not where the bind points.
         hostPath = constructLocalHostPath(identifier, mount.subdir);
         break;
 

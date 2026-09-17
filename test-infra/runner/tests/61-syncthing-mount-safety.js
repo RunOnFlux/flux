@@ -130,7 +130,7 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // disk and index agree, so there is nothing a sendreceive folder could
     // wrongly delete - the guard must leave it alone
     await execInContainer(client.container, `sh -c 'rm -rf ${appDir(phantomName)}/appdata/* 2>/dev/null; true'`);
-    await setSyncState({ ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 0, inSyncBytes: 0 });
+    await setSyncState({ ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 0, inSyncBytes: 0, receiveOnlyChangedFiles: 0 });
 
     // several 3s monitor cycles must pass without a demotion
     await assertNoEvent(client, 'reconciler:desiredChanged', (d) => d.identifier === phantomIdentifier && d.state === 'stopped', 15000);
@@ -163,7 +163,7 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // the stale-index state: the index claims fully-synced data while the
     // mounted volume holds none - in sendreceive, syncthing would broadcast
     // every "missing" file as a deletion
-    await setSyncState({ ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, inSyncBytes: 100000 });
+    await setSyncState({ ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, inSyncBytes: 100000, receiveOnlyChangedFiles: 0 });
     // flag the folder: steady state is never swept, so the verify (which
     // includes the phantom-index check) runs when syncthing flags the folder
     await injectSyncthingEvent({ ip: ip1, type: 'FolderErrors', data: { folder: phantomFolder, errors: [{ error: 'pull failed' }] } });

@@ -21,7 +21,7 @@ const {
   VolumePath, VolumeSession, WORK_ROOT,
 } = require('./volumeSession');
 const {
-  isStagingName,
+  STAGING_ROOT, OPERATION_ID, isLegacyStagingName,
 } = require('./volumeReservedNames');
 
 const settings = () => config.fluxapps.volumeOperations;
@@ -1668,12 +1668,18 @@ async function run(session, argv, options = {}) {
     const image = await ensureImage(onProgress);
     await assertMountIsLive(session);
 
-    // A nested staging entry's directory has to exist before the command does:
-    // zip cannot create its output's parent. Host-side for the same reasons
-    // the sweep is, and after the mount check for the same reason everything
-    // else here is.
-    if (registeredStaging && registeredStaging !== publish.staging.hostPath) {
-      const made = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', registeredStaging] });
+    // Every staging entry's parent has to exist before the command does, and now
+    // there is always one: a plain entry is a child of the staging directory, and
+    // a nested entry is a child of its own minted directory inside it. `-p` makes
+    // one call answer for both, and for the staging directory itself on a volume
+    // that has never run an operation. It used to be the nested case alone,
+    // because a plain entry's parent was the volume root, which always exists.
+    //
+    // Host-side for the same reasons the sweep is, and after the mount check for
+    // the same reason everything else here is.
+    if (publish && publish.staging) {
+      const parent = path.dirname(publish.staging.hostPath);
+      const made = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', parent] });
       if (made.error) throw made.error;
     }
 
@@ -1893,26 +1899,33 @@ async function removeStagingPath(hostPath) {
 }
 
 /**
- * The minted root an operation's staging entry lives under.
+ * The minted directory an operation's staging entry lives in.
  *
- * What the live registry holds and the reclaim removes: for a plain staging
- * entry that is the entry itself, and for one nested in a staging DIRECTORY
- * (a compress archive, with the tool's scratch beside it) it is the
- * directory, so the scratch goes with the entry. The root must carry the
- * minted shape, because deriving a DIFFERENT path than the caller handed over
- * and then rm -rf'ing it deserves proof it is ours.
+ * What the live registry holds and the reclaim removes. Every staging entry is
+ * `<mount>/<STAGING_ROOT>/<id>` or something inside it - for one nested in a
+ * staging DIRECTORY (a compress archive, with the tool's scratch beside it)
+ * this is that directory, so the scratch goes with the entry.
+ *
+ * Both cases are now proved rather than one. This derives a path and hands it
+ * to an `rm -rf`, which deserves evidence it is ours; the previous shape
+ * returned a plain entry unchecked, because a plain entry WAS the thing the
+ * caller passed. It is still worth checking - what is registered here is what
+ * a later sweep skips, so a path that is not ours must not be able to enter
+ * the registry either.
+ *
+ * Never the staging directory itself: that is shared by every operation on
+ * this volume, and removing it would take the live ones with it.
  *
  * @param {string} hostPath the staging entry's host path
  * @param {string} mount the volume root
- * @returns {string} the root-level path to register and reclaim
+ * @returns {string} the minted directory to register and reclaim
  */
 function stagingRootOf(hostPath, mount) {
-  const [top, ...rest] = path.relative(mount, hostPath).split(path.sep);
-  if (!rest.length) return hostPath;
-  if (!isStagingName(top)) {
-    throw new Error('A nested staging entry must live under a minted staging directory');
+  const [top, id] = path.relative(mount, hostPath).split(path.sep);
+  if (top !== STAGING_ROOT || !OPERATION_ID.test(id || '')) {
+    throw new Error('A staging entry must live under a minted staging directory');
   }
-  return path.join(mount, top);
+  return path.join(mount, top, id);
 }
 
 /**
@@ -2021,11 +2034,19 @@ async function reapOrphanedContainers() {
  * number and a timestamp, neither of which is unique, and the cost of being
  * wrong was deleting that copy.
  *
- * Matched against a real identifier shape rather than by prefix, and skipping any
- * a live operation is still writing into, because this DELETES what it matches in a
- * directory the app owner also writes to: `.flux-op-backups` is a name somebody may
- * legitimately have chosen, and a `.flux-op-<uuid>` an operation of this process
- * minted is one it still needs.
+ * Read INSIDE the staging directory, where every entry is ours by construction -
+ * the owner cannot reach it, the browser hides it and .stignore keeps it off the
+ * network. That is what the one directory buys: the sweep no longer has to decide
+ * which names at the volume root belong to whom. It still matches the identifier
+ * shape, because an entry in there whose name we did not mint is one we cannot
+ * account for, and it still skips any a live operation is writing into.
+ *
+ * The second pass is the MIGRATION and comes out with LEGACY_STAGING_PREFIX.
+ * Volumes in the field carry `.flux-op-<id>` directories at their root, and this
+ * is the only thing that will ever reclaim them - the first pass looks somewhere
+ * they are not. That pass DOES read the owner's namespace, so it keeps the rule
+ * the old sweep had: the prefix plus a full identifier, never the prefix alone,
+ * because `.flux-op-backups` is a name somebody may legitimately have chosen.
  *
  * On the host rather than in a container: the name came from readdir, so it is
  * one component with nothing to traverse, and `rm -rf` unlinks a symlink rather
@@ -2037,30 +2058,47 @@ async function reapOrphanedContainers() {
  */
 async function sweepStagingDirectories(session) {
   const { mount } = session;
-  const entries = await fs.readdir(mount).catch((error) => {
-    log.warn(`volumeExecutor - could not read ${mount} to sweep: ${error.message}`);
-    return null;
-  });
-  if (!entries) return { removed: [] };
-
+  const stagingRoot = path.join(mount, STAGING_ROOT);
   const removed = [];
 
-  const remove = async (name) => {
-    await removeStagingPath(path.join(mount, name));
-    removed.push(name);
+  // A volume that has never run an operation has no staging directory, and that
+  // is nothing to sweep rather than a failure - but only for THAT directory. A
+  // missing volume root is a volume that is gone, which is the same absence to
+  // readdir and a different thing entirely, and it has to stay loud.
+  const read = async (dir, mayBeAbsent) => fs.readdir(dir).catch((error) => {
+    if (!(mayBeAbsent && error.code === 'ENOENT')) {
+      log.warn(`volumeExecutor - could not read ${dir} to sweep: ${error.message}`);
+    }
+    return null;
+  });
+
+  // Named relative to the volume, because entries now come from two depths and
+  // a bare name cannot tell `<mount>/.flux-op/<id>` from a legacy
+  // `<mount>/.flux-op-<id>` in a log or an assertion.
+  const remove = async (dir, name) => {
+    const target = path.join(dir, name);
+    await removeStagingPath(target);
+    removed.push(path.relative(mount, target));
   };
 
-  // eslint-disable-next-line no-restricted-syntax
-  for (const entry of entries) {
-    try {
-      if (isStagingName(entry) && !liveStagingPaths.has(path.join(mount, entry))) {
-        // eslint-disable-next-line no-await-in-loop
-        await remove(entry);
+  const sweep = async (dir, isOurs, mayBeAbsent = false) => {
+    const entries = await read(dir, mayBeAbsent);
+    if (!entries) return;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of entries) {
+      try {
+        if (isOurs(entry) && !liveStagingPaths.has(path.join(dir, entry))) {
+          // eslint-disable-next-line no-await-in-loop
+          await remove(dir, entry);
+        }
+      } catch (error) {
+        log.warn(`volumeExecutor - could not sweep ${entry} in ${dir}: ${error.message}`);
       }
-    } catch (error) {
-      log.warn(`volumeExecutor - could not sweep ${entry} in ${mount}: ${error.message}`);
     }
-  }
+  };
+
+  await sweep(stagingRoot, (entry) => OPERATION_ID.test(entry), true);
+  await sweep(mount, isLegacyStagingName);
 
   if (removed.length) {
     log.info(`volumeExecutor - swept ${removed.length} interrupted operation artefact(s) from ${mount}`);

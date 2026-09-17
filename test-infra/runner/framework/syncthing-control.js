@@ -52,25 +52,46 @@ export async function getPauseWrites(ip) {
 }
 
 // Raw setter for /rest/db/status.
+//
+// receiveOnlyChangedFiles has NO DEFAULT, deliberately. It is the one field here whose
+// truth lives on the node's disk rather than in the control plane - the stub runs in its
+// own container and the appdata sits in a per-component loop-mounted image it cannot
+// reach, so it can only ever report what a test told it. Defaulted to 0 it said "this
+// folder holds no local changes" on behalf of every caller that had not thought about
+// it, which is a claim, not an absence.
+//
+// That default is what let a cold-start suite pass against a node whose f: mount leaves
+// a zero-length file on the volume: real syncthing counts that file, the stub reported 0
+// because nobody had said otherwise, and the deadlock the suite is named for could not
+// occur in it. Stating the number is cheap; being handed one is not.
 export async function setSyncState({
-  ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
+  ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles,
+  localChanged = null,
 }) {
+  if (receiveOnlyChangedFiles === undefined && !Array.isArray(localChanged)) {
+    throw new Error(
+      `setSyncState(${folder}): receiveOnlyChangedFiles must be stated. It is what the node's own `
+      + 'disk would report, and the stub cannot read a disk. If the folder genuinely holds nothing, '
+      + 'pass 0; if the app declares an f:/m:/ml: mount, a real daemon would count that scaffolding '
+      + 'and this suite belongs on syncthing: \'binary\' instead.',
+    );
+  }
   return post('/sync-state', {
-    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles,
+    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, localChanged,
   });
 }
 
 // Fully synced (reads as 100% -> safe to start).
 export async function setSynced({ ip = '*', folder }) {
   return setSyncState({
-    ip, folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: GLOBAL_BYTES,
+    ip, folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: GLOBAL_BYTES, receiveOnlyChangedFiles: 0,
   });
 }
 
 // Actively syncing, not yet complete (reads as <100%, still progressing).
 export async function setSyncing({ ip = '*', folder, percent = 50 }) {
   return setSyncState({
-    ip, folder, state: 'syncing', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100),
+    ip, folder, state: 'syncing', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100), receiveOnlyChangedFiles: 0,
   });
 }
 
@@ -81,7 +102,7 @@ export async function setSyncing({ ip = '*', folder, percent = 50 }) {
 // after stallNudgeAfterMs and escalates from there.
 export async function setStalled({ ip = '*', folder, percent = 50 }) {
   return setSyncState({
-    ip, folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100),
+    ip, folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100), receiveOnlyChangedFiles: 0,
   });
 }
 
@@ -89,7 +110,7 @@ export async function setStalled({ ip = '*', folder, percent = 50 }) {
 // stay frozen - the shape that must NEVER count toward the stall verdict.
 export async function setActiveFlat({ ip = '*', folder, percent = 50 }) {
   return setSyncState({
-    ip, folder, state: 'sync-preparing', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100),
+    ip, folder, state: 'sync-preparing', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100), receiveOnlyChangedFiles: 0,
   });
 }
 

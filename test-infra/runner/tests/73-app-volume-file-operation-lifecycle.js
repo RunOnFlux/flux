@@ -11,7 +11,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import {
-  volumeRoot, resetVolume, seedVolumeTree, seedLargeFile, treeOf, exists,
+  volumeRoot, resetVolume, seedVolumeTree, seedLargeFile, treeOf, exists, stagingEntries,
 } from '../framework/volume-fixture.js';
 
 // How an operation behaves around the things that happen TO it: a node that has
@@ -204,7 +204,7 @@ describe('app volume file operations - lifecycle', function () {
       // flight rather than racing the setup.
       await waitFor(async () => {
         const staging = await treeOf(node.container, root);
-        return staging.some((p) => p.includes('.flux-op-'));
+        return stagingEntries(staging).length > 0;
       }, { timeout: 60000, interval: 500, label: 'staging directory created' });
 
       const cancelled = await node.del(`/apps/operations/${jobId}`, auth.zelidauth);
@@ -223,7 +223,7 @@ describe('app volume file operations - lifecycle', function () {
       // next boot sweep.
       await waitFor(async () => {
         const leftovers = await treeOf(node.container, root);
-        return !leftovers.some((p) => p.includes('.flux-op-'));
+        return stagingEntries(leftovers).length === 0;
       }, { timeout: 60000, interval: 1000, label: 'staging reclaimed after cancel' });
     });
 

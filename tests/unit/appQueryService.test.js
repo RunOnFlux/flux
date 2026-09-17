@@ -647,7 +647,7 @@ describe('appQueryService tests', () => {
 
       const result = await appQueryService.promotedFolders();
 
-      expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a', 'fluxb_b'] });
+      expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a', 'fluxb_b'], holding: {} });
     });
 
     it('answers not-ready before the monitor has ever read the folder config', async () => {
@@ -659,7 +659,7 @@ describe('appQueryService tests', () => {
 
       const result = await appQueryService.promotedFolders();
 
-      expect(result).to.deep.equal({ ready: false, folders: [] });
+      expect(result).to.deep.equal({ ready: false, folders: [], holding: {} });
     });
 
     it('distinguishes holding nothing from not having looked', async () => {

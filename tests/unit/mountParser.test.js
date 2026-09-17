@@ -307,6 +307,54 @@ describe('mountParser tests', () => {
     });
   });
 
+  describe('ml: local directory mounts', () => {
+    it('parses ml: as its own mount type', () => {
+      const result = mountParser.parseContainerData('g:/savegame|ml:game:/home/steam/game');
+      expect(result.additional[0].type).to.equal(mountParser.MountType.LOCAL_DIRECTORY);
+      expect(result.additional[0].subdir).to.equal('game');
+      expect(result.additional[0].containerPath).to.equal('/home/steam/game');
+      expect(result.additional[0].flags).to.deep.equal([]);
+    });
+
+    it('creates the directory like any other local mount', () => {
+      const parsed = mountParser.parseContainerData('g:/savegame|ml:game:/home/steam/game');
+      expect(mountParser.getRequiredLocalPaths(parsed).map((entry) => entry.name))
+        .to.deep.equal(['appdata', 'game']);
+    });
+
+    it('reports its subdir as unsynced, and reports nothing for the other forms', () => {
+      expect(mountParser.getUnsyncedSubdirs('g:/savegame|ml:game:/g|ml:cache:/c'))
+        .to.deep.equal(['game', 'cache']);
+      expect(mountParser.getUnsyncedSubdirs('g:/savegame|m:logs:/var/log|f:a.json:/a.json'))
+        .to.deep.equal([]);
+    });
+
+    it('answers [] for an unparseable spec rather than throwing', () => {
+      expect(mountParser.getUnsyncedSubdirs('ml:')).to.deep.equal([]);
+      expect(mountParser.getUnsyncedSubdirs(undefined)).to.deep.equal([]);
+    });
+
+    it('collides with another mount claiming the same subdir', () => {
+      expect(() => mountParser.parseContainerData('/data|m:game:/a|ml:game:/b'))
+        .to.throw(/Duplicate subdirectory/);
+    });
+
+    it('refuses reserved volume-root names', () => {
+      expect(() => mountParser.parseContainerData('/data|ml:appdata:/a')).to.throw(/reserved name/);
+      expect(() => mountParser.parseContainerData('/data|ml:lost+found:/a')).to.throw(/reserved name/);
+    });
+
+    it('is not a primary mount - the primary carries the sync mode', () => {
+      expect(() => mountParser.parseContainerData('ml:game:/home/steam/game'))
+        .to.throw(/Invalid primary mount syntax/);
+    });
+
+    it('leaves the component sync mode to the primary', () => {
+      expect(mountParser.getComponentSyncMode('g:/savegame|ml:game:/g')).to.equal('g');
+      expect(mountParser.getComponentSyncMode('/savegame|ml:game:/g')).to.equal(null);
+    });
+  });
+
   describe('Backward compatibility tests', () => {
     it('should handle legacy simple mount', () => {
       const result = mountParser.parseContainerData('r:/data');

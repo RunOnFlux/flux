@@ -568,8 +568,8 @@ describe('app volume file operations - a peer that does not play fair', function
     };
     await cutOffRegistry(0);
 
-    await inNode(0, `mkdir -p ${root}/.flux-op-${uuid}`
-      + ` && echo scratch > ${root}/.flux-op-${uuid}/half-written.txt`);
+    await inNode(0, `mkdir -p ${root}/.flux-op/${uuid}`
+      + ` && echo scratch > ${root}/.flux-op/${uuid}/half-written.txt`);
 
     await restartFluxos(env.clients[0].container);
     await waitFor(async () => (await env.clients[0].request('GET', '/flux/version')).status === 200, {
@@ -577,7 +577,7 @@ describe('app volume file operations - a peer that does not play fair', function
     });
 
     await waitFor(
-      async () => !await exists(env.clients[0].container, `${root}/.flux-op-${uuid}`),
+      async () => !await exists(env.clients[0].container, `${root}/.flux-op/${uuid}`),
       { timeout: 120000, interval: 5000, label: 'the staging entry reclaimed' },
     );
   });

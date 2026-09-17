@@ -392,16 +392,23 @@ async function heldComponents(req, res) {
  *
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message carrying { ready, folders }.
+ * @returns {object} Message carrying { ready, folders, holding }.
  */
 async function promotedFolders(req, res) {
   try {
     // eslint-disable-next-line global-require
     const globalState = require('../utils/globalState');
     const ids = globalState.promotedFolderIds;
+    // `holding` is what each receive-only folder here holds that the cluster's index
+    // does not - its size and when it was last written. A peer about to seed reads it
+    // so the node with the data wins, rather than whichever address sorts first. A
+    // folder this node has not looked at is absent, which is not the same as holding
+    // nothing and is why `ready` gates the whole answer.
+    const held = globalState.folderHoldings;
     const response = messageHelper.createDataMessage({
       ready: ids !== null,
       folders: ids === null ? [] : [...ids],
+      holding: held === null ? {} : Object.fromEntries(held),
     });
     return res ? res.json(response) : response;
   } catch (error) {

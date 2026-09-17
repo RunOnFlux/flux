@@ -81,6 +81,13 @@ const fluxRemovedContainers = new Set();
 // once. Same null-is-no-opinion convention appReconciler's controllerDesired uses.
 let promotedFolderIds = null;
 
+// What each receive-only folder on this node holds that the cluster's index does not:
+// folderId -> { bytes, newestModified }. Peers ask for it before promoting one of their
+// own, so that the node with the data wins rather than the node with the lowest address.
+// Null until the first monitor pass, for the same reason promotedFolderIds is: "I hold
+// nothing" and "I have not looked" are opposite answers to a peer about to seed.
+let folderHoldings = null;
+
 
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
@@ -225,6 +232,8 @@ module.exports = {
   get receiveOnlySyncthingAppsCache() { return receiveOnlySyncthingAppsCache; },
   get promotedFolderIds() { return promotedFolderIds; },
   set promotedFolderIds(ids) { promotedFolderIds = ids; },
+  get folderHoldings() { return folderHoldings; },
+  set folderHoldings(map) { folderHoldings = map; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },

@@ -89,7 +89,7 @@ describe('fileQueryService tests', () => {
       sinon.stub(fs, 'readdir').resolves([
         'appdata', 'backup', '.flux-op-backups',
         '.stfolder', '.stignore', 'lost+found',
-        `.flux-op-${id}`,
+        '.flux-op', `.flux-op-${id}`,
       ]);
       sinon.stub(fs, 'lstat').resolves({
         isDirectory: () => false,
@@ -106,7 +106,9 @@ describe('fileQueryService tests', () => {
 
       const listed = res.json.firstCall.args[0].data.map((entry) => entry.name);
       // backup holds the owner's own archives, and a folder merely resembling
-      // an artefact is a name they are entitled to choose.
+      // an artefact is a name they are entitled to choose. The staging directory
+      // is hidden as one exact name; the `.flux-op-<id>` beside it is what an
+      // earlier release left and is hidden until the sweep takes it.
       expect(listed).to.deep.equal(['appdata', 'backup', '.flux-op-backups']);
     });
 

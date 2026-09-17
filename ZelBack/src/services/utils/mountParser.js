@@ -11,6 +11,7 @@
  * - Primary: [flags]:<path>  (e.g., r:/data, g:/primary, /config)
  * - Component ref: <number>:<path>  (e.g., 0:/shared)
  * - Directory mount: m:<subdir>:<path>  (e.g., m:logs:/var/log)
+ * - Local directory mount: ml:<subdir>:<path>  (e.g., ml:cache:/var/cache) - never replicated
  * - File mount: f:<filename>:<path>  (e.g., f:config.yaml:/etc/config.yaml)
  * - Component dir: c:<number>:<subdir>:<path>  (e.g., c:0:backups:/backups)
  * - Component file: cf:<number>:<filename>:<path>  (e.g., cf:0:cert.pem:/etc/ssl/cert.pem)
@@ -25,6 +26,7 @@ const { isReservedName } = require('../appSystem/volumeReservedNames');
 const MountType = {
   PRIMARY: 'primary',
   DIRECTORY: 'directory',
+  LOCAL_DIRECTORY: 'local_directory',
   FILE: 'file',
   COMPONENT_PRIMARY: 'component_primary',
   COMPONENT_DIRECTORY: 'component_directory',
@@ -130,6 +132,21 @@ function validateSubdirOrFilename(name) {
 }
 
 /**
+ * Whether a mount is backed by this component's OWN volume, as opposed to another
+ * component's. Stated once because every caller that creates, names or excludes a
+ * path on this volume has to agree on the set, and a mount form added to one list
+ * but not the others is invisible until an app uses it.
+ * @param {object} mount - A parsed mount
+ * @returns {boolean}
+ */
+function isLocalMount(mount) {
+  return mount.type === MountType.PRIMARY
+    || mount.type === MountType.DIRECTORY
+    || mount.type === MountType.LOCAL_DIRECTORY
+    || mount.type === MountType.FILE;
+}
+
+/**
  * Parse a single mount definition
  * @param {string} mountDef - Single mount definition from pipe-separated list
  * @param {number} index - Index in the mount list (0 = primary)
@@ -209,6 +226,36 @@ function parseMountDefinition(mountDef, index) {
 
     return {
       type: MountType.DIRECTORY,
+      subdir,
+      containerPath,
+      flags: [],
+      isFile: false,
+    };
+  }
+
+  // ml:<subdir>:<path> - a directory on this component's own volume that syncthing
+  // never replicates. The volume root IS the syncthing folder, so every other mount
+  // form is synced whether or not that helps: a game's Steam content, a build cache,
+  // anything a container can obtain again for free costs the cluster a full copy per
+  // instance and a fresh copy on every change. The exclusion is asserted through
+  // .stignore, which is derived from this spec and therefore identical on every node.
+  //
+  // Only ever a non-primary mount. The primary carries the component's sync mode, so
+  // a local primary would be a component with no synced storage at all - which is
+  // what a flagless primary already is.
+  if (firstPart === 'ml') {
+    if (parts.length !== 3) {
+      throw new Error(`Invalid local directory mount syntax: ${mountDef}. Expected ml:<subdir>:<path>`);
+    }
+
+    const subdir = parts[1];
+    const containerPath = parts[2];
+
+    validateSubdirOrFilename(subdir);
+    validateMountPath(containerPath);
+
+    return {
+      type: MountType.LOCAL_DIRECTORY,
       subdir,
       containerPath,
       flags: [],
@@ -342,7 +389,7 @@ function parseContainerData(containerData) {
 
   // Validate no duplicate subdirs/filenames (for non-component mounts)
   const localSubdirs = parsedMounts
-    .filter((m) => m.type === MountType.PRIMARY || m.type === MountType.DIRECTORY || m.type === MountType.FILE)
+    .filter(isLocalMount)
     .map((m) => m.subdir);
   const duplicateSubdirs = localSubdirs.filter((subdir, index) => localSubdirs.indexOf(subdir) !== index);
   if (duplicateSubdirs.length > 0) {
@@ -383,7 +430,7 @@ function getRequiredLocalPaths(parsedMounts) {
   // eslint-disable-next-line no-restricted-syntax
   for (const mount of parsedMounts.allMounts) {
     // Only include local mounts (not component references)
-    if (mount.type === MountType.PRIMARY || mount.type === MountType.DIRECTORY || mount.type === MountType.FILE) {
+    if (isLocalMount(mount)) {
       paths.push({
         name: mount.subdir,
         isFile: mount.isFile,
@@ -434,6 +481,34 @@ function getComponentSyncMode(containerData) {
   return null;
 }
 
+/**
+ * The subdirectory names a component has declared it does not want replicated.
+ *
+ * These become .stignore patterns, so every node must compute the same set from the
+ * same spec - which is why the answer comes from the containerData and never from
+ * what happens to be on this node's disk.
+ *
+ * Returns [] for an unparseable spec rather than throwing: the callers are the
+ * .stignore writers, and refusing to write ignores is worse than writing the base
+ * set. An invalid spec is surfaced by the install path, which parses explicitly.
+ *
+ * @param {string} containerData
+ * @returns {string[]} subdirectory names, relative to the volume root
+ */
+function unsyncedSubdirsOf(parsedMounts) {
+  return parsedMounts.allMounts
+    .filter((mount) => mount.type === MountType.LOCAL_DIRECTORY)
+    .map((mount) => mount.subdir);
+}
+
+function getUnsyncedSubdirs(containerData) {
+  try {
+    return unsyncedSubdirsOf(parseContainerData(containerData));
+  } catch (e) {
+    return [];
+  }
+}
+
 /** True iff the component's primary mount is a g: (masterSlave) sync mount. */
 function isGComponent(containerData) {
   return getComponentSyncMode(containerData) === 'g';
@@ -463,6 +538,9 @@ module.exports = {
   parseContainerData,
   parseMountDefinition,
   getRequiredLocalPaths,
+  getUnsyncedSubdirs,
+  unsyncedSubdirsOf,
+  isLocalMount,
   getPrimaryFlags,
   hasFlag,
   getComponentSyncMode,

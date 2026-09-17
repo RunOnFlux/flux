@@ -85,7 +85,12 @@ patchDelayWaker.setMaxListeners(0);
 // Tests drive these via the control API; the defaults (below) reproduce the
 // original always-synced/empty behaviour so existing suites are unaffected.
 //
-//   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes }
+//   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes,
+//                                                         localChanged }
+//     localChanged is the entry list a receiveonly folder holds that the cluster's index
+//     does not, and db/status's receiveOnlyChanged* counts are DERIVED from it. One
+//     declaration, because a real daemon's count is the length of that list and cannot
+//     disagree with it. db/revert clears the entries for the same reason.
 //   completionOverrides: `${ip}|${folder}|${device}`-> completion (0-100)
 //                        or { completion, remoteState, globalBytes }
 // ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
@@ -524,16 +529,24 @@ function setIgnores(req, res) {
 app.post('/rest/db/ignores', setIgnores);
 app.put('/rest/db/ignores', setIgnores);
 
-app.get('/rest/db/localchanged', (req, res) => {
-  res.json({ files: [], folders: [], symlinks: [], deletes: [], total: 0 });
-});
-
 app.get('/rest/db/need', (req, res) => {
   res.json({ progress: [], queued: [], rest: [], total: 0, page: 1, perpage: 65536 });
 });
 
 app.get('/rest/db/remoteneed', (req, res) => {
   res.json({ progress: [], queued: [], rest: [], total: 0, page: 1, perpage: 65536 });
+});
+
+// Only ever populated for a receiveonly folder - syncthing reports nothing here for a
+// sendreceive one whatever is on disk (folder_summary.go), because the entries ARE the
+// files a receive-only folder holds that the cluster's index does not.
+app.get('/rest/db/localchanged', (req, res) => {
+  const ov = lookupSync(clientIp(req), req.query.folder || '');
+  if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
+  const folderCfg = reqState(req).folders.get(req.query.folder || '');
+  const isReceiveOnly = !folderCfg || folderCfg.type === 'receiveonly';
+  const files = isReceiveOnly && Array.isArray(ov?.localChanged) ? ov.localChanged : [];
+  return res.json({ files, page: 1, perpage: 65536 });
 });
 
 app.get('/rest/db/status', (req, res) => {
@@ -543,7 +556,13 @@ app.get('/rest/db/status', (req, res) => {
   const globalBytes = ov?.globalBytes ?? 0;
   const inSyncBytes = ov?.inSyncBytes ?? 0;
   const state = ov?.state ?? 'idle';
-  const receiveOnlyChangedFiles = ov?.receiveOnlyChangedFiles ?? 0;
+  // Derived, never declared separately - see the /sync-state comment.
+  const localChanged = Array.isArray(ov?.localChanged) ? ov.localChanged : [];
+  const changedFiles = localChanged.filter((entry) => entry.type === 'FILE_INFO_TYPE_FILE' && !entry.deleted);
+  const receiveOnlyChangedFiles = changedFiles.length;
+  const receiveOnlyChangedDirectories = localChanged.filter((entry) => entry.type === 'FILE_INFO_TYPE_DIRECTORY').length;
+  const receiveOnlyChangedBytesDerived = localChanged
+    .reduce((total, entry) => total + (Number(entry.size) || 0), 0);
   const needBytes = Math.max(0, globalBytes - inSyncBytes);
   res.json({
     errors: 0,
@@ -570,9 +589,9 @@ app.get('/rest/db/status', (req, res) => {
     needSymlinks: 0,
     needTotalItems: 0,
     pullErrors: 0,
-    receiveOnlyChangedBytes: receiveOnlyChangedFiles > 0 ? 1024 : 0,
+    receiveOnlyChangedBytes: receiveOnlyChangedBytesDerived,
     receiveOnlyChangedDeletes: 0,
-    receiveOnlyChangedDirectories: 0,
+    receiveOnlyChangedDirectories,
     receiveOnlyChangedFiles,
     receiveOnlyChangedSymlinks: 0,
     receiveOnlyTotalItems: 0,
@@ -587,14 +606,19 @@ app.get('/rest/db/status', (req, res) => {
 app.post('/rest/db/override', (req, res) => res.json({}));
 app.post('/rest/db/prio', (req, res) => res.json({}));
 app.post('/rest/db/revert', (req, res) => {
-  // revert undoes local changes in a receiveonly folder: clear the
-  // receiveOnlyChangedFiles override so the next status reads clean
+  // revert undoes local changes in a receiveonly folder: drop the declared entries so
+  // the next status reads clean. The ENTRIES are the state - clearing a separate count
+  // would leave the file list still describing them, and db/status now derives the
+  // count from that list, so the folder would never read clean and the promotion the
+  // revert exists to unblock would never come.
   const folder = req.query.folder || '';
   const ip = clientIp(req);
   nudgeLog(ip).push({ action: 'revert', device: folder, at: Date.now() });
   [`${ip}|${folder}`, `*|${folder}`].forEach((key) => {
     const ov = syncOverrides.get(key);
-    if (ov && ov.receiveOnlyChangedFiles) syncOverrides.set(key, { ...ov, receiveOnlyChangedFiles: 0 });
+    if (ov && Array.isArray(ov.localChanged) && ov.localChanged.length > 0) {
+      syncOverrides.set(key, { ...ov, localChanged: [] });
+    }
   });
   res.json({});
 });
@@ -743,12 +767,43 @@ control.post('/folder-patch-delay', (req, res) => {
 // reads as a stall (the production stall detector needs N unchanged samples).
 control.post('/sync-state', (req, res) => {
   const {
-    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0, statusUnreadable = false,
+    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
+    localChanged = null, statusUnreadable = false,
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
   console.log(`[write] sync-state from=${clientIp(req)} ip=${ip} folder=${folder} state=${state} bytes=${inSyncBytes}/${globalBytes} unreadable=${statusUnreadable}`);
+  // The ENTRIES are the declaration; the count is derived from them. A real daemon
+  // cannot report a receiveOnlyChangedFiles that disagrees with what db/localchanged
+  // lists - the count IS the length of that list - so a stub that lets a suite set the
+  // two independently can describe a folder syncthing could never produce. That is the
+  // shape that let a cold-start suite pass against a node whose volume held data the
+  // count denied. A suite that only says how MANY still gets entries synthesised, so
+  // the two endpoints agree whichever way it declares.
+  const entries = Array.isArray(localChanged)
+    ? localChanged
+    : Array.from({ length: receiveOnlyChangedFiles }, (unused, index) => ({
+      name: `declared-local-${index}`, size: 1024, type: 'FILE_INFO_TYPE_FILE', deleted: false,
+      modified: new Date().toISOString(),
+    }));
+  // A WILDCARD WRITE IS "THIS IS THE STATE EVERYWHERE", so it has to clear the
+  // per-node ones it is replacing. lookupSync prefers `<ip>|<folder>` over
+  // `*|<folder>`, so without this a node that was ever described specifically
+  // stops hearing the suite: seedSyncthingApp declares what it seeded on that
+  // node, and every later setSynced({ folder }) - which is how nearly every
+  // suite drives sync - writes a wildcard that node never reads. The suite
+  // believes it drove the folder to 100% while the node still sees 0/0, and
+  // then reports whatever the node did instead as a product failure.
+  //
+  // Found in suite 36: the subject sat at `100.00% (0/0 bytes)` while its peer
+  // read 100000/100000, ran the stall ladder it should never have reached, and
+  // had the app REMOVED after three nudges.
+  if (ip === '*') {
+    for (const key of [...syncOverrides.keys()]) {
+      if (key.endsWith(`|${folder}`) && !key.startsWith('*|')) syncOverrides.delete(key);
+    }
+  }
   syncOverrides.set(`${ip}|${folder}`, {
-    state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, statusUnreadable,
+    state, globalBytes, inSyncBytes, localChanged: entries, statusUnreadable,
   });
   // A declared sync state is also the folder's peer evidence: when OTHER
   // nodes ask db/completion about this folder, the declaring node is a

@@ -12,7 +12,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import {
   volumeRoot, resetVolume, seedVolumeTree, seedSymlink,
-  isSymlink, treeOf, exists,
+  isSymlink, treeOf, exists, stagingEntries,
 } from '../framework/volume-fixture.js';
 
 // The properties that make these endpoints safe to expose to an app owner, and
@@ -341,7 +341,7 @@ describe('app volume file operations - safety and recovery', function () {
       expect(job.status).to.equal('Failed');
       expect(await exists(node.container, `${root}/unpacked`)).to.equal(false);
       const leftovers = await treeOf(node.container, root);
-      expect(leftovers.filter((p) => p.includes('.flux-op-')), 'staging was not reclaimed').to.deep.equal([]);
+      expect(stagingEntries(leftovers), 'staging was not reclaimed').to.deep.equal([]);
 
       // The user is handed a reason, not a bare exit code: filling the volume,
       // a corrupt archive and one holding non-data are three problems with
@@ -367,12 +367,28 @@ describe('app volume file operations - safety and recovery', function () {
     // disposable, so the whole of recovery is: delete the staging entry.
     it('reclaims an abandoned staging directory', async function () {
       this.timeout(300000);
+      await inNode(`mkdir -p ${root}/.flux-op/${OPERATION_UUID} && echo scratch > ${root}/.flux-op/${OPERATION_UUID}/partial`);
+
+      await restartFluxosAndAwaitRecovery(node);
+
+      await waitFor(async () => !await exists(node.container, `${root}/.flux-op/${OPERATION_UUID}`), {
+        timeout: 60000, interval: 2000, label: 'abandoned staging reclaimed',
+      });
+      expect(await exists(node.container, `${root}/.flux-op`), 'the staging directory itself was taken').to.equal(true);
+    });
+
+    // MIGRATION. A volume that ran an operation before staging moved into its own
+    // directory carries the entry at the root instead, and the pass that reads
+    // inside the directory looks somewhere it is not. Unreclaimed it also stops
+    // being hidden from the owner and starts replicating to every peer.
+    it('reclaims a staging directory left at the root by an earlier release', async function () {
+      this.timeout(300000);
       await inNode(`mkdir -p ${root}/.flux-op-${OPERATION_UUID} && echo scratch > ${root}/.flux-op-${OPERATION_UUID}/partial`);
 
       await restartFluxosAndAwaitRecovery(node);
 
       await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${OPERATION_UUID}`), {
-        timeout: 60000, interval: 2000, label: 'abandoned staging reclaimed',
+        timeout: 60000, interval: 2000, label: 'legacy staging reclaimed',
       });
     });
 
@@ -388,11 +404,11 @@ describe('app volume file operations - safety and recovery', function () {
       // planted beside the lookalike and waited on - once THAT is reclaimed the
       // sweep has demonstrably run, and the lookalike is asked about then.
       await seedVolumeTree(node.container, appName, { '.flux-op-backups/keep.txt': 'mine' });
-      await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID} && echo scratch > ${root}/.flux-op-${STAGING_UUID}/partial`);
+      await inNode(`mkdir -p ${root}/.flux-op/${STAGING_UUID} && echo scratch > ${root}/.flux-op/${STAGING_UUID}/partial`);
 
       await restartFluxosAndAwaitRecovery(node);
 
-      await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
+      await waitFor(async () => !await exists(node.container, `${root}/.flux-op/${STAGING_UUID}`), {
         timeout: 60000, interval: 2000, label: 'the sweep has run (its own staging reclaimed)',
       });
       expect(await exists(node.container, `${root}/.flux-op-backups/keep.txt`), 'a lookalike folder was swept').to.equal(true);
@@ -413,10 +429,10 @@ describe('app volume file operations - safety and recovery', function () {
       // are made AFTER the sweep has provably run rather than merely after the
       // node is back up - a node that mounts the volume before the sweep fires
       // would pass a premature check trivially.
-      await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID} && echo scratch > ${root}/.flux-op-${STAGING_UUID}/partial`);
+      await inNode(`mkdir -p ${root}/.flux-op/${STAGING_UUID} && echo scratch > ${root}/.flux-op/${STAGING_UUID}/partial`);
 
       await restartFluxosAndAwaitRecovery(node);
-      await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
+      await waitFor(async () => !await exists(node.container, `${root}/.flux-op/${STAGING_UUID}`), {
         timeout: 60000, interval: 2000, label: 'the sweep has run (its own staging reclaimed)',
       });
 
