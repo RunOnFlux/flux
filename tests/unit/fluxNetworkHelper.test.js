@@ -22,6 +22,7 @@ const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const os = require('os');
 const util = require('util');
+const config = require('config');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -764,6 +765,149 @@ describe('fluxNetworkHelper tests', () => {
       fluxNetworkHelper.getIncomingConnectionsInfo(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expeectedCallArgumeent);
+    });
+  });
+
+  describe('checkNodeJsVersionAllowed tests', () => {
+    // minimumNodeJsAllowedVersion = '20.8.0'
+    const realNodeJsVersion = process.versions.node;
+
+    function runningOn(version) {
+      Object.defineProperty(process.versions, 'node', { value: version, configurable: true });
+    }
+
+    // node-config seals its values once the module graph has loaded, so the
+    // floor is varied by loading the helper over a config that carries a
+    // different one. The instance is its own, which is also what keeps its DOS
+    // state out of the tests either side.
+    function helperWithFloor(floor) {
+      return proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        config: { ...config, minimumNodeJsAllowedVersion: floor },
+      });
+    }
+
+    afterEach(() => {
+      runningOn(realNodeJsVersion);
+      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+    });
+
+    it('allows the runtime the fleet already runs', () => {
+      runningOn('24.14.1');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('allows the floor itself', () => {
+      runningOn('20.8.0');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node below the floor out of service, and says which version it found', () => {
+      // the last 16.x release, which left support in September 2023
+      runningOn('16.20.2');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('20.8.0');
+      expect(reported.dosMessage).to.include('16.20.2');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('refuses a version below the floor within the same major', () => {
+      runningOn('20.7.0');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
+    });
+
+    it('survives the clear a successful availability pass performs', () => {
+      // checkMyFluxAvailability ends a good pass with dosState = 0 and
+      // setDosMessage(null). The runtime verdict is asked once at startup, so if
+      // that clear reached it the node would return to service on a NodeJS that
+      // cannot run the code and nothing would ask again.
+      runningOn('16.20.2');
+      fluxNetworkHelper.checkNodeJsVersionAllowed();
+
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('16.20.2');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('allows when no floor is configured, on a runtime a floor would refuse', () => {
+      // Unsetting the key is how the floor comes off a live fleet. The check runs
+      // bare in startFluxFunctions, whose catch re-enters it after 15s, so a
+      // throw here is a boot loop - and a node held out of service by a missing
+      // floor has nothing left to tell it when to come back.
+      const helper = helperWithFloor(undefined);
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(helper.getStickyDosMessage()).to.equal(null);
+      expect(helper.getDOSState().data.dosState).to.equal(0);
+    });
+
+    it('allows when the configured floor is empty', () => {
+      const helper = helperWithFloor('');
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(helper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('refuses on the loaded floor, so the instance is reading the one it was given', () => {
+      // The canary for the two above: a helper loaded the same way, with a floor
+      // present, must still take the node out of service. Without it, a config
+      // stub that silently failed to reach the module would pass both.
+      const helper = helperWithFloor('20.8.0');
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(helper.getDOSState().data.dosState).to.equal(100);
+      helper.clearStickyDosMessage();
+    });
+
+    it("leaves another owner's sticky DOS alone rather than overwriting it", () => {
+      // The slot takes one message and has several writers. Taking it from an
+      // owner that already holds it leaves that owner unable to recognise or
+      // release its own state - it reads the slot back to decide both.
+      const theirs = 'Residential node not running ArcaneOS. Migrate this node to ArcaneOS or move it to a data center connection.';
+      fluxNetworkHelper.setStickyDosMessage(theirs);
+      fluxNetworkHelper.setStickyDosStateValue(100);
+      runningOn('16.20.2');
+
+      // still unfit - the verdict is about the runtime, not about the slot
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(theirs);
+    });
+
+    it('states its verdict once, however often startup re-enters the check', () => {
+      // startFluxFunctions catches any throw and re-enters itself after 15s, so
+      // this is asked again on every retry - and by then the other writers of
+      // the slot have started.
+      //
+      // Asserted on the LOG rather than on the message, because re-setting the
+      // slot to the same string leaves it equal to itself: the message alone
+      // cannot tell a second write from no second write.
+      const errorLog = sinon.spy(log, 'error');
+      try {
+        runningOn('16.20.2');
+        expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+        expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+
+        const stated = errorLog.getCalls().filter((call) => String(call.args[0]).includes('NodeJS Version Error'));
+        expect(stated).to.have.lengthOf(1);
+        expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
+      } finally {
+        errorLog.restore();
+      }
     });
   });
 

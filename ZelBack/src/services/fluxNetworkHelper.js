@@ -54,6 +54,12 @@ let dosMessage = null;
 let stickyDosState = 0;
 let stickyDosMessage = null;
 
+// Marks the sticky message as this check's, the way every other writer of the
+// slot marks its own. Nothing clears this one - the runtime cannot change under
+// a running process - but an unattributable reason in a single shared slot is
+// what the convention exists to prevent.
+const NODEJS_DOS_MESSAGE_PREFIX = 'NodeJS Version Error';
+
 // Who may hold this node back from placement. An owner is an IDENTITY, not a
 // message: the reason is what an operator reads, and the owner is what a release
 // is checked against. Adding a feature that holds placement means adding a value
@@ -1125,6 +1131,67 @@ function setStoredFluxBenchAllowed(value) {
  */
 function getStoredFluxBenchAllowed() {
   return storedFluxBenchAllowed;
+}
+
+/**
+ * True when the sticky slot holds this check's message, identified by the
+ * prefix it always carries. The slot takes one message and has several writers,
+ * so recognising its own is what lets this one leave another's alone.
+ * @returns {boolean}
+ */
+function isOurNodeJsStickyDos() {
+  const message = getStickyDosMessage();
+  return typeof message === 'string' && message.startsWith(NODEJS_DOS_MESSAGE_PREFIX);
+}
+
+/**
+ * Whether the NodeJS this process runs on meets the network minimum. FluxOS
+ * calls runtime APIs that do not exist below it, so such a node cannot serve
+ * correctly however healthy the rest of it looks.
+ *
+ * Asked once, at startup: the version is a property of the running process and
+ * cannot change under it, so re-asking costs work to learn what is already
+ * known. The verdict is held in the STICKY slot for the same reason - a good
+ * availability pass ends in setDosMessage(null), which would clear an ordinary
+ * message and let the node walk back into service on a runtime that cannot run
+ * the code. Sticky survives that, so the answer is stated once and stands.
+ * @returns {boolean} True if the runtime is allowed. Otherwise false.
+ */
+function checkNodeJsVersionAllowed() {
+  const minimumVersion = config.minimumNodeJsAllowedVersion;
+  // No floor configured is not a failing node. This runs bare in
+  // startFluxFunctions, whose catch re-enters it after 15s, so a throw here is
+  // a boot loop rather than an error - and the safe direction for a missing
+  // floor is to allow, never to take the fleet out of service.
+  if (!minimumVersion) {
+    log.error('checkNodeJsVersionAllowed - no minimum NodeJS version configured, skipping the check');
+    return true;
+  }
+  const nodeJsVersion = process.versions.node;
+  if (serviceHelper.minVersionSatisfy(nodeJsVersion, minimumVersion)) {
+    return true;
+  }
+  const message = `${NODEJS_DOS_MESSAGE_PREFIX}. Current lower version allowed is v${minimumVersion} found v${nodeJsVersion}`;
+  const sticky = getStickyDosMessage();
+  if (sticky) {
+    // One message, several writers, so the slot is taken only while free. Each
+    // writer decides both whether to set and whether to clear by recognising its
+    // own message, so an owner whose message is replaced holds a DOS it can
+    // never release. startFluxFunctions re-enters itself 15s after any throw and
+    // the other writers start partway through it, so every retry reaches here
+    // with all of them live.
+    //
+    // The verdict is independent of the slot: a node below the floor is unfit
+    // whether or not this check is the reason an operator reads.
+    if (!isOurNodeJsStickyDos()) {
+      log.error(`${message} - another sticky DOS is active, not overwriting it`);
+    }
+    return false;
+  }
+  setStickyDosMessage(message);
+  setStickyDosStateValue(100);
+  log.error(message);
+  return false;
 }
 
 /**
@@ -2627,6 +2694,7 @@ module.exports = {
   closeConnection,
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
+  checkNodeJsVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIP,
   setOnAddressChanged,
