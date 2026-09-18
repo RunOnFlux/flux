@@ -113,6 +113,35 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Answer this node's policy asks with a sequence, the way a real peer does -
+    // echoing the id of the ask it settles and marking itself an answer. `null`
+    // is a peer that holds no policy, which is an answer rather than silence.
+    //
+    // Two stubs told the same thing reply with the same sequence, which is the
+    // fixture a single peer cannot provide: identical content from different
+    // peers is where a filter keyed on content alone drops all but the first.
+    async answerPolicyWith(seq = null) {
+      const res = await controlFetch(`${controlUrl}/answer-policy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: true, seq }),
+      });
+      return res.json();
+    },
+
+    // How many policy asks this peer has answered.
+    async policyAsksAnswered() {
+      const stats = await this.getStats();
+      return stats.policyAsksAnswered ?? 0;
+    },
+
+    // How many adoption announcements this peer has been sent. A node announces only to
+    // peers advertising policyBundle, so a peer that does not is expected to see none.
+    async policyAnnouncementsReceived() {
+      const stats = await this.getStats();
+      return stats.policyAnnouncementsReceived ?? 0;
+    },
+
     // Claim an app, as a peer that got there first. broadcastedAt decides the
     // ranking every contender sorts on, so an earlier one makes this peer the
     // rival the others must stand down behind.

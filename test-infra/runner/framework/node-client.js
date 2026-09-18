@@ -224,6 +224,25 @@ export function nodeClient(nodeNum) {
         // just as happily.
         'peerSetStability:dos',
         'peerSetStability:released',
+        // The bundle this node holds changed, from whichever rung produced it. What makes
+        // it worth a stream rather than a counter is that things DOWNSTREAM of policy are
+        // driven by it - the location table is fetched on this, not on a timer - so a suite
+        // proving that wiring needs the two facts in order, not just both eventually.
+        'policy:bundleChanged',
+        // The node consulted the published source because its peers could not settle what
+        // it holds. Nothing downstream carries that: a source serving nothing produces no
+        // bundle change and leaves the held sequence where it was.
+        'policy:backstopAsked',
+        // And the other half of that pair: a verified table actually installed.
+        'ipLocation:tableInstalled',
+        // The node looked and had nothing to look for - the bundle it holds names no
+        // table. A fleet in that posture makes no requests at all, so this is what tells
+        // "decided to decline" from "has not got there yet".
+        'ipLocation:noStatement',
+        // A table the node fetched and would not install, with WHY as a value: every
+        // refusal ends at one log line, so the text cannot tell a bad publication from
+        // bytes swapped in transit, and those are different events.
+        'ipLocation:refused',
         'syncthing:folderErrors',
         'syncthing:eventsResync',
         'syncthing:holderRetained',

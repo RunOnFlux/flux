@@ -40,7 +40,7 @@ describe('peerSetStabilityService', () => {
     svc.start({
       onPeerEvent: (event, cb) => peerEmitter.on(event, cb),
       offPeerEvent: (event, cb) => peerEmitter.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => (alreadyUp ? 12 : 0),
+      isAboveThreshold: () => alreadyUp,
     });
   }
 

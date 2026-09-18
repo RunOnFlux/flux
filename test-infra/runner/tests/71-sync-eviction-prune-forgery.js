@@ -7,7 +7,7 @@ import { nodeKey } from '../framework/keys.js';
 import { signBtcMessage } from '../auth.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import {
-  waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForOrchestratorState,
+  waitFor, waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForOrchestratorState,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -265,8 +265,24 @@ describe('Sync response: eviction, pruning and forged events', function () {
 
   it('should prune an app the newest broadcast no longer reports', async function () {
     this.timeout(60000);
-    const rows = await dbClient(11).getAppLocationsByIp(socketAddr(PRUNE_NODE));
-    const names = rows.map((r) => r.name);
+    // CONVERGED, NOT INSTANTANEOUS. READY is raised once the required number of peers
+    // has completed - one - while the rest are still streaming, and every peer serves
+    // the same history: the older broadcast sorts into an earlier slice than the newer
+    // one, so each replay re-adds this app and then prunes it again. A single read can
+    // land between those two chunks and see a row the response it came from goes on to
+    // remove.
+    //
+    // Still fails if the prune never happens: the window only tolerates a replay in
+    // flight, it does not wait for one that is not coming.
+    let names = [];
+    await waitFor(async () => {
+      names = (await dbClient(11).getAppLocationsByIp(socketAddr(PRUNE_NODE))).map((r) => r.name);
+      return names.includes('keptapp') && !names.includes('droppedapp');
+    }, {
+      timeout: 45000,
+      interval: 1000,
+      label: 'the newest broadcast from the pruned node to be the one in effect',
+    });
 
     expect(names).to.include('keptapp');
     expect(names, 'app missing from the newest broadcast was not pruned').to.not.include('droppedapp');

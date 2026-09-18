@@ -4176,6 +4176,15 @@ async function reinstallOldApplications() {
       log.info('Checking application status paused. Not yet synced');
       return;
     }
+    // A redeploy uninstalls before it installs, and the install needs the blocked-repository
+    // list to judge the image. Without the policy that carries it the app comes down and
+    // cannot go back up: only a successful install writes the local row, and nothing
+    // reconciles an app with no row. Declined rather than deferred - the scanner runs this
+    // again in a few blocks, and the app is still obsolete then.
+    if (!globalState.policyReady) {
+      log.info('reinstallOldApplications - network policy not obtained, leaving obsolete apps alone');
+      return;
+    }
     // first get installed apps
     const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
     if (installedAppsRes.status !== 'success') {

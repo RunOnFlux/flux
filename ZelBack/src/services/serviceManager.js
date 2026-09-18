@@ -38,7 +38,8 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
-const enterpriseConfig = require('./utils/enterpriseConfig');
+const policyStore = require('./policyStore');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -259,12 +260,6 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    // Seed the enterprise node->owners map from helpers/enterprisenodes.json on disk
-    // and sync it from github (every 6h thereafter). Awaited so consumers (identity
-    // resolution, the spawn loop, app-spec validation) have data before they run; the
-    // disk read and github fetch are both bounded (10s fetch timeout) so boot is never
-    // stuck on this. A failed/invalid sync keeps the last-good value.
-    await enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
@@ -495,7 +490,7 @@ async function startFluxFunctions() {
         .map((p) => ({ key: p.key, connectionId: p.connectionId, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
       networkStateReady: () => networkStateService.waitStarted(),
       fluxVersion,
     });
@@ -512,8 +507,69 @@ async function startFluxFunctions() {
     peerSetStabilityService.start({
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
     });
+
+    // Network policy, started here rather than at the top of boot because it needs both of
+    // the things that only exist by now: mongo, to restore and re-verify the bundle this
+    // node last held, and peers, to ask for anything newer. Its old position could reach
+    // neither, which is why it could only ever fetch from github.
+    //
+    // Not awaited. Boot does not wait on policy and never did: the node comes up, serves its
+    // API and keeps its containers running regardless. What waits is acquisition, through
+    // globalState.policyReady, which is the one decision that must not be made on a guess.
+    policyStore.setPeerTransport({
+      // The peers worth asking. One that does not advertise the capability has no handler
+      // for the ask, so including it would buy a deadline's wait and an unrecognised-type
+      // warning in its log.
+      capableKeys: () => peerManager.getPolicyCapablePeers().map((peer) => peer.key),
+      // The only ask. A key that no longer resolves is a peer that left between connecting
+      // and being asked, which is not an error.
+      requestFrom: (key, seq, correlationId) => {
+        const peer = peerManager.get(key);
+        if (!peer) return Promise.resolve();
+        return fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, seq, correlationId);
+      },
+      announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
+      // The latched level: peerManager already defines "enough peers to gossip with" with
+      // hysteresis (appSyncPeerThreshold 12 up, appSyncDegradedThreshold 4 down). A late
+      // subscriber cannot see the edge it missed, which is what this accessor exists for -
+      // and reading the level rather than keeping an edge of our own is why nothing here
+      // needs re-arming when a peer set collapses and rebuilds.
+      aboveThreshold: () => peerManager.isAboveThreshold(),
+    });
+    // Discovery has not started yet - it is fifty lines below - so the peer set is empty at
+    // this point on every node, always. Nothing here asks peers or the source; both are
+    // driven by the two subscriptions that follow, which is what makes peers-first true at
+    // boot rather than only at the 24-hour tick. It is the whole difference between a node
+    // that boots while github is down getting policy from the neighbour beside it and
+    // getting none for a day.
+    //
+    // PER JOIN for the ASK. peerThresholdReached fires when the count first crosses
+    // appSyncPeerThreshold and then never again unless the set has since fallen below
+    // appSyncDegradedThreshold, so as a prompt to ask peers it is the wrong signal: a node
+    // asks once, its peers have nothing either, and when one of them later obtains a bundle
+    // nothing tells this node to ask again - its peer set never collapsed, so the edge never
+    // re-arms. Measured on a three-node fleet: node 1 asked at 08:16:09, node 0 adopted at
+    // 08:16:54, and node 1 held nothing thereafter. Every join re-arms the ask, and the join
+    // that crosses the threshold is one of them.
+    //
+    // The key is the whole point: notePeerAvailable asks THAT peer and never the source.
+    // A broadcast would have to be rationed, and a rationed ask cannot serve a node that is
+    // merely behind.
+    //
+    // The orchestrator next door draws the same distinction for its sync pool, and for the
+    // same reason: a latched edge says nothing about a pool that has changed since it fired.
+    peerManager.on('peerConnected', (key) => policyStore.notePeerAvailable(key));
+    // Both edges, because the store's decision is about the peer SET. A peer leaving takes
+    // its answer with it, and a node waiting on one that has gone waits out a deadline for an
+    // answer that cannot come.
+    peerManager.on('peerDisconnected', (key) => policyStore.notePeerGone(key));
+    // AND the threshold itself, which is written one line after the arrival that crosses it.
+    // Without this the crossing arrival decides while the level still reads false, and a set
+    // that stops exactly at the threshold has nothing left to re-trigger the decision.
+    peerManager.on('peerThresholdReached', () => policyStore.noteThresholdReached());
+    policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
     appSpawner.initialize();
@@ -661,11 +717,12 @@ async function startFluxFunctions() {
       monitoringOrchestrator.startMonitoringOfApps(null).catch((error) => log.error(error));
       portManager.restoreAppsPortsSupport();
     }, bootDelay(1 * 60 * 1000));
-    // Resolve this node's enterprise identity once, up front. Self-reschedules
-    // every 5 minutes until the pubkey resolves (daemon/benchmark may still be
-    // coming up). Once cached, hot paths (spawn loop) read it synchronously
-    // via getCachedEnterpriseIdentity() with no network call and no throws.
-    const identityReady = enterpriseNetwork.scheduleIdentityResolution();
+    // Resolve this node's enterprise identity once, up front. The key comes off disk and
+    // policy arrives on an event, so this settles at boot rather than on a timer; the
+    // interval is the fallback for a config that cannot be read at all. Once cached, hot
+    // paths (spawn loop) read it synchronously via getCachedEnterpriseIdentity() with no
+    // network call and no throws.
+    enterpriseNetwork.scheduleIdentityResolution();
 
     // Services that read from zelappsinformation wait for the orchestrator
     // to finish rebuilding it rather than guessing a setTimeout delay.
@@ -680,13 +737,9 @@ async function startFluxFunctions() {
       // degrades to /16 arithmetic without a table.
       ipLocationSync.startSync().catch((err) => log.error(`ipLocationSync start error: ${err.message}`));
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
-      await identityReady;
-      try {
-        await enterpriseNetwork.cleanupOwnershipViolations();
-        log.info('Enterprise network cleanup completed');
-      } catch (error) {
-        log.error(`Enterprise network cleanup failed: ${error.message || error}`);
-      }
+      // Detached. The sweep uninstalls apps, so it waits for policy this node has confirmed
+      // is the network's, and everything below here starts whether or not that ever arrives.
+      enterpriseNetwork.startOwnershipSweeps();
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);

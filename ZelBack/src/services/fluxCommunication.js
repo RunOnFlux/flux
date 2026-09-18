@@ -8,6 +8,7 @@ const messageStore = require('./appMessaging/messageStore');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const policyStore = require('./policyStore');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
@@ -21,9 +22,13 @@ const { extractIp, extractPort, parseSocketAddress, socketAddressesMatch } = req
 const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
+const { INTENT, intentOf } = require('./utils/messageIntent');
+const {
+  ROUTE, register, declaredIntent, handlerFor, isOrdered,
+} = require('./utils/messageRoutes');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-const { messageCache, wsPeerCache } = cacheManager;
+const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
 
 /* const LRUTest = {
   max: 25000000, // 25M
@@ -68,13 +73,7 @@ async function handleAppMessages(message, fromIP, port) {
     const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data);
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height || 0;
-      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
-      } else {
-        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
-      }
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -367,9 +366,28 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
   }
 }
 
+/**
+ * Tell peers this node holds a message, and keep it for whichever of them asks.
+ *
+ * The store is written here rather than at dispatch because this is where a message
+ * becomes something a peer can ask for: a request follows an announcement, and only a
+ * verified message reaches a handler. Nothing this node never announced is ever asked
+ * of it, so nothing else needs keeping.
+ * @param {object} message The verified signed envelope, as it will be handed over.
+ * @param {string} excludeKey The peer it came from, which has it already.
+ */
+function announceToPeers(message, excludeKey) {
+  const messageHash = hash(message.data);
+  announcementStore.set(messageHash, message);
+  peerManager.broadcastHash(messageHash, excludeKey);
+}
+
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
   try {
-    if (!messageCache.has(messageHash)) {
+    // The filter, not the store: the question is whether this node already has the
+    // message, and it has plenty it never announced - anything the database already
+    // held when it arrived. Asking the store would re-request those.
+    if (!announcementSeen.has(messageHash)) {
       peerManager.sendHashRequest(`${fromIP}:${port}`, messageHash);
     }
   } catch (error) {
@@ -386,8 +404,11 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
  */
 async function handleRequestMessageHash(messageHash, fromIP, port) {
   try {
-    if (messageCache.has(messageHash)) {
-      const message = messageCache.get(messageHash);
+    // The store, not the filter: this hands the message over, so it needs the message.
+    // A request follows an announcement, so what a peer can ask for is what this node
+    // announced, which is exactly what the store holds.
+    if (announcementStore.has(messageHash)) {
+      const message = announcementStore.get(messageHash);
       if (message) {
         const messageString = serviceHelper.ensureString(message);
         const peer = peerManager.get(`${fromIP}:${port}`);
@@ -417,13 +438,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (result.rebroadcast && timestampOK) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height || 0;
-      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
-      } else {
-        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
-      }
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -452,13 +467,7 @@ async function handleAppInstallingMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height || 0;
-      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
-      } else {
-        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
-      }
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -481,13 +490,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height || 0;
-      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
-      } else {
-        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
-      }
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -511,13 +514,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height || 0;
-      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
-      } else {
-        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
-      }
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -543,13 +540,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height || 0;
-      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
-      } else {
-        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
-      }
+      announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -596,13 +587,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
     // Rebroadcast to other peers
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height || 0;
-    if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
-    } else {
-      fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
-    }
+    announceToPeers(message, `${fromIP}:${port}`);
   } catch (error) {
     log.error(error);
   }
@@ -615,6 +600,23 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
  * @param {object} msgObj Parsed message object.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket FluxPeerSocket instance.
  */
+// Only an announcement is a fact whose identity is its payload, so only an announcement
+// is deduplicated. An ask and an answer are about the two nodes exchanging them, and
+// `hash(data)` throws the sender away - see utils/messageIntent for the table.
+//
+// THE FILTER WAS NEVER WHAT BOUNDED THESE. It keys on the payload, which a peer sending a
+// question controls: varying the hash on a fluxapprequest defeats it in one line. What it
+// suppresses is accidental duplicates, which is the job it is for. The per-peer bound is
+// FluxPeerSocket's inbound token bucket - lruRateLimit(ip:port, 120), applied to every
+// frame before dispatch.
+//
+// That bucket counts messages, not bytes, and a ~60-byte fluxpolicyrequest draws a whole
+// bundle back. It is still not a reflection vector: these arrive on an established
+// websocket, so the sender cannot be spoofed and receives every byte it asks for. A peer
+// can make this node serve it quickly; it cannot make this node serve anyone else. If a
+// byte budget is ever wanted it belongs in lruRateLimit, covering every type, not in a
+// second counter here.
+
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
   const {
@@ -662,13 +664,13 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     return;
   }
 
-  // check if we have the message in cache. If yes, return false. If not, store it and continue
   await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
+  // Also what a NAK names further down, so it is computed for every message.
   const messageHash = hash(msgObj.data);
-  if (messageCache.has(messageHash)) {
-    return;
+  if (intentOf(msgObj, declaredIntent(msgObj.data.type)) === INTENT.ANNOUNCE) {
+    if (announcementSeen.has(messageHash)) return;
+    announcementSeen.set(messageHash, true);
   }
-  messageCache.set(messageHash, msgObj);
 
   // check blocked list
   if (wsPeerCache.has(pubKey)) {
@@ -687,28 +689,21 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
     if (timestampOK === true) {
-      try {
-        if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-          setImmediate(() => handleAppMessages(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxapprequest') {
-          setImmediate(() => fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, peerSocket));
-        } else if (msgObj.data.type === 'fluxapprunning') {
-          setImmediate(() => handleAppRunningMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxipchanged') {
-          setImmediate(() => handleIPChangedMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxappremoved') {
-          setImmediate(() => handleAppRemovedMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxappinstalling') {
-          setImmediate(() => handleAppInstallingMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxappinstallingerror') {
-          setImmediate(() => handleAppInstallingErrorMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxnodesigterm') {
-          setImmediate(() => handleNodeSigtermMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else {
-          log.warn(`Unrecognised message type of ${msgObj.data.type}`);
-        }
-      } catch (e) {
-        log.error(e);
+      const handler = handlerFor(msgObj.data.type);
+      if (!handler) {
+        log.warn(`Unrecognised message type of ${msgObj.data.type}`);
+      } else if (isOrdered(msgObj.data.type)) {
+        // It reached the wrong pipeline: the socket routes these to the per-peer queue
+        // when they are wanted, so arriving here means nobody asked for it.
+        log.warn(`Unsolicited ${msgObj.data.type} from ${peerSocket.direction} peer ${peerSocket.key}`);
+      } else {
+        setImmediate(() => {
+          try {
+            handler(msgObj, peerSocket);
+          } catch (e) {
+            log.error(e);
+          }
+        });
       }
     } else {
       peerSocket.sendNak(messageHash, NAK_REASON.STALE);
@@ -748,23 +743,12 @@ const syncChunkQueues = new Map();
 // a peer signed what it sent is a statement about the peer and the deadline
 // waiting on it needs the answer at arrival, not at the back of a queue.
 async function processSyncChunk(msgObj, peerSocket) {
-  const { type } = msgObj.data;
-  switch (type) {
-    case 'fluxapptempsync':
-      await handleTempSyncResponse(msgObj, peerSocket);
-      break;
-    case 'fluxapprunningsync':
-      await handleAppRunningSyncResponse(msgObj, peerSocket);
-      break;
-    case 'fluxappinstallingsync':
-      await handleAppInstallingSyncResponse(msgObj, peerSocket);
-      break;
-    case 'fluxappinstallingerrorssync':
-      await handleAppInstallingErrorsSyncResponse(msgObj, peerSocket);
-      break;
-    default:
-      log.warn(`Unknown sync response type: ${type}`);
+  const handler = handlerFor(msgObj.data.type);
+  if (!handler) {
+    log.warn(`Unknown sync response type: ${msgObj.data.type}`);
+    return;
   }
+  await handler(msgObj, peerSocket);
 }
 
 /**
@@ -874,6 +858,39 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
 }
 
 // Register message dispatchers on the peerManager singleton
+// Every wire type this node answers.
+// Everything a node tells the network about itself or about an app it saw. One fact
+// reaching us by many routes is one fact, and a relayed type must be deduplicated.
+register(['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate'],
+  (msg, peer) => handleAppMessages(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxapprunning', (msg, peer) => handleAppRunningMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxipchanged', (msg, peer) => handleIPChangedMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxappremoved', (msg, peer) => handleAppRemovedMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxappinstalling', (msg, peer) => handleAppInstallingMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxappinstallingerror', (msg, peer) => handleAppInstallingErrorMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+register('fluxnodesigterm', (msg, peer) => handleNodeSigtermMessage(msg, peer.ip, peer.port), ROUTE.GOSSIP, INTENT.ANNOUNCE);
+// An ask delivered by broadcast. Delivery is not the classifier: it goes to every peer,
+// and it is still a question from one node that each of them answers separately.
+register('fluxapprequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithAppMessage(msg, peer), ROUTE.GOSSIP, INTENT.ASK);
+register('fluxpolicyrequest', (msg, peer) => fluxCommunicationMessagesSender.respondWithPolicy(msg, peer), ROUTE.GOSSIP, INTENT.ASK);
+// The one type sent both ways: news when a node announces what it adopted, an answer when
+// it settles a peer's ask. Nothing relays it, which is what makes the marker safe to trust.
+// A claim rather than an answer: a number cannot be checked, so it is a prompt to ask.
+register('fluxpolicyseq', (msg, peer) => policyStore.notePeerSeq(
+  msg.data.seq, peer.key, msg.data.correlationId,
+), ROUTE.GOSSIP, INTENT.VARIES);
+// Checked against the pinned keys before adoption, so an unsolicited bundle is no more
+// dangerous than one this node asked for - and peers announce what they adopt.
+register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
+  msg.data.bundle, peer.key, msg.data.correlationId,
+), ROUTE.GOSSIP, INTENT.ANSWER);
+
+// Answers to a sync this node asked for, which is why they are ordered.
+register('fluxapptempsync', handleTempSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
+register('fluxapprunningsync', handleAppRunningSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
+register('fluxappinstallingsync', handleAppInstallingSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
+register('fluxappinstallingerrorssync', handleAppInstallingErrorsSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
+
 peerManager.messageDispatcher = dispatchFluxMessage;
 peerManager.syncResponseDispatcher = dispatchSyncResponse;
 async function verifySyncRequest(peer, decoded) {

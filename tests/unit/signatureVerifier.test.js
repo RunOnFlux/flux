@@ -44,4 +44,34 @@ describe('signatureVerifier tests', () => {
       expect(signatureVerifier.isValidSigningIdentity(12345)).to.equal(false);
     });
   });
+  describe('sameSigningIdentity tests', () => {
+    const FLUX_ID = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
+    const ETH = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+
+    it('should treat an ethereum address as the same whatever its capitalisation', () => {
+      // EIP-55 capitalisation is a checksum over the same 20 bytes, and verifySignature
+      // compares recovered addresses this way for that reason.
+      expect(signatureVerifier.sameSigningIdentity(ETH, ETH.toLowerCase())).to.equal(true);
+      expect(signatureVerifier.sameSigningIdentity(ETH.toLowerCase(), ETH.toUpperCase().replace('0X', '0x'))).to.equal(true);
+    });
+
+    it('should treat case as part of a Flux ID, which is base58', () => {
+      expect(signatureVerifier.sameSigningIdentity(FLUX_ID, FLUX_ID)).to.equal(true);
+      expect(signatureVerifier.sameSigningIdentity(FLUX_ID, FLUX_ID.toLowerCase())).to.equal(false);
+    });
+
+    it('should not match two different identities', () => {
+      expect(signatureVerifier.sameSigningIdentity(FLUX_ID, '1GM41a9A4rH8CCkCyzDRahHUccuTRLhoDe')).to.equal(false);
+      expect(signatureVerifier.sameSigningIdentity(ETH, '0x0000000000000000000000000000000000000001')).to.equal(false);
+    });
+
+    it('should not match across identity kinds', () => {
+      expect(signatureVerifier.sameSigningIdentity(FLUX_ID, ETH)).to.equal(false);
+    });
+
+    it('should answer false for anything missing, since callers grant on a true', () => {
+      [['', ''], [FLUX_ID, ''], [undefined, undefined], [null, FLUX_ID], [FLUX_ID, 12345]]
+        .forEach(([a, b]) => expect(signatureVerifier.sameSigningIdentity(a, b), `${a} ${b}`).to.equal(false));
+    });
+  });
 });

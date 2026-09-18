@@ -28,10 +28,33 @@ const BATCH_MS = 250;
 const MAX_QUEUED_LINES = 20000;
 
 /**
- * Lines sent to a subscriber before the live ones, so a viewer opens with
- * context instead of an empty pane until the container next writes.
+ * How much history a subscriber is sent before the live lines, so a viewer opens
+ * with context instead of an empty pane until the container next writes.
+ *
+ * ENTRIES, WHICH ARE NOT LINES. This is docker's `tail`, and docker counts its
+ * own 16KB frames: a container writing lines shorter than a frame gives a viewer
+ * about this many lines, while one writing 1.3MB lines gives it two and a half.
+ * The unit is docker's and cannot be changed by asking differently - the only way
+ * to a fixed number of LINES is to over-fetch and count newlines, which costs the
+ * read this bound exists to avoid (a `tail` establishes at 2 CPU ticks against 15
+ * without one, measured on a live node). So the name says entries and the depth
+ * varies with what the container writes, rather than a name that promises lines
+ * and a number that does not deliver them.
  */
-const BACKFILL_LINES = 200;
+const BACKFILL_ENTRIES = 200;
+
+/**
+ * Decoded lines kept per feed, so a viewer joining a stream that is ALREADY
+ * running opens with the same kind of context docker's `tail` gave the first one.
+ *
+ * Genuinely lines, unlike the entries above, because by this point the decoder
+ * has done its work and what is held are lines the container wrote. The two were
+ * one constant, which read as the same bound stated once and was two different
+ * quantities that happened to share a number: a viewer arriving second got 200
+ * lines where the first got 200 frames, and on a container writing long lines
+ * those are not remotely the same amount of history.
+ */
+const REPLAY_LINES = 200;
 
 /**
  * How many containers one connection may follow.
@@ -180,6 +203,12 @@ async function openFeed(io, container, containerId, feed) {
   const decoder = new LogFrameDecoder({
     maxLineLength: LogFrameDecoder.MAX_LINE_LENGTH,
     timestamped: true,
+    // The `tail` below opens this stream at an ENTRY boundary, which is a line
+    // boundary only for a container whose lines fit in one of docker's 16KB
+    // frames. One writing longer lines is joined part-way through one, and how
+    // much was cut from a line nobody saw the start of is not a thing this node
+    // can report - so the first line is handed over without a claim about it.
+    joinMidStream: true,
   });
 
   let stream;
@@ -193,7 +222,7 @@ async function openFeed(io, container, containerId, feed) {
       // with a `tail` opens at the end of the file and costs nothing to
       // establish - measured on a live node at 2 CPU ticks against a 1 tick
       // idle baseline, where the same read without a `tail` costs 15.
-      tail: BACKFILL_LINES,
+      tail: BACKFILL_ENTRIES,
     });
   } catch (error) {
     // Through closeFeed, the only thing that removes a feed from the map, so
@@ -256,7 +285,7 @@ async function openFeed(io, container, containerId, feed) {
     // with the same context the first one got from docker's `tail`, rather than
     // an empty pane until the container next writes.
     for (let i = 0; i < lines.length; i += 1) feed.recent.push(lines[i]);
-    if (feed.recent.length > BACKFILL_LINES) feed.recent = feed.recent.slice(-BACKFILL_LINES);
+    if (feed.recent.length > REPLAY_LINES) feed.recent = feed.recent.slice(-REPLAY_LINES);
 
     const space = MAX_QUEUED_LINES - feed.queued.length;
     if (lines.length > space) {
@@ -585,5 +614,6 @@ module.exports = appLogsHandler;
 module.exports.feeds = feeds;
 module.exports.BATCH_MS = BATCH_MS;
 module.exports.MAX_QUEUED_LINES = MAX_QUEUED_LINES;
-module.exports.BACKFILL_LINES = BACKFILL_LINES;
+module.exports.BACKFILL_ENTRIES = BACKFILL_ENTRIES;
+module.exports.REPLAY_LINES = REPLAY_LINES;
 module.exports.MAX_FOLLOWED = MAX_FOLLOWED;

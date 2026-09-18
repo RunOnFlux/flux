@@ -6,6 +6,7 @@ const serviceHelper = require('../serviceHelper');
 const { version: FLUX_VERSION } = require('../../../../package.json');
 const peerCodec = require('./peerCodec');
 const rateLimit = require('./rateLimit');
+const { isOrdered } = require('./messageRoutes');
 
 let _fluxNetworkHelper;
 function getFluxNetworkHelper() {
@@ -480,12 +481,8 @@ class FluxPeerSocket {
         return;
       }
 
-      // Route sync responses directly — bypass the gossip pipeline
-      const syncType = msgObj.data?.type;
-      if (syncType === 'fluxapptempsync'
-        || syncType === 'fluxapprunningsync'
-        || syncType === 'fluxappinstallingsync'
-        || syncType === 'fluxappinstallingerrorssync') {
+      // Around the gossip pipeline: these keep their arrival order.
+      if (isOrdered(msgObj.data?.type)) {
         if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
           setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
           return;
@@ -510,6 +507,11 @@ const FLUX_CAPABILITIES = Object.freeze([
   // that does not claim it cannot tell us it knows nothing, so it is still held
   // to the uptime proxy - see getEligibleSyncPeers.
   'appStateSyncRefusal',
+  // This build speaks the policy bundle protocol - it answers fluxpolicyrequest and
+  // understands an adoption announcement. A peer that does not claim it is not a quiet
+  // participant, it is not a participant: asking it spends a window waiting for a reply
+  // that cannot come, and announcing to it logs an unrecognised type on its side.
+  'policyBundle',
 ]);
 
 module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };

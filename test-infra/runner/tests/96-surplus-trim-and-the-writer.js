@@ -11,7 +11,7 @@ import {
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { setSynced, setPeerHasData, resetSyncState } from '../framework/syncthing-control.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
-import { driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
+import { advanceBlock, driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
 import { waitFor, waitForGiveUpConsidered } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -161,6 +161,26 @@ describe('a surplus copy that is also the writer', function () {
     const stub = env.stubPeerClients.get(STUB_INDEX);
     await waitFor(async () => (await stub.connectedNodes()) > 0,
       { timeout: 120000, interval: 2000, label: 'the fleet has connected to the stub peer' });
+
+    // The surplus begins below and has to survive until a test takes the chain
+    // over. The trim pass is block-gated - every `removeFluxAppsPeriod *
+    // speedMultiplier` blocks, 44 of them - so the chain must not reach one of
+    // those heights while the fixture is still assembling.
+    //
+    // Stopping the ticker is half of it. A node that is BEHIND goes on
+    // processing its way up to the frozen tip, and the pass is gated on the
+    // height it lands on - so a lagging node runs the trim against a surplus
+    // created seconds earlier, which is a real copy removed for a correct
+    // reason at the wrong moment. Every node is therefore brought level with
+    // the tip first: one driven block, awaited on all of them. After that
+    // nothing is left to process, and no pass can fire until a test drives one.
+    await stopTicker();
+    const realClients = env.clients.slice(0, REAL_NODES);
+    const seenBefore = realClients.map((c) => c.getLastEventId());
+    const { currentHeight } = await advanceBlock();
+    await Promise.all(realClients.map((c, i) => c.waitForEvent(
+      'block:processed', (d) => d.height >= currentHeight, 120000, { afterId: seenBefore[i] },
+    )));
 
     held = stub.holdApp(appName, {
       hash: app.hash,
