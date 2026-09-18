@@ -834,7 +834,9 @@ async function trySpawningGlobalApplication() {
         globalState.trySpawningGlobalAppCache.delete(appHash);
         fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'static_ip', delayMs });
         delay = true;
-      } else if (!appSpecifications.datacenter && geolocationService.isDataCenter()) { // NOTE: datacenter=true requires enterpriseAppOwners (validator) → ownership filter routes to enterprise nodes → which skip this deferral chain entirely. So datacenter is always falsy here.
+      // A datacenter node keeps its capacity for the apps that ask for it. datacenter is held
+      // as a privilege on live submission only, so a spec replayed from chain can carry it.
+      } else if (!appSpecifications.datacenter && geolocationService.isDataCenter()) {
         const deferral = config.fluxapps.spawnDeferrals.datacenterMs;
         const appToCheck = {
           timeToCheck: Date.now() + (appToRunAux.enterprise ? deferral.enterprise : deferral.standard),

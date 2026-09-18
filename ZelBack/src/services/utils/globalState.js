@@ -153,15 +153,22 @@ module.exports = {
   set dbReady(value) { if (value) dbReadyGate.open(); else dbReadyGate.close(); },
   waitForDbReady() { return dbReadyGate.wait(); },
 
-  // Whether this node has a network policy it actually obtained, as opposed to the
-  // absence of one. Closed until enterpriseConfig resolves the node->owners map, and
-  // closed again if the map is ever lost.
+  // Whether this node may act on the network policy: it holds a verified bundle AND has
+  // established that no peer it can reach is ahead of it. Written only by policyStore,
+  // which derives it from that pair.
   //
-  // The distinction is the point: an empty map and an unread map produce the same
-  // answer from every lookup ("this node is not an enterprise node"), and acting on
-  // that answer is how an enterprise node fills itself with apps it must not host and
-  // then has them uninstalled from under it. Acquisition waits for this gate; nothing
-  // else has to, because nothing else decides whether an app belongs here.
+  // The distinction is the point: an unread policy and an empty one give every lookup the
+  // same answer, and acting on it is how a node fills itself with apps it must not host
+  // and then has them uninstalled from under it. Holding a bundle is not enough on its
+  // own - one off disk is whatever this node last had, and the documents in it decide who
+  // may host what.
+  //
+  // What waits on it is anything that would JUDGE an app - whether it may be hosted, run
+  // or pulled here - and anything that would destroy one it then has to rebuild. A node
+  // that cannot judge is not refusing a particular app; it is not yet in a position to
+  // answer about any of them, which is a fact about the node and is what the caller needs
+  // told. Nothing else waits: serving the API, keeping containers running and removing an
+  // app outright all work without it.
   get policyReady() { return policyReadyGate.ready; },
   set policyReady(value) { if (value) policyReadyGate.open(); else policyReadyGate.close(); },
   waitForPolicyReady() { return policyReadyGate.wait(); },
