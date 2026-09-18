@@ -4745,6 +4745,7 @@ describe('advancedWorkflows tests', () => {
     let generalService;
     let serviceHelper;
     let globalState;
+    let policyBefore;
 
     beforeEach(() => {
       /* eslint-disable global-require */
@@ -4754,6 +4755,10 @@ describe('advancedWorkflows tests', () => {
       globalState = require('../../ZelBack/src/services/utils/globalState');
       /* eslint-enable global-require */
       globalState.reinstallationOfOldAppsInProgress = false;
+      // These are about the pass lock and the teardown arguments, so the node has
+      // the policy the redeploy needs. The gate itself is exercised below.
+      policyBefore = globalState.policyReady;
+      globalState.policyReady = true;
 
       sinon.stub(generalService, 'checkSynced').resolves(true);
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
@@ -4769,6 +4774,7 @@ describe('advancedWorkflows tests', () => {
     afterEach(() => {
       sinon.restore();
       globalState.reinstallationOfOldAppsInProgress = false;
+      globalState.policyReady = policyBefore;
     });
 
     // TWO PASSES ON ONE APP DESTROY IT. The scanner starts this fire-and-forget
@@ -4813,6 +4819,38 @@ describe('advancedWorkflows tests', () => {
         softUninstallComponent.calledOnce,
         'a second reinstall pass tore down a component the running pass owns',
       ).to.be.true;
+    });
+
+    // A REDEPLOY DESTROYS BEFORE IT REBUILDS, and only the rebuild needs the policy:
+    // verifyAndPullImage reads the blocked-repository list to judge the image, and the
+    // uninstall has already happened by the time it refuses. Only a successful install
+    // writes the local row back and nothing reconciles an app without one, so a pass
+    // that starts without policy costs this node the app outright.
+    //
+    // Declined at the door rather than deferred: the scanner runs this again in a few
+    // blocks and the app is still obsolete then, so nothing is lost by refusing now.
+    it('leaves an obsolete app alone when this node has no policy to judge its image', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.policyReady = false;
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.called,
+        'the pass tore a component down on a node that could not have reinstalled it',
+      ).to.be.false;
+    });
+
+    // The canary for the test above: with the same fixture and the gate open the pass
+    // DOES tear the component down, so the refusal is the gate acting and not the
+    // fixture failing to reach the teardown at all.
+    it('tears it down once the node holds policy, so the refusal above is the gate', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.policyReady = true;
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(softUninstallComponent.called, 'the fixture never reaches the teardown').to.be.true;
     });
 
     it('runs when no other pass holds the lock', async () => {

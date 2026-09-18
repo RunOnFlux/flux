@@ -11,7 +11,9 @@ const express = require('express');
 const request = require('supertest');
 const apicache = require('apicache');
 
-const { asyncRoute, rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
+const {
+  asyncRoute, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+} = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('routeGuards', () => {
@@ -169,6 +171,77 @@ describe('routeGuards', () => {
       expect(handlerCalls).to.equal(1);
     });
   });
+  describe('requirePolicyReady', () => {
+    let app;
+    let server;
+    let handlerCalls;
+
+    // Derived from the store rather than written directly, and process-global like
+    // the boot gate, so it is restored either way.
+    let policyBefore;
+
+    beforeEach(() => {
+      policyBefore = globalState.policyReady;
+      globalState.policyReady = false;
+      handlerCalls = 0;
+      app = express();
+      app.get('/apps/redeploy/:appname', requirePolicyReady, (req, res) => {
+        handlerCalls += 1;
+        res.json({ status: 'success', data: 'redeployed' });
+      });
+    });
+
+    afterEach(() => {
+      globalState.policyReady = policyBefore;
+      if (server) { server.close(); server = null; }
+    });
+
+    const get = (path) => {
+      if (!server) server = app.listen(0);
+      return request(server).get(path);
+    };
+
+    it('refuses while this node has not obtained the network policy', async () => {
+      const res = await get('/apps/redeploy/myapp');
+      expect(res.status).to.equal(503);
+      expect(res.body.status).to.equal('error');
+      expect(res.body.data.message).to.equal('Node has not yet obtained the network policy');
+    });
+
+    it('says when to come back', async () => {
+      const res = await get('/apps/redeploy/myapp');
+      expect(res.headers['retry-after']).to.equal('30');
+    });
+
+    // THE DEFECT THIS EXISTS FOR. A redeploy uninstalls before it installs, and the
+    // install is what needs the policy, so a refusal the handler runs behind costs
+    // the app: only a successful install writes the local row back.
+    it('never lets a refused call reach the handler', async () => {
+      await get('/apps/redeploy/myapp');
+      await get('/apps/redeploy/other');
+      expect(handlerCalls).to.equal(0);
+    });
+
+    // Named apart from the boot refusal because the remedies differ: boot settles on
+    // its own, policy may need another node. A caller that cannot tell them apart is
+    // what this gate exists to answer.
+    it('names the policy rather than boot', async () => {
+      const res = await get('/apps/redeploy/myapp');
+      // Anchored on the message SAYING something first: "does not mention boot" is
+      // also true of a refusal that never happened, and would pass against a gate
+      // that let the call straight through.
+      expect(res.body.data.message).to.match(/policy/i);
+      expect(res.body.data.message).to.not.match(/boot/i);
+    });
+
+    it('answers once the node holds policy it may act on', async () => {
+      globalState.policyReady = true;
+      const res = await get('/apps/redeploy/myapp');
+      expect(res.status).to.equal(200);
+      expect(handlerCalls).to.equal(1);
+    });
+  });
+
   // Every route is registered through this. A handler that rejects must reach
   // express, because the alternative is not a 500 - it is an unhandled
   // rejection, apiServer's uncaughtException handler, and process.exit.

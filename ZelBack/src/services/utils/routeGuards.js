@@ -12,6 +12,11 @@ const globalState = require('./globalState');
 // making a request a second.
 const BOOT_RETRY_AFTER_SECONDS = 15;
 
+// What a caller turned away for policy is told to wait. A node reaches the
+// published source again on every peer arrival, departure and settled ask, so
+// what this paces is a client's polling rather than any interval of ours.
+const POLICY_RETRY_AFTER_SECONDS = 30;
+
 /**
  * Refuse a call that would create or destroy a container before boot
  * reconciliation has decided which applications this node is keeping.
@@ -40,6 +45,40 @@ function requireBootSettled(req, res, next) {
   res.setHeader('Retry-After', String(BOOT_RETRY_AFTER_SECONDS));
   const errMessage = messageHelper.createErrorMessage(
     'Node is still reconciling its applications after boot',
+    'ServiceUnavailable',
+    503,
+  );
+  return res.status(503).json(errMessage);
+}
+
+/**
+ * Refuse a call that would pull an image before this node has obtained the
+ * network's policy.
+ *
+ * The blocked-repository list is part of the signed bundle, so a node without
+ * one cannot establish that an image is not banned. appInstaller refuses the
+ * pull for that reason, but a redeploy has already uninstalled by the time it
+ * asks - and only a successful install writes the local row back, so the app is
+ * gone from this node with nothing to rebuild it.
+ *
+ * Asked at the front door for the same reason requireBootSettled is: the
+ * internal actors already hold to this gate, and a caller is better served by
+ * being told to come back than by a node that accepts the work and destroys
+ * something on the way to refusing it.
+ *
+ * NAMED SEPARATELY FROM BOOT. The two are different facts with different
+ * remedies - boot settles on its own, policy may need another node - and a
+ * caller that cannot tell them apart is the defect this gate exists to answer.
+ * @param {object} req Request
+ * @param {object} res Response
+ * @param {Function} next Next handler
+ * @returns {*} next(), or a 503 carrying a Retry-After
+ */
+function requirePolicyReady(req, res, next) {
+  if (globalState.policyReady) return next();
+  res.setHeader('Retry-After', String(POLICY_RETRY_AFTER_SECONDS));
+  const errMessage = messageHelper.createErrorMessage(
+    'Node has not yet obtained the network policy',
     'ServiceUnavailable',
     503,
   );
@@ -159,5 +198,5 @@ function cache(duration) {
 }
 
 module.exports = {
-  asyncRoute, cache, rejectQueryParameters, requireBootSettled,
+  asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
 };
