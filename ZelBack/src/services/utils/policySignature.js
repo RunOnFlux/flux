@@ -47,9 +47,11 @@ function publicKeyFromHex(hex) {
  * @param {object} options
  * @param {string[]} options.publicKeys Pinned raw ed25519 public keys, hex. A bundle signed by
  *   any one of them is accepted, so a key can be replaced without every node updating first.
- * @param {number} [options.minSeq] Refuse a bundle at or below this sequence. A source asked
- *   for something newer that answers with something older has not answered, and accepting it
- *   is indistinguishable from there being nothing newer -- which is the whole of a freeze.
+ * @param {number} [options.minSeq] Refuse a bundle BELOW this sequence, and accept one level
+ *   with it. A source asked for something newer that answers with something OLDER has not
+ *   answered, and accepting that is indistinguishable from there being nothing newer -- which
+ *   is the whole of a freeze. One that answers with the sequence already held has answered,
+ *   and its caller tells that apart from a rejection rather than from silence.
  * @param {Function} [options.onReject] Called with a reason string when verification fails.
  * @returns {object|null} The payload `{ seq, issued_at, documents, artifacts }`, or null.
  */
@@ -63,8 +65,17 @@ function verifyBundle(raw, options = {}) {
     reject('empty bundle');
     return null;
   }
-  if (raw.length > MAX_BUNDLE_BYTES) {
-    reject(`bundle is ${raw.length} bytes, over the ${MAX_BUNDLE_BYTES} cap`);
+  // BYTES, WHICH IS NOT WHAT A STRING'S LENGTH COUNTS. `raw` arrives as text on both paths -
+  // kept that way because the signature covers the bytes as served - and a string's length is
+  // UTF-16 code units, so anything outside ASCII measures short: 600k code units of two-byte
+  // characters is 1.2MB and passes a 1MB cap. A well-formed bundle is two base64 fields and
+  // therefore ASCII, where the two agree; this runs before anything is parsed, so what it has
+  // to hold for is input that is not well-formed, which is what the cap is for. The fetch is
+  // bounded again by maxContentLength, which does count bytes; a bundle from a peer has only
+  // this.
+  const bytes = Buffer.isBuffer(raw) ? raw.length : Buffer.byteLength(raw, 'utf8');
+  if (bytes > MAX_BUNDLE_BYTES) {
+    reject(`bundle is ${bytes} bytes, over the ${MAX_BUNDLE_BYTES} cap`);
     return null;
   }
 

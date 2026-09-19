@@ -84,7 +84,7 @@ describe('policySignature', () => {
       expect(rejections[0]).to.include('no pinned key verifies');
     });
 
-    it('refuses a bundle at or below the sequence floor', () => {
+    it('refuses a bundle below the sequence floor', () => {
       // A source asked for something newer that answers with something older has not
       // answered. Accepting it is indistinguishable from there being nothing newer.
       const result = verifyBundle(sign(key.privateKey, payload({ seq: 6 })), {
@@ -116,6 +116,23 @@ describe('policySignature', () => {
       const result = verifyBundle(huge, { publicKeys: [key.publicHex], onReject });
       expect(result).to.equal(null);
       expect(rejections[0]).to.include('over the');
+    });
+
+    // THE CAP IS BYTES, AND A STRING'S LENGTH IS NOT. `raw` arrives as text on both paths,
+    // and a string's length counts UTF-16 code units - so anything outside ASCII measures
+    // short and a bundle well over the cap walks through a check on it. A peer's bundle has
+    // no other bound; the fetch is held again by maxContentLength, which does count bytes.
+    it('measures the cap in bytes, not in the characters a string reports', () => {
+      // Two bytes each in UTF-8, so comfortably over the cap while its length is under it.
+      const overInBytes = '\u00e9'.repeat(MAX_BUNDLE_BYTES - 1);
+      expect(overInBytes.length, 'the fixture must pass a length check to test anything')
+        .to.be.at.most(MAX_BUNDLE_BYTES);
+      expect(Buffer.byteLength(overInBytes, 'utf8')).to.be.above(MAX_BUNDLE_BYTES);
+
+      const result = verifyBundle(overInBytes, { publicKeys: [key.publicHex], onReject });
+
+      expect(result).to.equal(null);
+      expect(rejections[0], 'it was refused for its shape, having got past the cap').to.include('over the');
     });
 
     it('refuses when no pinned key is usable', () => {
