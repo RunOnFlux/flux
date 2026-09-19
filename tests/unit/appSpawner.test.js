@@ -211,10 +211,18 @@ describe('appSpawner tests', () => {
       '../appSecurity/imageManager': {
         checkApplicationImagesCompliance: opts.complianceStub ?? sinon.stub().resolves(),
         verifyRepository: sinon.stub().resolves(),
-        // No blocklist by default, so the candidate filter is inert unless a test
-        // supplies one. The matcher is the real implementation: a double of it
-        // would let a test pass on matching rules the node does not have.
-        getBlocklist: sinon.stub().resolves(opts.blocklist ?? null),
+        // EMPTY BY DEFAULT, WHICH IS NOT THE SAME AS NULL. An empty list is a blocklist
+        // that was read and blocks nothing, so the candidate filter is inert; null is a
+        // node that could not read one at all, and the pass refuses rather than selecting
+        // an app it cannot judge. A test about that case passes null for itself.
+        // The matcher is the real implementation: a double of it would let a test pass on
+        // matching rules the node does not have.
+        // Presence, not `??`: null is a meaningful value here - the node could not read a
+        // list - and a nullish default would answer an explicit null with the empty list,
+        // which is the opposite case and the one every other test wants.
+        getBlocklist: sinon.stub().resolves(
+          Object.prototype.hasOwnProperty.call(opts, 'blocklist') ? opts.blocklist : [],
+        ),
         blockedReasonFor: realImageManager.blockedReasonFor,
       },
       '../appRequirements/hwRequirements': {
@@ -695,12 +703,44 @@ describe('appSpawner tests', () => {
       expect(selectionLogged('selected to try to spawn')).to.be.true;
     });
 
-    it('selects as usual when the blocklist cannot be obtained', async () => {
-      // An unreachable document must not stop the node spawning anything; the
-      // install-time compliance check is still ahead of it.
+    // NULL IS NOT AN EMPTY LIST. A blocklist that read and blocks nothing lets every
+    // candidate through; one that could not be read leaves this node unable to say whether
+    // any image is banned, and holding the policy does not settle that - a document of the
+    // wrong shape inside a validly signed bundle refuses rather than falling back.
+    it('acquires nothing at all when the blocklist cannot be read', async () => {
       buildModule({ aggregateResult: [candidate()], blocklist: null });
+
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(selectionLogged('selected to try to spawn'), 'an app was selected on a list this node could not read').to.be.false;
+    });
+
+    // The canary: the same fixture with a list that READ and blocks nothing does select,
+    // so the refusal above is the unreadable list and not the fixture failing to get there.
+    it('selects as usual when the blocklist reads and blocks nothing', async () => {
+      buildModule({ aggregateResult: [candidate()], blocklist: [] });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
       expect(selectionLogged('selected to try to spawn')).to.be.true;
+    });
+
+    // THE COST OF CARRYING ON WOULD BE PAID BY THE APP. A pass that selected on an
+    // unreadable list reaches the compliance check, which refuses for a reason about this
+    // node - and the refusal is recorded against the app for a week.
+    it('does not record an app against a list this node could not read', async () => {
+      buildModule({
+        aggregateResult: [candidate()],
+        blocklist: null,
+        complianceStub: sinon.stub().rejects(new Error('checkApplicationImagesCompliance called before network policy was obtained')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(
+        globalStateStub.spawnErrorsLongerAppCache.size,
+        'a node fault was written against an app, and stands for the cache ttl',
+      ).to.equal(0);
     });
 
     it('does not filter on an image entry here, where no repotag is projected', async () => {
@@ -975,9 +1015,9 @@ describe('appSpawner tests', () => {
 
     it('caches an app the blocklist refuses, without qualifying the refusal', async () => {
       // A COMPLIANCE FAILURE HERE IS ABOUT THE APP, and durable, so the app is not
-      // reconsidered until the cache expires. It can only be about the app: acquisition is
-      // held shut above until this node holds policy, so a compliance check that runs has
-      // read the blocklist, and one that fails found this app in it.
+      // reconsidered until the cache expires. It can only be about the app: the pass ends
+      // earlier unless the blocklist read, so a compliance check that runs has read it and
+      // one that fails found this app in it.
       buildModule({
         aggregateResult: [spawnableApp],
         appSpec: fullSpec,

@@ -377,13 +377,22 @@ async function trySpawningGlobalApplication() {
       // no repotags, and an enterprise application carries none in the clear, so
       // an image or namespace ban remains the install-time check's to make.
       const blocklist = await imageManager.getBlocklist();
-      if (blocklist) {
-        globalAppNamesLocation = globalAppNamesLocation.filter(
-          (app) => !imageManager.blockedReasonFor(blocklist, {
-            name: app.name, owner: app.owner, hash: app.hash, images: null,
-          }),
-        );
+      // NULL IS "COULD NOT ASK", NEVER "NOTHING IS BLOCKED". Holding the policy is not the
+      // same as holding a readable blocklist: a document of the wrong shape inside a validly
+      // signed bundle refuses rather than falling back, so a node with confirmed, current
+      // policy reaches here with nothing to judge against. It cannot say whether an image is
+      // banned, which is the posture policyReady already holds acquisition in, so the pass
+      // ends here. Carrying on selects an app that the compliance check below then refuses
+      // for a reason that is about this node, and records against the app for a week.
+      if (!blocklist) {
+        log.warn('trySpawningGlobalApplication - the blocklist cannot be read, nothing is acquired this pass');
+        return delayTime;
       }
+      globalAppNamesLocation = globalAppNamesLocation.filter(
+        (app) => !imageManager.blockedReasonFor(blocklist, {
+          name: app.name, owner: app.owner, hash: app.hash, images: null,
+        }),
+      );
       survivors.afterBlocklist = globalAppNamesLocation.length;
       stages.push(['afterBlocklist', nameSet()]);
 
@@ -577,10 +586,11 @@ async function trySpawningGlobalApplication() {
     // verify app compliance
     //
     // Cached as an app-level failure without qualification, because by here it can only be
-    // one. Acquisition is already held shut above until policy is obtained, so a compliance
-    // check that fails has read the blocklist and found this app in it - a fact about the
-    // app, and durable. The transient case cannot arrive: this node does not spawn at all
-    // until it holds policy.
+    // one. This pass ended above unless the blocklist read, so a compliance check that fails
+    // has read it and found this app in it - a fact about the app, and durable. Holding the
+    // policy would not have been enough to say that: the list can be unreadable on a node
+    // whose policy is confirmed and current, and the pass refusing on that is what leaves
+    // only the app's own failure to reach here.
     await imageManager.checkApplicationImagesCompliance(appSpecifications).catch((error) => {
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
       throw error;
