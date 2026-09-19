@@ -5,7 +5,9 @@ import { dbClient } from '../framework/db-client.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { holdRpc, releaseRpc } from '../framework/daemon-control.js';
+import {
+  holdRpc, releaseRpc, getJournal, clearJournal,
+} from '../framework/daemon-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
@@ -74,6 +76,7 @@ describe('a removal does not overtake the announcement that claimed the app', fu
 
     // Every getbenchmarks from this node blocks from here. The next cycle takes the
     // announcement lock and stops inside it.
+    await clearJournal();
     await holdRpc(holderIp, 'getbenchmarks');
 
     const announcing = await holder.waitForEvent(
@@ -83,6 +86,28 @@ describe('a removal does not overtake the announcement that claimed the app', fu
       { afterId: holderFrom },
     );
     expect(announcing, 'no cycle started, so nothing here was ever overlapped').to.exist;
+
+    // The event says a cycle took the lock, which it does before deciding whether it
+    // can send at all - so it is not yet evidence that one is stopped inside. The
+    // journal records a call as it arrives and before the hold blocks it, so a
+    // getbenchmarks from this node is that evidence.
+    await waitFor(
+      async () => {
+        const journal = await getJournal({ method: 'getbenchmarks', sourceIp: holderIp });
+        return journal.entries.length > 0;
+      },
+      { timeout: 120000, interval: 500, label: `a cycle on ${holderIp} reaches the held getbenchmarks` },
+    );
+
+    // What the hold caught, read before the removal is issued so it counts the
+    // cycle's call alone. Holding a method freezes every caller of it on this node,
+    // and a node whose other work is stalled behaves differently for reasons the
+    // subject below would not name.
+    const caught = await getJournal({ method: 'getbenchmarks', sourceIp: holderIp });
+    expect(
+      caught.entries.length,
+      `the hold caught ${caught.entries.length} calls on ${holderIp}, not the cycle's alone`,
+    ).to.equal(1);
 
     // Issued while that cycle is stopped: the removal reaches the point where it
     // would announce itself and waits there.
