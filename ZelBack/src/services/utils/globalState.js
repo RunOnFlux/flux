@@ -1,4 +1,5 @@
 const { AsyncGate } = require('./asyncGate');
+const { AsyncLock } = require('./asyncLock');
 
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
@@ -63,6 +64,23 @@ const runningAppsCache = new Set();
 // first to finish would clear a set outright and hand the announcement back to the
 // removal still running.
 const departingCounts = new Map();
+
+// Apps this node is only trying out. A test install writes the app's row like any
+// other install, and the announcement is built from that table - so an announcement
+// landing inside one claims a placement for an app about to be thrown away, and the
+// test teardown tells the network nothing that would take the claim back.
+//
+// A set, not a count: the node admits one installation at a time, so a second test
+// install of the same app cannot start while this one holds the node.
+//
+// In-memory deliberately: a restart ends the test install that entered it.
+const testInstallingApps = new Set();
+
+// Held for the whole of an announcement cycle. It lives here rather than inside
+// peerNotification because a removal has to wait on it too, and peerNotification
+// already reaches appUninstaller through the reconciler - so the uninstaller
+// cannot reach back without a require cycle.
+const announceCycle = new AsyncLock();
 
 const departingApps = {
   /**
@@ -313,6 +331,8 @@ module.exports = {
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
   get departingApps() { return departingApps; },
+  get testInstallingApps() { return testInstallingApps; },
+  get announceCycle() { return announceCycle; },
   get stoppingContainers() { return stoppingContainers; },
   get fluxRemovedContainers() { return fluxRemovedContainers; },
 

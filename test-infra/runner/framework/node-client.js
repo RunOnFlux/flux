@@ -208,6 +208,7 @@ export function nodeClient(nodeNum) {
         'app:componentRedeployed',
         'app:specStored',
         'app:running',
+        'app:announcing',
         'fileoperation:imageAcquired',
         'fileoperation:imageDiscarded',
         'imageUpdate:checked',

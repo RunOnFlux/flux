@@ -17,6 +17,9 @@ describe('peerNotification tests', () => {
   // under test resolves are two different objects, and a mark set on one is
   // invisible to the other.
   let departingApps;
+  let testInstallingApps;
+  let announceCycle;
+  let findOneInDatabaseStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -36,7 +39,7 @@ describe('peerNotification tests', () => {
     },
     '../dbHelper': {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
-      findOneInDatabase: sinon.stub().resolves(null),
+      findOneInDatabase: findOneInDatabaseStub,
       findInDatabase: sinon.stub().resolves([]),
       updateOneInDatabase: sinon.stub().resolves(),
     },
@@ -106,6 +109,8 @@ describe('peerNotification tests', () => {
     },
     '../utils/globalState': {
       departingApps,
+      testInstallingApps,
+      announceCycle,
       runningAppsCache: new Set(),
     },
     '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
@@ -119,6 +124,7 @@ describe('peerNotification tests', () => {
       warn: sinon.stub(),
     };
 
+    findOneInDatabaseStub = sinon.stub().resolves(null);
     enqueueAllStub = sinon.stub().resolves();
     waitForBootDrainSettledStub = sinon.stub().resolves();
     storeAppRunningMessageStub = sinon.stub().resolves();
@@ -134,7 +140,7 @@ describe('peerNotification tests', () => {
     // over the defect the counting exists to prevent.
     delete require.cache[require.resolve('../../ZelBack/src/services/utils/globalState')];
     // eslint-disable-next-line global-require
-    ({ departingApps } = require('../../ZelBack/src/services/utils/globalState'));
+    ({ departingApps, testInstallingApps, announceCycle } = require('../../ZelBack/src/services/utils/globalState'));
 
     peerNotification = loadPeerNotification();
   });
@@ -268,6 +274,50 @@ describe('peerNotification tests', () => {
 
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name).sort()).to.deep.equal(['app1', 'sealed']);
+    });
+
+    // broadcastedAt says when these apps were installed here, and every consumer
+    // compares it against other nodes' messages - so a stamp taken after the per-app
+    // reads would out-rank a removal that happened while they ran.
+    it('stamps the announcement when the list is taken, not when it is sent', async () => {
+      let now = 1000;
+      sinon.stub(Date, 'now').callsFake(() => now);
+      // Time passes in the per-app reads between the snapshot and the message, as
+      // it does on a real node.
+      findOneInDatabaseStub.callsFake(async () => {
+        now += 5000;
+        return null;
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.broadcastedAt,
+        'stamped at the send, so the message claims to be newer than it is',
+      ).to.equal(1000);
+    });
+
+    // A test install writes the app's row like any other install and throws it away
+    // at the end, and its teardown tells the network nothing - so naming it here
+    // would hold a placement for an app this node never took on.
+    it('does not announce an app this node is only test installing', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'trialapp', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+        ],
+      });
+      testInstallingApps.add('trialapp');
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.apps.map((a) => a.name),
+        'claimed a placement for an app it is only trying out',
+      ).to.deep.equal(['app1']);
     });
 
     // An empty snapshot must NEVER be broadcast: on the receive side an empty v2
