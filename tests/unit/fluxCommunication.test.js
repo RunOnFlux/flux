@@ -415,14 +415,49 @@ describe('fluxCommunication tests', () => {
       expect(verify.callCount).to.equal(2);
     });
 
-    it('deduplicates an unmarked policy announcement, which is what it is', async () => {
+    // AN UNMARKED POLICY ANNOUNCEMENT IS NOT FILTERED EITHER, for the reason the answer
+    // above is not: it carries nothing about its sender, and the sender is the whole of
+    // what it says. Two peers announcing the same sequence are two peers to ask, and the
+    // type is never relayed - so a content filter cannot be discarding a second route to
+    // one fact, only the second peer offering it.
+    it('does not deduplicate an unmarked policy announcement either', async () => {
       const data = { type: 'fluxpolicyseq', version: 1, seq: 5 };
 
       await peerManager.messageDispatcher(envelope(data), peerSocket);
       await peerManager.messageDispatcher(envelope(data), peerSocket);
 
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(false);
+      expect(verify.callCount, 'the second peer to announce it is still heard').to.equal(2);
+    });
+
+    // A message that never verified was never established as anything, so the fingerprint
+    // it left behind must not stand as one this node has seen. Left there, it suppresses
+    // the genuine message that hashes the same for the whole of the cache's ttl - which is
+    // a forged copy of any announcement silencing the real one.
+    it('gives the slot back when a message does not verify', async () => {
+      const data = {
+        type: 'fluxapprunning', version: 2, apps: [], ip: '1.2.3.4:16127', broadcastedAt: 1,
+      };
+      verify.resolves(fluxCommunicationUtils.VerifyResult.NODE_NOT_FOUND);
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(
+        cacheManager.announcementSeen.has(objectHash(data)),
+        'a message that failed verification is holding the fingerprint',
+      ).to.equal(false);
+    });
+
+    // The canary: the same type, verifying, DOES hold it - so the release above is the
+    // verification failing and not the filter having been switched off.
+    it('keeps the slot for a message that verifies', async () => {
+      const data = {
+        type: 'fluxapprunning', version: 2, apps: [], ip: '1.2.3.4:16127', broadcastedAt: 2,
+      };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
       expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
-      expect(verify.callCount).to.equal(1);
     });
   });
 

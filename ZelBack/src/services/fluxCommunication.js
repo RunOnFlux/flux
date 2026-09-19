@@ -667,10 +667,28 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
   // Also what a NAK names further down, so it is computed for every message.
   const messageHash = hash(msgObj.data);
-  if (intentOf(msgObj, declaredIntent(msgObj.data.type)) === INTENT.ANNOUNCE) {
+  // THE FILTER IS FOR MESSAGES THAT REACH THIS NODE BY MORE THAN ONE ROUTE, WHICH IS WHAT
+  // MAKES CONTENT THEIR IDENTITY. A relayed announcement arriving three ways is one fact and
+  // acting once is the point. A type declared VARIES is never relayed - messageRoutes permits
+  // that declaration on no other kind - so it reaches this node once per peer that sends it,
+  // and two peers sending the same bytes are two peers, not one fact twice. Filtering it on
+  // content discards every sender after the first, which for a message whose whole meaning is
+  // "ask me" discards the only thing it carries.
+  //
+  // CLAIMED BEFORE VERIFICATION, HELD ONLY BY A MESSAGE THAT EARNED IT. The filter runs first
+  // because that is what bounds the cost of verifying a flood of copies. But a message that
+  // does not go on to verify was never established as anything, and a hash it leaves behind
+  // suppresses the genuine message that hashes the same. So the slot is released on every
+  // path that does not reach a handler, and what remains is the window of one signature check
+  // rather than the cache's whole ttl.
+  const declared = declaredIntent(msgObj.data.type);
+  const claimedSlot = declared !== INTENT.VARIES
+    && intentOf(msgObj, declared) === INTENT.ANNOUNCE;
+  if (claimedSlot) {
     if (announcementSeen.has(messageHash)) return;
     announcementSeen.set(messageHash, true);
   }
+  const releaseSlot = () => { if (claimedSlot) announcementSeen.delete(messageHash); };
 
   // check blocked list
   if (wsPeerCache.has(pubKey)) {
@@ -680,6 +698,8 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     } catch (e) {
       log.error(e);
     }
+    // Nothing here judged the message; the peer is what was refused.
+    releaseSlot();
     return;
   }
   const currentTimeStamp = Date.now();
@@ -706,13 +726,17 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         });
       }
     } else {
+      // Signed by a real node and outside the window, which is what a replay looks like.
+      releaseSlot();
       peerSocket.sendNak(messageHash, NAK_REASON.STALE);
     }
   } else if (verifyResult === VerifyResult.NODE_NOT_FOUND) {
+    releaseSlot();
     // Originator's node is not in the deterministic list — stale list or node went offline.
     // The relay peer is not at fault. Drop the message, don't punish the relay.
     log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
   } else {
+    releaseSlot();
     // BAD_SIGNATURE or MALFORMED — the message is corrupted or forged.
     // Track against this relay peer with a rolling window.
     // If they send 5+ bad messages in 10 minutes, disconnect.
