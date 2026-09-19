@@ -691,6 +691,18 @@ describe('appUninstaller tests', () => {
         ).to.be.true;
       });
 
+      it('releases only the lock this call took, so a refused duplicate cannot free a live removal', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.removalInProgress = true;
+
+        await uninstaller.removeAppLocally('testapp', res, false, true, true);
+
+        expect(
+          globalStateStub.removalInProgress,
+          'freed the node while the removal holding it is still running, so an install can start into it',
+        ).to.be.true;
+      });
+
       it('a removal that finishes does not unmark an overlapping one still running', async () => {
         const uninstaller = buildUninstaller(v2Spec);
         // A second broadcast removal of this app, already under way. Force skips

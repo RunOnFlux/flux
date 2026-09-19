@@ -789,6 +789,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   // return through the same finally without having marked anything, and a refused
   // duplicate must not unmark the removal that is actually running.
   let departingName = null;
+  // Whether this call took the node's removal lock. The same guards return through
+  // the same finally, and a refused duplicate must not release the lock the removal
+  // actually running is holding.
+  let acquired = false;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -829,6 +833,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     }
 
     globalState.removalInProgress = true;
+    acquired = true;
 
     if (!app) {
       throw new Error('No App specified');
@@ -1077,7 +1082,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
   } finally {
-    globalState.removalInProgress = false;
+    if (acquired) globalState.removalInProgress = false;
     if (departingName) {
       globalState.departingApps.leave(departingName);
     }
