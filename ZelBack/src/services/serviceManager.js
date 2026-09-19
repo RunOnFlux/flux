@@ -614,9 +614,16 @@ async function startFluxFunctions() {
       }).catch((error) => log.error(`Image update service start error: ${error.message}`));
     }, bootDelay(10 * 60 * 1000)); // 10 minutes after startup
     fluxNetworkHelper.checkDeterministicNodesCollisions();
-    appTamperingBlocklistService.start().catch((err) => {
-      log.error(`appTamperingBlocklist start error: ${err.message}`);
-    });
+    // STARTED ON THE POLICY, NOT ON BOOT. The blocklist this enforces is a document in the
+    // signed bundle, and the bundle is not resolved by the time this line runs. Started
+    // here, its first tick reads nothing - and reading nothing is correctly refused rather
+    // than taken for an empty list, because an unreadable blocklist releasing a node the
+    // network deliberately DOSed is the failure that contract was written for. What it
+    // costs is the interval: the next tick is twelve hours away and nothing brings it
+    // forward, so a node on the blocklist goes unenforced for twelve hours per restart.
+    globalState.waitForPolicyReady()
+      .then(() => appTamperingBlocklistService.start())
+      .catch((err) => log.error(`appTamperingBlocklist start error: ${err.message}`));
     // Not awaited, and started ahead of setNodeGeolocation below on purpose: the
     // first tick reads geolocation from the db when there is one, and otherwise
     // decides nothing and retries until the lookup this boot has landed.
