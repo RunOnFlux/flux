@@ -9,7 +9,9 @@ const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
-const { localAppsInformation, globalAppsInformation, globalAppsMessages } = require('../utils/appConstants');
+const {
+  localAppsInformation, globalAppsInformation, globalAppsMessages, ANNOUNCE_CYCLE_WAIT_MS,
+} = require('../utils/appConstants');
 const config = require('config');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const upnpService = require('../upnpService');
@@ -938,6 +940,13 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     fluxEventBus.publish('app:removed', { name: appName });
 
     if (sendMessage) {
+      // An announcement cycle that took its list before this removal marked the
+      // app still names it, and a claim arriving after this message re-creates the
+      // row it cleared. Waiting for the cycle in flight puts the two on the wire in
+      // the order they happened, so the claim is applied first and this clears it.
+      // A cycle starting from here on reads the mark and leaves the app out.
+      // Bounded: a wedged cycle must not hold up the node's removals.
+      await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
       const ip = await fluxNetworkHelper.getLocalSocketAddress();
       if (ip) {
         const broadcastedAt = Date.now();

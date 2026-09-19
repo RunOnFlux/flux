@@ -14,7 +14,6 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
 const { ANNOUNCE_INTERVAL_MS } = require('../utils/appConstants');
-const { AsyncLock } = require('../utils/asyncLock');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -37,7 +36,8 @@ let broadcasting = false;
 // Held for the whole of a cycle, so a stop can wait for the cycle in flight
 // rather than returning while it is still running. A teardown that returns
 // before the thing is torn down is the same lie as a stop that does not stop.
-const cycleLock = new AsyncLock();
+// A removal waits on it too, which is why it lives in globalState.
+const cycleLock = globalState.announceCycle;
 
 /**
  * Schedule the next announcement so that the PERIOD is fixed, rather than the
@@ -137,6 +137,10 @@ async function checkAndNotifyPeersOfRunningApps() {
   const startedAt = process.hrtime.bigint();
   await cycleLock.enable();
   try {
+    // Published where the lock is taken, so the event and the lock say the same
+    // thing: a cycle is in flight, and a removal that announces itself waits for
+    // it. Every path out of here goes through the finally that releases it.
+    fluxEventBus.publish('app:announcing', {});
     if (!nodeConfirmationService.canSendMessages()) {
       log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');
       return;
@@ -154,6 +158,11 @@ async function checkAndNotifyPeersOfRunningApps() {
       throw new Error('Unable to detect Flux IP address');
     }
 
+    // Stamped where the snapshot is taken, not where the message is built: every
+    // consumer reads broadcastedAt as the time these apps were installed here, and
+    // a stamp taken after the per-app reads below would out-rank a removal that
+    // happened while they ran.
+    const snapshotAt = Date.now();
     const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
@@ -178,9 +187,12 @@ async function checkAndNotifyPeersOfRunningApps() {
     // its claim, and one unreadable app cannot cost this node its presence.
     // An app whose removal this node has broadcast is excluded: it is still
     // installed until the removal finishes, and naming it here would re-create the
-    // location row the removal just cleared.
+    // location row the removal just cleared. An app this node is only testing is
+    // excluded too: its row is thrown away at the end of the test, and the teardown
+    // that throws it away tells the network nothing.
     const applicationsToBroadcast = appsInstalled.filter(
-      (application) => !globalState.departingApps.has(application.name),
+      (application) => !globalState.departingApps.has(application.name)
+        && !globalState.testInstallingApps.has(application.name),
     );
     const apps = [];
     const db = dbHelper.databaseConnection();
@@ -215,7 +227,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         version: 2,
         apps,
         ip: localSocketAddr,
-        broadcastedAt: Date.now(),
+        broadcastedAt: snapshotAt,
         osUptime: os.uptime(),
         staticIp: geolocationService.isStaticIP(),
       };

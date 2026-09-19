@@ -331,6 +331,37 @@ export async function clearSeededData() {
   return del('/seed-data');
 }
 
+// -- Holding an RPC open --
+//
+// A held method does not answer until it is released, so an operation that waits
+// on that answer stays in flight for exactly as long as the suite wants. Failing
+// an RPC ends such an operation; holding it is how a suite tests what must not
+// happen WHILE something else is running.
+
+/**
+ * Hold a method for one node: every call of it from that node blocks until released.
+ * @param {string} ip Node's fleet IP, without a port.
+ * @param {string} method RPC method name, e.g. 'getbenchmarks'.
+ */
+export async function holdRpc(ip, method) {
+  return post(`/rpc-hold/${ip}`, { method });
+}
+
+/**
+ * Release a node's held methods, answering every call waiting on one.
+ * @param {string} ip Node's fleet IP, without a port.
+ */
+export async function releaseRpc(ip) {
+  return del(`/rpc-hold/${ip}`);
+}
+
+/**
+ * Release every held method on every node.
+ */
+export async function releaseAllRpc() {
+  return del('/rpc-hold/all');
+}
+
 // -- Reset --
 
 export async function resetAll() {
