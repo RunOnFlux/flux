@@ -333,7 +333,28 @@ function encodeIpLocationBinary(artifact, { pad = true } = {}) {
  * @returns {{total: number, ok: number, notModified: number, missing: number}}
  */
 function newRouteCounters() {
-  return { total: 0, ok: 0, notModified: 0, missing: 0 };
+  // byClient answers the question the totals cannot: these are one fleet's requests to one
+  // stub, so "did anyone fetch" and "did THIS node fetch" are different questions and only
+  // the first was askable. A suite asserting what one node did about an artifact was
+  // reading a number every node writes to, and another node's entirely correct request -
+  // for an artifact the bundle IT held still named - failed the assertion.
+  return {
+    total: 0, ok: 0, notModified: 0, missing: 0, byClient: {},
+  };
+}
+
+/**
+ * The fleet address a request came from, as a suite names its nodes.
+ *
+ * Express reports IPv4 over a dual-stack socket as ::ffff:a.b.c.d, and a suite asks with the
+ * address subnet-config gave it - so the mapped form is stripped rather than left to every
+ * caller to remember.
+ * @param {object} req
+ * @returns {string}
+ */
+function clientAddress(req) {
+  const raw = req.socket?.remoteAddress ?? req.ip ?? '';
+  return String(raw).replace(/^::ffff:/, '');
 }
 
 const IPLOCATION_JSON_ROUTE = '/iplocation.json';
@@ -447,11 +468,17 @@ const state = {
  * Count one artifact fetch.
  * @param {string} route Which representation was fetched
  * @param {'ok'|'notModified'|'missing'} outcome What it was answered with
+ * @param {object} req The request, for the node it came from
  */
-function countIpLocationFetch(route, outcome) {
+function countIpLocationFetch(route, outcome, req) {
   const counters = state.ipLocationFetches[route];
   counters.total += 1;
   counters[outcome] += 1;
+  const client = clientAddress(req);
+  const forClient = counters.byClient[client] ?? { total: 0, ok: 0, notModified: 0, missing: 0 };
+  forClient.total += 1;
+  forClient[outcome] += 1;
+  counters.byClient[client] = forClient;
 }
 
 /**
@@ -607,7 +634,7 @@ app.get(POLICY_SIGNED_ROUTE, (req, res) => {
 // refresh path (If-None-Match -> 304) is exercised, not just the first fetch.
 app.get(IPLOCATION_JSON_ROUTE, (req, res) => {
   if (!state.ipLocation) {
-    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'missing');
+    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'missing', req);
     res.status(404).json({ error: 'no artifact configured' });
     return;
   }
@@ -615,11 +642,11 @@ app.get(IPLOCATION_JSON_ROUTE, (req, res) => {
   const etag = `"iplocation-${state.ipLocationVersion}"`;
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) {
-    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'notModified');
+    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'notModified', req);
     res.status(304).end();
     return;
   }
-  countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'ok');
+  countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'ok', req);
   res.type('application/json').send(body);
 });
 
@@ -630,18 +657,18 @@ app.get(IPLOCATION_JSON_ROUTE, (req, res) => {
 // reader the wrong bytes.
 app.get(IPLOCATION_BINARY_ROUTE, (req, res) => {
   if (!state.ipLocationBinary) {
-    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing');
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing', req);
     res.status(404).json({ error: 'no artifact configured' });
     return;
   }
   const etag = `"iplocationbin-${state.ipLocationVersion}"`;
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) {
-    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'notModified');
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'notModified', req);
     res.status(304).end();
     return;
   }
-  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok');
+  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok', req);
   res.type('application/octet-stream').send(state.ipLocationBinary);
 });
 
@@ -651,16 +678,16 @@ app.get(IPLOCATION_BINARY_ROUTE, (req, res) => {
 // back bytes that will fail verification and look like corruption.
 app.get('/iplocation-:sha.bin.gz', (req, res) => {
   if (!state.ipLocationBinary) {
-    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing');
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing', req);
     res.status(404).json({ error: 'no artifact configured' });
     return;
   }
   if (req.params.sha !== sha256Hex(state.ipLocationBinary)) {
-    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing');
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing', req);
     res.status(404).json({ error: 'no artifact with that digest' });
     return;
   }
-  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok');
+  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok', req);
   // The name asked for is the one the bundle signed; the BODY is not. Only the consumer's
   // own digest check can catch that, which is the point of serving it.
   res.type('application/octet-stream').send(state.ipLocationTampered ?? state.ipLocationBinary);

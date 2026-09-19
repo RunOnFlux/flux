@@ -195,6 +195,18 @@ describe('the location table survives restarts and refuses bad publications', fu
   // these, so they are always scoped to the publication under test.
   const fetchCounts = async (route = BINARY_ROUTE) => (await stubState()).ipLocationFetches[route];
 
+  // What ONE node did, which is a different question and the only one some assertions mean.
+  // These are one fleet's requests to one server: a node correctly fetching an artifact the
+  // bundle IT still holds is counted by the totals above, and fails an assertion about a
+  // node that did nothing of the kind.
+  const fetchCountsFor = async (index, route = BINARY_ROUTE) => {
+    const counters = (await stubState()).ipLocationFetches[route];
+    return counters.byClient[subnet.nodeIp(index + 1)]
+      ?? {
+        total: 0, ok: 0, notModified: 0, missing: 0,
+      };
+  };
+
   const publish = async (body) => {
     const response = await fetch(`${env.stubControl}/iplocation`, {
       method: 'POST',
@@ -535,7 +547,7 @@ describe('the location table survives restarts and refuses bad publications', fu
       timeout: 180000, interval: 2000, label: 'the restarted node finds nothing named and says so',
     });
 
-    const counts = await fetchCounts();
+    const counts = await fetchCountsFor(REFRESH_NODE);
     expect(counts.ok, 'there was nothing to download').to.equal(0);
     expect(counts.missing, 'and it did not go asking for something the bundle does not name').to.equal(0);
     // its second restart, and its second adopt: the rows outlive the process
