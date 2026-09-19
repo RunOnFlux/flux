@@ -9,7 +9,6 @@ const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
-const { INTENT } = require('./utils/messageIntent');
 const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
 
@@ -175,7 +174,7 @@ async function respondWithPolicy(msgObj, peer) {
     const raw = await policyStore.getRawBundle();
     if (!raw) {
       await sendSignedMessage({
-        type: 'fluxpolicyseq', version: 1, seq: null, intent: INTENT.ANSWER, correlationId,
+        type: 'fluxpolicyseq', version: 1, seq: null, correlationId,
       }, peer);
       return;
     }
@@ -202,13 +201,13 @@ async function respondWithPolicy(msgObj, peer) {
       // confirmation being correct. A peer that lies high costs one request and a
       // refused bundle.
       await sendSignedMessage({
-        type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq(), intent: INTENT.ANSWER, correlationId,
+        type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq(), correlationId,
       }, peer);
       return;
     }
 
     await sendSignedMessage({
-      type: 'fluxpolicy', version: 1, bundle: raw, intent: INTENT.ANSWER, correlationId,
+      type: 'fluxpolicy', version: 1, bundle: raw, correlationId,
     }, peer);
   } catch (error) {
     log.error(error);
@@ -226,7 +225,7 @@ async function respondWithPolicy(msgObj, peer) {
  */
 async function requestPolicyFromPeer(peer, seq, correlationId) {
   await sendSignedMessage({
-    type: 'fluxpolicyrequest', version: 1, seq, intent: INTENT.ASK, correlationId,
+    type: 'fluxpolicyrequest', version: 1, seq, correlationId,
   }, peer);
 }
 

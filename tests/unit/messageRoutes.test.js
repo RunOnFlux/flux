@@ -49,10 +49,10 @@ describe('messageRoutes tests', () => {
       expect(registeredTypes().filter(isOrdered).sort()).to.deep.equal([...ORDERED_TYPES].sort());
     });
 
-    it('lets only fluxpolicyseq take its intent from the message', () => {
-      // A declared intent is ignored if the payload contradicts it; VARIES is the type
-      // saying the payload decides. Anything relayed onward must never be VARIES, or a
-      // node that can sign a message can put an undeduplicated one into the network.
+    it('declares only fluxpolicyseq as sent both ways', () => {
+      // VARIES is the type saying it travels in both directions, which makes it point to
+      // point and never filtered on content. Anything relayed onward must never be VARIES,
+      // or one node's copy of a fact suppresses every other route it arrives by.
       const varying = registeredTypes().filter((type) => declaredIntent(type) === INTENT.VARIES);
       expect(varying).to.deep.equal(['fluxpolicyseq']);
     });

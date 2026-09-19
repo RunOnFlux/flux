@@ -27,7 +27,6 @@ const {
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const globalState = require('../utils/globalState');
 const { Privilege, authOf } = require('../utils/privileges');
-const { INTENT } = require('../utils/messageIntent');
 
 /**
  * The support team addresses a teamSupportAddress fork names.
@@ -427,7 +426,6 @@ async function requestAppMessage(hash) {
     type: 'fluxapprequest',
     version: 1,
     hash,
-    intent: INTENT.ASK,
   };
   await fluxCommunicationMessagesSender.broadcastMessageToAll(message);
 }

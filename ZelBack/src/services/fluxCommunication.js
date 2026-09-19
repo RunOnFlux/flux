@@ -22,7 +22,7 @@ const { extractIp, extractPort, parseSocketAddress, socketAddressesMatch } = req
 const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
-const { INTENT, intentOf } = require('./utils/messageIntent');
+const { INTENT } = require('./utils/messageIntent');
 const {
   ROUTE, register, declaredIntent, handlerFor, isOrdered,
 } = require('./utils/messageRoutes');
@@ -669,11 +669,13 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const messageHash = hash(msgObj.data);
   // THE FILTER IS FOR MESSAGES THAT REACH THIS NODE BY MORE THAN ONE ROUTE, WHICH IS WHAT
   // MAKES CONTENT THEIR IDENTITY. A relayed announcement arriving three ways is one fact and
-  // acting once is the point. A type declared VARIES is never relayed - messageRoutes permits
-  // that declaration on no other kind - so it reaches this node once per peer that sends it,
-  // and two peers sending the same bytes are two peers, not one fact twice. Filtering it on
-  // content discards every sender after the first, which for a message whose whole meaning is
-  // "ask me" discards the only thing it carries.
+  // acting once is the point. Everything else is point to point, so it reaches this node once
+  // per peer that sends it, and two peers sending the same bytes are two peers rather than
+  // one fact twice. Filtering those on content discards every sender after the first, which
+  // for a message whose whole meaning is "ask me" discards the only thing it carries.
+  //
+  // The TYPE decides, never the message: one that chose for itself could opt out of the
+  // filter by saying so, and a relayed type doing that is a flood every honest node joins in.
   //
   // CLAIMED BEFORE VERIFICATION, HELD ONLY BY A MESSAGE THAT EARNED IT. The filter runs first
   // because that is what bounds the cost of verifying a flood of copies. But a message that
@@ -681,9 +683,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   // suppresses the genuine message that hashes the same. So the slot is released on every
   // path that does not reach a handler, and what remains is the window of one signature check
   // rather than the cache's whole ttl.
-  const declared = declaredIntent(msgObj.data.type);
-  const claimedSlot = declared !== INTENT.VARIES
-    && intentOf(msgObj, declared) === INTENT.ANNOUNCE;
+  const claimedSlot = declaredIntent(msgObj.data.type) === INTENT.ANNOUNCE;
   if (claimedSlot) {
     if (announcementSeen.has(messageHash)) return;
     announcementSeen.set(messageHash, true);

@@ -22,7 +22,6 @@ const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstant
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
 const { Privilege, authOf } = require('../utils/privileges');
-const { INTENT } = require('../utils/messageIntent');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
@@ -487,7 +486,6 @@ async function broadcastHashRequest(hashes, peers) {
     type: 'fluxapprequest',
     version: 2,
     hashes,
-    intent: INTENT.ASK,
   };
   const signed = await serialiseAndSignFluxBroadcast(message);
   if (!signed) return;

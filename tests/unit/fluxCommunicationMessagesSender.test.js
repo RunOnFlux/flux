@@ -510,11 +510,13 @@ describe('fluxCommunicationMessagesSender tests', () => {
         await fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, 7, 'ask-1');
 
         expect(ws.send.calledOnce).to.equal(true);
-        // The marker says this is a question, so no peer's flood filter can treat another
-        // node's identical ask as a repeat of it, and the id is what its answer echoes.
+        // The id is what the answer echoes, and what keeps two peers' answers to the same
+        // question distinct. Nothing in the payload says how the message travels: the type
+        // is declared an ask in messageRoutes, so no peer's flood filter treats another
+        // node's identical ask as a repeat of it.
         expect(JSON.parse(ws.send.firstCall.args[0]).data)
           .to.deep.equal({
-            type: 'fluxpolicyrequest', version: 1, seq: 7, intent: 'ask', correlationId: 'ask-1',
+            type: 'fluxpolicyrequest', version: 1, seq: 7, correlationId: 'ask-1',
           });
       });
     });

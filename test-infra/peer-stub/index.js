@@ -203,7 +203,6 @@ async function handleMessage(ws, rawData) {
         type: 'fluxpolicyseq',
         version: 1,
         seq: policyAnswer.seq,
-        intent: 'answer',
         correlationId: data.correlationId,
       }));
       policyAsksAnswered += 1;
