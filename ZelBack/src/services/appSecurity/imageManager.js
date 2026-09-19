@@ -8,6 +8,7 @@ const verificationHelper = require('../verificationHelper');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const policyStore = require('../policyStore');
+const globalState = require('../utils/globalState');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
@@ -510,6 +511,22 @@ async function checkDockerAccessibility(req, res) {
  */
 async function checkApplicationsCompliance(installedApps, removeAppLocally) {
   try {
+    // THE LIST THIS ACTS ON HAS TO BE THE NETWORK'S, not whatever this node last held. A
+    // bundle restored from disk answers getBlocklist without anything having established
+    // that it is still current, so a ban lifted while this node was down still reads as a
+    // ban - and what follows is an uninstall, broadcast to the network, of an application
+    // that is now permitted.
+    //
+    // The same bar every other judgement is held to: the spawner will not acquire, the
+    // validator will not answer a live submission and the installer will not pull while
+    // this is shut. Removing an application is the most destructive of the four.
+    //
+    // What it costs is an application that IS banned staying up on this node until it can
+    // confirm. That node is already refusing to take on new ones for the same reason.
+    if (!globalState.policyReady) {
+      log.info('Network policy not confirmed; leaving installed applications as they are this pass');
+      return;
+    }
     // get list of locally installed apps.
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {

@@ -750,6 +750,23 @@ describe('imageManager tests', () => {
   });
 
   describe('checkApplicationsCompliance tests', () => {
+    // A node past its acquisition window, which is what every removal below assumes: the
+    // sweep acts on a blocklist only once this node has established it is the network's.
+    // The gate itself is exercised at the end of this block.
+    let policyBefore;
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      policyBefore = globalState.policyReady;
+      globalState.policyReady = true;
+    });
+
+    afterEach(() => {
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.policyReady = policyBefore;
+    });
+
     it('should remove blacklisted apps', async () => {
       const installedApps = sinon.stub().resolves({
         status: 'success',
@@ -1069,7 +1086,80 @@ describe('imageManager tests', () => {
     });
   });
 
+  describe('the sweep acts only on a blocklist this node can vouch for', () => {
+    let globalState;
+    let policyBefore;
+
+    function blacklistedApp() {
+      return sinon.stub().resolves({
+        status: 'success',
+        data: [{
+          name: 'BadApp', version: 3, repotag: 'blocked/repo:latest', owner: '1ValidOwner', hash: 'validhash',
+        }],
+      });
+    }
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      policyBefore = globalState.policyReady;
+      // Through the document the bundle carries, which is the seam the sweep reads: the
+      // exported getBlocklist is not what it calls.
+      sinon.stub(policyStore, 'getDocument').withArgs('blockedrepositories').returns(['blocked/repo']);
+      sinon.stub(serviceHelper, 'delay').resolves();
+    });
+
+    afterEach(() => {
+      globalState.policyReady = policyBefore;
+    });
+
+    // A BUNDLE HELD IS NOT A BUNDLE VOUCHED FOR. One restored from disk answers getBlocklist
+    // without anything having established it is still the network's, so a ban lifted while
+    // this node was down still reads as a ban - and what follows is an uninstall of an
+    // application that is now permitted, broadcast to the network.
+    it('removes nothing while the policy is unconfirmed', async () => {
+      globalState.policyReady = false;
+      const removeAppLocally = sinon.stub().resolves();
+
+      await imageManager.checkApplicationsCompliance(blacklistedApp(), removeAppLocally);
+
+      expect(
+        removeAppLocally.called,
+        'an application was uninstalled on a list this node could not vouch for',
+      ).to.equal(false);
+    });
+
+    // The canary: the same app and the same list, with the policy confirmed, IS removed -
+    // so the refusal above is the gate rather than the fixture never reaching the removal.
+    it('removes it once the policy is confirmed', async () => {
+      globalState.policyReady = true;
+      const removeAppLocally = sinon.stub().resolves();
+
+      await imageManager.checkApplicationsCompliance(blacklistedApp(), removeAppLocally);
+
+      expect(removeAppLocally.calledOnce).to.equal(true);
+      expect(removeAppLocally.firstCall.args[0]).to.equal('BadApp');
+    });
+  });
+
   describe('checkApplicationsCompliance identity tests', () => {
+    // A node past its acquisition window, which is what every removal below assumes: the
+    // sweep acts on a blocklist only once this node has established it is the network's.
+    // The gate itself is exercised at the end of this block.
+    let policyBefore;
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      policyBefore = globalState.policyReady;
+      globalState.policyReady = true;
+    });
+
+    afterEach(() => {
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.policyReady = policyBefore;
+    });
+
     const sealed = {
       name: 'dijikalaco',
       version: 8,
