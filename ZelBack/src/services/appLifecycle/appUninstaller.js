@@ -952,6 +952,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           runningAppsCache.delete(appName);
           log.info(`Removed ${appName} from running apps cache`);
         }
+      } else {
+        log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
       }
     }
 
