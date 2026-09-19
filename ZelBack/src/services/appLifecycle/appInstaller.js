@@ -376,7 +376,7 @@ async function ensureAppDockerNetwork(appName, res) {
  * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
  * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -717,6 +717,47 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     fluxEventBus.publish('app:installed', { name: appSpecs.name, hash: appSpecs.hash });
   }
   return InstallOutcome.INSTALLED;
+}
+
+/**
+ * Register an app on this node, and say so either way.
+ *
+ * AN ATTEMPT THAT DOES NOT INSTALL IS AS MUCH A RESULT AS ONE THAT DOES, and until this
+ * nothing said so: app:installed was published and nothing was published beside it, so the
+ * only account of a refusal or a failure was the sentence written into the response stream.
+ * Anything waiting on the outcome had to read that sentence - and the two refusals a caller
+ * most needs to tell apart from a fault are worded, not typed: `already installed` is an
+ * error envelope and `another application is undergoing installation` is a warning in one
+ * place and an error in another.
+ *
+ * So the outcome is published as the outcome. REFUSED and FAILED are carried as themselves
+ * rather than flattened, because they are opposite facts about the node - REFUSED leaves the
+ * app exactly as it was, FAILED means it is gone - and a waiter that cannot tell them apart
+ * is the bug InstallOutcome exists to prevent.
+ *
+ * A throw is reported too, under FAILED: the app is in whatever state the teardown reached,
+ * which is the same thing FAILED means everywhere else.
+ * @param {object} appSpecs App specifications.
+ * @param {object} componentSpecs Component specifications, when one component is being installed.
+ * @param {object} res Response stream, when a caller holds one.
+ * @param {boolean} [test] A test install, torn down again on the way out.
+ * @param {boolean} [sendRemovalMessage] Whether a teardown announces itself.
+ * @returns {Promise<string>} One of InstallOutcome.
+ */
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+  const announce = (outcome) => {
+    if (test || outcome === InstallOutcome.INSTALLED) return;
+    fluxEventBus.publish('app:installFailed', { name: appSpecs?.name, outcome });
+  };
+  let outcome;
+  try {
+    outcome = await attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage);
+  } catch (error) {
+    announce(InstallOutcome.FAILED);
+    throw error;
+  }
+  announce(outcome);
+  return outcome;
 }
 
 /**

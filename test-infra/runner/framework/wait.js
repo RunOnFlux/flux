@@ -137,6 +137,31 @@ export async function waitForDosChanged(node, predicate = () => true, timeout = 
   return node.waitForEvent('dos:changed', predicate, timeout, opts);
 }
 
+/**
+ * The app is installed on this node, or the attempt said it will not be.
+ *
+ * Races the two outcomes rather than waiting one out: an install that refuses or fails says
+ * so on the bus, so the only reason to spend the whole budget is a node that never answered
+ * at all. Rejects naming the outcome, which tells a caller whether the app is as it was
+ * (REFUSED) or gone (FAILED).
+ * @param {object} node
+ * @param {string} appName
+ * @param {number} [timeout]
+ * @param {object} [opts] Anchoring, as waitForEvent takes it.
+ * @returns {Promise<object>}
+ */
+export async function waitForInstallSettled(node, appName, timeout = 60000, opts) {
+  const installed = node.waitForEvent('app:installed', (data) => data.name === appName, timeout, opts);
+  const failed = node.waitForEvent('app:installFailed', (data) => data.name === appName, timeout, opts)
+    .then((event) => {
+      throw new Error(`install of ${appName} did not settle as installed: ${event?.data?.outcome ?? 'unknown'}`);
+    });
+  // Both are left running: whichever resolves first decides, and the loser's rejection is
+  // swallowed rather than surfacing as an unhandled rejection once the race is over.
+  failed.catch(() => {});
+  return Promise.race([installed, failed]);
+}
+
 export async function waitForAppInstalled(node, appName, timeout = 60000, opts) {
   return node.waitForEvent('app:installed', (data) => data.name === appName, timeout, opts);
 }

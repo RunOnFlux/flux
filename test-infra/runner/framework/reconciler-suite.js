@@ -13,6 +13,7 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
+  waitForInstallSettled,
   waitForReconcileActuated, waitForBootSettled,
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
@@ -117,11 +118,15 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
     // would put this helper's control flow on the wording of a message, which is what it
     // did: "already installed" was a failure here, and a spawner that got there first
     // failed a suite whose fixture had in fact worked.
+    //
+    // An attempt that will not install says so on the bus, so this settles as soon as
+    // either answer arrives rather than spending the whole budget on a refusal.
+    const mark = client.getLastEventId();
     const body = await client.installAppLocally(app.spec.name, auth.zelidauth);
     try {
-      await waitForAppInstalled(client, app.spec.name, timeout);
+      await waitForInstallSettled(client, app.spec.name, timeout, { afterId: mark });
     } catch (error) {
-      throw new Error(`node ${i} does not hold ${app.spec.name} after installapplocally: ${body.slice(-600)}`);
+      throw new Error(`node ${i} does not hold ${app.spec.name}: ${error.message} :: ${body.slice(-400)}`);
     }
   }));
   return indices;
