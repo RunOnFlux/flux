@@ -120,7 +120,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.portTestPeerTimeoutMs` | 30000 | 3000 | 10.0x |
 | `fluxapps.portTestPropagationDelayMs` | 10000 | 100 | 100.0x |
 | `fluxapps.redeploy.composedDelay` | 5 | 1 | 5.0x |
-| `fluxapps.redeploy.delay` | 30 | 1 | 30.0x |
 | `fluxapps.removal.delay` | 300 | 5 | 60.0x |
 | `fluxapps.spawnDeferrals.capacityGap.largeMs.enterprise` | 1800000 | 350 | 5142.9x |
 | `fluxapps.spawnDeferrals.capacityGap.largeMs.standard` | 7020000 | 700 | 10028.6x |

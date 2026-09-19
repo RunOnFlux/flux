@@ -1506,7 +1506,6 @@ async function softRedeploy(appSpecs, res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
       if (res.flush) res.flush();
     }
-    await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
     // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
@@ -1613,7 +1612,6 @@ async function hardRedeploy(appSpecs, res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
       if (res.flush) res.flush();
     }
-    await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
     // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
@@ -4558,9 +4556,6 @@ async function reinstallOldApplications() {
               await appUninstaller.removeAppLocally(appSpecifications.name, null, false, false);
               const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
               log.info(appRedeployResponse);
-
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000);
 
               // verify requirements
               // eslint-disable-next-line no-await-in-loop
