@@ -1211,6 +1211,25 @@ describe('appInstaller tests', () => {
       expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app this node never had').to.equal(false);
     });
 
+    // A test install writes the app's row like any other and throws it away, so the
+    // announcement must not read that row as a claim. The mark outlives the teardown
+    // that deletes the row: released before it, a cycle in between claims the app.
+    it('marks an app it is only testing, and holds the mark until the row is gone', async () => {
+      let markedDuringCleanup = null;
+      const removeAppLocallyStub = sinon.stub().callsFake(async () => {
+        markedDuringCleanup = globalStateStub.testInstallingApps.has('testapp');
+      });
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+
+      expect(markedDuringCleanup, 'let the mark go before the row it covers was deleted').to.be.true;
+      expect(
+        globalStateStub.testInstallingApps.has('testapp'),
+        'left the mark behind, silencing the app for good',
+      ).to.be.false;
+    });
+
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
       // The announcement runs for as long as a broadcast cycle takes, and every
       // other install, removal and redeploy on this node refuses while the install

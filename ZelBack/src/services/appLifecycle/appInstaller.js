@@ -405,6 +405,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     }
     globalState.installationInProgress = true;
     acquired = true;
+    // A test install holds nothing: it writes the app's row like any other install
+    // and throws it away, so the announcement must not read that row as a claim.
+    if (test) globalState.testInstallingApps.add(appSpecs.name);
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -701,6 +704,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       } catch (cleanupError) {
         log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
       }
+      // Released after the teardown, not before: the row is what the announcement
+      // reads, and it exists until the teardown has deleted it.
+      globalState.testInstallingApps.delete(appSpecs.name);
     }
   }
 
