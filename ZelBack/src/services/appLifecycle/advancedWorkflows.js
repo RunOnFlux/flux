@@ -945,7 +945,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
@@ -954,7 +954,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
     acquired = true;
@@ -966,7 +966,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.DECLINED;
     }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
@@ -1017,7 +1017,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.ALREADY_INSTALLED;
     }
 
     // Verify the apps this app must be networked with (networkWith token in the
@@ -1518,10 +1518,11 @@ async function softRedeploy(appSpecs, res) {
       // the removal above has already taken its containers AND its local row,
       // and this is the only pass that would have put them back.
       //
-      // REFUSED is the node being held by another operation for the length of
-      // the delay above. FAILED is the installer's own teardown, which removes
-      // locally without telling anyone (`sendMessage` is false at its call). So
-      // in both cases this node ends with no containers, no row, and peers
+      // BUSY is the node being held by another operation for the length of the
+      // delay above, DECLINED a check that would not pass. FAILED is the
+      // installer's own teardown, which removes locally without telling anyone
+      // (`sendMessage` is false at its call). So in every case this node ends
+      // with no containers, no row, and peers
       // holding a location record until it expires on its own - nothing here
       // announces the loss, and with no row there is nothing for the reconciler
       // to converge either.

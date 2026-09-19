@@ -374,7 +374,7 @@ async function ensureAppDockerNetwork(appName, res) {
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
  * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
- * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
+ * @returns {Promise<string>} One of InstallOutcome.
  */
 async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
@@ -393,7 +393,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
@@ -402,7 +402,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
     acquired = true;
@@ -414,7 +414,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.DECLINED;
     }
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
@@ -471,7 +471,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         res.write(rStatus);
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.ALREADY_INSTALLED;
     }
 
     // Lazy-load appQueryService to avoid circular dependency issues
@@ -684,7 +684,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
 
     // The app is gone from this node - the teardown above removed it. A caller
     // that reads this as "nothing happened" leaves a half-removed app behind;
-    // one that reads REFUSED as this destroys a running app for a scheduling
+    // one that reads BUSY as this destroys a running app for a scheduling
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
@@ -720,23 +720,22 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
 }
 
 /**
- * Register an app on this node, and say so either way.
+ * Register an app on this node, and publish what the attempt did.
  *
- * AN ATTEMPT THAT DOES NOT INSTALL IS AS MUCH A RESULT AS ONE THAT DOES, and until this
- * nothing said so: app:installed was published and nothing was published beside it, so the
- * only account of a refusal or a failure was the sentence written into the response stream.
- * Anything waiting on the outcome had to read that sentence - and the two refusals a caller
- * most needs to tell apart from a fault are worded, not typed: `already installed` is an
- * error envelope and `another application is undergoing installation` is a warning in one
- * place and an error in another.
+ * AN ATTEMPT THAT DOES NOT INSTALL IS AS MUCH A RESULT AS ONE THAT DOES. An install
+ * publishes `app:installed`; every other outcome publishes `app:installOutcome` carrying
+ * which one it was. The response stream cannot carry the difference: `already installed` is
+ * an error envelope and `another application is undergoing installation` is a warning in one
+ * place and an error in another, so a waiter reading the wording cannot tell the app being
+ * there from the node being busy.
  *
- * So the outcome is published as the outcome. REFUSED and FAILED are carried as themselves
- * rather than flattened, because they are opposite facts about the node - REFUSED leaves the
- * app exactly as it was, FAILED means it is gone - and a waiter that cannot tell them apart
- * is the bug InstallOutcome exists to prevent.
+ * The outcomes are published as themselves rather than flattened into a failure, because
+ * they are not the same fact about the node. ALREADY_INSTALLED means the app is there, BUSY
+ * means ask again, DECLINED and FAILED mean it is not - and FAILED alone means this attempt
+ * is what took it away.
  *
- * A throw is reported too, under FAILED: the app is in whatever state the teardown reached,
- * which is the same thing FAILED means everywhere else.
+ * A throw is reported under FAILED: the app is in whatever state the teardown reached, which
+ * is what FAILED means everywhere else.
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications, when one component is being installed.
  * @param {object} res Response stream, when a caller holds one.
@@ -745,9 +744,10 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
  * @returns {Promise<string>} One of InstallOutcome.
  */
 async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+  // Published for every outcome but INSTALLED, which has app:installed of its own.
   const announce = (outcome) => {
     if (test || outcome === InstallOutcome.INSTALLED) return;
-    fluxEventBus.publish('app:installFailed', { name: appSpecs?.name, outcome });
+    fluxEventBus.publish('app:installOutcome', { name: appSpecs?.name, outcome });
   };
   let outcome;
   try {

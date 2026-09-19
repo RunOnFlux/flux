@@ -1,5 +1,28 @@
 import { getAppContainerStatus, restartFluxos } from './container.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
+// The node's own enum, not a copy of its values: a rename on the product side has to
+// break this import rather than quietly stop matching.
+import installOutcomeModule from '../../../ZelBack/src/services/utils/installOutcome.js';
+
+const { InstallOutcome } = installOutcomeModule;
+
+// What an install outcome says about whether the node HOLDS THE APP once the attempt is
+// over, which is the only question a waiter here is asking. Declared per value: an outcome
+// that says nothing here fails this module at load rather than being waited out to a
+// timeout that names the wrong cause.
+const HOLDS_THE_APP = new Set([InstallOutcome.INSTALLED, InstallOutcome.ALREADY_INSTALLED]);
+const LACKS_THE_APP = new Set([InstallOutcome.DECLINED, InstallOutcome.FAILED]);
+const DECIDES_NOTHING = new Set([InstallOutcome.BUSY]);
+
+const unclassified = Object.values(InstallOutcome).filter(
+  (outcome) => !HOLDS_THE_APP.has(outcome) && !LACKS_THE_APP.has(outcome) && !DECIDES_NOTHING.has(outcome),
+);
+if (unclassified.length) {
+  throw new Error(
+    `InstallOutcome ${unclassified.join(', ')} says nothing about whether the node holds the app: `
+    + 'classify it in wait.js, or every waiter on it times out instead of deciding.',
+  );
+}
 
 export async function waitFor(condition, { timeout = 60000, interval = 2000, label = '' } = {}) {
   const start = Date.now();
@@ -138,12 +161,17 @@ export async function waitForDosChanged(node, predicate = () => true, timeout = 
 }
 
 /**
- * The app is installed on this node, or the attempt said it will not be.
+ * The node holds the app, or an attempt said it will not.
  *
- * Races the two outcomes rather than waiting one out: an install that refuses or fails says
- * so on the bus, so the only reason to spend the whole budget is a node that never answered
- * at all. Rejects naming the outcome, which tells a caller whether the app is as it was
- * (REFUSED) or gone (FAILED).
+ * THE SUBJECT IS THE APP, NOT THIS CALLER'S ATTEMPT. Attempts are serialised by the install
+ * hold, so every outcome but BUSY is published by whichever attempt held the node, and is a
+ * true statement about the app whoever asked for it. A node's own spawner goes after any app
+ * short of instances, so an `alreadyInstalled` raised by that spawner is a routine answer
+ * here - and a positive one, since the app it names is on this node.
+ *
+ * BUSY is the one outcome that decides nothing: the operation in the way may be an install of
+ * this very app. The wait continues through it, so the whole budget is spent only on a node
+ * that never answers either way.
  * @param {object} node
  * @param {string} appName
  * @param {number} [timeout]
@@ -151,15 +179,26 @@ export async function waitForDosChanged(node, predicate = () => true, timeout = 
  * @returns {Promise<object>}
  */
 export async function waitForInstallSettled(node, appName, timeout = 60000, opts) {
-  const installed = node.waitForEvent('app:installed', (data) => data.name === appName, timeout, opts);
-  const failed = node.waitForEvent('app:installFailed', (data) => data.name === appName, timeout, opts)
-    .then((event) => {
-      throw new Error(`install of ${appName} did not settle as installed: ${event?.data?.outcome ?? 'unknown'}`);
-    });
-  // Both are left running: whichever resolves first decides, and the loser's rejection is
-  // swallowed rather than surfacing as an unhandled rejection once the race is over.
-  failed.catch(() => {});
-  return Promise.race([installed, failed]);
+  const forThisApp = (data) => data.name === appName;
+  const installedHere = node.waitForEvent('app:installed', forThisApp, timeout, opts);
+  const heldAlready = node.waitForEvent(
+    'app:installOutcome',
+    (data) => forThisApp(data) && HOLDS_THE_APP.has(data.outcome),
+    timeout,
+    opts,
+  );
+  const notHeld = node.waitForEvent(
+    'app:installOutcome',
+    (data) => forThisApp(data) && LACKS_THE_APP.has(data.outcome),
+    timeout,
+    opts,
+  ).then((event) => {
+    throw new Error(`install of ${appName} did not settle as installed: ${event?.data?.outcome ?? 'unknown'}`);
+  });
+  // All three are left running: whichever resolves first decides, and the losers' rejections
+  // are swallowed rather than surfacing as unhandled once the race is over.
+  [installedHere, heldAlready, notHeld].forEach((pending) => pending.catch(() => {}));
+  return Promise.race([installedHere, heldAlready, notHeld]);
 }
 
 export async function waitForAppInstalled(node, appName, timeout = 60000, opts) {

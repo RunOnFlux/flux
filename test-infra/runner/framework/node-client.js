@@ -203,7 +203,7 @@ export function nodeClient(nodeNum) {
         // The other half of the same fact: an attempt that did not install, carrying which
         // of the outcomes it was. Without it a waiter can only time out, or read the
         // wording of the response stream.
-        'app:installFailed',
+        'app:installOutcome',
         'app:removed',
         'app:componentRedeployed',
         'app:specStored',

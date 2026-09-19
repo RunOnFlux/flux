@@ -61,7 +61,7 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
 
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.DECLINED);
       expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
     });
 
@@ -70,7 +70,7 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
 
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.DECLINED);
       expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
     });
 
@@ -82,7 +82,7 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
 
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.BUSY);
       expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
       expect(globalState.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
     });
