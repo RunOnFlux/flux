@@ -635,7 +635,7 @@ class FluxPeerManager extends EventEmitter {
    *
    * THE EMPTY ANSWER IS MEANINGFUL AND IS NOT "the network holds nothing". It is this node
    * having nobody to ask, which during a rollout is the ordinary state of the first node
-   * to upgrade - see policyStore.seedIfPeersHaveNothing, which treats the two differently.
+   * to upgrade - see policyStore.considerBackstopFetch, which treats the two differently.
    * @returns {Array} peers.
    */
   getPolicyCapablePeers() {

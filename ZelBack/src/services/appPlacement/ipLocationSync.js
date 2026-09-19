@@ -19,7 +19,7 @@
 //
 // AT REBASE: delete this module and its serviceManager start call, and wire
 //   policyStore.onArtifact('ipLocationTable', (bytes) => ipLocationStore.setArtifact(bytes));
-// beside policyStore.startSync() instead - the same subscription this module already takes,
+// beside policyStore.start() instead - the same subscription this module already takes,
 // with the store owning the fetch as well as the statement. The rows live in mongo and the
 // ingest marker names the baseline they came from, so their boot restore only re-ingests
 // when the artifact's generated timestamp differs from the marker's.

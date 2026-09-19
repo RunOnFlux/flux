@@ -216,7 +216,8 @@ async function respondWithPolicy(msgObj, peer) {
 }
 
 /**
- * Ask ONE peer. The same question as requestPolicyFromPeers, put to a single socket.
+ * Ask ONE peer, which is the only way this node puts the question: policyStore asks each
+ * capable peer as it arrives rather than broadcasting.
  *
  * respondWithPolicy answers a targeted request exactly as it answers a broadcast one, so
  * this needs nothing on the far side.
