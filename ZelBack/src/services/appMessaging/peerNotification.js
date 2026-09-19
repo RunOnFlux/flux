@@ -137,9 +137,8 @@ async function checkAndNotifyPeersOfRunningApps() {
   const startedAt = process.hrtime.bigint();
   await cycleLock.enable();
   try {
-    // Published where the lock is taken, so the event and the lock say the same
-    // thing: a cycle is in flight, and a removal that announces itself waits for
-    // it. Every path out of here goes through the finally that releases it.
+    // Observation only. The lock above is what a caller waiting on a cycle in
+    // flight actually waits for.
     fluxEventBus.publish('app:announcing', {});
     if (!nodeConfirmationService.canSendMessages()) {
       log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');

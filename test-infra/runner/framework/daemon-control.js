@@ -338,6 +338,9 @@ export async function clearSeededData() {
 // an RPC ends such an operation; holding it is how a suite tests what must not
 // happen WHILE something else is running.
 
+// A hold is a scalpel only on a method with one caller. `getbenchmarks` is
+// shared across most of the app lifecycle, so holding it stops far more than
+// any one cycle, and what a suite then observes is not the overlap it named.
 /**
  * Hold a method for one node: every call of it from that node blocks until released.
  * @param {string} ip Node's fleet IP, without a port.
