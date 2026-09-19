@@ -111,6 +111,35 @@ if [ "$FLUX_APT_BAD_SOURCE" = "true" ]; then
     > /etc/apt/sources.list.d/flux-e2e-unreachable.list
 fi
 
+# cgroup v2: move this container's processes into an init sub-cgroup so the root
+# can hand its controllers down (same approach as official docker:dind). A group
+# holding processes is refused permission to delegate, so the move has to leave
+# the root empty and nothing may start into it afterwards - which is why this runs
+# before anything is put in the background below.
+#
+# Verified rather than attempted. Without `memory` delegated, every container
+# docker creates here is missing memory.max and cannot start, and the node says
+# nothing about it: it boots looking healthy and fails every app it is ever given.
+# Refusing the boot is the smaller fault, and names itself.
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+  mkdir -p /sys/fs/cgroup/init
+  for attempt in 1 2 3; do
+    xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || :
+    sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+        > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
+    if grep -qw memory /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null; then
+      break
+    fi
+    echo "cgroup delegation not in effect (attempt ${attempt}), retrying" >&2
+    sleep 1
+  done
+  if ! grep -qw memory /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null; then
+    echo "ERROR: cgroup v2 root still holds $(wc -l < /sys/fs/cgroup/cgroup.procs) process(es)" >&2
+    echo "ERROR: memory is not delegated, so no app container on this node can start" >&2
+    exit 1
+  fi
+fi
+
 # Syncthing listens on apiport+2 in production. The availability checker tests
 # that port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
@@ -143,15 +172,6 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   fi
 elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
-fi
-
-# cgroup v2: move existing processes to an init sub-cgroup so dockerd
-# can enable subtree controllers (same approach as official docker:dind)
-if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
-  mkdir -p /sys/fs/cgroup/init
-  xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || :
-  sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
-      > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
 fi
 
 # Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly).
