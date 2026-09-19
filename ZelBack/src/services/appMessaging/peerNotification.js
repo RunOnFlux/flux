@@ -142,11 +142,11 @@ async function checkAndNotifyPeersOfRunningApps() {
       return;
     }
 
-    // Never snapshot before the reconciler's boot drain settles: a too-early
-    // snapshot misses apps whose containers are still being started, and their
-    // unrefreshed rows expire on the ~7min sigterm TTL (respawn elsewhere).
-    // Resolves immediately in steady state; capped reconciler-side, so a wedged
-    // reconcile cannot block the node's network presence.
+    // The snapshot waits for the reconciler's first pass over the apps held at
+    // boot: a pass that cannot recreate a container uninstalls the app, and a
+    // claim made before it would have to be taken back by a broadcast that is
+    // best-effort. Resolves immediately in steady state; capped reconciler-side,
+    // so a wedged reconcile cannot block the node's network presence.
     await appReconciler.waitForBootDrainSettled();
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
