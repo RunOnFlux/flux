@@ -3,6 +3,7 @@ const dbHelper = require('../dbHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appConstants = require('./appConstants');
 const enterpriseConfig = require('./enterpriseConfig');
+const signatureVerifier = require('../signatureVerifier');
 const policyStore = require('../policyStore');
 const globalState = require('./globalState');
 const log = require('../../lib/log');
@@ -37,7 +38,7 @@ function isEnterpriseAppOwner(owner) {
   if (!owner) return false;
   const owners = getEnterpriseAppOwners();
   if (owners === null) return null;
-  return owners.includes(owner);
+  return signatureVerifier.includesSigningIdentity(owners, owner);
 }
 
 /**
@@ -185,7 +186,7 @@ function filterAppsByOwnership(apps, isEnterprise) {
   if (!enterpriseConfig.isPolicyKnown()) return [];
   if (isEnterprise) {
     const allowedOwners = getCachedAllowedOwnersForNode() || [];
-    return apps.filter((app) => allowedOwners.includes(app.owner));
+    return apps.filter((app) => signatureVerifier.includesSigningIdentity(allowedOwners, app.owner));
   }
   return apps.filter((app) => isEnterpriseAppOwner(app.owner) === false);
 }
@@ -246,7 +247,7 @@ async function cleanupOwnershipViolations() {
 
   const offenders = apps.filter((app) => (
     enterprise
-      ? !allowedOwners.includes(app.owner)
+      ? !signatureVerifier.includesSigningIdentity(allowedOwners, app.owner)
       : isEnterpriseAppOwner(app.owner)
   ));
   if (!offenders.length) {

@@ -44,6 +44,37 @@ describe('signatureVerifier tests', () => {
       expect(signatureVerifier.isValidSigningIdentity(12345)).to.equal(false);
     });
   });
+  describe('includesSigningIdentity tests', () => {
+    const FLUX_ID = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
+    const ETH = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+
+    // A LIST OF IDENTITIES IS A SET OF SIGNERS, so membership asks the same question
+    // sameSigningIdentity does. Asked as an exact match, an owner who writes their own
+    // address in the other valid capitalisation is a stranger to every list while still
+    // signing as themselves.
+    it('finds an ethereum owner listed in the other capitalisation', () => {
+      expect(signatureVerifier.includesSigningIdentity([ETH], ETH.toLowerCase())).to.equal(true);
+      expect(signatureVerifier.includesSigningIdentity([ETH.toLowerCase()], ETH)).to.equal(true);
+    });
+
+    it('keeps case significant for a Flux ID, which is base58', () => {
+      expect(signatureVerifier.includesSigningIdentity([FLUX_ID], FLUX_ID)).to.equal(true);
+      expect(signatureVerifier.includesSigningIdentity([FLUX_ID], FLUX_ID.toLowerCase())).to.equal(false);
+    });
+
+    it('does not find an identity the list does not hold', () => {
+      expect(signatureVerifier.includesSigningIdentity([FLUX_ID], ETH)).to.equal(false);
+      expect(signatureVerifier.includesSigningIdentity([], ETH)).to.equal(false);
+    });
+
+    // Callers grant a privilege on a true, so anything it cannot read is a false.
+    it('answers false for a list that is not one', () => {
+      [null, undefined, 'not-a-list', 12345].forEach((notAList) => {
+        expect(signatureVerifier.includesSigningIdentity(notAList, ETH)).to.equal(false);
+      });
+    });
+  });
+
   describe('sameSigningIdentity tests', () => {
     const FLUX_ID = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
     const ETH = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';

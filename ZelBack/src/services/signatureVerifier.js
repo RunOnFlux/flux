@@ -66,6 +66,25 @@ function sameSigningIdentity(a, b) {
 }
 
 /**
+ * Whether a list of identities holds this signer.
+ *
+ * Membership, on the same terms as sameSigningIdentity above: a list is a set of signers,
+ * and the question every caller of it asks is whether this signer is one of them. Asked
+ * with an exact match instead, an owner writing their own address in the other valid
+ * capitalisation is a stranger to every list while still signing as themselves - refused
+ * their own privileges, and swept off a node as an app that does not belong there.
+ *
+ * @param {string[]} identities
+ * @param {string} identity
+ *
+ * @returns {bool} isMember
+ */
+function includesSigningIdentity(identities, identity) {
+  if (!Array.isArray(identities)) return false;
+  return identities.some((candidate) => sameSigningIdentity(candidate, identity));
+}
+
+/**
  * Verifies signature of application owner on bitcoin or ethereum networks
  *
  * @param {object} message
@@ -103,6 +122,7 @@ function verifySignature(message, address, signature) {
 }
 
 module.exports = {
+  includesSigningIdentity,
   isValidSigningIdentity,
   sameSigningIdentity,
   verifySignature,

@@ -467,6 +467,55 @@ describe('enterpriseNetwork', () => {
       };
     }
 
+    // AN OWNER WHO SIGNS AS THEMSELVES IS NOT A STRANGER. EIP-55 capitalisation is a
+    // checksum over the same twenty bytes, so an owner listed one way and writing their
+    // spec the other is one key - and this is the sweep that acts on the answer by
+    // uninstalling the app and telling the network it has gone.
+    it('does not uninstall an ethereum owner listed in the other capitalisation', async () => {
+      const LISTED = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubEth') },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => [LISTED],
+          getEnterpriseNodesPublicKeys: () => ['pubEth'],
+          getAllowedOwnersForNode: () => [LISTED],
+          isPolicyKnown: () => true,
+        },
+        dbHelper: installedAppsStub([{ name: 'theirs', owner: LISTED.toLowerCase() }]),
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      expect(
+        removeAppLocally.called,
+        'the app was swept off the node over its capitalisation',
+      ).to.equal(false);
+    });
+
+    // The canary: the same fixture with a genuinely different address IS swept, so the
+    // test above is the comparison and not a sweep that never ran.
+    it('still uninstalls an ethereum owner the list does not hold', async () => {
+      const LISTED = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubEth') },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => [LISTED],
+          getEnterpriseNodesPublicKeys: () => ['pubEth'],
+          getAllowedOwnersForNode: () => [LISTED],
+          isPolicyKnown: () => true,
+        },
+        dbHelper: installedAppsStub([{ name: 'stranger', owner: '0x0000000000000000000000000000000000000001' }]),
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      expect(removeAppLocally.callCount).to.equal(1);
+    });
+
     it('enterprise-network node: uninstalls apps whose owner is not in enterpriseAppOwners', async () => {
       const removeAppLocally = sinon.stub().resolves();
       const { module: m } = loadModule({

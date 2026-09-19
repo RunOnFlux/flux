@@ -4,6 +4,7 @@ const path = require('path');
 const config = require('config');
 const log = require('../../lib/log');
 const enterpriseConfig = require('./enterpriseConfig');
+const signatureVerifier = require('../signatureVerifier');
 
 let burstSupportCache = null;
 
@@ -16,7 +17,7 @@ let burstSupportCache = null;
 function isEnterpriseOwner(owner) {
   const owners = enterpriseConfig.getEnterpriseAppOwners();
   if (owners === null) return false;
-  return owners.includes(owner);
+  return signatureVerifier.includesSigningIdentity(owners, owner);
 }
 
 /**

@@ -1280,13 +1280,20 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
   // per-node encrypted secrets -- so the same rule would invalidate every v7 enterprise
   // app on the network.
   if (liveSubmission && appSpecifications.version >= 8 && appSpecifications.nodes.length) {
-    const enterpriseOwners = enterpriseConfig.getEnterpriseAppOwners();
+    // HOLDING THE LIST AND BEING ALLOWED TO ACT ON IT ARE DIFFERENT, and this reads both.
+    // A bundle restored from disk answers this question without anything having established
+    // that it is still the network's, so an owner the network has since granted reads here
+    // as ineligible and a live submission is refused for the wrong reason. Unconfirmed is
+    // folded into the null the rest of this module already means by it: not known yet.
+    const enterpriseOwners = globalState.policyReady
+      ? enterpriseConfig.getEnterpriseAppOwners()
+      : null;
     // A node that has not obtained the policy refuses rather than waving through a
     // privilege it cannot verify.
     if (enterpriseOwners === null) {
       throw new Error('Cannot verify node pinning eligibility: network policy not yet obtained.');
     }
-    if (!enterpriseOwners.includes(appSpecifications.owner)) {
+    if (!signatureVerifier.includesSigningIdentity(enterpriseOwners, appSpecifications.owner)) {
       // An ineligible owner may carry an EXISTING pin forward, but not acquire a new one
       // or redirect the one they have. The frontend grandfathers the same way
       // (`if (!newApp && appHasExistingNodes) return true`), and without it an app pinned
@@ -1307,11 +1314,14 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
   // Granting one that cannot be checked is the worse of the two mistakes, so a node without
   // the policy refuses; the refusal is transient and app sync re-offers the message.
   if (liveSubmission && appSpecifications.version >= 8 && appSpecifications.datacenter === true) {
-    const enterpriseOwners = enterpriseConfig.getEnterpriseAppOwners();
+    // Read on the same terms as the pin above: a held bundle is not a confirmed one.
+    const enterpriseOwners = globalState.policyReady
+      ? enterpriseConfig.getEnterpriseAppOwners()
+      : null;
     if (enterpriseOwners === null) {
       throw new Error('Cannot verify datacenter eligibility: network policy not yet obtained.');
     }
-    if (!enterpriseOwners.includes(appSpecifications.owner)) {
+    if (!signatureVerifier.includesSigningIdentity(enterpriseOwners, appSpecifications.owner)) {
       // Carried forward, not acquired: renewal is an update, so refusing every update to an
       // ineligible owner expires the app rather than restricting it.
       const previous = await previousSpecOfSameOwner();

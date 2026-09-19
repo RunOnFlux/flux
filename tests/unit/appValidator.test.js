@@ -378,9 +378,63 @@ describe('appValidator tests', () => {
       };
     }
 
+    // HOLDING THE OWNER LIST IS NOT BEING ALLOWED TO ACT ON IT. A bundle restored from disk
+    // answers getEnterpriseAppOwners() without anything having established that it is still
+    // the network's, so an owner the network has since granted reads as ineligible here. The
+    // node is not refusing this app; it is not yet in a position to judge any app, and the
+    // caller can only tell those apart by the sentence.
+    it('answers with the policy, not with eligibility, before the node has confirmed it', async () => {
+      globalStateStub.policyReady = false;
+
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message, 'the owner list it holds is not confirmed to be the network\'s')
+          .to.include('network policy not yet obtained');
+        expect(error.message).to.not.include('only available for enterprise app owners');
+      }
+    });
+
+    it('answers the same way about datacenter', async () => {
+      globalStateStub.policyReady = false;
+
+      try {
+        await appValidator.verifyAppSpecifications(pinnedSpec({ nodes: [], datacenter: true }), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('network policy not yet obtained');
+      }
+    });
+
     it('rejects a v8 spec pinned by an ordinary owner on a live submission', async () => {
       try {
         await appValidator.verifyAppSpecifications(pinnedSpec(), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('only available for enterprise app owners');
+      }
+    });
+
+    // An ethereum owner listed one way and signing the other is one key - the signature
+    // check compares recovered addresses case-insensitively for that reason - so refusing
+    // the pin locks that owner out of a privilege the list grants them.
+    it('accepts a pin from an ethereum owner listed in the other capitalisation', async () => {
+      const LISTED = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+      enterpriseOwners = [LISTED];
+
+      await appValidator.verifyAppSpecifications(pinnedSpec({ owner: LISTED.toLowerCase() }), 1000, true);
+    });
+
+    // The canary: a genuinely different address is still refused, so the acceptance above
+    // is the comparison and not the check having stopped running.
+    it('still refuses a pin from an ethereum owner the list does not hold', async () => {
+      enterpriseOwners = ['0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E'];
+
+      try {
+        await appValidator.verifyAppSpecifications(
+          pinnedSpec({ owner: '0x0000000000000000000000000000000000000001' }), 1000, true,
+        );
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('only available for enterprise app owners');
