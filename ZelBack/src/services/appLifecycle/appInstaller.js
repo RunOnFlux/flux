@@ -380,6 +380,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
   // someone else is holding the node, and a refusal must not release their hold
   // on its way out.
   let acquired = false;
+  // Whether this node's local table has named the app during this call. The
+  // announcement is built from that table, so the row is the claim, and the
+  // teardown below has one to take back only once it exists.
+  let claimed = false;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
@@ -549,6 +553,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         log.warn(`Found existing database entry for ${appSpecifications.name} during registration. Cleaning up stale entry.`);
         await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, cleanupQuery, {});
         log.info(`Stale database entry for ${appSpecifications.name} removed. Proceeding with fresh insert.`);
+        claimed = true;
       }
 
       const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
@@ -556,6 +561,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name}. Database insert returned undefined - likely duplicate key error or database failure. Aborting installation to prevent orphaned Docker containers.`);
       }
       log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
+      claimed = true;
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -673,7 +679,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       // true, this teardown's own "was successfuly removed" landed as the last
       // thing the caller saw, and the reinstall failure that caused it was
       // written into a response that had already closed.
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage);
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage && claimed);
       log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
 

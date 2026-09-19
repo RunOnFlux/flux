@@ -1033,12 +1033,22 @@ describe('appInstaller tests', () => {
     // so it is named for that instead.
     // One failing install, built twice: the teardown's own behaviour is the
     // uninstaller's, so what these tests own is which answer it is given.
-    function buildFailingInstaller(removeAppLocallyStub) {
+    // Reaches the app's row and then fails, which is the shape a failed placement
+    // has: the row is written before the image is fetched, so the claim exists by
+    // the time the install gives up. `failBeforeRow` moves the failure ahead of
+    // the row instead.
+    function buildFailingInstaller(removeAppLocallyStub, { failBeforeRow = false } = {}) {
       const dbHelperStubLocal = {
-        databaseConnection: sinon.stub(),
-        findInDatabase: sinon.stub(),
-        findOneInDatabase: sinon.stub().resolves({ name: 'testapp' }),
-        insertOneToDatabase: sinon.stub(),
+        databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
+        findInDatabase: sinon.stub().resolves([]),
+        // 1st call = "already installed?" -> null so the install proceeds.
+        findOneInDatabase: (() => {
+          const stub = sinon.stub().resolves({ name: 'testapp' });
+          stub.onFirstCall().resolves(null);
+          return stub;
+        })(),
+        findOneAndDeleteInDatabase: sinon.stub().resolves(),
+        insertOneToDatabase: sinon.stub().resolves({ insertedId: 'id' }),
       };
 
       return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
@@ -1066,6 +1076,7 @@ describe('appInstaller tests', () => {
           isFirewallActive: sinon.stub().resolves(false),
           allowPort: sinon.stub().resolves({ status: true }),
           removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
+          getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
@@ -1074,8 +1085,15 @@ describe('appInstaller tests', () => {
         './appUninstaller': {
           removeAppLocally: removeAppLocallyStub,
         },
+        './appNetworkLinker': {
+          reconnectLinkedApps: sinon.stub().resolves(),
+          checkAppNetworkRequirements: sinon.stub().resolves(),
+          connectComponentToLinkedApps: sinon.stub().resolves(),
+        },
         './advancedWorkflows': {
-          createAppVolume: sinon.stub().resolves(),
+          // The volume is built after the row, so this is the failure a real
+          // placement has: the app is claimed, then the install gives up.
+          createAppVolume: sinon.stub().rejects(new Error('volume creation failed')),
         },
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
@@ -1125,8 +1143,11 @@ describe('appInstaller tests', () => {
         },
         '../appRequirements/hwRequirements': hwRequirementsStub,
         '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          installedApps: sinon.stub().resolves(
+            failBeforeRow ? { status: 'error', data: [] } : { status: 'success', data: [] },
+          ),
           listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve({ readable: apps, unreadable: [], inPlace: apps })),
         },
         util: {
           promisify: (fn) => fn,
@@ -1176,6 +1197,18 @@ describe('appInstaller tests', () => {
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'tore the app down without telling the network').to.equal(true);
+    });
+
+    // The announcement is built from the app's row, so a failure ahead of the row
+    // leaves peers nothing of this node's to clear and there is no claim to name.
+    it('says nothing to the network when it gave up before the app reached the table', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { failBeforeRow: true });
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+      expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
+      expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app this node never had').to.equal(false);
     });
 
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
