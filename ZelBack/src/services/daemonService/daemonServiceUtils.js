@@ -62,6 +62,8 @@ async function readDaemonConfig() {
  * @returns {Promise<void>}
  */
 async function ensureConfigLoaded() {
+  // Two callers arriving before either finishes both parse the file. Left alone: they read
+  // the same local file and write the same result, so it costs one duplicate parse at boot.
   if (!fluxdConfig) await readDaemonConfig();
 }
 

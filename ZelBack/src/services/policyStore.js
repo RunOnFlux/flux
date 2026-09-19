@@ -390,11 +390,10 @@ function offerBundle(raw, peerKey, correlationId) {
  * Ends the ask this answer names. Any of the three answers settles it.
  *
  * THE ID IS THE WHOLE TEST, because the alternative - the socket it arrived on - cannot
- * tell an answer from an announcement. An adoption announcement carries no sender and no
- * id, which is what makes it deduplicable, and being deduplicable is what makes it unfit
- * to settle anything: two peers that adopted the same sequence emit identical bytes, so
- * whether one peer's announcement arrived at all depends on whether an unrelated peer
- * had already sent the same message. A fact about one peer cannot ride on that.
+ * tell an answer from an announcement. An adoption announcement carries no id, and an ask
+ * is only settled by the answer that names it: a peer volunteering what it holds has not
+ * answered a question, so it closes none. What it does instead is add that peer to the
+ * claims below, which is a fact about the peer rather than about any ask.
  * @param {string} [peerKey] ip:port of the peer that answered.
  * @param {string} [correlationId] The ask this answer names.
  * @param {string} [outcome] What the answer established, one of ANSWER.
@@ -608,7 +607,19 @@ async function refresh() {
     if (getSeq() > before) return true;
   }
 
-  const raw = await fetchFromBackstop();
+  // THROUGH THE SAME ACCOUNTING AS THE OTHER DOOR. considerBackstopFetch stands aside for a
+  // fetch in flight and paces the one after a refusal, and both are facts about this node's
+  // traffic to a shared source rather than about which path asked. A tick that skipped them
+  // would issue a second request alongside a peer-driven one, and would leave a refusal it
+  // provoked unpaced.
+  backstopFetchInFlight = true;
+  let raw = null;
+  try {
+    raw = await fetchFromBackstop();
+  } finally {
+    backstopFetchInFlight = false;
+    lastBackstopAttemptAt = monotonicMs();
+  }
   if (!raw) return false;
   const verdict = consider(raw, 'backstop');
   // The source answered, and what it said VERIFIED. Even when it carried the sequence we
@@ -834,10 +845,10 @@ function notePeerSeq(seq, peerKey, correlationId) {
   }
   settlePeerAsk(peerKey, correlationId, ANSWER.AHEAD);
   // Put to the peer that made the claim first, because it is the one that said it has
-  // something - and then to the rest of the set if it does not produce it. The author is
-  // often the only peer this node knows to be ahead: an adoption announcement is deduplicated
-  // on its contents, which are identical across every node announcing the same sequence, so
-  // only the first to arrive is seen at all. An unattributable claim cannot be followed up.
+  // something - and then to the others that claimed it, in turn. Each announcement reaches
+  // here with its sender, so every peer holding the sequence is a candidate rather than only
+  // the first to speak, and a peer that has claimed nothing is one whose answer is already
+  // known. An unattributable claim cannot be followed up at all.
   if (!peerRequestFrom || !peerKey) return;
   claimants.set(peerKey, seq);
   pursueClaim().catch((error) => log.warn(`policyStore - pursuing seq ${seq}: ${error.message}`));

@@ -427,6 +427,7 @@ module.exports = {
     peerWindowMs: 3 * 1000,
     fetchTimeoutMs: 10 * 1000,
     minConfirmingPeers: 4,
+    backstopRetryIntervalMs: 60 * 1000,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

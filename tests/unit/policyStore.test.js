@@ -1712,6 +1712,26 @@ describe('policyStore', () => {
       m.stop();
     });
 
+    // THE TICK USES THE SAME DOOR. considerBackstopFetch stands aside for a fetch in flight
+    // and paces the one after a refusal; both are facts about this node's traffic to a
+    // shared source rather than about which path asked for it. A periodic refresh that
+    // skipped them would leave a refusal it provoked unpaced, and the next peer event would
+    // ask again straight away.
+    it('a refusal the periodic refresh provoked paces the next peer event too', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module: m } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 60000 });
+      await m.start();
+      m.setPeerTransport(incapablePeers);
+
+      await m.refresh();
+      expect(axiosGet.callCount, 'the refresh reached the source').to.equal(1);
+
+      await m.notePeerAvailable(PEER_A);
+
+      expect(axiosGet.callCount, 'the peer event asked again inside the interval').to.equal(1);
+      m.stop();
+    });
+
     it('asks again once the interval has passed', async () => {
       const axiosGet = sinon.stub().rejects(new Error('offline'));
       const { module: m } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 20 });
