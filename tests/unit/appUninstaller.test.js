@@ -10,6 +10,9 @@ describe('appUninstaller tests', () => {
   let messageHelperStub;
   let logStub;
   let configStub;
+  let globalStateStub;
+  let announceCycle;
+  let getLocalSocketAddressStub;
 
   beforeEach(() => {
     configStub = {
@@ -460,9 +463,30 @@ describe('appUninstaller tests', () => {
     // and unforced paths alike.
     let runtimeStateStub;
 
-    function buildUninstaller(spec) {
+    function buildUninstaller(spec, constantOverrides = {}) {
       runtimeStateStub = { remove: sinon.stub().resolves() };
+      // Stubbed rather than shared: globalState is a singleton another suite
+      // drops from the require cache, so a reference taken at file load and the
+      // one the module under test resolves are two different objects - and a
+      // mark set on one is invisible to the other.
+      // The REAL departing tracker, taken fresh per test rather than reimplemented
+      // here: a fake that counts differently from the module would pass this suite
+      // over the defect the counting exists to prevent.
+      delete require.cache[require.resolve('../../ZelBack/src/services/utils/globalState')];
+      // eslint-disable-next-line global-require
+      const { departingApps, announceCycle: realAnnounceCycle } = require('../../ZelBack/src/services/utils/globalState');
+      announceCycle = realAnnounceCycle;
+      getLocalSocketAddressStub = sinon.stub().resolves(null);
+      globalStateStub = {
+        departingApps,
+        announceCycle,
+        removalInProgress: false,
+        installationInProgress: false,
+        runningAppsCache: new Set(),
+        receiveOnlySyncthingAppsCache: new Map(),
+      };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../utils/globalState': globalStateStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -493,9 +517,12 @@ describe('appUninstaller tests', () => {
           forceRemoveFluxAppDockerNetwork: sinon.stub().resolves(),
         },
         '../../lib/log': logStub,
-        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
-          config: configStub,
-        }),
+        '../utils/appConstants': {
+          // Spread from the real module, so only the named value differs and every
+          // other constant stays whatever the module actually computes.
+          ...proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
+          ...constantOverrides,
+        },
         './advancedWorkflows': {
           reindexGlobalAppsInformation: sinon.stub().resolves(),
           updateAppSpecsForRestoredNode: sinon.stub().resolves(),
@@ -511,7 +538,7 @@ describe('appUninstaller tests', () => {
           isFirewallActive: sinon.stub().resolves(false),
           allowPort: sinon.stub().resolves(true),
           deleteAllowPortRule: sinon.stub().resolves(true),
-          getLocalSocketAddress: sinon.stub().resolves(null),
+          getLocalSocketAddress: getLocalSocketAddressStub,
         },
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
@@ -624,6 +651,138 @@ describe('appUninstaller tests', () => {
 
       sinon.assert.calledOnceWithExactly(runtimeStateStub.remove, 'testapp');
       sinon.assert.notCalled(logStub.error);
+    });
+
+    // A node stops claiming an app when it decides to hand it back, not when the
+    // container happens to die. The app stays installed until the removal ends, so
+    // without the mark the announcement built in that window re-creates the
+    // location row the removal message had just cleared.
+    describe('the departing mark', () => {
+      it('marks the app while a broadcast removal runs, and clears it when the removal ends', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        let markedDuring = null;
+        uninstaller.setOnComponentRemoved(() => {
+          markedDuring = globalStateStub.departingApps.has('testapp');
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        expect(markedDuring, 'still claimed the app while removing it').to.be.true;
+        expect(globalStateStub.departingApps.has('testapp'), 'left the mark behind, silencing the app for good').to.be.false;
+      });
+
+      it('does not mark a removal the network is never told about', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        let markedDuring = null;
+        uninstaller.setOnComponentRemoved(() => {
+          markedDuring = globalStateStub.departingApps.has('testapp');
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, false);
+
+        expect(
+          markedDuring,
+          'a redeploy keeps announcing - stop, and its row lapses and the app is placed a second time',
+        ).to.be.false;
+      });
+
+      it('releases only the mark this call took, so a refused duplicate cannot unmark a live removal', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.departingApps.enter('testapp');
+        globalStateStub.removalInProgress = true;
+
+        await uninstaller.removeAppLocally('testapp', res, false, true, true);
+
+        expect(
+          globalStateStub.departingApps.has('testapp'),
+          'unmarked an app whose real removal is still running',
+        ).to.be.true;
+      });
+
+      it('releases only the lock this call took, so a refused duplicate cannot free a live removal', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.removalInProgress = true;
+
+        await uninstaller.removeAppLocally('testapp', res, false, true, true);
+
+        expect(
+          globalStateStub.removalInProgress,
+          'freed the node while the removal holding it is still running, so an install can start into it',
+        ).to.be.true;
+      });
+
+      // The announcement and a broadcast removal must not cross. A cycle that took
+      // its list before this removal marked the app still names it, so the removal
+      // waits for that cycle to send - the claim lands first and this clears it.
+      it('does not announce a removal while an announcement cycle is still sending', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        await announceCycle.enable();
+
+        const removal = uninstaller.removeAppLocally('testapp', res, true, true, true);
+        const raced = await Promise.race([
+          removal.then(() => 'announced'),
+          new Promise((resolve) => { setTimeout(() => resolve('waiting'), 100); }),
+        ]);
+        expect(raced, 'announced the removal over the top of a cycle already sending').to.equal('waiting');
+        expect(
+          getLocalSocketAddressStub.called,
+          'built the removal message before the cycle had sent',
+        ).to.be.false;
+
+        announceCycle.disable();
+        await removal;
+        // The canary: without this the assertion above passes for a removal that
+        // never got as far as the wait.
+        expect(getLocalSocketAddressStub.called, 'the removal never reached its broadcast').to.be.true;
+      });
+
+      // A cycle that never finishes must not hold the node's removals: they take the
+      // removal lock, and every install and redeploy queues behind that.
+      it('gives up on a wedged cycle and announces anyway', async () => {
+        const uninstaller = buildUninstaller(v2Spec, { ANNOUNCE_CYCLE_WAIT_MS: 50 });
+        await announceCycle.enable();
+
+        const removal = uninstaller.removeAppLocally('testapp', res, true, true, true);
+        const raced = await Promise.race([
+          removal.then(() => 'announced'),
+          new Promise((resolve) => { setTimeout(() => resolve('stuck'), 2000); }),
+        ]);
+
+        expect(raced, 'a wedged announcement cycle held the removal indefinitely').to.equal('announced');
+        expect(getLocalSocketAddressStub.called, 'gave up on the wait without going on to broadcast').to.be.true;
+        announceCycle.disable();
+      });
+
+      // A redeploy tells the network nothing, so it contradicts no announcement and
+      // must not queue behind one - every spec change on the node would pay for it.
+      it('does not wait for a cycle when the removal says nothing to the network', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        await announceCycle.enable();
+
+        const removal = uninstaller.removeAppLocally('testapp', res, true, true, false);
+        const raced = await Promise.race([
+          removal.then(() => 'removed'),
+          new Promise((resolve) => { setTimeout(() => resolve('waited'), 100); }),
+        ]);
+
+        expect(raced, 'a silent removal queued behind an announcement it cannot contradict').to.equal('removed');
+        announceCycle.disable();
+      });
+
+      it('a removal that finishes does not unmark an overlapping one still running', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        // A second broadcast removal of this app, already under way. Force skips
+        // the single-removal guard, so a surplus trim and an expiry removal - or an
+        // app and one of its components, which share this name - both get here.
+        globalStateStub.departingApps.enter('testapp');
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        expect(
+          globalStateStub.departingApps.has('testapp'),
+          'the removal that finished first handed the announcement back to the one still running',
+        ).to.be.true;
+      });
     });
   });
 

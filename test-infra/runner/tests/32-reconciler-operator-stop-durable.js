@@ -8,6 +8,8 @@ import {
   waitFor, waitForReconcileActuated, assertNoEvent, waitForOperatorIntent,
 } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
+import { dbClient } from '../framework/db-client.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // An operator appstop is durable: operatorStopped is persisted in appsRuntimeState
@@ -28,6 +30,8 @@ async function waitForDown(client, appName, label) {
     return status && !status.status.startsWith('Up');
   }, { timeout: 60000, interval: 2000, label });
 }
+
+const subnet = getSubnetConfig();
 
 describe('reconciler honours a durable operator stop', function () {
   let env;
@@ -80,6 +84,56 @@ describe('reconciler honours a durable operator stop', function () {
     const auth2 = await authenticate(client.url, appOwnerKey());
     await client.getAuthed(`/apps/appstart/${appName}`, auth2.zelidauth);
     await waitForUp(client, appName, 'running again after appstart');
+  });
+
+  // A stop is a run-state change, and the node's claim on the app is not. The
+  // node still holds the app: it keeps its appsLocations row on its peers, and
+  // the network must not place a replacement somewhere else while an owner has
+  // their own app deliberately stopped.
+  it('keeps its claim on peers while the app is stopped', async function () {
+    this.timeout(240000);
+    const client = env.clients[idx];
+    await waitForUp(client, appName, 'running before operator stop');
+
+    const auth = await authenticate(client.url, appOwnerKey());
+    const stopRes = await client.getAuthed(`/apps/appstop/${appName}`, auth.zelidauth);
+    expect(stopRes.status).to.equal('success');
+    await waitForOperatorIntent(client, identifier, true);
+    await waitForDown(client, appName, 'stopped after appstop');
+
+    // A peer, not the stopped node itself: its own row proves nothing about what
+    // the network believes, and it is the network's view the spawner counts.
+    const peerIdx = (idx + 1) % env.clients.length;
+    const peerDb = dbClient(peerIdx + 1);
+    const nodeIp = subnet.nodeIp(idx + 1);
+
+    // Started again whatever happens here. Left in the finally on purpose: when
+    // this test fails it fails by timing out on an announcement that never comes,
+    // and a restart written after the assertion would not run - leaving the app
+    // stopped for every test below, which then fail on `running before ...` and
+    // read as three faults instead of one.
+    try {
+      // Announced at least once more with the container down, rather than merely
+      // not expired yet: a row that survives because its TTL is long says nothing.
+      const peerClient = env.clients[peerIdx];
+      const afterId = peerClient.getLastEventId();
+      await peerClient.waitForEvent(
+        'network:apprunning',
+        (d) => d.ip?.startsWith(nodeIp) && d.apps?.some((a) => a.name === appName),
+        200000,
+        { afterId },
+      );
+
+      const rows = await peerDb.getAppLocations(appName);
+      expect(
+        rows.some((r) => r.ip.startsWith(nodeIp)),
+        'the peer still holds the stopped app as a location on this node',
+      ).to.be.true;
+    } finally {
+      const auth2 = await authenticate(client.url, appOwnerKey());
+      await client.getAuthed(`/apps/appstart/${appName}`, auth2.zelidauth);
+      await waitForUp(client, appName, 'running again after appstart');
+    }
   });
 
   // A kill is the same desired state as a stop carrying a mode, so the mode is

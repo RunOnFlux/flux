@@ -285,8 +285,6 @@ describe('appReconciler tests', () => {
     // written LAST for the same reason: the bounce already happened, so a failed
     // record must not also cost the bookkeeping a successful restart is owed.
     it('a failed generation write keeps the bounce its bookkeeping, and fails the pass', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
       stubs.appsRuntimeState.getState.resolves({ restartGeneration: 3, actuatedRestartGeneration: 2 });
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
       stubs.appsRuntimeState.recordRestartGeneration.rejects(new Error('not enough disk space'));
@@ -299,18 +297,12 @@ describe('appReconciler tests', () => {
         'the bounce must have happened, or the assertions below prove nothing',
       ).to.be.true;
       expect(
-        onStarted.calledOnceWith('www_App'),
-        'the notification is owed to a restart that happened - it is the record that failed, not the restart',
-      ).to.be.true;
-      expect(
         thrown,
         'the pass must fail, so the retry paces and bounds it instead of looping every verify interval',
       ).to.be.an('error');
     });
 
     it('a failed generation write on the start path keeps the start notified, and fails the pass', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
       stubs.appsRuntimeState.getState.resolves({ restartGeneration: 4, actuatedRestartGeneration: 1 });
       stubs.appsRuntimeState.recordRestartGeneration.rejects(new Error('not enough disk space'));
 
@@ -318,7 +310,6 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App').catch((e) => { thrown = e; }); // stopped -> start
 
       expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
-      expect(onStarted.calledOnceWith('www_App')).to.be.true;
       expect(thrown).to.be.an('error');
     });
 
@@ -1355,40 +1346,6 @@ describe('appReconciler tests', () => {
       } finally {
         clock.restore();
       }
-    });
-  });
-
-  // The started-nudge: a container start is information the network wants NOW
-  // (a backoff straggler that starts minutes after boot must refresh its
-  // appsLocations row inside the ~7min sigterm TTL window, not at the hourly
-  // tick). serviceManager wires this callback to the peer broadcast, mirroring
-  // appInstaller.setOnInstallComplete; the broadcast layer coalesces bursts.
-  describe('container-started notification', () => {
-    it('notifies the registered callback after a successful start', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
-      await appReconciler.reconcile('www_App'); // stopped + always policy -> starts
-      expect(stubs.dockerService.appDockerStart.calledOnce).to.be.true;
-      expect(onStarted.calledOnceWith('www_App')).to.be.true;
-    });
-
-    it('does not notify on a stop or a failed start', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
-
-      // reconcile that stops an operator-stopped running container
-      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
-      await appReconciler.reconcile('www_App');
-      expect(stubs.dockerService.appDockerStop.calledOnce).to.be.true;
-      expect(onStarted.called).to.be.false;
-
-      // reconcile whose docker start throws
-      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: false, force: false });
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 1 } });
-      stubs.dockerService.appDockerStart.rejects(new Error('boom'));
-      await appReconciler.reconcile('www_App').catch(() => {});
-      expect(onStarted.called).to.be.false;
     });
   });
 

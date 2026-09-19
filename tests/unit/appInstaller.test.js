@@ -1031,15 +1031,27 @@ describe('appInstaller tests', () => {
     // install errors before reaching it - which nothing revealed while that guard
     // and the catch both answered `false`. It is a real test of the failure path,
     // so it is named for that instead.
-    it('answers FAILED when an install errors and cleans up after itself', async () => {
+    // One failing install, built twice: the teardown's own behaviour is the
+    // uninstaller's, so what these tests own is which answer it is given.
+    // Reaches the app's row and then fails, which is the shape a failed placement
+    // has: the row is written before the image is fetched, so the claim exists by
+    // the time the install gives up. `failBeforeRow` moves the failure ahead of
+    // the row instead.
+    function buildFailingInstaller(removeAppLocallyStub, { failBeforeRow = false } = {}) {
       const dbHelperStubLocal = {
-        databaseConnection: sinon.stub(),
-        findInDatabase: sinon.stub(),
-        findOneInDatabase: sinon.stub().resolves({ name: 'testapp' }),
-        insertOneToDatabase: sinon.stub(),
+        databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
+        findInDatabase: sinon.stub().resolves([]),
+        // 1st call = "already installed?" -> null so the install proceeds.
+        findOneInDatabase: (() => {
+          const stub = sinon.stub().resolves({ name: 'testapp' });
+          stub.onFirstCall().resolves(null);
+          return stub;
+        })(),
+        findOneAndDeleteInDatabase: sinon.stub().resolves(),
+        insertOneToDatabase: sinon.stub().resolves({ insertedId: 'id' }),
       };
 
-      const appInstallerWithDb = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+      return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1064,16 +1076,24 @@ describe('appInstaller tests', () => {
           isFirewallActive: sinon.stub().resolves(false),
           allowPort: sinon.stub().resolves({ status: true }),
           removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
+          getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
         },
         '../dockerService': makeDockerServiceStub(),
         './appUninstaller': {
-          removeAppLocally: sinon.stub().resolves(),
+          removeAppLocally: removeAppLocallyStub,
+        },
+        './appNetworkLinker': {
+          reconnectLinkedApps: sinon.stub().resolves(),
+          checkAppNetworkRequirements: sinon.stub().resolves(),
+          connectComponentToLinkedApps: sinon.stub().resolves(),
         },
         './advancedWorkflows': {
-          createAppVolume: sinon.stub().resolves(),
+          // The volume is built after the row, so this is the failure a real
+          // placement has: the app is claimed, then the install gives up.
+          createAppVolume: sinon.stub().rejects(new Error('volume creation failed')),
         },
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
@@ -1123,13 +1143,21 @@ describe('appInstaller tests', () => {
         },
         '../appRequirements/hwRequirements': hwRequirementsStub,
         '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          installedApps: sinon.stub().resolves(
+            failBeforeRow ? { status: 'error', data: [] } : { status: 'success', data: [] },
+          ),
           listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve({ readable: apps, unreadable: [], inPlace: apps })),
         },
         util: {
           promisify: (fn) => fn,
         },
       });
+    }
+
+    it('answers FAILED when an install errors and cleans up after itself', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
 
       const componentSpecs = false;
       const res = {
@@ -1147,13 +1175,65 @@ describe('appInstaller tests', () => {
       expect(result).to.equal(InstallOutcome.FAILED);
     });
 
+    // A caller that already holds the app keeps its claim: a redeploy's teardown
+    // says nothing, so peers hold the location row until the app comes back.
+    it('leaves the network uninformed when the caller keeps the app', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, false);
+
+      expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
+      expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app the caller is keeping').to.equal(false);
+    });
+
+    // A placement this node does not hold: an announcement landing during the
+    // install claimed it, and only this retracts that claim before it expires.
+    it('tells the network when the caller holds nothing to keep', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+      expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
+      expect(removeAppLocallyStub.firstCall.args[4], 'tore the app down without telling the network').to.equal(true);
+    });
+
+    // The announcement is built from the app's row, so a failure ahead of the row
+    // leaves peers nothing of this node's to clear and there is no claim to name.
+    it('says nothing to the network when it gave up before the app reached the table', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { failBeforeRow: true });
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+      expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
+      expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app this node never had').to.equal(false);
+    });
+
+    // A test install writes the app's row like any other and throws it away, so the
+    // announcement must not read that row as a claim. The mark outlives the teardown
+    // that deletes the row: released before it, a cycle in between claims the app.
+    it('marks an app it is only testing, and holds the mark until the row is gone', async () => {
+      let markedDuringCleanup = null;
+      const removeAppLocallyStub = sinon.stub().callsFake(async () => {
+        markedDuringCleanup = globalStateStub.testInstallingApps.has('testapp');
+      });
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+
+      expect(markedDuringCleanup, 'let the mark go before the row it covers was deleted').to.be.true;
+      expect(
+        globalStateStub.testInstallingApps.has('testapp'),
+        'left the mark behind, silencing the app for good',
+      ).to.be.false;
+    });
+
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
-      // Regression guard for the post-install broadcast ordering bug.
-      // onInstallComplete() -> checkAndNotifyPeersOfRunningApps() must run with the
-      // install lock already cleared, otherwise containerHealthMonitor.monitorAndRecoverApps
-      // bails on globalState.isOperationInProgress() and the just-installed (syncthing)
-      // app is excluded from its own running-apps announcement.
-      // Pre-fix: the broadcast ran while installationInProgress was still true.
+      // The announcement runs for as long as a broadcast cycle takes, and every
+      // other install, removal and redeploy on this node refuses while the install
+      // lock is up - so the lock is released before onInstallComplete is called.
       let lockHeldWhenBroadcasting = null;
       const onInstallComplete = sinon.stub().callsFake(() => {
         lockHeldWhenBroadcasting = globalStateStub.installationInProgress;

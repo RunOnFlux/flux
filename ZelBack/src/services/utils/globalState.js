@@ -1,4 +1,5 @@
 const { AsyncGate } = require('./asyncGate');
+const { AsyncLock } = require('./asyncLock');
 
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
@@ -39,6 +40,86 @@ let pendingAppUpdatesCache = null;
 
 // Running apps cache - tracks app names that have been broadcasted as running
 const runningAppsCache = new Set();
+
+// Apps this node has told the network it is removing, by the name the removal
+// message carries. An announcement states which apps the node holds, and an app
+// whose removal has been broadcast is no longer one of them.
+//
+// Membership spans the removal: the message goes out before the app's local row is
+// deleted, so an announcement built in that window would still name the app and
+// re-create the location row the removal had just cleared. Peers apply the two
+// messages in arrival order and cannot tell which describes the later state.
+//
+// Only a removal that tells the network belongs here. A removal whose containers
+// are coming straight back - a redeploy - keeps announcing, or its row lapses and
+// the app is placed a second time.
+//
+// In-memory deliberately: a restart ends the removal that entered it, and an entry
+// that survived would silence an app nothing is removing any more.
+//
+// Counted, not a set. A forced removal skips the single-removal guard, so two of
+// them can run against one app at once - a surplus trim and an expiry removal, or
+// an app and one of its components, which share the name the message carries. The
+// first to finish would clear a set outright and hand the announcement back to the
+// removal still running.
+const departingCounts = new Map();
+
+// Apps this node is only trying out. A test install writes the app's row like any
+// other install, and the announcement is built from that table - so an announcement
+// landing inside one claims a placement for an app about to be thrown away, and the
+// test teardown tells the network nothing that would take the claim back.
+//
+// A set, not a count: the node admits one installation at a time, so a second test
+// install of the same app cannot start while this one holds the node.
+//
+// In-memory deliberately: a restart ends the test install that entered it.
+const testInstallingApps = new Set();
+
+// Held for the whole of an announcement cycle. It lives here rather than inside
+// peerNotification because a removal has to wait on it too, and peerNotification
+// already reaches appUninstaller through the reconciler - so the uninstaller
+// cannot reach back without a require cycle.
+const announceCycle = new AsyncLock();
+
+const departingApps = {
+  /**
+   * Record that a broadcast removal of this app has begun.
+   * @param {string} appName Name the removal message carries.
+   * @returns {void}
+   */
+  enter(appName) {
+    departingCounts.set(appName, (departingCounts.get(appName) || 0) + 1);
+  },
+
+  /**
+   * Record that one broadcast removal of this app has finished.
+   * @param {string} appName Name the removal message carries.
+   * @returns {void}
+   */
+  leave(appName) {
+    const held = departingCounts.get(appName);
+    if (!held) return;
+    if (held === 1) departingCounts.delete(appName);
+    else departingCounts.set(appName, held - 1);
+  },
+
+  /**
+   * Whether any broadcast removal of this app is in flight.
+   * @param {string} appName Name the removal message carries.
+   * @returns {boolean}
+   */
+  has(appName) {
+    return departingCounts.has(appName);
+  },
+
+  /**
+   * How many apps have a broadcast removal in flight.
+   * @returns {number}
+   */
+  get size() {
+    return departingCounts.size;
+  },
+};
 
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
@@ -228,6 +309,9 @@ module.exports = {
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
+  get departingApps() { return departingApps; },
+  get testInstallingApps() { return testInstallingApps; },
+  get announceCycle() { return announceCycle; },
   get stoppingContainers() { return stoppingContainers; },
   get fluxRemovedContainers() { return fluxRemovedContainers; },
 

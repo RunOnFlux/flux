@@ -1064,7 +1064,9 @@ async function trySpawningGlobalApplication() {
     // into one false: the outcome says which.
     let installError = null;
     try {
-      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw
+      // A placement this node does not hold yet, so a failed install retracts the
+      // claim rather than keeping it.
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false, true); // can throw
       registerOk = outcome === InstallOutcome.INSTALLED;
       if (!registerOk) installError = `installer ${outcome}`;
     } catch (error) {
