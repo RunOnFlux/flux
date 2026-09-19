@@ -8,7 +8,7 @@ import { buildSeedableApp, buildSeedableUpdate, nodeOutpoint } from '../framewor
 import { dbClient } from '../framework/db-client.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
-import { waitFor, waitForBootSettled } from '../framework/wait.js';
+import { waitFor, waitForBootSettled, waitForAppRemoved } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // An app pinned to named nodes runs on those nodes and nowhere else.
@@ -318,6 +318,14 @@ describe('a pinned app runs where its spec says', function () {
         await dc.seedAppHash(repinned.hash, repinned.permanentMessage.height, true);
       }));
 
+      // READ AS AN EVENT, NOT FROM /apps/installedapps - that endpoint is served through
+      // apicache for 30 seconds, and the wait above populated it with a list containing this
+      // app. Asked again straight after the redeploy it answers from that cache, so the
+      // assertion would be measuring the wait's own poll rather than the removal.
+      //
+      // Anchored, because waitForEvent answers from the buffer: without a mark it could be
+      // satisfied by an app:removed this suite's earlier tests produced.
+      const mark = holder.getLastEventId();
       const body = await holder.redeployApp(app.spec.name, auth.zelidauth);
 
       // The refusal the installer raises is what a teardown-first redeploy ends on, so
@@ -325,11 +333,7 @@ describe('a pinned app runs where its spec says', function () {
       expect(body, 'the app was torn down and only then found to be unbuildable here')
         .to.not.include('not allowed to run on this node');
 
-      const installed = await holder.getInstalledApps();
-      expect(
-        JSON.stringify(installed.data ?? []).includes(app.spec.name),
-        'the node kept an app its spec pins elsewhere',
-      ).to.equal(false);
+      await waitForAppRemoved(holder, app.spec.name, 120000, { afterId: mark });
 
       await waitFor(async () => !(await holdsLocation()), {
         timeout: 300000,
