@@ -430,8 +430,13 @@ async function startFluxFunctions() {
 
     // Check for apps with incorrect volume mounts (containing /flux/ path)
     log.info('Checking for apps with incorrect volume mounts...');
+    // BOTH CONDITIONS, because neither implies the other. The delay is for the host
+    // settling - docker, mounts, crontab - and the gate is for the policy the hard
+    // redeploy it performs needs to pull an image again. This pass runs ONCE per
+    // boot and has nothing that retries it, so firing it into a closed gate loses
+    // the fix until the node next restarts.
     setTimeout(() => {
-      volumeValidationService.checkAndFixIncorrectVolumeMounts().catch((error) => {
+      globalState.waitForPolicyReady().then(() => volumeValidationService.checkAndFixIncorrectVolumeMounts()).catch((error) => {
         log.error(`Volume validation service error: ${error.message}`);
       });
     }, bootDelay(45 * 1000)); // Run after 45 seconds to allow system to stabilize
@@ -598,9 +603,15 @@ async function startFluxFunctions() {
     // Remove existing watchtower container (replaced by native image update service)
     imageUpdateService.removeWatchtowerContainer();
     // Start native image update service (delayed start)
+    // A check that lands before the policy gate opens refuses, and the next one is
+    // six hours away - so the app runs on the image it has for that long over a
+    // window measured in minutes. The interval is the fallback; the gate is when
+    // the first check is actually able to do its work.
     setTimeout(() => {
-      imageUpdateService.startImageUpdateService();
-      log.info('Native image update service started');
+      globalState.waitForPolicyReady().then(() => {
+        imageUpdateService.startImageUpdateService();
+        log.info('Native image update service started');
+      }).catch((error) => log.error(`Image update service start error: ${error.message}`));
     }, bootDelay(10 * 60 * 1000)); // 10 minutes after startup
     fluxNetworkHelper.checkDeterministicNodesCollisions();
     appTamperingBlocklistService.start().catch((err) => {
@@ -829,13 +840,17 @@ async function startFluxFunctions() {
         daemonHealthMonitor.checkDaemonHealthAndCleanup();
       }, bootDelay(15 * 60 * 1000));
     }, bootDelay(5 * 60 * 1000));
+    // Gated for the same reason as the image updater: this pass redeploys on a
+    // storage violation, and one that runs before policy refuses and re-arms
+    // thirty minutes out. It re-arms itself from then on, so only the first run
+    // needs the gate.
     setTimeout(() => {
-      appInspector.checkStorageSpaceForApps(
+      globalState.waitForPolicyReady().then(() => appInspector.checkStorageSpaceForApps(
         appQueryService.installedApps,
         appUninstaller.removeAppLocally,
         advancedWorkflows.softRedeploy,
         appsStorageViolations,
-      );
+      )).catch((error) => log.error(`Storage space check error: ${error.message}`));
     }, bootDelay(20 * 60 * 1000));
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();
