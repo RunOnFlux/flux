@@ -1298,6 +1298,31 @@ describe('appInstaller tests', () => {
       ).to.be.false;
     });
 
+    // The mark and the teardown both belong to the call holding the node. A
+    // refused duplicate raised neither, so taking either back strips a running
+    // test install of its cover - and the row it wrote is then a claim the next
+    // announcement broadcasts and peers hold for the location TTL.
+    it('leaves a running test install its mark and its app when it is refused', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
+      globalStateStub.testInstallingApps.add('testapp');
+      globalStateStub.installationInProgress = true;
+
+      const result = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+
+      // Names the path: an install that ran to the end would clear its own mark,
+      // and this assertion would then be true of a test proving nothing.
+      expect(result, 'never reached the refusal this test is about').to.equal(InstallOutcome.BUSY);
+      expect(
+        globalStateStub.testInstallingApps.has('testapp'),
+        'cleared the mark covering the install it was refused for',
+      ).to.be.true;
+      expect(
+        removeAppLocallyStub.called,
+        'tore down an app on behalf of a call that installed nothing',
+      ).to.be.false;
+    });
+
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
       // The announcement runs for as long as a broadcast cycle takes, and every
       // other install, removal and redeploy on this node refuses while the install

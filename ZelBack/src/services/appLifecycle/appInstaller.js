@@ -705,7 +705,11 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // costs the node every install, redeploy, spawn and reinstall pass it is offered
     // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
-    if (test) {
+    // Bound to the hold: a call that did not take it never wrote the app's row
+    // and never set the mark, so it has neither to take back. The mark is set
+    // under the hold with nothing awaited in between, so holding it is the same
+    // fact as having marked.
+    if (test && acquired) {
       try {
         await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
         log.info(`Test cleanup completed for ${appSpecs.name}`);
