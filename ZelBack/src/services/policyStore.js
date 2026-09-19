@@ -33,6 +33,20 @@ const URL = `${config.policy.signedBaseUrl}/${FILE}`;
 // periodic refresh had no fleet coverage and the suites restarted nodes to fake it.
 const REFRESH_INTERVAL_MS = config.policy.refreshIntervalMs;
 const FETCH_TIMEOUT_MS = config.policy.fetchTimeoutMs;
+const BACKSTOP_RETRY_INTERVAL_MS = config.policy.backstopRetryIntervalMs;
+
+/**
+ * Milliseconds on the monotonic clock.
+ *
+ * The one stamp this module keeps is an elapsed-time decision and nothing outside this
+ * process reads it, so wall time buys nothing and costs the case the interval exists for:
+ * a node boots, ntp steps the clock, and a window measured on Date.now() either expires on
+ * the spot or holds the source off for as long as the step was.
+ * @returns {number}
+ */
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
 
 // The verified payload, or null when this node has never obtained one, and the bytes it was
 // verified from. The bytes are kept because that is what a peer is served: re-serialising the
@@ -83,6 +97,25 @@ let peerAboveThreshold = null;
 // lockstep - which is the traffic against the published source this whole design exists to
 // avoid.
 let backstopFetchInFlight = false;
+
+// When the source was last asked, on the monotonic clock. Null until it has been.
+//
+// EVERY ATTEMPT, not only the ones that failed: an attempt that succeeds confirms, and a
+// confirmed node leaves considerBackstopFetch on its first line, so the stamp is read only
+// on the path where the last attempt did not settle anything. Recording the outcome as
+// well would be a second way of saying what `confirmed` already says.
+let lastBackstopAttemptAt = null;
+
+// The peers that have said they hold a sequence this node does not, and what each claimed.
+// A claim is a prompt to ask its author, so this IS the set worth asking - a peer that has
+// claimed nothing has nothing to offer, and asking it is a question whose answer is already
+// known. Entries are dropped once this node reaches the sequence they claimed.
+const claimants = new Map();
+
+// Whether those claims are currently being worked through. One chase at a time: they are all
+// routes to the same bundle, and a chase reads the map as it goes, so a claim arriving while
+// one is running is picked up by it rather than starting a second.
+let chasingClaim = false;
 
 // How long a refresh waits for a peer to answer before going to the backstop. Peers are on
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
@@ -375,8 +408,10 @@ function settlePeerAsk(peerKey, correlationId, outcome = ANSWER.ANSWERED) {
  * Ask ONE peer whether it is ahead, and adopt what it sends if it is.
  *
  * This rung never reaches the published source. The source is rate-limited and shared by the
- * fleet, so anything that can reach it must run on the backstop's timer; the peer question is
- * one signed message on the local network and runs as often as peers arrive.
+ * fleet, so it is asked only where the peer set has been asked in full and could not settle
+ * what this node holds, and no more than once per config.policy.backstopRetryIntervalMs once
+ * it has refused. The peer question is one signed message on the local network, and runs as
+ * often as peers arrive.
  *
  * Settles on the answer - a bundle if the peer is ahead, its sequence if not, null if it
  * holds nothing - so PEER_WINDOW_MS bounds only a peer that left between connecting and
@@ -501,6 +536,13 @@ function considerPeerConfirmation() {
 async function considerBackstopFetch() {
   if (confirmed || peerAsks.openCount() || backstopFetchInFlight) return;
   if (!peerAboveThreshold || !peerAboveThreshold()) return;
+  // THE DECISION IS DERIVED, ITS RETRY IS PACED, and they are separate things. Every
+  // change to the peer picture re-evaluates the decision above, which is what keeps it
+  // free of a latch. But a peer connecting or leaving is not evidence about whether the
+  // source is reachable, so once the source has refused, re-asking it on peer churn asks
+  // a question already answered. The interval is what the answer stands for.
+  if (lastBackstopAttemptAt !== null
+    && monotonicMs() - lastBackstopAttemptAt < BACKSTOP_RETRY_INTERVAL_MS) return;
   backstopFetchInFlight = true;
   try {
     log.info('policyStore - the peer set has not settled what this node holds, asking the published source');
@@ -516,6 +558,7 @@ async function considerBackstopFetch() {
     if (consider(raw, 'backstop') !== VERDICT.REJECTED) markConfirmed('the published source');
   } finally {
     backstopFetchInFlight = false;
+    lastBackstopAttemptAt = monotonicMs();
   }
 }
 
@@ -524,7 +567,8 @@ async function considerBackstopFetch() {
  *
  * Peers first, the publisher second: a set that can settle it costs one message on the local
  * network, and the source is shared by the whole fleet. Both are gated on confirmation, so
- * each happens at most once and neither is reached again once the question is settled.
+ * neither is reached again once the question is settled. Until it is settled the peer rung
+ * runs on every change, and the publisher no more often than its retry interval.
  * @returns {Promise<void>}
  */
 async function reconsider() {
@@ -725,6 +769,52 @@ function setPeerTransport({
  * claiming a sequence it cannot produce costs one request.
  * @param {number} seq The sequence the peer claims.
  */
+async function pursueClaim() {
+  // ONE CHASE AT A TIME, AND IT COVERS THE FIRST ASK TOO. A claim is answered with a bundle
+  // by a peer that has one; a peer that answers with a sequence instead is claiming again,
+  // and reacting to that by asking it again is a loop between two nodes that nothing bounds.
+  // Holding the guard across the first request is what makes a repeated claim cost nothing.
+  if (chasingClaim) return;
+  chasingClaim = true;
+  try {
+    const tried = new Set();
+    for (;;) {
+      // Re-read each time round, so a peer that announces while this is running is asked by
+      // this chase rather than waiting for the next one.
+      const next = [...claimants.keys()].find((key) => !tried.has(key));
+      // Every peer that offered has been asked. The claim goes no further rather than being
+      // retried on a timer, and a peer that never offered is not asked at all: if it held
+      // the bundle it would have said so, and it is asked anyway the moment it connects.
+      if (!next) return;
+      tried.add(next);
+      const claimed = claimants.get(next);
+      // Already held, by this chase having got it from someone else or by any other route,
+      // so there is nothing to ask this peer for. Skipped rather than ending the chase: a
+      // peer further down the map may be claiming a sequence higher still.
+      if (getSeq() >= claimed) continue;
+      // Outside the ask ledger: an ask may be open to this peer at this moment - notePeerSeq
+      // runs while settling one - so registering a second would replace the one being
+      // settled. The id is for the flood filter rather than for a reply to name, because what
+      // comes back is a bundle and a bundle is adopted on its signature whether or not
+      // anything waited.
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.resolve(peerRequestFrom(next, getSeq(), newCorrelationId()))
+        .catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
+      // Nothing settles for that request, so this is the only thing that would notice the
+      // peer going quiet. One on this build answers in milliseconds, so the window is the
+      // deadline for a peer that has stopped rather than the cost of asking one.
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(PEER_WINDOW_MS);
+    }
+  } finally {
+    chasingClaim = false;
+    // What this node has caught up with is no longer a claim to pursue.
+    for (const [key, claimed] of claimants) {
+      if (claimed <= getSeq()) claimants.delete(key);
+    }
+  }
+}
+
 function notePeerSeq(seq, peerKey, correlationId) {
   // `null` is a peer saying it holds no policy at all. It answered, so it is alive and its
   // ask is over, and a node whose peers all answer this way is on a network that has no
@@ -743,18 +833,14 @@ function notePeerSeq(seq, peerKey, correlationId) {
     return;
   }
   settlePeerAsk(peerKey, correlationId, ANSWER.AHEAD);
-  // Asked of the peer that made the claim, rather than of everybody. It is the one that
-  // said it has something, and a claim is a prompt to ask its author.
-  //
-  // Outside the ask ledger on purpose: an ask is open to this peer at this moment - this
-  // runs while settling it - so registering a second would replace the one being settled.
-  // The id is here for the flood filter rather than for a reply to name: what comes back
-  // is a bundle, and a bundle is adopted on its signature whether or not anything waited.
-  // An unattributable claim cannot be followed up: there is no author to put the question
-  // to, and there is no longer a broadcast to put it to everybody.
+  // Put to the peer that made the claim first, because it is the one that said it has
+  // something - and then to the rest of the set if it does not produce it. The author is
+  // often the only peer this node knows to be ahead: an adoption announcement is deduplicated
+  // on its contents, which are identical across every node announcing the same sequence, so
+  // only the first to arrive is seen at all. An unattributable claim cannot be followed up.
   if (!peerRequestFrom || !peerKey) return;
-  peerRequestFrom(peerKey, getSeq(), newCorrelationId())
-    .catch((error) => log.warn(`policyStore - peer request failed: ${error.message}`));
+  claimants.set(peerKey, seq);
+  pursueClaim().catch((error) => log.warn(`policyStore - pursuing seq ${seq}: ${error.message}`));
 }
 
 /**
@@ -820,6 +906,9 @@ function reset() {
   peerAnnounce = null;
   peerAboveThreshold = null;
   backstopFetchInFlight = false;
+  lastBackstopAttemptAt = null;
+  chasingClaim = false;
+  claimants.clear();
   bundleListeners.clear();
   refreshInFlight = null;
   peerAsks.discardAll();

@@ -42,6 +42,11 @@ function load(overrides = {}) {
   };
   const serviceHelper = {
     axiosGet: sinon.stub().rejects(new Error('offline')),
+    // noCallThru, so this object IS serviceHelper as the store sees it: a member left out
+    // here is undefined at the call site, and the store's own catch reports it as the step
+    // failing rather than as the stub being short. delay is real because the walk after an
+    // unanswered claim is paced by it.
+    delay: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
     ...(overrides.serviceHelper || {}),
   };
 
@@ -63,6 +68,10 @@ function load(overrides = {}) {
         // n - which would confirm a node whose peers said nothing at all.
         minConfirmingPeers: overrides.minConfirmingPeers ?? 1,
         fetchTimeoutMs: overrides.fetchTimeoutMs ?? 10 * 1000,
+        // Zero, so a test that is not about the retry interval reaches the source as
+        // often as its peer picture changes, which is what the rest of this file is
+        // written against. A test about the interval passes its own value.
+        backstopRetryIntervalMs: overrides.backstopRetryIntervalMs ?? 0,
       },
     },
     '../lib/log': log,
@@ -1647,6 +1656,263 @@ describe('policyStore', () => {
       await Promise.all(keys.map((key) => m.notePeerAvailable(key)));
 
       expect(axiosGet.calledOnce, 'confirmation latches, so the source is consulted once').to.equal(true);
+      m.stop();
+    });
+  });
+  // The decision to ask the source is derived from the peer picture and re-evaluated on
+  // every change to it, which is what keeps it free of a latch. Its RETRY is a different
+  // question: a peer connecting or leaving says nothing about whether the source is
+  // reachable, so once the source has refused, peer churn must not re-ask it. Worst during
+  // a rollout, where peers that predate the protocol are never asked - so nothing is ever
+  // outstanding, and without the interval every connect and disconnect reaches github.
+  describe('a source that refused is not re-asked on peer churn', () => {
+    const PEER_A = '10.0.0.3:16127';
+    const PEER_B = '10.0.0.4:16127';
+    const delay = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+    // A peer set that cannot settle anything and is never asked, which is the rollout: an
+    // incapable peer opens no ask, so openCount() is zero and the source is the only rung
+    // left. aboveThreshold true, because below it the source is not reached at all.
+    //
+    // requestFrom is supplied although nothing here is ever asked: it is what the store
+    // reads as "peering is wired", and without it notePeerAvailable returns before it
+    // reconsiders anything, so every test below would measure a store that was never told
+    // its peers exist.
+    const incapablePeers = {
+      capableKeys: () => [],
+      requestFrom: async () => {},
+      aboveThreshold: () => true,
+    };
+
+    it('asks the source the first time its peers cannot settle it', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module: m } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 60000 });
+      await m.start();
+      m.setPeerTransport(incapablePeers);
+
+      await m.notePeerAvailable(PEER_A);
+
+      expect(axiosGet.callCount, 'the first attempt is not paced by anything').to.equal(1);
+      m.stop();
+    });
+
+    it('does not ask again inside the interval, however much the peer set changes', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module: m } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 60000 });
+      await m.start();
+      m.setPeerTransport(incapablePeers);
+
+      await m.notePeerAvailable(PEER_A);
+      await m.notePeerAvailable(PEER_B);
+      await m.notePeerGone(PEER_A);
+      await m.notePeerGone(PEER_B);
+      await m.noteThresholdReached();
+
+      expect(axiosGet.callCount, 'four peer events and a threshold crossing bought one fetch').to.equal(1);
+      m.stop();
+    });
+
+    it('asks again once the interval has passed', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module: m } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 20 });
+      await m.start();
+      m.setPeerTransport(incapablePeers);
+
+      await m.notePeerAvailable(PEER_A);
+      await delay(40);
+      await m.notePeerAvailable(PEER_B);
+
+      expect(axiosGet.callCount, 'the interval paces the retry, it does not end it').to.equal(2);
+      m.stop();
+    });
+
+    it('paces the retry after a body the pinned keys reject, not only after silence', async () => {
+      // The source answered, and what it served settles nothing - so the node is in exactly
+      // the state the interval is for, and a retry keyed on "did we get bytes" would let the
+      // next peer event straight back through.
+      const axiosGet = sinon.stub().resolves({ data: bundle(7, undefined, OTHER.privateKey) });
+      const { module: m, state } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 60000 });
+      await m.start();
+      m.setPeerTransport(incapablePeers);
+
+      await m.notePeerAvailable(PEER_A);
+      await m.notePeerAvailable(PEER_B);
+
+      expect(state.policyReady, 'a bundle signed by an unpinned key settles nothing').to.equal(false);
+      expect(axiosGet.callCount, 'and the refusal stands for the interval').to.equal(1);
+      m.stop();
+    });
+
+    // MONOTONIC, NOT WALL TIME. A node boots, ntp steps the clock, and an interval measured
+    // on Date.now() is spent on the spot - which puts the source back on peer churn in
+    // exactly the window a restart wave makes both most likely and most expensive.
+    it('is not ended by the wall clock jumping forward', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module: m } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 60000 });
+      await m.start();
+      m.setPeerTransport(incapablePeers);
+
+      await m.notePeerAvailable(PEER_A);
+      sinon.stub(Date, 'now').returns(Date.now() + 60 * 60 * 1000);
+      await m.notePeerAvailable(PEER_B);
+
+      expect(axiosGet.callCount, 'an hour of wall time is not an hour of elapsed time').to.equal(1);
+      m.stop();
+    });
+
+    it('leaves the interval out of it when a peer can settle the question', async () => {
+      // The canary for the three above: with the same interval, a peer set that CAN answer
+      // reaches confirmation without the source being asked at all, so the interval is
+      // never what is being measured there.
+      const axiosGet = sinon.stub().rejects(new Error('offline'));
+      const { module: m, state } = load({ serviceHelper: { axiosGet }, backstopRetryIntervalMs: 60000 });
+      await m.start();
+      m.setPeerTransport(answering((key, seq, id) => { m.offerBundle(bundle(5), key, id); }));
+
+      await m.notePeerAvailable(CAPABLE[0]);
+
+      expect(axiosGet.called, 'a peer answered, so there was nothing to ask the source').to.equal(false);
+      expect(state.policyReady).to.equal(true);
+      m.stop();
+    });
+  });
+  // A peer that says it holds a newer sequence is a prompt to ask it, and nothing settles for
+  // that request - so a claimant that goes quiet used to end the matter. Other peers holding
+  // the same bundle say so too, and what they say is what this node works through: a claim is
+  // the only evidence it has about who can produce a bundle, and a peer that has claimed
+  // nothing is one whose answer is already known.
+  describe('a claim its author does not answer falls to the others who claimed it', () => {
+    const A = '10.8.0.1:16127';
+    const B = '10.8.0.2:16127';
+    const C = '10.8.0.3:16127';
+    const SILENT = '10.8.0.9:16127';
+    const holding = (seq) => ({
+      readBundle: sinon.stub().resolves({ raw: bundle(seq), seq }),
+      writeBundle: sinon.stub().resolves(true),
+    });
+    // Longer than the chase needs: one peerWindowMs per claimant it works through.
+    const settled = () => new Promise((resolve) => { setTimeout(resolve, 300); });
+
+    async function chasing(respond) {
+      const asked = [];
+      const { module: m } = load({ repo: holding(4) });
+      await m.start();
+      m.setPeerTransport({
+        // SILENT is capable and never claims anything - the peer a blind walk would ask
+        // and this one must not.
+        capableKeys: () => [A, B, C, SILENT],
+        aboveThreshold: () => false,
+        requestFrom: async (key, seq, id) => {
+          asked.push(key);
+          respond(m, key, id);
+        },
+      });
+      return { m, asked };
+    }
+
+    it('asks nobody else when the claimant produces the bundle', async () => {
+      const { m, asked } = await chasing((store, key, id) => {
+        if (key === A) store.offerBundle(bundle(9), key, id);
+      });
+
+      m.notePeerSeq(9, A);
+      await settled();
+
+      expect(asked).to.deep.equal([A]);
+      expect(m.getSeq()).to.equal(9);
+      m.stop();
+    });
+
+    it('asks the next peer that claimed it when the first goes quiet', async () => {
+      const { m, asked } = await chasing((store, key, id) => {
+        if (key === B) store.offerBundle(bundle(9), key, id);
+      });
+
+      m.notePeerSeq(9, A);
+      m.notePeerSeq(9, B);
+      await settled();
+
+      expect(asked, 'the first claimant, then the second').to.deep.equal([A, B]);
+      expect(m.getSeq()).to.equal(9);
+      m.stop();
+    });
+
+    // THE POINT OF KEEPING THE CLAIMS. A peer that never said it holds the sequence is not
+    // asked for it: its answer is already known, and asking the whole set instead is a
+    // question put to peers that have already declined to offer.
+    it('never asks a peer that claimed nothing', async () => {
+      const { m, asked } = await chasing(() => {});
+
+      m.notePeerSeq(9, A);
+      m.notePeerSeq(9, B);
+      await settled();
+
+      expect(asked, 'both claimants, and only them').to.deep.equal([A, B]);
+      expect(asked, 'a peer that offered nothing was asked anyway').to.not.include(SILENT);
+      m.stop();
+    });
+
+    it('stops once the bundle arrives rather than working through the rest', async () => {
+      const { m, asked } = await chasing((store, key, id) => {
+        if (key === B) store.offerBundle(bundle(9), key, id);
+      });
+
+      m.notePeerSeq(9, A);
+      m.notePeerSeq(9, B);
+      m.notePeerSeq(9, C);
+      await settled();
+
+      expect(asked).to.not.include(C);
+      m.stop();
+    });
+
+    // A claim arriving while the chase is running is worked through by it, not lost to the
+    // guard and not the start of a second chase.
+    it('picks up a claim that arrives mid-chase', async () => {
+      const { m, asked } = await chasing((store, key, id) => {
+        if (key === A) setTimeout(() => store.notePeerSeq(9, B), 0);
+        if (key === B) store.offerBundle(bundle(9), key, id);
+      });
+
+      m.notePeerSeq(9, A);
+      await settled();
+
+      expect(asked, 'B only ever claimed it after A had been asked').to.deep.equal([A, B]);
+      expect(m.getSeq()).to.equal(9);
+      m.stop();
+    });
+
+    // THE CLAIM REPEATED IS NOT A NEW CLAIM. A peer answering a bundle request with a
+    // sequence is claiming again, and asking it again on that is a loop between two nodes
+    // with nothing bounding it - reachable by a peer simply wrong about what it holds.
+    it('does not re-ask a peer that answers a claim with another claim', async () => {
+      const { m, asked } = await chasing((store, key, id) => store.notePeerSeq(9, key, id));
+
+      m.notePeerSeq(9, A);
+      await settled();
+
+      expect(asked, 'asked once, however many times it claims').to.deep.equal([A]);
+      m.stop();
+    });
+
+    it('pursues a later claim once the first chase has ended', async () => {
+      // The guard is released, not latched: a chase that found nothing must not be the last
+      // this node ever runs.
+      const { m, asked } = await chasing((store, key, id) => {
+        if (key === C) store.offerBundle(bundle(9), key, id);
+      });
+
+      m.notePeerSeq(9, A);
+      await settled();
+      expect(asked).to.deep.equal([A]);
+
+      m.notePeerSeq(9, C);
+      await settled();
+
+      // A is asked again, deliberately: its claim still stands, and a peer that was quiet
+      // once is not disqualified from holding what it said it holds.
+      expect(asked).to.deep.equal([A, A, C]);
+      expect(m.getSeq(), 'the second chase reached the peer that could answer').to.equal(9);
       m.stop();
     });
   });

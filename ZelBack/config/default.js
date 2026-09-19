@@ -760,6 +760,20 @@ module.exports = {
     // Bound on a single backstop fetch, so a boot is never stuck on one source. Absolute,
     // for the same reason as above.
     fetchTimeoutMs: 10 * 1000,
+    // How long a FAILED backstop fetch stands as the answer before the source is asked
+    // again. The decision to ask is derived from the peer picture and re-evaluated
+    // whenever it changes, which is right - but a peer connecting says nothing about
+    // whether the source is reachable, so without this every connect and disconnect
+    // re-asks a source that just refused. Worst in the first rollout wave: peers that
+    // predate the protocol are never asked, so nothing is ever outstanding and every peer
+    // event reaches the source, across the whole fleet, against one rate-limited host.
+    //
+    // A floor, not a backoff: it does not grow, it caps no number of attempts, and the
+    // next peer event after it passes tries again. A minute costs an inert node a minute.
+    //
+    // CONFIG, not a constant, for the reason refreshIntervalMs is: a suite that cannot
+    // compress it cannot watch the second attempt be refused.
+    backstopRetryIntervalMs: 60 * 1000,
     // How many capable peers must answer "not ahead of you" before their agreement stands as
     // confirmation. A sequence is a claim the asker cannot check, so one peer is not
     // evidence: a single stale or lying neighbour would otherwise open the acquisition gate
