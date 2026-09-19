@@ -1160,3 +1160,82 @@ describe('a node does not open its gate on fewer peers than it takes', function 
     expect((await stubState(env)).policyFetches.ok, 'and the publisher answered it').to.be.greaterThan(0);
   });
 });
+
+// A CLAIM REPEATED IS NOT A NEW CLAIM.
+//
+// A peer that says it holds a newer sequence is prompting this node to ask it, and what
+// should come back is a signed bundle. A peer that answers that request with a sequence is
+// making the same claim again - and treating every claim as a fresh prompt is a loop between
+// two nodes with nothing bounding it. Reachable by a peer that is simply wrong about what it
+// holds, not only by one that means harm.
+//
+// A stub is exactly that peer: its reply to a policy request is only ever a sequence, never
+// a bundle, so a stub told to claim a high one can never make the claim good.
+describe('a peer that cannot make its claim good is not asked in a loop', function () {
+  let env;
+  const ASKER = 0;
+  const STUBS = [1, 2];
+  // Far above anything the published source will carry, so the claim stands for the whole
+  // run and nothing this node does can satisfy it.
+  const UNREACHABLE_SEQ = 99999;
+  const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+  const asksAnswered = async () => {
+    const counts = await Promise.all(STUBS.map((i) => env.stubPeerClients.get(i).policyAsksAnswered()));
+    return counts.reduce((total, n) => total + n, 0);
+  };
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(420000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      stubPeers: STUBS,
+      stubPeeredWith: { [STUBS[0]]: [ASKER], [STUBS[1]]: [ASKER] },
+      configOverrides: {
+        policy: {
+          // The periodic tick would put its own asks into the count and read as the loop
+          // this measures. A week puts it out of reach of a run.
+          refreshIntervalMs: 7 * 24 * 60 * 60 * 1000,
+        },
+      },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('asks each claimant a bounded number of times, however often it claims', async function () {
+    this.timeout(420000);
+    // Both stubs answer, so an ask reaching either is counted. Left silent they would count
+    // nothing whether or not they were asked, and the assertion below could not fail.
+    await Promise.all(STUBS.map((i) => env.stubPeerClients.get(i).answerPolicyWith(UNREACHABLE_SEQ)));
+
+    // Restarted so the peerings, and the asks they produce, happen after the stubs were told
+    // what to claim.
+    await env.restartNode(ASKER);
+    await waitForBootSettled(env.clients[ASKER]);
+
+    // The first window covers boot: the node asks each peer as it arrives, and each answer is
+    // a claim it then pursues. What must not happen is that pursuit feeding itself.
+    await delay(60000);
+    const afterBoot = await asksAnswered();
+
+    await delay(60000);
+    const afterAnother = await asksAnswered();
+
+    // A loop answers as fast as the two nodes can exchange messages, so it is hundreds or
+    // thousands across a minute rather than a handful. The bound is per stub per settled
+    // peer connection, which is why it is small rather than zero.
+    expect(afterAnother - afterBoot, `the claim was pursued ${afterAnother - afterBoot} times in a quiet minute`)
+      .to.be.at.most(STUBS.length * 2);
+
+    // And the claim was never believed: a sequence cannot be checked, so nothing is adopted
+    // on one. The node holds what the published source gave it.
+    expect(await heldSeq(ASKER), 'a number is not a bundle').to.not.equal(UNREACHABLE_SEQ);
+  });
+});

@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
-import { buildSeedableApp, nodeOutpoint } from '../framework/seed-helper.js';
+import { buildSeedableApp, buildSeedableUpdate, nodeOutpoint } from '../framework/seed-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
@@ -255,6 +255,87 @@ describe('a pinned app runs where its spec says', function () {
       // pull, a port); what must NOT appear is the pin's refusal.
       const body = await installLocally(PINNED_INDEX, app.spec.name);
       expect(body).to.not.include('not allowed to run on this node');
+    });
+  });
+
+  // An owner re-pointing `nodes` at other machines reaches a node that already holds the
+  // app. A redeploy is an uninstall followed by an install, and the pin is read by the
+  // installer - so on the far side of the teardown the app has no containers, no local
+  // row, and peers still holding a location record for it. Nothing reconciles an app with
+  // no row, so it stays gone and the network stays wrong about where it is.
+  //
+  // The two halves are asserted separately because they fail separately: the app leaving
+  // is the node obeying the pin, and the peers being TOLD is the difference between a
+  // hand-back and a silent loss.
+  describe('a redeploy the pin forbids hands the app back', function () {
+    it('removes it and withdraws the location its peers hold', async function () {
+      this.timeout(600000);
+      const app = await buildSeedableApp({
+        env,
+        name: `repin${Date.now()}`,
+        instances: env.clients.length,
+        nodes: [],
+      });
+      await seedToFleet(env, app);
+
+      const holder = env.clients[UNNAMED_INDEX];
+      await waitForBootSettled(holder);
+      const auth = await authenticate(holder.url, fluxTeamKey());
+      await holder.installAppLocally(app.spec.name, auth.zelidauth);
+      await waitFor(
+        async () => {
+          const installed = await holder.getInstalledApps();
+          return JSON.stringify(installed.data ?? []).includes(app.spec.name);
+        },
+        { timeout: 300000, interval: 5000, label: `${app.spec.name} installed on the node that will lose it` },
+      );
+
+      // Read from a PEER, not from the holder: the claim is about what the rest of the
+      // fleet believes, and the holder's own row would be true either way. Asserted
+      // before the redeploy so the withdrawal below is a change and not an empty table.
+      const witness = env.clients[PINNED_INDEX];
+      const holderIp = subnet.nodeIp(UNNAMED_INDEX + 1);
+      const holdsLocation = async () => {
+        const locations = await witness.getAppLocations(app.spec.name);
+        return (locations.data ?? []).some((row) => String(row.ip ?? '').startsWith(holderIp));
+      };
+      await waitFor(holdsLocation, {
+        timeout: 300000,
+        interval: 5000,
+        label: 'a peer to hold a location for the node that will lose the app',
+      });
+
+      // The pin now names someone else. redeployAPI reads the GLOBAL specification, so
+      // this is the spec the redeploy is judged against.
+      const repinned = await buildSeedableUpdate(app, (spec) => {
+        spec.nodes = [nodeOutpoint(PINNED_INDEX)];
+      });
+      expect(repinned.hash, 'a re-pin that hashes the same is not a change').to.not.equal(app.hash);
+      await Promise.all(env.clients.map(async (_, i) => {
+        const dc = dbClient(i + 1);
+        await dc.replaceGlobalAppSpec(repinned.spec);
+        await dc.seedPermanentMessage(repinned.permanentMessage);
+        await dc.seedAppHash(repinned.hash, repinned.permanentMessage.height, true);
+      }));
+
+      const body = await holder.redeployApp(app.spec.name, auth.zelidauth);
+
+      // The refusal the installer raises is what a teardown-first redeploy ends on, so
+      // its absence is what says the pin was read BEFORE anything came down.
+      expect(body, 'the app was torn down and only then found to be unbuildable here')
+        .to.not.include('not allowed to run on this node');
+
+      const installed = await holder.getInstalledApps();
+      expect(
+        JSON.stringify(installed.data ?? []).includes(app.spec.name),
+        'the node kept an app its spec pins elsewhere',
+      ).to.equal(false);
+
+      await waitFor(async () => !(await holdsLocation()), {
+        timeout: 300000,
+        interval: 5000,
+        label: 'the peer to stop holding a location for the app',
+      });
     });
   });
 });

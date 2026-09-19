@@ -454,6 +454,18 @@ export function nodeClient(nodeNum) {
       const res = await controlFetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
       return res.text();
     },
+    // Redeploy the WHOLE app on this node, reading the spec from the global table
+    // rather than from what is installed - so a spec seeded since the install is
+    // what the redeploy is judged against. Body is drained as text for the same
+    // reason as redeployComponent. force=true is the hard redeploy, which destroys
+    // the app's data on this node.
+    redeployApp: async (appname, zelidauth, { force = false } = {}) => {
+      const res = await controlFetch(
+        `${url}/apps/redeploy/${appname}/${force}/false`,
+        { headers: { zelidauth } },
+      );
+      return res.text();
+    },
     // Redeploy ONE component in place. Streams progress then appends a final
     // status, so the body is concatenated JSON chunks and not a single doc -
     // drained as text, like installapplocally. force=true is the HARD redeploy,
