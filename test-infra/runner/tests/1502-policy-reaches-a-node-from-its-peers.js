@@ -59,6 +59,33 @@ const stubState = (env) => fetch(`${env.stubControl}/state`).then((r) => r.json(
 // dbClient is 1-based over node indices: node index 0 is node 1.
 const heldSeq = async (index) => (await dbClient(index + 1).policyBundle())?.seq ?? null;
 
+/**
+ * The sequence these nodes hold, once they hold the same one.
+ *
+ * heldSeq reads the PERSISTED bundle, and a node adopts before it persists - so a single
+ * sample can catch an adopter mid-write and read null for a node that is already acting on
+ * the bundle. Compared across a fleet that way it reports nodes out of step when they are
+ * level, milliseconds apart.
+ *
+ * NON-NULL IS LOAD-BEARING. "They agree" alone is satisfied by all of them holding nothing,
+ * which is true of a fleet that has never adopted anything - a precondition that cannot
+ * fail, and one every test below would then build its own expectations on.
+ * @param {number[]} indices Node indices that must agree.
+ * @param {object} [opts]
+ * @returns {Promise<number>} The sequence they settled on.
+ */
+async function settledSeq(indices, { timeout = 120000, label } = {}) {
+  let seqs = [];
+  await waitFor(async () => {
+    seqs = await Promise.all(indices.map(heldSeq));
+    return seqs.every((seq) => seq !== null) && new Set(seqs).size === 1;
+  }, {
+    timeout,
+    label: label ?? `nodes ${indices.join(', ')} to settle on one policy sequence`,
+  });
+  return seqs[0];
+}
+
 // The stub peer's ring index. Wired to node 1 and to nothing else, so a bundle it hands
 // over has exactly one way into the fleet.
 const STUB_PEER_INDEX = 4;
@@ -142,7 +169,7 @@ describe('policy reaching a node from its peers', function () {
     // The announce half, end to end. Everything below happens with the published source
     // refusing, so no node can have fetched any of it: the only copy in the fleet arrives
     // on one socket, and has to reach the other two by being announced.
-    const before = await heldSeq(TOLD_NODE);
+    const before = await settledSeq([TOLD_NODE]);
     const { seq } = await stub(env, '/blocked-repos', ['told/by-a-peer:v1']);
     expect(seq).to.be.greaterThan(before);
     // The bytes the stub would have served, taken by the SUITE rather than by a node.
@@ -189,8 +216,9 @@ describe('policy reaching a node from its peers', function () {
 
   it('a node with no stored bundle and no reachable source gets one from its peers', async function () {
     this.timeout(300000);
-    const level = await heldSeq(TOLD_NODE);
-    expect(level, 'the fleet is level before the source goes away').to.equal(await heldSeq(2));
+    // Level before the source goes away, and on something rather than on nothing: the wait
+    // below is `=== level`, which a null would make true of a node that never caught up.
+    const level = await settledSeq([TOLD_NODE, 2]);
 
     // Nothing on disk, nothing to fetch: the only policy left in the world is on the other
     // two nodes. This is the boot the whole ladder exists for.
@@ -593,11 +621,10 @@ describe('a fleet where only the source has the new policy', function () {
 
   it('one node reaches the source on its tick, and the rest learn it from that peer', async function () {
     this.timeout(300000);
-    const before = await Promise.all([0, 1, 2].map(heldSeq));
-    expect(new Set(before).size, 'the fleet starts level').to.equal(1);
+    const before = await settledSeq([0, 1, 2]);
 
     const { seq } = await stub(env, '/blocked-repos', ['spread/by-peers:v1']);
-    expect(seq, 'the source now holds something the whole fleet is behind').to.be.greaterThan(before[0]);
+    expect(seq, 'the source now holds something the whole fleet is behind').to.be.greaterThan(before);
 
     // Node 0's slot comes round every 15s, so it is the one that looks. Nothing else in
     // this fleet can reach the source inside the test window.
@@ -1098,8 +1125,7 @@ describe('a node does not open its gate on fewer peers than it takes', function 
 
   it('holds what its peers agree on, and still refuses to act on it', async function () {
     this.timeout(300000);
-    held = await heldSeq(NODE);
-    expect(held, 'it boots holding the published bundle').to.not.be.null;
+    held = await settledSeq([NODE], { label: `node ${NODE} to boot holding the published bundle` });
 
     // Both stubs answer "I am level with you" - true, unverifiable, and one short of what it
     // takes. Set to ANSWER before the restart so that an ask reaching one is counted: left
