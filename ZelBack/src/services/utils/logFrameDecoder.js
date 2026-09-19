@@ -147,7 +147,15 @@ class LogFrameDecoder {
     // NEXT frame a continuation of one rather than the start of another. Taken
     // from the state this push begins in: a held partial, or a line whose tail
     // is being discarded.
-    let continuing = this.partial !== '' || this.discarding || this.joining;
+    //
+    // NOT a stream joined part-way through, although that also begins mid-line.
+    // This decides one thing - whether the stamp at the front of the frame is a
+    // repeat to strip or the one to remember - and a joined stream has nothing
+    // remembered to strip against. Read as a continuation, the first frame's
+    // stamp is kept and so is every later one on the same line, which is the
+    // splicing #lineStamp exists to stop. Docker gives every chunk the message's
+    // stamp, so the frame this stream joins on carries one like any other.
+    let continuing = this.partial !== '' || this.discarding;
     while (offset + 8 <= this.bytes.length) {
       const length = this.bytes.readUInt32BE(offset + 4);
       // The body has not all arrived: leave the header with it, so the next

@@ -229,6 +229,32 @@ describe('logFrameDecoder', () => {
         .to.deep.equal(['a line the stream opened on']);
     });
 
+    // EVERY FEED A VIEWER OPENS IS A JOINED ONE - appLogsHandler passes joinMidStream on
+    // all of them - so a stream that begins mid-line is the ordinary case, not the rare one.
+    // Treating that first frame as a continuation leaves nothing to strip the repeat
+    // against, and docker's stamp survives at the front of every 16KB chunk of the line.
+    it('does not splice docker stamps through the line it joined on', () => {
+      const decoder = new LogFrameDecoder({ timestamped: true, joinMidStream: true });
+
+      expect(decoder.push(frame(`${STAMP} first-`))).to.deep.equal([]);
+      expect(decoder.push(frame(`${STAMP} second-`))).to.deep.equal([]);
+
+      expect(decoder.push(frame(`${STAMP} third\n`)))
+        .to.deep.equal([`${STAMP} first-second-third`]);
+    });
+
+    // The canary: the same feed without joinMidStream already behaved this way, so the
+    // assertion above is about the joined stream and not about stamping in general.
+    it('behaves the same as a stream that started on a boundary', () => {
+      const decoder = new LogFrameDecoder({ timestamped: true });
+
+      decoder.push(frame(`${STAMP} first-`));
+      decoder.push(frame(`${STAMP} second-`));
+
+      expect(decoder.push(frame(`${STAMP} third\n`)))
+        .to.deep.equal([`${STAMP} first-second-third`]);
+    });
+
     it('says nothing about what was cut from that first line', () => {
       // The claim is "your line is missing this much", and this decoder does not
       // know: it may have joined the line half way through. A figure here would be
