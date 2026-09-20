@@ -3,28 +3,24 @@ const sinon = require('sinon');
 const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { makeStickyDosDouble } = require('./stickyDosTestDouble');
+const { StickyDosOwner } = require('../../ZelBack/src/services/fluxNetworkHelper');
+
 describe('peerSetStabilityService', () => {
+  const OWNER = StickyDosOwner.PEER_SET_STABILITY;
   let service;
   let clock;
   let peerEmitter;
   let logStub;
-  let sticky;
-  let stickyValue;
   let fluxNetworkHelperStub;
 
-  // The real sticky slot, not a pair of spies: the whole ownership rule is
-  // "read it back and see whose message is in it", and a stub that records
-  // calls without holding a value cannot exercise a rule about reading it back.
   function makeNetworkHelper() {
-    sticky = null;
-    stickyValue = 0;
-    return {
-      getStickyDosMessage: sinon.stub().callsFake(() => sticky),
-      setStickyDosMessage: sinon.stub().callsFake((m) => { sticky = m; }),
-      setStickyDosStateValue: sinon.stub().callsFake((v) => { stickyValue = v; }),
-      clearStickyDosMessage: sinon.stub().callsFake(() => { sticky = null; stickyValue = 0; }),
-    };
+    return makeStickyDosDouble();
   }
+
+  // Why the node is out of service, as a reader of /flux/info sees it.
+  const stickyMessage = () => fluxNetworkHelperStub.getStickyDosMessage();
+  const heldByUs = () => fluxNetworkHelperStub.isStickyDosHeldBy(OWNER);
 
   function load(fluxappsOverrides) {
     const realConfig = require('config');
@@ -71,7 +67,7 @@ describe('peerSetStabilityService', () => {
       for (let i = 0; i < 4; i += 1) dipAndRecover(service);
 
       expect(service.isDosActive(), 'four collapses is not five').to.equal(false);
-      expect(sticky).to.equal(null);
+      expect(stickyMessage()).to.equal(null);
     });
 
     it('puts the node out of service on the fifth collapse inside the window', () => {
@@ -80,8 +76,8 @@ describe('peerSetStabilityService', () => {
       for (let i = 0; i < 5; i += 1) dipAndRecover(service);
 
       expect(service.isDosActive()).to.equal(true);
-      expect(sticky).to.contain(service.DOS_MESSAGE_PREFIX);
-      expect(stickyValue, 'a DOS below 100 leaves isNodeDos() false and removes nothing').to.equal(100);
+      expect(stickyMessage()).to.contain(service.DOS_MESSAGE_PREFIX);
+      expect(heldByUs(), 'the verdict was recorded under another identity').to.equal(true);
     });
 
     it('names the count and the window, because the operator has to act on it', () => {
@@ -89,8 +85,8 @@ describe('peerSetStabilityService', () => {
 
       for (let i = 0; i < 5; i += 1) dipAndRecover(service);
 
-      expect(sticky).to.contain('5 times');
-      expect(sticky).to.contain('120 minutes');
+      expect(stickyMessage()).to.contain('5 times');
+      expect(stickyMessage()).to.contain('120 minutes');
     });
 
     // disconnectAll() on confirmation loss crosses the same edge and is this
@@ -163,7 +159,7 @@ describe('peerSetStabilityService', () => {
       clock.tick(service.WINDOW_MS - 60 * 1000);
 
       expect(service.isDosActive(), 'released before the window had passed').to.equal(true);
-      expect(sticky).to.not.equal(null);
+      expect(stickyMessage()).to.not.equal(null);
     });
 
     it('releases once the peer set has been up for the whole window', () => {
@@ -172,7 +168,7 @@ describe('peerSetStabilityService', () => {
       clock.tick(service.WINDOW_MS + service.EVALUATE_INTERVAL_MS);
 
       expect(service.isDosActive()).to.equal(false);
-      expect(sticky, 'the slot was not given back').to.equal(null);
+      expect(stickyMessage(), 'the verdict was not given back').to.equal(null);
     });
 
     // A node with no peers cannot dip - the fall edge fires only from above the
@@ -212,27 +208,30 @@ describe('peerSetStabilityService', () => {
     });
   });
 
-  describe('the single sticky slot has one owner at a time', () => {
-    it('leaves another owner\'s DOS alone', () => {
-      sticky = 'Residential node not running ArcaneOS. Migrate this node.';
+  describe('one verdict per owner', () => {
+    const OTHER = StickyDosOwner.RESIDENTIAL_DOS;
+    const OTHER_REASON = 'Residential node not running ArcaneOS. Migrate this node.';
+
+    it('records its own verdict beside another owner\'s', () => {
+      fluxNetworkHelperStub.holds.set(OTHER, OTHER_REASON);
       startService(service, { alreadyUp: true });
 
       for (let i = 0; i < 5; i += 1) dipAndRecover(service);
 
-      expect(sticky, 'took a slot another owner was holding').to.contain('Residential');
-      expect(service.isDosActive()).to.equal(false);
+      expect(service.isDosActive(), 'the verdict was dropped because another owner held one').to.equal(true);
+      expect(stickyMessage(), 'overwrote a verdict this service does not own').to.contain('Residential');
+      expect(stickyMessage()).to.contain(service.DOS_MESSAGE_PREFIX);
     });
 
-    it('does not clear a slot that is no longer ours', () => {
+    it('releases its own verdict and leaves another owner\'s standing', () => {
       startService(service, { alreadyUp: true });
       for (let i = 0; i < 5; i += 1) dipAndRecover(service);
-      // Another owner takes the slot while we hold our claim.
-      sticky = 'Node flagged via tampering blocklist: score 40';
+      fluxNetworkHelperStub.holds.set(OTHER, OTHER_REASON);
 
       clock.tick(service.WINDOW_MS + service.EVALUATE_INTERVAL_MS);
 
-      expect(sticky, 'dropped another owner\'s DOS on the floor').to.contain('tampering');
-      expect(service.isDosActive()).to.equal(false);
+      expect(heldByUs(), 'held its own DOS past the evidence for it').to.equal(false);
+      expect(stickyMessage(), 'dropped another owner\'s DOS on the floor').to.contain('Residential');
     });
   });
 
@@ -282,7 +281,7 @@ describe('peerSetStabilityService', () => {
 
       service.stop();
 
-      expect(sticky, 'the reason the node is out of service was erased on teardown').to.contain(service.DOS_MESSAGE_PREFIX);
+      expect(stickyMessage(), 'the reason the node is out of service was erased on teardown').to.contain(service.DOS_MESSAGE_PREFIX);
     });
   });
 });
