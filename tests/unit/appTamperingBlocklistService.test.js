@@ -10,7 +10,6 @@ describe('appTamperingBlocklistService tests', () => {
   const RESIDENTIAL = StickyDosOwner.RESIDENTIAL_DOS;
   const RESIDENTIAL_REASON = 'Residential node not running ArcaneOS';
   let service;
-  let serviceHelperStub;
   let dbHelperStub;
   let fluxNetworkHelperStub;
   let generalServiceStub;
@@ -40,7 +39,6 @@ describe('appTamperingBlocklistService tests', () => {
       '../lib/log': {
         info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(),
       },
-      './serviceHelper': serviceHelperStub,
       './policyStore': policyStoreStub,
       './dbHelper': dbHelperStub,
       './fluxNetworkHelper': fluxNetworkHelperStub,
@@ -54,10 +52,6 @@ describe('appTamperingBlocklistService tests', () => {
     // Recreated, not restored: sinon.restore() does not reset an anonymous stub, so a
     // withArgs from one test would otherwise answer in the next.
     policyStoreStub.getDocument = sinon.stub().returns(null);
-    serviceHelperStub = {
-      axiosGet: sinon.stub(),
-    };
-
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({
         db: sinon.stub().returns({ name: 'mockdb' }),
@@ -440,7 +434,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await arcaneService.enforceBlocklist();
 
-      expect(serviceHelperStub.axiosGet.called).to.be.false;
+      expect(policyStoreStub.getDocument.called).to.be.false;
       expect(generalServiceStub.obtainNodeCollateralInformation.called).to.be.false;
     });
 
@@ -464,7 +458,7 @@ describe('appTamperingBlocklistService tests', () => {
       await svc.enforceBlocklist();
 
       expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
-      expect(serviceHelperStub.axiosGet.called).to.be.false;
+      expect(policyStoreStub.getDocument.called).to.be.false;
     });
 
     it('enforceBlocklist skips tick when fluxbenchd returns status=error', async () => {
@@ -476,7 +470,7 @@ describe('appTamperingBlocklistService tests', () => {
       await svc.enforceBlocklist();
 
       expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
-      expect(serviceHelperStub.axiosGet.called).to.be.false;
+      expect(policyStoreStub.getDocument.called).to.be.false;
     });
 
     it('enforceBlocklist skips tick when systemsecure is not a boolean', async () => {
