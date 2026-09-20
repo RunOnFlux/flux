@@ -18,6 +18,10 @@ const SILENT_APP_STATE_SYNC = process.env.SILENT_APP_STATE_SYNC === 'true';
 // this the fleet has no way to reach the path a node takes when a peer's
 // envelope cannot be attributed to it.
 const UNVERIFIABLE_APP_STATE_SYNC = process.env.UNVERIFIABLE_APP_STATE_SYNC === 'true';
+// A PEER FROM BEFORE THE POLICY PROTOCOL. It advertises no policyBundle capability, so a node
+// neither asks it for policy nor announces an adoption to it - the state of every peer on a
+// node in the first wave of a rollout.
+const POLICY_UNAWARE = process.env.POLICY_UNAWARE === 'true';
 const DIAL_TARGETS = (process.env.DIAL_TARGETS || '').split(',').filter(Boolean);
 const { PRIVATE_KEY, PUBLIC_KEY, NODE_IP } = process.env;
 
@@ -40,6 +44,14 @@ const messages = new Map();
 let connectionsReceived = 0;
 let requestsReceived = 0;
 let messagesServed = 0;
+// What this peer answers a policy ask with, and how many it has answered. `null` is a peer
+// that holds no policy at all, which is a real answer rather than silence.
+let policyAnswer = { answers: false, seq: null };
+let policyAsksAnswered = 0;
+// Adoption announcements this peer has been sent. A node announces only to peers that
+// advertise policyBundle, so this is zero for a POLICY_UNAWARE stub and the count is the
+// only way a suite can see the difference.
+let policyAnnouncementsReceived = 0;
 let unverifiableResponsesSent = 0;
 const requestLog = [];
 
@@ -175,6 +187,28 @@ async function handleMessage(ws, rawData) {
     const msg = JSON.parse(rawData);
     const { data } = msg;
 
+    // A node telling its peers what it adopted. Counted and not answered: an announcement
+    // asks for nothing.
+    if (data && data.type === 'fluxpolicyseq') {
+      policyAnnouncementsReceived += 1;
+      return;
+    }
+
+    if (data && data.type === 'fluxpolicyrequest' && policyAnswer.answers) {
+      // Echoed so the asker can tell which of its asks this settles, and marked an answer
+      // so its filter does not read an identical reply from another peer as a repeat of
+      // this one. A real peer does both; a stub that did neither could not show the
+      // difference between the two.
+      ws.send(await serialiseAndSignBroadcast({
+        type: 'fluxpolicyseq',
+        version: 1,
+        seq: policyAnswer.seq,
+        correlationId: data.correlationId,
+      }));
+      policyAsksAnswered += 1;
+      return;
+    }
+
     if (!data || data.type !== 'fluxapprequest') return;
 
     requestsReceived++;
@@ -222,8 +256,20 @@ wss.on('headers', (headers) => {
   // never answers - and the asker is now expected to give up on it and ask
   // someone else. So a suite can ask for exactly that, and gets it only when it
   // does.
+  // policyBundle says what this stub SPEAKS: handleMessage answers fluxpolicyrequest, and
+  // policyAnswer.answers decides separately whether it replies. That is set once the socket
+  // is up, so the header cannot be gated on it - a stub left at answers:false is a peer that
+  // speaks the protocol and says nothing, like the silent appStateSync peer above.
+  //
+  // POLICY_UNAWARE is the peer that predates the protocol, which is every peer on the first
+  // day of a rollout. A node does not ask it and does not announce to it, and a node whose
+  // peers are all this must still reach the published source.
   const answersAppStateSync = SILENT_APP_STATE_SYNC || UNVERIFIABLE_APP_STATE_SYNC;
-  const capabilities = answersAppStateSync ? 'peerExchange,appStateSync' : 'peerExchange';
+  const capabilities = [
+    'peerExchange',
+    ...(answersAppStateSync ? ['appStateSync'] : []),
+    ...(POLICY_UNAWARE ? [] : ['policyBundle']),
+  ].join(',');
   headers.push(`X-Flux-Capabilities: ${capabilities}`);
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
@@ -468,6 +514,8 @@ const controlServer = http.createServer(async (req, res) => {
         requestLog,
         promotedFolderRequests,
         broadcastsSent,
+        policyAsksAnswered,
+        policyAnnouncementsReceived,
         connectedNodes: connectedNodes.size,
       }));
       return;
@@ -563,6 +611,18 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/answer-policy') {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      policyAnswer = {
+        answers: parsed.answers !== false,
+        seq: parsed.seq === undefined ? null : parsed.seq,
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', policyAnswer }));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/clear') {
       messages.clear();
       requestLog.length = 0;
@@ -576,6 +636,9 @@ const controlServer = http.createServer(async (req, res) => {
       portProbeAnswersBlind = false;
       portProbeAnswersForeign = false;
       broadcastsSent = 0;
+      policyAnswer = { answers: false, seq: null };
+      policyAsksAnswered = 0;
+      policyAnnouncementsReceived = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
       return;

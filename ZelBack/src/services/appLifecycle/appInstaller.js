@@ -206,6 +206,14 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
 
+  // POLICY IS A PRECONDITION, as it is at registration. The blocked-repository list lives
+  // in the signed bundle, so a node without one cannot establish that an image is not
+  // banned - and installing on the assumption it is fine is the mistake that cannot be
+  // taken back, because the container is running by the time anything else notices.
+  if (!globalState.policyReady) {
+    throw new Error('Cannot verify application images: network policy not yet obtained.');
+  }
+
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
@@ -366,9 +374,9 @@ async function ensureAppDockerNetwork(appName, res) {
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
  * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
- * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
+ * @returns {Promise<string>} One of InstallOutcome.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -385,7 +393,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
@@ -394,7 +402,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
     acquired = true;
@@ -406,7 +414,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.DECLINED;
     }
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
@@ -463,7 +471,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(rStatus);
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.ALREADY_INSTALLED;
     }
 
     // Lazy-load appQueryService to avoid circular dependency issues
@@ -676,14 +684,14 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 
     // The app is gone from this node - the teardown above removed it. A caller
     // that reads this as "nothing happened" leaves a half-removed app behind;
-    // one that reads REFUSED as this destroys a running app for a scheduling
+    // one that reads BUSY as this destroys a running app for a scheduling
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
-    // The one place the hold is released, so every way out of this function
-    // releases it. A tier lookup that failed used to return without releasing,
-    // and the node then refused every install, redeploy, spawn and reinstall
-    // pass it was offered until FluxOS restarted.
+    // THE ONE PLACE THE HOLD IS RELEASED, so every way out of this function releases
+    // it - including the early returns above. A path that leaves without releasing
+    // costs the node every install, redeploy, spawn and reinstall pass it is offered
+    // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
     if (test) {
       try {
@@ -709,6 +717,47 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     fluxEventBus.publish('app:installed', { name: appSpecs.name, hash: appSpecs.hash });
   }
   return InstallOutcome.INSTALLED;
+}
+
+/**
+ * Register an app on this node, and publish what the attempt did.
+ *
+ * AN ATTEMPT THAT DOES NOT INSTALL IS AS MUCH A RESULT AS ONE THAT DOES. An install
+ * publishes `app:installed`; every other outcome publishes `app:installOutcome` carrying
+ * which one it was. The response stream cannot carry the difference: `already installed` is
+ * an error envelope and `another application is undergoing installation` is a warning in one
+ * place and an error in another, so a waiter reading the wording cannot tell the app being
+ * there from the node being busy.
+ *
+ * The outcomes are published as themselves rather than flattened into a failure, because
+ * they are not the same fact about the node. ALREADY_INSTALLED means the app is there, BUSY
+ * means ask again, DECLINED and FAILED mean it is not - and FAILED alone means this attempt
+ * is what took it away.
+ *
+ * A throw is reported under FAILED: the app is in whatever state the teardown reached, which
+ * is what FAILED means everywhere else.
+ * @param {object} appSpecs App specifications.
+ * @param {object} componentSpecs Component specifications, when one component is being installed.
+ * @param {object} res Response stream, when a caller holds one.
+ * @param {boolean} [test] A test install, torn down again on the way out.
+ * @param {boolean} [sendRemovalMessage] Whether a teardown announces itself.
+ * @returns {Promise<string>} One of InstallOutcome.
+ */
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+  // Published for every outcome but INSTALLED, which has app:installed of its own.
+  const announce = (outcome) => {
+    if (test || outcome === InstallOutcome.INSTALLED) return;
+    fluxEventBus.publish('app:installOutcome', { name: appSpecs?.name, outcome });
+  };
+  let outcome;
+  try {
+    outcome = await attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage);
+  } catch (error) {
+    announce(InstallOutcome.FAILED);
+    throw error;
+  }
+  announce(outcome);
+  return outcome;
 }
 
 /**

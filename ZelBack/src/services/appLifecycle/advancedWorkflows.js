@@ -18,6 +18,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const {
   DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch, ipsMatch,
 } = require('../utils/socketAddressUtils');
+const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { InstallOutcome } = require('../utils/installOutcome');
 const generalService = require('../generalService');
@@ -944,7 +945,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
@@ -953,7 +954,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
     acquired = true;
@@ -965,7 +966,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.DECLINED;
     }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
@@ -1016,7 +1017,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.ALREADY_INSTALLED;
     }
 
     // Verify the apps this app must be networked with (networkWith token in the
@@ -1345,6 +1346,89 @@ async function softRemoveAppLocally(app, res) {
 }
 
 /**
+ * Whether this node may take an app down in order to put it back.
+ *
+ * A redeploy is an uninstall followed by an install, so every condition deciding
+ * whether the app may be installed HERE has to hold before the uninstall. Two of
+ * them are read only by the installer: the network policy carries the blocked
+ * repository list, and a spec's `nodes` list names the only nodes the app may run
+ * on. Either one reached after the teardown leaves the app with no containers and
+ * no local row, and nothing reconciles an app with no row.
+ *
+ * The two answers differ. A spec naming other nodes is not a wait - the app does
+ * not belong here, so it is uninstalled and the network told, which withdraws this
+ * node's location record and frees the app to be placed where it is named. Policy
+ * is a wait: the app is left exactly as it is and the caller asks again on its own
+ * schedule.
+ *
+ * The pin is read first because it needs no policy. `nodes` is on-chain and signed,
+ * and removing an app outright is the one destructive act that does not depend on
+ * the bundle.
+ * @param {object} appSpecs Full app specifications, decrypted.
+ * @param {object} [res] An open response stream, when the caller holds one.
+ * @returns {Promise<boolean>} True when the teardown may proceed.
+ */
+async function mayTearDownToRebuild(appSpecs, res) {
+  const report = (message) => {
+    log.warn(message);
+    if (res) {
+      res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(message)));
+      if (res.flush) res.flush();
+    }
+  };
+
+  const pinned = Array.isArray(appSpecs.nodes) ? appSpecs.nodes : [];
+  if (pinned.length) {
+    const collateral = await generalService.obtainNodeCollateralInformation().catch(() => null);
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress().catch(() => null);
+    const outpoint = collateralOutpoint(collateral);
+    // A POSITIVE MATCH STANDS ON WHICHEVER IDENTIFIER MADE IT; A NEGATIVE ONE NEEDS BOTH.
+    // An entry names a node by socket address OR by collateral outpoint, so an unresolved
+    // identifier does not narrow the answer - it removes this node's ability to recognise
+    // one whole form of it. Read as "not named", an outpoint pin on a node whose daemon is
+    // unreachable deletes an app the spec names, and an address pin does the same while
+    // benchmark is down. Unknown is not "not named", so the redeploy waits for an identity.
+    const named = nodesNameThisNode(pinned, localSocketAddr, outpoint);
+    if (!named && (!localSocketAddr || !outpoint)) {
+      report(`Cannot establish whether ${appSpecs.name} names this node, redeploy deferred`);
+      return false;
+    }
+    if (!named) {
+      log.warn(`REMOVAL REASON: Pinned elsewhere - ${appSpecs.name} names nodes that do not include this one (mayTearDownToRebuild)`);
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('./appUninstaller');
+      // UNCONDITIONAL, AND IT TAKES THE APP'S DATA ON THIS NODE WITH IT.
+      //
+      // Every node a re-pin drops does this, and none of them waits for the named
+      // nodes to have a copy first. It cannot: the spawner counts locations without
+      // asking whether the pin names them (appSpawner runningAppList), so an app at
+      // its instance count on the wrong nodes is short nowhere and no named node
+      // installs it until a copy leaves. Something has to go first, so a departure
+      // that waits for strength waits for ever.
+      //
+      // So re-pinning an app whose data is synced is a destructive operation for the
+      // owner to back up before: between the last old copy leaving and a named node
+      // finishing its sync there may be no copy of the volume anywhere. Ordering the
+      // departures needs a placement that can count eligible copies rather than rows,
+      // which is v9's.
+      //
+      // Broadcast, where a redeploy's own teardown does not: the app is not coming
+      // back on this node, so the network has to stop holding a location for it.
+      // endResponse false - the endpoint that opened this response closes it.
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
+      return false;
+    }
+  }
+
+  if (!globalState.policyReady) {
+    report(`Network policy not yet obtained, ${appSpecs.name} left as it is`);
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Soft redeploy - removes and reinstalls app locally (soft)
  * @param {object} appSpecs - App specifications
  * @param {object} res - Response object
@@ -1373,6 +1457,8 @@ async function softRedeploy(appSpecs, res) {
       }
       return;
     }
+
+    if (!await mayTearDownToRebuild(appSpecs, res)) return;
 
     // Check if component structure changed for version 8+ apps.
     if (appSpecs.version >= 8) {
@@ -1432,10 +1518,11 @@ async function softRedeploy(appSpecs, res) {
       // the removal above has already taken its containers AND its local row,
       // and this is the only pass that would have put them back.
       //
-      // REFUSED is the node being held by another operation for the length of
-      // the delay above. FAILED is the installer's own teardown, which removes
-      // locally without telling anyone (`sendMessage` is false at its call). So
-      // in both cases this node ends with no containers, no row, and peers
+      // BUSY is the node being held by another operation for the length of the
+      // delay above, DECLINED a check that would not pass. FAILED is the
+      // installer's own teardown, which removes locally without telling anyone
+      // (`sendMessage` is false at its call). So in every case this node ends
+      // with no containers, no row, and peers
       // holding a location record until it expires on its own - nothing here
       // announces the loss, and with no row there is nothing for the reconciler
       // to converge either.
@@ -1515,6 +1602,8 @@ async function hardRedeploy(appSpecs, res) {
       }
       return;
     }
+    if (!await mayTearDownToRebuild(appSpecs, res)) return;
+
     globalState.hardRedeployInProgress = true;
     log.warn(`REMOVAL REASON: Hard redeploy initiated - ${appSpecs.name} being removed as part of hard redeploy process (hardRedeploy)`);
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
@@ -1595,6 +1684,13 @@ async function softRedeployComponent(appName, componentName, res) {
     // Decrypt enterprise apps before accessing compose
     if (appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
       appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+    }
+
+    // Asked of the whole app, and answered by handing back the whole app: a spec
+    // pinned to other nodes does not belong here one component at a time.
+    if (!await mayTearDownToRebuild(appSpecifications, res)) {
+      globalState.softRedeployInProgress = false;
+      return;
     }
 
     // Find the component in the app specs
@@ -1756,6 +1852,13 @@ async function hardRedeployComponent(appName, componentName, res) {
 
     if (appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
       appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+    }
+
+    // Asked of the whole app, and answered by handing back the whole app: a spec
+    // pinned to other nodes does not belong here one component at a time.
+    if (!await mayTearDownToRebuild(appSpecifications, res)) {
+      globalState.hardRedeployInProgress = false;
+      return;
     }
 
     // Find the component in the app specs
@@ -4176,6 +4279,15 @@ async function reinstallOldApplications() {
       log.info('Checking application status paused. Not yet synced');
       return;
     }
+    // A redeploy uninstalls before it installs, and the install needs the blocked-repository
+    // list to judge the image. Without the policy that carries it the app comes down and
+    // cannot go back up: only a successful install writes the local row, and nothing
+    // reconciles an app with no row. Declined rather than deferred - the scanner runs this
+    // again in a few blocks, and the app is still obsolete then.
+    if (!globalState.policyReady) {
+      log.info('reinstallOldApplications - network policy not obtained, leaving obsolete apps alone');
+      return;
+    }
     // first get installed apps
     const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
     if (installedAppsRes.status !== 'success') {
@@ -4201,6 +4313,15 @@ async function reinstallOldApplications() {
         // eslint-disable-next-line no-await-in-loop
         log.warn(`Application ${installedApp.name} version is obsolete.`);
         if (randomNumber === 0) {
+          // The new spec decides whether this node keeps the app at all, and it is
+          // asked before any of the three redeploy branches below takes anything
+          // down. An owner re-pointing a `nodes` list reaches the fleet as a spec
+          // change, so this is where a node the list no longer names hands it back.
+          // eslint-disable-next-line no-await-in-loop
+          if (!await mayTearDownToRebuild(appSpecifications, null)) {
+            // eslint-disable-next-line no-continue
+            continue;
+          }
           globalState.reinstallationOfOldAppsInProgress = true;
 
           // Check if this is an enterprise app on non-arcane node FIRST
@@ -5467,6 +5588,7 @@ module.exports = {
   softRegisterAppLocally,
   softRemoveAppLocally,
   hardRedeploy,
+  mayTearDownToRebuild,
   softRedeploy,
   softRedeployComponent,
   hardRedeployComponent,

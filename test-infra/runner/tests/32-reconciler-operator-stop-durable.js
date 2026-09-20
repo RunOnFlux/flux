@@ -5,7 +5,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey, nodeKey } from '../framework/keys.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import {
-  waitFor, waitForReconcileActuated, assertNoEvent, waitForOperatorIntent,
+  waitFor, waitForReconcileActuated, assertNoEvent, waitForOperatorIntent, waitForBootSettled,
 } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -71,6 +71,11 @@ describe('reconciler honours a durable operator stop', function () {
     // component, but operatorStopped (mongo) keeps this one stopped.
     await env.restartNode(idx);
     client = env.clients[idx];
+    // THE BOOT RECONCILE IS THE SUBJECT, so the window has to contain it. It runs
+    // behind dbReady, which waits for this node to re-peer and finish its app-state
+    // sync - so "nothing started it" is also true of a node that has not begun
+    // reconciling, and a fixed window that closes first asserts nothing at all.
+    await waitForBootSettled(client);
     await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === identifier && d.action === 'started', 10000);
     const afterRestart = await getAppContainerStatus(client.container, appName, { all: true });
     expect(afterRestart && afterRestart.status.startsWith('Up')).to.not.equal(true);
@@ -78,7 +83,11 @@ describe('reconciler honours a durable operator stop', function () {
     // appstart clears the operatorStopped lock; the container comes back Up
     // (ground truth) and the reconciler keeps it running thereafter.
     const auth2 = await authenticate(client.url, appOwnerKey());
-    await client.getAuthed(`/apps/appstart/${appName}`, auth2.zelidauth);
+    // Answered, not fired and forgotten: the route sits behind requireBootSettled,
+    // and a 503 discarded here surfaces a minute later as a container that never
+    // started - which reads as the reconciler's fault rather than this call's.
+    const startRes = await client.getAuthed(`/apps/appstart/${appName}`, auth2.zelidauth);
+    expect(startRes.status, `appstart refused: ${JSON.stringify(startRes.data)}`).to.equal('success');
     await waitForUp(client, appName, 'running again after appstart');
   });
 

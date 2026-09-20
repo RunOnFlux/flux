@@ -13,6 +13,7 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
+  waitForInstallSettled,
   waitForReconcileActuated, waitForBootSettled,
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
@@ -106,13 +107,27 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
     // reconciliation to keep it by, so it is removed as one that moved away.
     await waitForBootSettled(client);
     const auth = await authenticate(client.url, teamKey);
-    // installapplocally streams progress then a final status; surface a failure
-    // in that body instead of silently waiting out the app:installed timeout.
+    // WHAT THIS PROMISES IS THAT THE NODE HOLDS THE APP, not that this call is what put it
+    // there, so the app:installed event decides and the response body never does. A node's
+    // own spawner goes after any app short of instances - which is every app a suite seeds
+    // and then installs - so it can be installing this one already and refuse the explicit
+    // call, or have finished and answer "already installed". Both keep the promise by the
+    // other route.
+    //
+    // The body is carried only as evidence for the failure message. Reading it to decide
+    // would put this helper's control flow on the wording of a message, which is what it
+    // did: "already installed" was a failure here, and a spawner that got there first
+    // failed a suite whose fixture had in fact worked.
+    //
+    // An attempt that will not install says so on the bus, so this settles as soon as
+    // either answer arrives rather than spending the whole budget on a refusal.
+    const mark = client.getLastEventId();
     const body = await client.installAppLocally(app.spec.name, auth.zelidauth);
-    if (/"status"\s*:\s*"error"|Application .* not found|already installed|Unauthorized|Not enough/i.test(body)) {
-      throw new Error(`installapplocally failed on node ${i}: ${body.slice(-600)}`);
+    try {
+      await waitForInstallSettled(client, app.spec.name, timeout, { afterId: mark });
+    } catch (error) {
+      throw new Error(`node ${i} does not hold ${app.spec.name}: ${error.message} :: ${body.slice(-400)}`);
     }
-    await waitForAppInstalled(client, app.spec.name, timeout);
   }));
   return indices;
 }
@@ -297,6 +312,7 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     },
     { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
   );
+
   await startTicker();
 }
 

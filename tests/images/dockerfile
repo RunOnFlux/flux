@@ -30,7 +30,7 @@ WORKDIR /home/fluxtesting/flux
 ENTRYPOINT ["/home/fluxtesting/entrypoint.sh"]
 
 # this can be overridden on command line for specific tests
-CMD ["tests/unit/*.test.js"]
+CMD ["tests/unit/**/*.test.js"]
 
 # docker network create flux_test
 # docker run --net flux_test --rm -it --name fluxwebsite runonflux/website

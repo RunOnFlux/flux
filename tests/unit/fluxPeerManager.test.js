@@ -10,6 +10,10 @@ const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/uti
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
+// Loaded for its side effect: the transport declares the routing table as it loads, and the
+// ordered-route tests below read it. Declared here rather than relied on - without it this
+// file passes only when another spec file in the same run happened to load it first.
+require('../../ZelBack/src/services/fluxCommunication');
 
 /**
  * Creates a mock WebSocket object suitable for FluxPeerSocket tests.
@@ -723,6 +727,40 @@ describe('FluxPeerManager tests', () => {
   // difference between the spawner starting and never starting: observed, a
   // node asked its own address, timed out at zero completions, and never
   // published SPAWNER_READY.
+  describe('getPolicyCapablePeers', () => {
+    const withCapabilities = (m, ip, capabilities) => {
+      const ws = createMockWs(ip, '16127');
+      const peer = m.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
+      capabilities.forEach((capability) => peer.remoteCapabilities.add(capability));
+      return peer;
+    };
+
+    it('offers only the peers that speak the protocol', () => {
+      // A peer without it has no handler for the ask, so including it buys a deadline's
+      // wait for a reply that cannot come.
+      withCapabilities(manager, '10.0.0.1', ['policyBundle']);
+      withCapabilities(manager, '10.0.0.2', ['appStateSync']);
+      withCapabilities(manager, '10.0.0.3', []);
+
+      expect(manager.getPolicyCapablePeers().map((p) => p.key)).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('never offers this node its own address', () => {
+      withCapabilities(manager, '10.0.0.1', ['policyBundle']);
+      withCapabilities(manager, '10.0.0.2', ['policyBundle']);
+      manager.setOwnSocketAddress('10.0.0.1:16127');
+
+      expect(manager.getPolicyCapablePeers().map((p) => p.key)).to.deep.equal(['10.0.0.2:16127']);
+    });
+
+    it('answers empty rather than everything when nobody speaks it', () => {
+      // The first node of a rollout. Empty means "nobody to ask", which the store treats
+      // differently from "everybody was asked and had nothing".
+      withCapabilities(manager, '10.0.0.1', ['appStateSync']);
+      expect(manager.getPolicyCapablePeers()).to.deep.equal([]);
+    });
+  });
+
   describe('getEligibleSyncPeers', () => {
     // A current build: it can refuse, so it is asked whatever its uptime.
     const eligible = (m, ip) => {
@@ -978,6 +1016,28 @@ describe('FluxPeerManager tests', () => {
       expect(joined.slice(12), 'the connections after the edge were not announced').to.deep.equal([
         '10.0.0.13:16127', '10.0.0.14:16127', '10.0.0.15:16127',
       ]);
+    });
+
+    // ORDER IS PART OF THE CONTRACT, not an accident of where the emits sit.
+    //
+    // A listener that starts per-connection work on peerConnected and reads the result of
+    // that work on peerThresholdReached needs the connection handled first. policyStore is
+    // exactly that listener: it asks each arriving peer for policy, and when the set is full
+    // and every ask has come back empty it seeds from the published source. With the edge
+    // emitted first, the peer that CROSSED the threshold has not been asked at the moment
+    // the set is declared full - so "nobody has policy" would be decided over a peer nobody
+    // had spoken to yet.
+    it('announces the connection before it announces that the set is full', () => {
+      const order = [];
+      manager.on('peerConnected', () => order.push('connected'));
+      manager.on('peerThresholdReached', () => order.push('threshold'));
+
+      for (let i = 1; i <= 12; i += 1) {
+        manager.add(createMockWs(`10.0.0.${i}`, '16127'), `10.0.0.${i}`, '16127', { source: PEER_SOURCE.RANDOM });
+      }
+
+      expect(order.slice(-2), 'the crossing peer is announced, then the crossing')
+        .to.deep.equal(['connected', 'threshold']);
     });
 
     // A FALL THIS NODE CAUSED IS NOT THE NETWORK FAILING. disconnectAll() drops

@@ -165,9 +165,47 @@ describe('the location table survives restarts and refuses bad publications', fu
 
   const stubState = async () => (await fetch(`${env.stubControl}/state`)).json();
 
+  // Wait until a node is on the bundle that names the artifact just published.
+  //
+  // A NODE ASKS FOR THE DIGEST ITS OWN BUNDLE CARRIES. One still on an earlier bundle asks
+  // for a name the stub has replaced and is refused as unreachable - a true refusal of the
+  // wrong thing, which says nothing about the check the scenario is there to exercise. The
+  // fleet's tick is compressed, so this is a short wait, but it is the difference between a
+  // scenario that holds and one that holds when the tick happens to have landed.
+  const onBundle = (index, seq) => waitFor(
+    () => env.clients[index].getEventBuffer()
+      .some((e) => e.event === 'policy:bundleChanged' && e.data.seq >= seq),
+    { timeout: 120000, interval: 1000, label: `node ${index} to adopt seq ${seq}` },
+  );
+
+  // The refusals a node published after a given point, as reasons.
+  //
+  // SCOPED BY EVENT ID, because these scenarios share a node and its buffer keeps
+  // everything: an unscoped look finds the PREVIOUS scenario's refusal and passes on it.
+  // And by reason rather than by log text - every refusal ends at the same line, so
+  // matching it cannot tell a table this build cannot read from one whose bytes were
+  // swapped in transit, which are the two different things this block is here to separate.
+  const lastEventId = (index) => env.clients[index].getEventBuffer()
+    .reduce((highest, e) => Math.max(highest, e.id), 0);
+  const refusalsSince = (index, afterId) => env.clients[index].getEventBuffer()
+    .filter((e) => e.event === 'ipLocation:refused' && e.id > afterId)
+    .map((e) => e.data);
+
   // What the fleet did about the artifact currently published. Publishing zeroes
   // these, so they are always scoped to the publication under test.
   const fetchCounts = async (route = BINARY_ROUTE) => (await stubState()).ipLocationFetches[route];
+
+  // What ONE node did, which is a different question and the only one some assertions mean.
+  // These are one fleet's requests to one server: a node correctly fetching an artifact the
+  // bundle IT still holds is counted by the totals above, and fails an assertion about a
+  // node that did nothing of the kind.
+  const fetchCountsFor = async (index, route = BINARY_ROUTE) => {
+    const counters = (await stubState()).ipLocationFetches[route];
+    return counters.byClient[subnet.nodeIp(index + 1)]
+      ?? {
+        total: 0, ok: 0, notModified: 0, missing: 0,
+      };
+  };
 
   const publish = async (body) => {
     const response = await fetch(`${env.stubControl}/iplocation`, {
@@ -234,12 +272,31 @@ describe('the location table survives restarts and refuses bad publications', fu
       hookCtx: this,
       nodes: NODES,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
+      // BEFORE THE NODES START, so every node's first fetch is of THIS artifact and the
+      // counters it zeroes describe the boot.
+      //
+      // It used to be posted after createTestEnv returned, on the reasoning that the table
+      // fetch waits on the app database being rebuilt and so happens later still. That
+      // window closed: the bundle a node adopts at boot names the table by content hash,
+      // and adoption happens seconds into boot, long before the rebuild. A publication
+      // after it re-signs the bundle and leaves every node asking for a digest the stub
+      // has already replaced.
+      locationTable: { domains: BASELINE_DOMAINS, subnet: subnet.base },
+      // THE SCENARIOS BELOW REPUBLISH, and a node only looks at the table again when the
+      // bundle naming it changes. Adoption is what drives the refetch - not the restarts
+      // this suite used to rely on, which restore the bundle already held and so ask for
+      // the digest already fetched, which is the one thing that cannot have moved.
+      //
+      // The WHOLE FLEET, not the three nodes that take restarts: the query node reads the
+      // narrowed table too. Fleet-wide is safe here in a way it would not be in 1502 - the
+      // counters this suite asserts on are the iplocation routes, so a policy poll cannot
+      // make "the source served nothing" false for anything below. 1502 keeps the tick on
+      // one node precisely because its proofs ARE about the policy source.
+      configOverrides: {
+        fluxapps: { minOutgoing: 2, minIncoming: 1 },
+        policy: { refreshIntervalMs: 15000 },
+      },
     });
-    // Published before the fleet's table fetch (which waits on the app database
-    // being rebuilt, i.e. well into bootAndPeer below), so every node's first
-    // fetch is of THIS artifact and the counters it zeroes describe the boot.
-    await publish({ domains: BASELINE_DOMAINS, subnet: subnet.base });
     baselineGenerated = (await stubState()).ipLocation.generated;
 
     // In a four-node ring with minOutgoing 2, mutual pairs de-duplicate down to
@@ -332,15 +389,25 @@ describe('the location table survives restarts and refuses bad publications', fu
     expect(tree.total.domains).to.equal(BASELINE_DOMAINS);
     expect(tree.unresolved).to.equal(0);
 
-    // The refresh still runs on every startup; with the artifact unchanged the
-    // etag makes it a conditional request that transfers no body at all.
-    await waitFor(async () => (await fetchCounts()).notModified > beforeRestart.notModified, {
-      timeout: 180000, interval: 2000, label: 'the restarted node revalidates its copy',
-    });
+    // THE REFRESH ASKS THE SOURCE NOTHING. It used to revalidate with an etag, and the
+    // assertion here was that a 304 came back; the digest replaced that. A content-addressed
+    // name changes when the content does, so "do I already hold this" is a comparison
+    // against a value the bundle signed, decided locally - rather than a question put to the
+    // server that would be serving the answer, which is the one party that cannot settle it.
+    //
+    // So the restart is expected to produce NO REQUEST OF ANY KIND, which is a stronger
+    // statement than the 304 it replaces and the reason this is asserted on total rather
+    // than on any single outcome.
+    await waitFor(
+      () => env.nodeHasLog(REFRESH_NODE, /ipLocationSync - iplocation table restored from cache|ipLocationStore - adopted the stored baseline/),
+      { timeout: 180000, interval: 2000, label: 'the restarted node settles on the copy it already had' },
+    );
     const afterRestart = await fetchCounts();
+    expect(afterRestart.total, 'the restart asked the source for nothing at all')
+      .to.equal(beforeRestart.total);
     expect(afterRestart.ok, 'and never downloads the artifact a second time').to.equal(beforeRestart.ok);
-    // asserted after the revalidation: a 304 returns before any ingest could
-    // start, so from here the restart is finished with the table for good
+    // asserted after the node has settled: it decided against fetching before any ingest
+    // could start, so from here the restart is finished with the table for good
     expect(env.nodeLogCount(REFRESH_NODE, /ipLocationStore - baseline installed/),
       'and ingested nothing a second time').to.equal(1);
   });
@@ -354,20 +421,75 @@ describe('the location table survives restarts and refuses bad publications', fu
     });
     expect(published.rowCount, 'these bytes are not a format-2 artifact at all').to.equal(null);
 
+    await onBundle(REJECT_NODE, published.policySeq);
+    const beforeMalformed = lastEventId(REJECT_NODE);
     await restartAndSettle(REJECT_NODE);
     await waitFor(async () => (await fetchCounts()).ok >= 1, {
       timeout: 180000, interval: 2000, label: 'the restarted node downloads the malformed artifact',
     });
-    // it kept its table because it REFUSED these bytes, not because it never saw them
-    await waitFor(() => env.nodeHasLog(REJECT_NODE, /ipLocationSync - failed to refresh.*keeping current table/), {
+    // It kept its table because it REFUSED these bytes, not because it never saw them -
+    // and refused them as UNREADABLE, which is the fault being published here. A digest
+    // refusal would mean something else entirely and must not pass for this.
+    await waitFor(() => refusalsSince(REJECT_NODE, beforeMalformed).length > 0, {
       timeout: 30000, interval: 1000, label: 'the malformed artifact is refused',
     });
+    expect(refusalsSince(REJECT_NODE, beforeMalformed).map((r) => r.reason),
+      'refused because the reader would not take the bytes').to.deep.equal(['unreadable']);
 
     const answer = await tableAnswer(env.clients[REJECT_NODE], 2);
     expect(answer.tableAvailable, 'the node still has a table').to.equal(true);
     expect(answer.tableGenerated, 'still the baseline it ingested at boot').to.equal(baselineGenerated);
     expect(answer.domainCount, 'and still that baseline\'s fault domains').to.equal(BASELINE_DOMAINS);
     expect(answer.candidateCount).to.equal(env.nodeCount);
+    expect(env.nodeLogCount(REJECT_NODE, /ipLocationStore - baseline installed/),
+      'nothing was ingested over the good table').to.equal(1);
+  });
+
+  it('refuses an artifact served under the signed name whose bytes are not the signed ones', async function () {
+    this.timeout(300000);
+    // THE CASE THE SIGNATURE IS FOR. The bundle is untouched and still verifies; the file
+    // name asked for is the one it signed; the response is 200 and exactly the declared
+    // length. Only the digest of the body disagrees - which is what a compromised mirror,
+    // a cache poisoned in front of the publisher, or a branch someone pushed to looks
+    // like. Nothing upstream of the node can catch it, and until the bundle's hash was
+    // checked nothing did: the bytes went straight into the table that decides every
+    // node's location and therefore where apps may be placed.
+    const published = await publish({ domains: 2 });
+    expect(published.rowCount, 'a real artifact was published first').to.be.a('number');
+
+    const tampered = await publish({ tamper: true });
+    expect(tampered.tampered).to.equal(true);
+    expect(tampered.servedUnder, 'served under the name the bundle signed').to.match(/^iplocation-[0-9a-f]{64}\.bin\.gz$/);
+
+    // THE PUBLICATION'S SEQUENCE, NOT THE TAMPER'S. Tampering serves different bytes under
+    // the name already signed - it does not re-sign, and returns no sequence. What the node
+    // must be on is the bundle from the publication above, which names the digest whose
+    // bytes are now forged.
+    await onBundle(REJECT_NODE, published.policySeq);
+
+    const beforeTamper = lastEventId(REJECT_NODE);
+    await restartAndSettle(REJECT_NODE);
+    // It DOWNLOADED it - this is a refusal, not a node that never looked.
+    await waitFor(async () => (await fetchCounts()).ok >= 1, {
+      timeout: 180000, interval: 2000, label: 'the restarted node downloads the tampered artifact',
+    });
+    await waitFor(() => refusalsSince(REJECT_NODE, beforeTamper).length > 0, {
+      timeout: 30000, interval: 1000, label: 'the digest check refuses it, naming the disagreement',
+    });
+    // THE DIGEST, specifically. The bytes are the declared length and arrive under the name
+    // the bundle signed, so every other check passes them - only the hash disagrees, and
+    // that is the whole reason the bundle carries one.
+    const [tamperRefusal] = refusalsSince(REJECT_NODE, beforeTamper);
+    expect(tamperRefusal.reason, 'refused on the digest, not on anything upstream of it').to.equal('digest');
+    // The digest it refused against is the one the bundle signed - which the stub reports
+    // as the name it served the forged bytes under.
+    const [, signedDigest] = tampered.servedUnder.match(/^iplocation-([0-9a-f]{64})\.bin\.gz$/);
+    expect(tamperRefusal.sha256, 'checked against the digest the bundle vouched for').to.equal(signedDigest);
+
+    const answer = await tableAnswer(env.clients[REJECT_NODE], 3);
+    expect(answer.tableAvailable, 'the node still has a table').to.equal(true);
+    expect(answer.tableGenerated, 'still the baseline it ingested at boot').to.equal(baselineGenerated);
+    expect(answer.domainCount, 'the forged table never reached placement').to.equal(BASELINE_DOMAINS);
     expect(env.nodeLogCount(REJECT_NODE, /ipLocationStore - baseline installed/),
       'nothing was ingested over the good table').to.equal(1);
   });
@@ -385,11 +507,15 @@ describe('the location table survives restarts and refuses bad publications', fu
     expect(published.padded).to.equal(false);
     expect(published.rowCount, 'the artifact sits below the truncation floor').to.be.lessThan(TRUNCATION_FLOOR);
 
+    await onBundle(FLOOR_NODE, published.policySeq);
+    const beforeFloor = lastEventId(FLOOR_NODE);
     await restartAndSettle(FLOOR_NODE);
     await waitFor(async () => (await fetchCounts()).ok >= 1, {
       timeout: 180000, interval: 2000, label: 'the restarted node downloads the truncated artifact',
     });
-    await waitFor(() => env.nodeHasLog(FLOOR_NODE, /below the truncation floor/), {
+    // the reason is the event's; the floor itself is the store's message, carried as detail
+    await waitFor(() => refusalsSince(FLOOR_NODE, beforeFloor)
+      .some((r) => r.reason === 'unreadable' && /below the truncation floor/.test(r.detail)), {
       timeout: 30000, interval: 1000, label: 'the truncated artifact is refused on the floor',
     });
 
@@ -404,17 +530,26 @@ describe('the location table survives restarts and refuses bad publications', fu
 
   it('keeps the table it has when the artifact disappears entirely', async function () {
     this.timeout(300000);
-    // Both representations 404 from here on: the publication is gone, which is
-    // what a node sees during a publisher outage or a botched release.
+    // The publication is gone, which is what a node sees during a publisher outage or a
+    // botched release. The signed bundle then names no artifact at all - and a node that
+    // has nothing to verify against does not go looking, so it makes NO request rather
+    // than a request that 404s. That is the whole difference the digest buys here: the
+    // bundle, not the server, is what says whether there is a table to fetch.
     await publish({ artifact: null });
 
+    // Scoped past everything this node has already decided: it has declined before in this
+    // suite, and an unscoped look would find that one and pass without the restart below
+    // having done anything.
+    const beforeGone = lastEventId(REFRESH_NODE);
     await restartAndSettle(REFRESH_NODE);
-    await waitFor(async () => (await fetchCounts()).missing >= 1, {
-      timeout: 180000, interval: 2000, label: 'the restarted node finds no artifact to fetch',
+    await waitFor(() => env.clients[REFRESH_NODE].getEventBuffer()
+      .some((e) => e.event === 'ipLocation:noStatement' && e.id > beforeGone), {
+      timeout: 180000, interval: 2000, label: 'the restarted node finds nothing named and says so',
     });
 
-    const counts = await fetchCounts();
+    const counts = await fetchCountsFor(REFRESH_NODE);
     expect(counts.ok, 'there was nothing to download').to.equal(0);
+    expect(counts.missing, 'and it did not go asking for something the bundle does not name').to.equal(0);
     // its second restart, and its second adopt: the rows outlive the process
     // whether or not the publisher is there to confirm them
     await waitFor(() => env.nodeLogCount(REFRESH_NODE, /ipLocationStore - adopted the stored baseline/) === 2, {
@@ -536,21 +671,30 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
       hookCtx: this,
       nodes: NODES,
       tickerAutostart: false,
+      // Withdrawn BEFORE ANY NODE STARTS, so the only bundle this fleet ever sees names no
+      // artifact at all.
+      //
+      // Withdrawing it afterwards made the posture a race. A node that had already adopted
+      // the bundle naming the default artifact asked for that digest and got a 404; a node
+      // that took the withdrawn bundle first never asked at all - and the fleet ended up
+      // split between the two, which is neither posture. Node 0's log from the run that
+      // found this: adopted seq 1, asked, 404, then adopted seq 2 one second later.
+      locationTable: { artifact: null },
       configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
     });
-    // Withdrawn before the fleet's table fetch, so no node ever sees an
-    // artifact: both representations 404 for the life of this fleet.
-    await fetch(`${env.stubControl}/iplocation`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ artifact: null }),
-    });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
-    // Every node has TRIED and found nothing - the difference between the
-    // posture this asserts and a fleet that simply has not got there yet.
-    await waitFor(async () => (await fetchCounts()).missing >= env.nodeCount, {
-      timeout: 240000, interval: 3000, label: 'every node looked for the artifact and found none',
-    });
+    // EVERY NODE HAS DECIDED, which is the difference between the posture this asserts and
+    // a fleet that simply has not got there yet.
+    //
+    // Deciding now means declining to fetch: the bundle is what says which bytes are the
+    // table, and one that names no artifact gives a node nothing to ask for and nothing to
+    // verify an answer against. So the evidence is the decision each node published, not a
+    // count of requests at the stub - there are none to count, and that is the point.
+    await waitFor(
+      () => env.clients.every((client) => client.getEventBuffer()
+        .some((e) => e.event === 'ipLocation:noStatement')),
+      { timeout: 240000, interval: 3000, label: 'every node looked for a statement naming a table and found none' },
+    );
   });
 
   after(async function () {
@@ -562,7 +706,11 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
     this.timeout(60000);
     const counts = await fetchCounts();
     expect(counts.ok, 'there was never anything to download').to.equal(0);
-    expect(counts.missing, 'every node asked').to.be.at.least(env.nodeCount);
+    // AND NOBODY ASKED. A node whose bundle names no artifact has nothing to request and
+    // no signed value to check an answer against, so it declines rather than fetching
+    // something it could not verify - which is the whole reason the artifact is named in
+    // the bundle at all. The before hook has each node's log saying so.
+    expect(counts.total, 'and no node asked for one it had no statement about').to.equal(0);
 
     const answers = await Promise.all(env.clients.map((client) => client.post('/apps/placementfeasibility', {
       instances: 3,

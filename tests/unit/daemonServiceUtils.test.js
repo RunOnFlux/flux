@@ -3,11 +3,70 @@ const sinon = require('sinon');
 
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
 
+const proxyquire = require('proxyquire').noCallThru();
+
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 
 const { expect } = chai;
 
 describe('daemonServiceUtils tests', () => {
+  describe('reading flux.conf', () => {
+    // A config whose parse can be held open, so the window between "being read" and "read"
+    // is observable rather than a race.
+    const heldConfig = () => {
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      class DaemonConfig {
+        constructor() { this.configElements = {}; }
+
+        async parseConfig() {
+          await held;
+          this.configElements = { zelnodeprivkey: 'akey' };
+          return true;
+        }
+
+        get(name) { return this.configElements[name]; }
+      }
+      const module = proxyquire('../../ZelBack/src/services/daemonService/daemonServiceUtils', {
+        '../utils/daemonConfig': { DaemonConfig },
+      });
+      return { module, release };
+    };
+
+    it('does not tell a caller arriving mid-parse that the config is ready', async () => {
+      // Publishing the config before parsing it left a window where it was set and empty.
+      // A caller in that window is not told "not yet" - it is told the file is read, and
+      // goes on to find nothing in it. That is exactly when callers arrive, since
+      // everything wants its key at boot.
+      //
+      // Asserting the value here would prove nothing: an unpublished config and a published
+      // empty one both answer undefined. What separates them is what the second caller is
+      // told, which is the thing that decides whether it waits.
+      const { module, release } = heldConfig();
+
+      const first = module.ensureConfigLoaded();
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      let secondDone = false;
+      const second = module.ensureConfigLoaded().then(() => { secondDone = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(secondDone, 'it was told the config was ready while it was still being read')
+        .to.equal(false);
+
+      release();
+      await Promise.all([first, second]);
+      expect(module.getConfigValue('zelnodeprivkey')).to.equal('akey');
+    });
+
+    it('answers from the parsed config once it has one', async () => {
+      const { module, release } = heldConfig();
+      release();
+      await module.ensureConfigLoaded();
+      await module.ensureConfigLoaded();
+      expect(module.getConfigValue('zelnodeprivkey')).to.equal('akey');
+    });
+  });
+
   describe('executeCall tests', () => {
     let getSpy;
     beforeEach(() => {

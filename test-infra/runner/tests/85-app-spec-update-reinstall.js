@@ -39,7 +39,7 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
 import { getAppContainerId } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
-import { driveUntil } from '../framework/daemon-control.js';
+import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 describe('an app whose specification changed is reinstalled at the new specification', function () {
@@ -119,6 +119,15 @@ describe('an app whose specification changed is reinstalled at the new specifica
     expect(updated.hash, 'an update that hashes the same is not an update').to.not.equal(app.hash);
 
     await seedSpecUpdate(env, updated, [0]);
+
+    // driveUntil is the only thing that may advance the chain here. Only a
+    // block still at the tip when it is fetched reaches the periodic passes,
+    // so a second source advancing alongside leaves every other block stale on
+    // arrival and settles the node's tip on one parity of heights. The pass
+    // fires on `height % (updateFluxAppsPeriod * speedMultiplier) === 0`, which
+    // is even for every roll of the period, so a node whose tip has come to
+    // rest on odd heights never reaches it at any budget.
+    await stopTicker();
 
     // BUDGETED IN BLOCKS, because the pass is. It fires on
     // `blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0` with

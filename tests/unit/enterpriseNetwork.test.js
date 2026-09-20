@@ -2,7 +2,38 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+// Listeners enterpriseNetwork registers with policyStore, so a test can fire the bundle
+// event without reaching into the module.
+const bundleListeners = [];
+
 const MODULE_PATH = '../../ZelBack/src/services/utils/enterpriseNetwork';
+
+/**
+ * The acquisition gate as globalState presents it, with a handle to open it.
+ *
+ * Both of the sweep's triggers hang off this: it reads the flag before acting, and it hangs
+ * a first run on the wait resolving.
+ * @param {boolean} ready Whether the gate is open to start with.
+ */
+function gateState(ready = true) {
+  let openIt;
+  const opened = new Promise((resolve) => { openIt = resolve; });
+  const state = {
+    policyReady: ready,
+    waitForPolicyReady: () => (state.policyReady ? Promise.resolve() : opened),
+    open() { state.policyReady = true; openIt(); },
+  };
+  return state;
+}
+
+// Lets every queued continuation run, so a detached sweep has finished by the time a test
+// looks. No wall clock: what is still pending afterwards is pending on something.
+const drain = async () => {
+  for (let i = 0; i < 8; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => { setImmediate(resolve); });
+  }
+};
 
 const OWNERS = ['ownerA', 'ownerB'];
 const NODE_PUBKEYS = ['pubA', 'pubB'];
@@ -24,9 +55,11 @@ function loadModule(overrides = {}) {
     },
   };
 
+  bundleListeners.length = 0;
   const stubs = {
     config: overrides.config || defaultConfig,
     './enterpriseConfig': overrides.enterpriseConfig || {
+      isPolicyKnown: () => true,
       getEnterpriseAppOwners: () => OWNERS,
       getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
       getAllowedOwnersForNode: (pubKey) => NODE_OWNER_MAP[pubKey] || [],
@@ -42,6 +75,17 @@ function loadModule(overrides = {}) {
       localAppsInformation: 'zelappsinformation',
     },
     '../../lib/log': logStub,
+    '../policyStore': overrides.policyStore || {
+      // Captured so a test can deliver a bundle the way adoption does.
+      onBundleChanged: (listener) => {
+        bundleListeners.push(listener);
+        return () => {
+          const at = bundleListeners.indexOf(listener);
+          if (at >= 0) bundleListeners.splice(at, 1);
+        };
+      },
+    },
+    './globalState': overrides.globalState || gateState(true),
     '../appLifecycle/appUninstaller': overrides.appUninstaller || {
       removeAppLocally: sinon.stub().resolves(),
     },
@@ -256,6 +300,76 @@ describe('enterpriseNetwork', () => {
       expect(m.getCachedEnterpriseIdentity()).to.equal(true);
     });
 
+    it('resolves on the bundle arriving, without waiting out the retry', async () => {
+      // THE TWO FAILURES NEED DIFFERENT ANSWERS. Policy not yet obtained arrives and says
+      // so; an unreadable config announces nothing and the interval is all there is. The
+      // spawner is gated on this identity, so waiting out five minutes for a fact already
+      // in hand is five minutes the node cannot spawn.
+      let policyKnown = false;
+      const { module: m } = loadModule({
+        enterpriseConfig: {
+          isPolicyKnown: () => policyKnown,
+          getEnterpriseAppOwners: () => OWNERS,
+          getEnterpriseNodesPublicKeys: () => (policyKnown ? NODE_PUBKEYS : null),
+          getAllowedOwnersForNode: (pubKey) => NODE_OWNER_MAP[pubKey] || [],
+        },
+      });
+
+      const resolved = m.scheduleIdentityResolution({ retryDelayMs: 5 * 60 * 1000 });
+      await clock.tickAsync(0);
+      expect(m.getCachedEnterpriseIdentity(), 'nothing to judge against yet').to.equal(null);
+
+      policyKnown = true;
+      bundleListeners.forEach((fn) => fn({ seq: 1, source: 'peer' }));
+      await clock.tickAsync(0);
+      await resolved;
+
+      expect(m.getCachedEnterpriseIdentity(), 'resolved on the event, not on the clock').to.equal(true);
+    });
+
+    it('does not start a second attempt beside one already running', async () => {
+      // The bundle arriving while an attempt is in flight used to start another. Both could
+      // then fail and arm a deadline, and the second wrote over the first one's handle - so
+      // the orphan could never be cancelled and outlived the success meant to end it.
+      let releasePubKey;
+      const getPubKey = sinon.stub().returns(new Promise((resolve) => {
+        releasePubKey = () => resolve('pubA');
+      }));
+      const { module: m } = loadModule({ fluxNetworkHelper: { getFluxNodePublicKey: getPubKey } });
+
+      const resolved = m.scheduleIdentityResolution({ retryDelayMs: 1000 });
+      await clock.tickAsync(0);
+      expect(getPubKey.callCount, 'the first attempt is out').to.equal(1);
+
+      bundleListeners.forEach((fn) => fn({ seq: 1, source: 'peer' }));
+      await clock.tickAsync(0);
+      expect(getPubKey.callCount, 'the event started a second attempt beside it').to.equal(1);
+
+      releasePubKey();
+      await clock.tickAsync(0);
+      await resolved;
+      expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+    });
+
+    it('still waits out the retry when the failure is not about policy', async () => {
+      // A key that cannot be read at all. No event is coming for that, so the interval is
+      // the mechanism and must survive the subscription added beside it.
+      const getPubKey = sinon.stub();
+      getPubKey.onFirstCall().rejects(new Error('daemon down'));
+      getPubKey.onSecondCall().resolves('pubA');
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: getPubKey },
+      });
+
+      const resolved = m.scheduleIdentityResolution({ retryDelayMs: 1000 });
+      await clock.tickAsync(0);
+      expect(m.getCachedEnterpriseIdentity()).to.equal(null);
+
+      await clock.tickAsync(1000);
+      await resolved;
+      expect(getPubKey.callCount).to.equal(2);
+    });
+
     it('retries on failure and resolves once the pubkey becomes available', async () => {
       const getPubKey = sinon.stub();
       getPubKey.onFirstCall().resolves(new Error('down'));
@@ -296,6 +410,7 @@ describe('enterpriseNetwork', () => {
       const { module: m } = loadModule({
         fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubB') },
         enterpriseConfig: {
+          isPolicyKnown: () => true,
           getEnterpriseAppOwners: () => OWNERS,
           getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
           getAllowedOwnersForNode: () => [], // pubB mapped to no owners
@@ -351,6 +466,55 @@ describe('enterpriseNetwork', () => {
         findInDatabase: sinon.stub().resolves(apps),
       };
     }
+
+    // AN OWNER WHO SIGNS AS THEMSELVES IS NOT A STRANGER. EIP-55 capitalisation is a
+    // checksum over the same twenty bytes, so an owner listed one way and writing their
+    // spec the other is one key - and this is the sweep that acts on the answer by
+    // uninstalling the app and telling the network it has gone.
+    it('does not uninstall an ethereum owner listed in the other capitalisation', async () => {
+      const LISTED = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubEth') },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => [LISTED],
+          getEnterpriseNodesPublicKeys: () => ['pubEth'],
+          getAllowedOwnersForNode: () => [LISTED],
+          isPolicyKnown: () => true,
+        },
+        dbHelper: installedAppsStub([{ name: 'theirs', owner: LISTED.toLowerCase() }]),
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      expect(
+        removeAppLocally.called,
+        'the app was swept off the node over its capitalisation',
+      ).to.equal(false);
+    });
+
+    // The canary: the same fixture with a genuinely different address IS swept, so the
+    // test above is the comparison and not a sweep that never ran.
+    it('still uninstalls an ethereum owner the list does not hold', async () => {
+      const LISTED = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubEth') },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => [LISTED],
+          getEnterpriseNodesPublicKeys: () => ['pubEth'],
+          getAllowedOwnersForNode: () => [LISTED],
+          isPolicyKnown: () => true,
+        },
+        dbHelper: installedAppsStub([{ name: 'stranger', owner: '0x0000000000000000000000000000000000000001' }]),
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      expect(removeAppLocally.callCount).to.equal(1);
+    });
 
     it('enterprise-network node: uninstalls apps whose owner is not in enterpriseAppOwners', async () => {
       const removeAppLocally = sinon.stub().resolves();
@@ -453,6 +617,245 @@ describe('enterpriseNetwork', () => {
       } catch (err) {
         expect(err.message).to.equal('boom');
       }
+    });
+  });
+
+  // An unknown policy is not an empty one. Before these, every read below answered as
+  // though the node were an ordinary one with no enterprise owners anywhere - which is
+  // how a node with no policy filled itself with apps it must not host, and how the
+  // sweep uninstalled a customer's apps off a release-time snapshot.
+  describe('unknown policy', () => {
+    const unknownPolicy = {
+      isPolicyKnown: () => false,
+      getEnterpriseAppOwners: () => null,
+      getEnterpriseNodesPublicKeys: () => null,
+      getAllowedOwnersForNode: () => null,
+    };
+
+    it('getCachedEnterpriseIdentity answers null, not false', async () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+      // Resolve the pubkey first, so null can only be coming from the policy.
+      await m.isEnterpriseNode().catch(() => {});
+
+      expect(m.getCachedEnterpriseIdentity()).to.equal(null);
+    });
+
+    it('isEnterpriseNode throws, so boot identity resolution keeps retrying', async () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+
+      try {
+        await m.isEnterpriseNode();
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('network policy not yet obtained');
+      }
+    });
+
+    it('getCachedAllowedOwnersForNode answers null, not []', async () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+      await m.isEnterpriseNode().catch(() => {});
+
+      expect(m.getCachedAllowedOwnersForNode()).to.equal(null);
+    });
+
+    it('isEnterpriseAppOwner answers null, not false', () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+
+      expect(m.isEnterpriseAppOwner('ownerA')).to.equal(null);
+    });
+
+    it('filterAppsByOwnership selects nothing', () => {
+      const { module: m } = loadModule({ enterpriseConfig: unknownPolicy });
+      const apps = [{ name: 'n1', owner: 'stranger' }, { name: 'n2', owner: 'ownerA' }];
+
+      expect(m.filterAppsByOwnership(apps, false)).to.deep.equal([]);
+      expect(m.filterAppsByOwnership(apps, true)).to.deep.equal([]);
+    });
+
+    it('cleanupOwnershipViolations uninstalls NOTHING', async () => {
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m, log } = loadModule({
+        enterpriseConfig: unknownPolicy,
+        globalState: gateState(false),
+        dbHelper: {
+          databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+          findInDatabase: sinon.stub().resolves([
+            { name: 'customer-app', owner: 'ownerA' },
+            { name: 'stranger-app', owner: 'stranger' },
+          ]),
+        },
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      expect(removeAppLocally.called).to.equal(false);
+      expect(log.warn.calledWithMatch(/policy not confirmed/)).to.equal(true);
+    });
+  });
+
+  // The sweep uninstalls apps and tells the network it did, so WHEN it runs is as load
+  // bearing as what it decides. It reads the node->owners map, which changes over a node's
+  // life: an owner granted or revoked after boot is invisible to a sweep that ran once at
+  // boot, and one read off a bundle this node has not confirmed reads a grant it has not
+  // heard about as a violation.
+  describe('when the ownership sweep runs', () => {
+    const offenderDb = () => ({
+      databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+      findInDatabase: sinon.stub().resolves([{ name: 'customer-app', owner: 'stranger' }]),
+    });
+    const fireBundleChanged = () => bundleListeners.slice().forEach((listener) => listener());
+
+    it('refuses a bundle this node holds but has not confirmed', async () => {
+      // The case the gate exists for: the map is perfectly readable, and it is whatever this
+      // node last had. isPolicyKnown answers true throughout.
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m, log } = loadModule({
+        globalState: gateState(false),
+        dbHelper: offenderDb(),
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      expect(removeAppLocally.called, 'held is not confirmed').to.equal(false);
+      expect(log.warn.calledWithMatch(/policy not confirmed/)).to.equal(true);
+    });
+
+    it('does not sweep while the gate is shut', async () => {
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        globalState: gateState(false),
+        dbHelper: offenderDb(),
+        appUninstaller: { removeAppLocally },
+      });
+
+      m.startOwnershipSweeps();
+      await drain();
+
+      expect(removeAppLocally.called).to.equal(false);
+    });
+
+    it('sweeps when the gate opens, with no bundle change to announce it', async () => {
+      // A node confirmed by its peers holds exactly what it restored, so nothing changes and
+      // nothing is announced. The gate opening is the only signal there is.
+      const gate = gateState(false);
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        globalState: gate, dbHelper: offenderDb(), appUninstaller: { removeAppLocally },
+      });
+
+      m.startOwnershipSweeps();
+      await drain();
+      expect(removeAppLocally.called, 'nothing yet').to.equal(false);
+
+      gate.open();
+      await drain();
+      expect(removeAppLocally.calledOnce, 'the gate opening is a trigger of its own').to.equal(true);
+    });
+
+    it('sweeps again when the bundle changes', async () => {
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        globalState: gateState(true), dbHelper: offenderDb(), appUninstaller: { removeAppLocally },
+      });
+
+      m.startOwnershipSweeps();
+      await drain();
+      expect(removeAppLocally.callCount, 'the gate was already open').to.equal(1);
+
+      fireBundleChanged();
+      await drain();
+      expect(removeAppLocally.callCount, 'an owner granted after boot is not invisible').to.equal(2);
+    });
+
+    it('ignores a bundle change while the gate is shut', async () => {
+      const removeAppLocally = sinon.stub().resolves();
+      const db = offenderDb();
+      const { module: m, log } = loadModule({
+        globalState: gateState(false), dbHelper: db, appUninstaller: { removeAppLocally },
+      });
+
+      m.startOwnershipSweeps();
+      fireBundleChanged();
+      await drain();
+
+      expect(removeAppLocally.called, 'a bundle it may not act on changes nothing it may do').to.equal(false);
+      // Not started and then refused: not started. A change arriving while the gate is shut
+      // is not a question worth putting to the database, and the pass that would refuse it
+      // logs every time it does.
+      expect(db.findInDatabase.called, 'no pass was begun').to.equal(false);
+      expect(log.warn.calledWithMatch(/policy not confirmed/), 'so there was nothing to refuse').to.equal(false);
+    });
+
+    it('coalesces requests made during a pass into one more pass', async () => {
+      // Three requests during one pass are one question - what does the map say NOW - and
+      // the pass that answers it reads the latest state. Queueing them would walk the whole
+      // local app table twice more for nothing.
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      let passes = 0;
+      const findInDatabase = sinon.stub().callsFake(async () => {
+        passes += 1;
+        if (passes === 1) await held;
+        return [];
+      });
+      const { module: m } = loadModule({
+        dbHelper: {
+          databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+          findInDatabase,
+        },
+      });
+
+      const first = m.requestOwnershipSweep();
+      await drain();
+      expect(passes, 'one pass in flight').to.equal(1);
+
+      m.requestOwnershipSweep();
+      m.requestOwnershipSweep();
+      m.requestOwnershipSweep();
+      release();
+      await first;
+
+      expect(passes, 'three requests cost one more pass, not three').to.equal(2);
+    });
+
+    it('runs again after a pass throws', async () => {
+      // An uninstall that failed is logged and left for the next pass. A sweep that stopped
+      // driving itself on one failure would leave the node acting on a map it has read.
+      const removeAppLocally = sinon.stub()
+        .onFirstCall().rejects(new Error('boom'))
+        .onSecondCall()
+        .resolves();
+      const { module: m, log } = loadModule({
+        globalState: gateState(true), dbHelper: offenderDb(), appUninstaller: { removeAppLocally },
+      });
+
+      m.startOwnershipSweeps();
+      await drain();
+      expect(removeAppLocally.callCount).to.equal(1);
+      expect(log.error.calledWithMatch(/ownership cleanup failed/)).to.equal(true);
+
+      fireBundleChanged();
+      await drain();
+      expect(removeAppLocally.callCount, 'the failure ended the pass, not the sweeping').to.equal(2);
+    });
+
+    it('stops sweeping once the subscription is ended', async () => {
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        globalState: gateState(true), dbHelper: offenderDb(), appUninstaller: { removeAppLocally },
+      });
+
+      const stop = m.startOwnershipSweeps();
+      await drain();
+      const after = removeAppLocally.callCount;
+
+      stop();
+      fireBundleChanged();
+      await drain();
+
+      expect(removeAppLocally.callCount).to.equal(after);
     });
   });
 });

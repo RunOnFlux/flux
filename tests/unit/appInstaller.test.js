@@ -77,6 +77,10 @@ describe('appInstaller tests', () => {
 
     // The real module, reset - see tests/unit/fixtures/globalState.js.
     globalStateStub = resetGlobalState();
+    // Installing reads the blocked-repository list out of the signed bundle, so a node that
+    // does not hold policy refuses before it pulls anything. Every case here is about what
+    // a node that CAN install does; the refusal before policy has its own case below.
+    globalStateStub.policyReady = true;
 
     // Stubs
     verificationHelperStub = {
@@ -891,7 +895,7 @@ describe('appInstaller tests', () => {
       // Nothing was touched, which is not the same answer as an install that
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.BUSY);
     });
 
     it('should return error if another installation is in progress', async () => {
@@ -908,7 +912,7 @@ describe('appInstaller tests', () => {
       // Nothing was touched, which is not the same answer as an install that
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.BUSY);
       // The hold belongs to the install this call was refused for. Releasing on
       // the way out would hand the node to the next caller while that install is
       // still running.
@@ -1020,11 +1024,75 @@ describe('appInstaller tests', () => {
       // Nothing was touched, which is not the same answer as an install that
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.DECLINED);
       // The hold was raised one line before the tier lookup and this return used
       // to walk straight past it. The node then refused every install, redeploy,
       // spawn and reinstall pass it was offered until FluxOS restarted.
       expect(globalStateStub.installationInProgress, 'the node is left holding an install that never began').to.be.false;
+    });
+
+    // The guard sits behind the socket lookup and the database connection, so a stub missing
+    // either answers FAILED from the catch without ever reaching it. Everything below is
+    // present for that reason, and appQueryService - the first call PAST the guard - rejects,
+    // so a guard that stops matching lands on FAILED rather than running on into the install.
+    const installerReachingTheAlreadyInstalledGuard = () => proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+      config: configStub,
+      '../messageHelper': messageHelperStub,
+      '../dbHelper': {
+        databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+        findOneInDatabase: sinon.stub().resolves({ name: 'testapp' }),
+        findInDatabase: sinon.stub().resolves([]),
+        insertOneToDatabase: sinon.stub().resolves(),
+      },
+      '../serviceHelper': {
+        ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
+        ensureNumber: sinon.stub().returnsArg(0),
+        delay: sinon.stub().resolves(),
+      },
+      '../generalService': {
+        nodeTier: sinon.stub().resolves('cumulus'),
+        checkSynced: sinon.stub().resolves(true),
+      },
+      '../fluxNetworkHelper': {
+        getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
+      },
+      '../appQuery/appQueryService': {
+        installedApps: sinon.stub().rejects(new Error('past the guard')),
+        listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+      },
+      './appUninstaller': {
+        removeAppLocally: sinon.stub().resolves(),
+      },
+      '../utils/globalState': globalStateStub,
+      '../../lib/log': logStub,
+      '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
+        config: configStub,
+      }),
+    });
+
+    it('answers ALREADY_INSTALLED when the node already holds the app', async () => {
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      const result = await installerReachingTheAlreadyInstalledGuard()
+        .registerAppLocally(appSpec, false, res);
+
+      // The app is on the node. That is a different answer from an install that was turned
+      // away with the app absent, and from one that tore it down: a caller asking whether the
+      // node holds the app has its yes here.
+      expect(result).to.equal(InstallOutcome.ALREADY_INSTALLED);
+      expect(globalStateStub.installationInProgress, 'the hold outlived the attempt that took it').to.be.false;
+    });
+
+    it('does not answer ALREADY_INSTALLED for a component when the app row exists', async () => {
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      // Same app row, the one input changed: installing a COMPONENT of an app whose row is
+      // already there is the ordinary case, not a refusal. The guard reads both, so it is
+      // driven with each one carrying the decision.
+      const result = await installerReachingTheAlreadyInstalledGuard()
+        .registerAppLocally(appSpec, { name: 'component1' }, res);
+
+      expect(result).to.not.equal(InstallOutcome.ALREADY_INSTALLED);
     });
 
     // Named for the already-installed guard, but its proxyquire is partial and the

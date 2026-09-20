@@ -31,6 +31,7 @@ const cidrUtils = require('../utils/cidrUtils');
 const mountParser = require('../utils/mountParser');
 const verificationHelper = require('../verificationHelper');
 const { bareIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const geolocationRule = require('./geolocationRule');
 const ipLocationStore = require('./ipLocationStore');
 const { Privilege, authOf } = require('../utils/privileges');
@@ -126,9 +127,9 @@ function nodeLocationMatchesGeolocation(loc, geolocation) {
 
 /**
  * The node-list entries an app may be placed on. A spec carrying a non-empty
- * `nodes` list is a closed pool - v7 enforces it at install
- * (checkAppNodesRequirements) and only enterprise owners may carry it from v8
- * on - so the candidate set IS that list. Counting the whole network for such
+ * `nodes` list is a closed pool - checkAppNodesRequirements enforces it at
+ * install from v7 on, and only enterprise owners may carry one from v8 on - so
+ * the candidate set IS that list. Counting the whole network for such
  * an app computes a share against fault domains it can never use, which
  * strands it below its instance count.
  * @param {Array<object>} nodeList The deterministic node list
@@ -280,10 +281,10 @@ async function countHeldInDomain(locations, domainKey, domainOf) {
 async function specNamesThisNode(appSpecifications, localSocketAddr) {
   const nodes = appSpecifications.nodes ?? [];
   if (!nodes.length) return false;
-  if (nodes.some((node) => socketAddressesMatch(node, localSocketAddr))) return true;
+  if (nodesNameThisNode(nodes, localSocketAddr)) return true;
   try {
     const collateral = await generalService.obtainNodeCollateralInformation();
-    return nodes.includes(`${collateral.txhash}:${collateral.txindex}`);
+    return nodesNameThisNode(nodes, localSocketAddr, collateralOutpoint(collateral));
   } catch (error) {
     log.warn(`placementFeasibility - could not resolve node collateral: ${error.message}`);
     return false;

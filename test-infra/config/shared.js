@@ -54,7 +54,6 @@ module.exports = {
     daemonExpiredMs: 600000,
   },
   github: {
-    rawBaseUrl: 'http://198.18.0.6:3000',
     apiBaseUrl: 'http://198.18.0.6:3000',
   },
   geolocation: {
@@ -74,6 +73,39 @@ module.exports = {
   // splits the fleet n ways. Nothing here ever calls out to github.
   policy: {
     baseUrl: 'http://198.18.0.6:3000',
+    // The signed bundle. Present here as well as in test-env's per-run override for one
+    // reason: what it falls back to is the real published URL, so a node that somehow
+    // missed the override would fetch the LIVE network policy from github rather than
+    // failing. The pinned keys are not restated here - test-env imports them from the
+    // stub's own signing module, so there is one place they are written down.
+    signedBaseUrl: 'http://198.18.0.6:3000',
+    // Left at production's 24 hours ON PURPOSE, though it is compressible.
+    //
+    // Compressing it fleet-wide would have every node in every suite re-fetching from
+    // the stub on a short period, and the policy suites assert on the stub's fetch
+    // COUNTERS to prove a bundle travelled peer-to-peer rather than being downloaded.
+    // A background poll would make "the source served nothing" false everywhere and the
+    // proof would quietly stop being one.
+    //
+    // The suite that tests the backstop tick sets its own through configOverrides, which
+    // merges over this and wins.
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    // Absolute latency bounds: these do not compress with the clocks.
+    peerWindowMs: 3 * 1000,
+    fetchTimeoutMs: 10 * 1000,
+    // Compressed hard, because a suite fleet is a handful of nodes and production's quorum
+    // would send every suite to the stub source instead - the rung most of them exist to
+    // prove is NOT taken.
+    //
+    // ONE, NOT TWO, because a stub peer advertises the policy capability and answers only
+    // when a suite tells it to. Every fleet carrying one therefore has a peer that is asked
+    // and says nothing, and any bar above one would be unreachable for a node whose set is
+    // one real peer and one stub - leaving it unconfirmed, and its spawner shut, in suites
+    // that have nothing to do with policy.
+    //
+    // The bar itself is the subject of exactly one scenario, which sets its own above what
+    // its fleet can field.
+    minConfirmingPeers: 1,
   },
   fluxapps: {
     minOutgoing: 4,
@@ -192,7 +224,6 @@ module.exports = {
     connectionBackoffMs: [2000, 5000, 10000, 15000],
     nodeMonitorIntervalMs: 10000,
     spawnDeferrals: {
-      targetedNodesMs: { enterprise: 150, standard: 300 },
       staticIpMs: { enterprise: 200, standard: 400 },
       datacenterMs: { enterprise: 250, standard: 500 },
       capacityGap: {
@@ -225,6 +256,16 @@ module.exports = {
     // artefact; making the harness faster until it stops happening is the same
     // move one layer down. Measured at 4.8s a block at the old hardcoded 5000,
     // which was poll-dominated - a block sat unnoticed for a whole window.
+    // How many blocks between runs of the give-up pass, which is what suites
+    // waiting on a surplus trim, an expiry or a reinstall actually wait for.
+    // Production's 11 costs 44 blocks a firing once speedMultiplier is applied,
+    // and a suite needing two firings pays for 88 blocks of chain before it can
+    // assert anything. 4 is the lowest value this fleet has held: at 1 a
+    // departure was not announced before the next holder decided and two
+    // holders handed the same app back. The coupled values follow through
+    // derivedQueueStepMs and derivedEvacuationIntervalMs, and
+    // assertCoupledRatios refuses a fleet where the ratio no longer holds.
+    removeFluxAppsPeriod: 4,
     explorerPollIntervalMs: 833,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,

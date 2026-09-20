@@ -16,7 +16,7 @@ const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const {
-  asyncRoute, cache, rejectQueryParameters, requireBootSettled,
+  asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
 } = require('./services/utils/routeGuards');
 const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
 
@@ -1145,10 +1145,10 @@ module.exports = (app) => {
   app.get('/apps/appremove/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
     return appUninstaller.removeAppLocallyApi(req, res);
   }));
-  app.get('/apps/installapplocally/:appname?', requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/installapplocally/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.installAppLocally(req, res);
   }));
-  app.get('/apps/testappinstall/:appname?', requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/testappinstall/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.testAppInstall(req, res);
   }));
   app.get('/apps/createfluxnetwork', asyncRoute((req, res) => {
@@ -1163,10 +1163,10 @@ module.exports = (app) => {
   app.get('/apps/reindexglobalappslocation', asyncRoute((req, res) => {
     return registryManager.reindexGlobalAppsLocationAPI(req, res);
   }));
-  app.get('/apps/redeploy/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return advancedWorkflows.redeployAPI(req, res);
   }));
-  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', alwaysRespond, requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return advancedWorkflows.redeployComponentAPI(req, res);
   }));
   app.get('/apps/reconstructhashes', asyncRoute((req, res) => {

@@ -275,4 +275,39 @@ describe('globalState tests', () => {
       expect(resolved).to.equal(true);
     });
   });
+  // Three boot-time passes hang their first run off this gate rather than off a
+  // timer: volume validation, the image updater and the storage sweep. Each of
+  // them destroys an app in order to rebuild it, so each has to wait for the node
+  // to be able to judge an image. A gate that did not resolve for a caller
+  // arriving after it opened would leave all three waiting for the life of the
+  // process, and nothing else would report it.
+  describe('waitForPolicyReady tests', () => {
+    it('waits while the policy is unobtained', async () => {
+      let resolved = false;
+      globalState.waitForPolicyReady().then(() => { resolved = true; });
+
+      await new Promise((r) => setImmediate(r));
+
+      expect(globalState.policyReady).to.equal(false);
+      expect(resolved, 'a node without policy must not be released').to.equal(false);
+    });
+
+    it('releases a caller already waiting when the policy arrives', async () => {
+      let resolved = false;
+      const waiting = globalState.waitForPolicyReady().then(() => { resolved = true; });
+
+      globalState.policyReady = true;
+      await waiting;
+
+      expect(resolved).to.equal(true);
+    });
+
+    it('releases a caller that arrives after the policy did', async () => {
+      globalState.policyReady = true;
+
+      await globalState.waitForPolicyReady();
+
+      expect(globalState.policyReady).to.equal(true);
+    });
+  });
 });

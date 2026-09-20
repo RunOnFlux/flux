@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const config = require('config');
 const { GridFSBucket } = require('mongodb');
 const dbHelper = require('../dbHelper');
@@ -13,6 +14,11 @@ const log = require('../../lib/log');
 const BUCKET_NAME = 'policyartifacts';
 const policyDocumentsCollection = config.database.local.collections.policyDocuments;
 
+/** Lower-case hex sha256, the form the signed bundle names artifacts by. */
+function sha256Hex(bytes) {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
+
 function db() {
   const connection = dbHelper.databaseConnection();
   return connection ? connection.db(config.database.local.database) : null;
@@ -23,10 +29,15 @@ function bucket(database) {
 }
 
 /**
- * What we hold for an artifact: the id of its stored bytes and the etag they were served
- * with, or null when there is nothing.
+ * What we hold for an artifact: the id of its stored bytes and the sha256 of them, or null
+ * when there is nothing.
+ *
+ * The hash rather than an ETag. An ETag is the publisher's word for "unchanged" and cannot
+ * be checked; the bundle names the digest a fetch must produce, so the digest is both what
+ * decides whether a refetch is needed and what the fetch is verified against. One value
+ * doing both is what keeps the two answers from disagreeing.
  * @param {string} name Registry key.
- * @returns {Promise<{fileId: object, etag: string|null, fetchedAt: number|null}|null>}
+ * @returns {Promise<{fileId: object, sha256: string|null, fetchedAt: number|null}|null>}
  */
 async function getArtifactRecord(name) {
   const database = db();
@@ -37,7 +48,10 @@ async function getArtifactRecord(name) {
     { _id: name },
   );
   if (!doc || !doc.fileId) return null;
-  return { fileId: doc.fileId, etag: doc.etag ?? null, fetchedAt: doc.fetchedAt ?? null };
+  // A record written before artifacts were verified carries an etag and no digest. It reads
+  // as "hash unknown", which makes the next refresh an unconditional, verified refetch -
+  // the upgrade path, and the only safe reading of bytes nothing vouched for.
+  return { fileId: doc.fileId, sha256: doc.sha256 ?? null, fetchedAt: doc.fetchedAt ?? null };
 }
 
 /**
@@ -68,12 +82,15 @@ async function readArtifactBytes(fileId) {
  * GridFS does not overwrite — every upload is a new file with its own chunks — so the
  * previous file is deleted once the new one is committed and the record moved. Skipping
  * that would grow the local database by the artifact's size on every refresh.
+ * The digest is computed here rather than passed in, so what is recorded is always the hash
+ * of the bytes that were actually stored. A caller that supplied it could supply one that
+ * does not match, and the record is what the next refresh trusts to decide it holds the
+ * right artifact.
  * @param {string} name Registry key.
  * @param {Buffer} bytes The artifact.
- * @param {string|null} [etag] Response ETag, for the next conditional request.
  * @returns {Promise<boolean>} true when stored and recorded.
  */
-async function writeArtifactBytes(name, bytes, etag = null) {
+async function writeArtifactBytes(name, bytes) {
   const database = db();
   if (!database) return false;
 
@@ -90,7 +107,7 @@ async function writeArtifactBytes(name, bytes, etag = null) {
     database,
     policyDocumentsCollection,
     { _id: name },
-    { $set: { fileId, etag, fetchedAt: Date.now() } },
+    { $set: { fileId, sha256: sha256Hex(bytes), fetchedAt: Date.now() } },
     { upsert: true },
   );
 
@@ -101,6 +118,49 @@ async function writeArtifactBytes(name, bytes, etag = null) {
       .catch((error) => log.warn(`policyArtifact - could not delete superseded ${name} file: ${error.message}`));
   }
 
+  return true;
+}
+
+// The signed bundle is a few tens of kilobytes, so it sits inline in an ordinary document
+// rather than in the bucket. GridFS exists here for the 4.6 MB location table; using it for
+// the bundle would mean a file, a chunk, a record and an orphan sweep for something that fits
+// in a single row with room to spare.
+const BUNDLE_ID = 'networkPolicy';
+
+/**
+ * The signed bundle this node last verified, or null when it has never had one.
+ *
+ * The distinction is what the whole store exists for: a node that has never verified a
+ * bundle must not act, and one that has must keep acting on it however long the sources
+ * stay unreachable.
+ * @returns {Promise<{raw: string, seq: number, verifiedAt: number}|null>}
+ */
+async function readBundle() {
+  const database = db();
+  if (!database) return null;
+  const doc = await dbHelper.findOneInDatabase(database, policyDocumentsCollection, { _id: BUNDLE_ID });
+  if (!doc || typeof doc.raw !== 'string') return null;
+  return { raw: doc.raw, seq: doc.seq ?? 0, verifiedAt: doc.verifiedAt ?? null };
+}
+
+/**
+ * Record a bundle this node has verified. Stored as the bytes that were verified, not as the
+ * parsed payload: re-serialising and re-parsing would leave a document whose signature no
+ * longer checks, and the point of keeping it is to be able to check it again at boot.
+ * @param {string} raw The bundle exactly as received.
+ * @param {number} seq Its sequence, already verified.
+ * @returns {Promise<boolean>} true when recorded.
+ */
+async function writeBundle(raw, seq) {
+  const database = db();
+  if (!database) return false;
+  await dbHelper.findOneAndUpdateInDatabase(
+    database,
+    policyDocumentsCollection,
+    { _id: BUNDLE_ID },
+    { $set: { raw, seq, verifiedAt: Date.now() } },
+    { upsert: true },
+  );
   return true;
 }
 
@@ -136,6 +196,9 @@ async function sweepOrphanedArtifacts(name) {
 }
 
 module.exports = {
+  BUNDLE_ID,
+  readBundle,
+  writeBundle,
   getArtifactRecord,
   readArtifactBytes,
   writeArtifactBytes,

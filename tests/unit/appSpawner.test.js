@@ -49,6 +49,10 @@ describe('appSpawner tests', () => {
   function createGlobalStateStub() {
     const state = resetGlobalState();
     state.dbReady = true;
+    // Acquisition waits on the network policy the way it waits on the db. Open by
+    // default here so every other case exercises what it means to; the gate's own
+    // behaviour is asserted in 'policy gate' below.
+    state.policyReady = true;
     state.fluxNodeWasAlreadyConfirmed = true;
     state.firstExecutionAfterItsSynced = false;
     // Wired from cacheManager when a node boots, so null in a unit process. The
@@ -128,6 +132,11 @@ describe('appSpawner tests', () => {
         checkSynced: sinon.stub().resolves(true),
         isNodeStatusConfirmed: sinon.stub().resolves(true),
         nodeTier: sinon.stub().resolves('cumulus'),
+        // A spec's nodes[] entry names this node by socket address OR by collateral
+        // outpoint; the spawner resolves the latter once per pass.
+        obtainNodeCollateralInformation: sinon.stub().resolves(
+          opts.collateral === undefined ? { txhash: 'a'.repeat(64), txindex: 0 } : opts.collateral,
+        ),
       },
       '../benchmarkService': {
         getBenchmarks: sinon.stub().resolves({
@@ -200,12 +209,20 @@ describe('appSpawner tests', () => {
         countAppInstallingErrors: sinon.stub().resolves(opts.errorCount ?? 0),
       },
       '../appSecurity/imageManager': {
-        checkApplicationImagesCompliance: sinon.stub().resolves(),
+        checkApplicationImagesCompliance: opts.complianceStub ?? sinon.stub().resolves(),
         verifyRepository: sinon.stub().resolves(),
-        // No blocklist by default, so the candidate filter is inert unless a test
-        // supplies one. The matcher is the real implementation: a double of it
-        // would let a test pass on matching rules the node does not have.
-        getBlocklist: sinon.stub().resolves(opts.blocklist ?? null),
+        // EMPTY BY DEFAULT, WHICH IS NOT THE SAME AS NULL. An empty list is a blocklist
+        // that was read and blocks nothing, so the candidate filter is inert; null is a
+        // node that could not read one at all, and the pass refuses rather than selecting
+        // an app it cannot judge. A test about that case passes null for itself.
+        // The matcher is the real implementation: a double of it would let a test pass on
+        // matching rules the node does not have.
+        // Presence, not `??`: null is a meaningful value here - the node could not read a
+        // list - and a nullish default would answer an explicit null with the empty list,
+        // which is the opposite case and the one every other test wants.
+        getBlocklist: sinon.stub().resolves(
+          Object.prototype.hasOwnProperty.call(opts, 'blocklist') ? opts.blocklist : [],
+        ),
         blockedReasonFor: realImageManager.blockedReasonFor,
       },
       '../appRequirements/hwRequirements': {
@@ -306,6 +323,39 @@ describe('appSpawner tests', () => {
     });
   });
 
+  // A node cannot tell "I am not an enterprise node" from "I have not read the policy"
+  // until it has the node->owners map. Guessing the first is how an enterprise node fills
+  // itself with apps it must not host and then has them uninstalled from under it, so
+  // acquisition waits on the gate the way it waits on the database.
+  describe('policy gate', () => {
+    function infoLoggedIncludes(substr) {
+      return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
+    }
+
+    it('installs nothing while the policy gate is shut', async () => {
+      // aggregateStub is the first thing the install path reaches, so it not being
+      // called is the evidence the pass really stopped here rather than logging and
+      // walking on - the same trap the placement-hold tests below were written for.
+      buildModule();
+      globalStateStub.policyReady = false;
+
+      const delay = await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Network policy not yet obtained')).to.equal(true);
+      expect(aggregateStub.called).to.equal(false);
+      expect(delay).to.be.a('number');
+    });
+
+    it('proceeds once the gate opens', async () => {
+      buildModule();
+      globalStateStub.policyReady = true;
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(aggregateStub.called).to.equal(true);
+    });
+  });
+
   describe('placement hold', () => {
     function infoLoggedIncludes(substr) {
       return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
@@ -387,6 +437,40 @@ describe('appSpawner tests', () => {
       expect(infoLogged('selected to try to spawn')).to.be.false;
     });
 
+    // A nodes[] entry names a node by socket address OR by collateral outpoint, and
+    // the validator sizes its length check for the outpoint. This filter compared
+    // addresses only, so an outpoint-pinned enterprise app matched nowhere - and a
+    // candidate dropped by a filter reports nothing, so it would have looked like the
+    // enterprise feature simply not placing the app.
+    it('keeps a v8 enterprise-owned app pinned by collateral outpoint', async () => {
+      const outpoint = `${'a'.repeat(64)}:0`; // matches the collateral stub
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [outpoint] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('drops a v8 enterprise-owned app pinned to another node\'s collateral', async () => {
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [`${'b'.repeat(64)}:0`] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('falls back to address matching when the collateral cannot be resolved', async () => {
+      buildModule({
+        collateral: null,
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [MY_IP] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
     it('keeps a v8 enterprise-owned app whose targeted IP matches this node', async () => {
       buildModule({
         aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [MY_IP] })],
@@ -396,13 +480,17 @@ describe('appSpawner tests', () => {
       expect(infoLogged('selected to try to spawn')).to.be.true;
     });
 
-    it('still lets a v8 non-enterprise app through when its targeted IP is not this node', async () => {
+    // Was: 'still lets a v8 non-enterprise app through when its targeted IP is not this
+    // node'. That was the `|| app.version >= 8` bypass, which let any node take a pinned
+    // v8 app and install it elsewhere 30 to 57 minutes later. A pin is a pin for every
+    // version and every owner now, so the same case asserts the opposite.
+    it('drops a v8 app pinned elsewhere even when its owner is not an enterprise owner', async () => {
       buildModule({
         aggregateResult: [makeApp({ owner: 'normalOwner', nodes: ['10.0.0.99'] })],
         isEnterpriseAppOwner: () => false,
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
-      expect(infoLogged('selected to try to spawn')).to.be.true;
+      expect(infoLogged('selected to try to spawn')).to.be.false;
     });
 
     it('keeps an enterprise-owned app that targets no nodes (no IP restriction) (finding #12)', async () => {
@@ -615,12 +703,44 @@ describe('appSpawner tests', () => {
       expect(selectionLogged('selected to try to spawn')).to.be.true;
     });
 
-    it('selects as usual when the blocklist cannot be obtained', async () => {
-      // An unreachable document must not stop the node spawning anything; the
-      // install-time compliance check is still ahead of it.
+    // NULL IS NOT AN EMPTY LIST. A blocklist that read and blocks nothing lets every
+    // candidate through; one that could not be read leaves this node unable to say whether
+    // any image is banned, and holding the policy does not settle that - a document of the
+    // wrong shape inside a validly signed bundle refuses rather than falling back.
+    it('acquires nothing at all when the blocklist cannot be read', async () => {
       buildModule({ aggregateResult: [candidate()], blocklist: null });
+
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(selectionLogged('selected to try to spawn'), 'an app was selected on a list this node could not read').to.be.false;
+    });
+
+    // The canary: the same fixture with a list that READ and blocks nothing does select,
+    // so the refusal above is the unreadable list and not the fixture failing to get there.
+    it('selects as usual when the blocklist reads and blocks nothing', async () => {
+      buildModule({ aggregateResult: [candidate()], blocklist: [] });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
       expect(selectionLogged('selected to try to spawn')).to.be.true;
+    });
+
+    // THE COST OF CARRYING ON WOULD BE PAID BY THE APP. A pass that selected on an
+    // unreadable list reaches the compliance check, which refuses for a reason about this
+    // node - and the refusal is recorded against the app for a week.
+    it('does not record an app against a list this node could not read', async () => {
+      buildModule({
+        aggregateResult: [candidate()],
+        blocklist: null,
+        complianceStub: sinon.stub().rejects(new Error('checkApplicationImagesCompliance called before network policy was obtained')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(
+        globalStateStub.spawnErrorsLongerAppCache.size,
+        'a node fault was written against an app, and stands for the cache ttl',
+      ).to.equal(0);
     });
 
     it('does not filter on an image entry here, where no repotag is projected', async () => {
@@ -890,6 +1010,23 @@ describe('appSpawner tests', () => {
         installStub: sinon.stub().resolves(InstallOutcome.FAILED),
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
+    });
+
+    it('caches an app the blocklist refuses, without qualifying the refusal', async () => {
+      // A COMPLIANCE FAILURE HERE IS ABOUT THE APP, and durable, so the app is not
+      // reconsidered until the cache expires. It can only be about the app: the pass ends
+      // earlier unless the blocklist read, so a compliance check that runs has read it and
+      // one that fails found this app in it.
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        complianceStub: sinon.stub().rejects(new Error('Image blocked/repo is blocked')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
     });
 

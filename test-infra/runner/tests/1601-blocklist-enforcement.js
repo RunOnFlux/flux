@@ -9,9 +9,10 @@ import { stopTicker } from '../framework/daemon-control.js';
 import { setBlocklist } from '../framework/external-http-control.js';
 import {
   waitForBlockProcessed, waitForAppSpecStored, waitForAppInstalled, waitForAppRemoved,
-  restartFluxosAndAwaitRecovery,
+  restartFluxosAndAwaitRecovery, waitFor,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { dbClient } from '../framework/db-client.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 
 const REGISTRY = REGISTRY_REPO_HOST;
@@ -20,6 +21,10 @@ const REGISTRY = REGISTRY_REPO_HOST;
 // needs no more: one node to host the application and two to demonstrate that
 // nobody takes it back afterwards.
 const NODES = 3;
+
+// The only node whose backstop tick is compressed. Every other node is left at production's
+// 24 hours, so anything they hold came to them from a peer rather than from the source.
+const SOURCE_NODE = 0;
 
 describe('Blocklist enforcement over the published policy document', function () {
   let env;
@@ -30,7 +35,20 @@ describe('Blocklist enforcement over the published policy document', function ()
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ hookCtx: this, nodes: NODES, tickerAutostart: false });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: NODES,
+      tickerAutostart: false,
+      // ONE node polls the source, and it is deliberately not the whole fleet.
+      //
+      // The blocklist arrives in the signed bundle now, so what brings a newly published
+      // document to a node is the policy backstop tick - and at production's 24 hours
+      // nothing in a test window waits for it. Compressing it on EVERY node would make each
+      // one fetch for itself, and the suite would prove only that a node can read a URL.
+      // Left at 24 hours everywhere but node 0, what reaches the other two can only have
+      // come from a peer, which is the path production actually uses.
+      nodeConfigOverrides: { [SOURCE_NODE]: { policy: { refreshIntervalMs: 15000 } } },
+    });
     await pushImage(repoName, 'v1');
     await bootAndPeer(env);
 
@@ -96,24 +114,64 @@ describe('Blocklist enforcement over the published policy document', function ()
     // A case added here with kind `image` or `org` gives that up: the fallback can
     // express both, so it would stand in silently and the suite would pass while
     // proving the road not taken.
-    await setBlocklist([{
+    const { seq } = await setBlocklist([{
       kind: 'name',
       value: appName,
       reason: 'suite 100',
       added: '2026-09-12',
     }]);
+    expect(seq, 'the publish returned a sequence to converge on').to.be.a('number');
 
-    // A node holds what it fetched for six hours, so a fleet already carrying an
-    // answer does not see a newly published document until that expires. Every
-    // node is restarted rather than only the host: the other two would otherwise
-    // still be working from the empty document and would take the application
-    // back the moment it went short.
+    // Every node is restarted, not only the host: the other two would otherwise still be
+    // working from the empty document and would take the application back the moment it
+    // went short.
+    //
+    // The restart is no longer what makes a node SEE the new document - there is no
+    // per-node fetch cache to clear, since the blocklist now arrives in the signed bundle.
+    // The compressed backstop tick above is what brings it, and the restart is only here to
+    // put every node on the same footing.
     for (const client of env.clients) {
       // eslint-disable-next-line no-await-in-loop
       await restartFluxosAndAwaitRecovery(client, { recoveryTimeoutMs: 180000 });
     }
 
+    // PUT THE FLEET BACK TOGETHER. restartFluxosAndAwaitRecovery restarts FluxOS and waits
+    // for file ops; it does not restart discovery, so every node comes back with no peers at
+    // all. That was invisible while each node fetched blocklist.json for itself - it needed
+    // nobody - and it is fatal now that the document travels peer to peer: the node that
+    // polls adopts and announces to an empty set.
+    //
+    // It also quietly weakened the last test in this file, which asserts no node takes the
+    // application back. An isolated node cannot take anything back, so it passed without
+    // the ban ever reaching it.
+    await env.startDiscovery();
+    await waitFor(
+      async () => {
+        const counts = await Promise.all(env.clients.map(async (client) => {
+          const [out, inc] = await Promise.all([client.getPeers(), client.getIncomingPeers()]);
+          return (out.data?.length ?? 0) + (inc.data?.length ?? 0);
+        }));
+        return counts.every((c) => c >= 2);
+      },
+      { timeout: 120000, interval: 2000, label: 'every node back in the mesh after the restarts' },
+    );
+
     await waitForAppRemoved(env.clients[hostIndex], appName, 240000);
+
+    // WHERE IT CAME FROM, not just that it arrived. Only SOURCE_NODE polls the published
+    // source; every other node sits at production's 24 hours and cannot have fetched
+    // anything inside this test. So a node other than SOURCE_NODE holding the new sequence
+    // has been handed it by a peer, which is the path the fleet actually uses and the one a
+    // fleet-wide compressed tick would have hidden by letting every node fetch for itself.
+    const heldSeq = async (index) => (await dbClient(index + 1).policyBundle())?.seq ?? null;
+    const viaPeers = [];
+    for (let i = 0; i < NODES; i += 1) {
+      if (i === SOURCE_NODE) continue;
+      // eslint-disable-next-line no-await-in-loop
+      if (await heldSeq(i) === seq) viaPeers.push(i);
+    }
+    expect(viaPeers, `no node reached seq ${seq} except the one that polls the source`)
+      .to.not.be.empty;
   });
 
   it('drops it from the candidate pool rather than drawing and refusing it', async function () {

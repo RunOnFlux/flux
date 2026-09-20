@@ -1,12 +1,15 @@
 /* eslint-disable no-underscore-dangle */
 const sinon = require('sinon');
+const objectHash = require('object-hash');
 const WebSocket = require('ws');
 const { expect } = require('chai');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
+const { default: cacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+const policyStore = require('../../ZelBack/src/services/policyStore');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { requireMongo } = require('./dbTestHelper');
@@ -154,14 +157,14 @@ describe('fluxCommunication tests', () => {
   describe('handleAppMessages tests', () => {
     const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
     const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
-    let relaySpy;
+    let broadcastHashSpy;
 
     before(requireMongo);
 
     beforeEach(async () => {
       peerManager.reset();
       await dbHelper.initiateDB();
-      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
+      broadcastHashSpy = sinon.stub(peerManager, 'broadcastHash');
     });
 
     afterEach(() => {
@@ -243,11 +246,11 @@ describe('fluxCommunication tests', () => {
       wsIncoming.on = sinon.stub();
       peerManager.add(wsIncoming, wsIncoming.ip, port, { source: PEER_SOURCE.INBOUND });
 
-      const messageString = JSON.stringify(message);
-
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(relaySpy, messageString, `${fromIp}:${port}`);
+      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`);
+      // Announcing is what makes it fetchable: a peer answering the hash asks for it here.
+      expect(cacheManager.announcementStore.has(objectHash(message.data))).to.equal(true);
     }).timeout(10000);
 
     it('should not send broadcast if signature is invalid', async () => {
@@ -305,7 +308,9 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
+      // Nothing this node did not announce is kept, because nothing else can be asked of it.
+      expect(cacheManager.announcementStore.has(objectHash(message.data))).to.equal(false);
     });
 
     it('should not send broadcast if app data is invalid', async () => {
@@ -336,19 +341,135 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
+    });
+  });
+
+  describe('the flood filter cannot be talked out of deduplicating', () => {
+    // The dispatcher is not exported - the transport installs it on the peer manager as
+    // it loads, which is the same object production calls.
+    const peerSocket = {
+      ip: '127.0.0.9',
+      port: '16127',
+      key: '127.0.0.9:16127',
+      direction: 'outgoing',
+      badMessageTimestamps: [],
+      close: () => {},
+      sendNak: () => {},
+    };
+
+    let verify;
+
+    beforeEach(() => {
+      cacheManager.announcementSeen.clear();
+      verify = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast')
+        .resolves(fluxCommunicationUtils.VerifyResult.OK);
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      sinon.stub(peerManager, 'broadcastHash');
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(false);
+      sinon.stub(policyStore, 'notePeerSeq');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const envelope = (data) => ({
+      version: 1, pubKey: '0400', timestamp: Date.now(), signature: 'sig', data,
+    });
+
+    it('deduplicates an announce type that claims to be an ask', async () => {
+      // A marker inside the signed payload survives every relay, so a node that could
+      // sign one would otherwise have every honest node announce it onward again.
+      const data = {
+        type: 'fluxipchanged',
+        version: 1,
+        oldIP: '1.1.1.1',
+        newIP: '2.2.2.2',
+        broadcastedAt: Date.now(),
+        intent: 'ask',
+      };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
+      expect(verify.callCount).to.equal(1);
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      // The filter sits in front of verification, so a second copy costs nothing.
+      expect(verify.callCount).to.equal(1);
+    });
+
+    it('still lets two peers answer the same question', async () => {
+      // The other half, and the reason the marker exists: an answer carries no sender,
+      // so two peers answering "seq 5" are byte-identical and a content filter would
+      // deliver the first and drop the rest.
+      const data = {
+        type: 'fluxpolicyseq', version: 1, seq: 5, intent: 'answer', correlationId: 'abc',
+      };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(false);
+      expect(verify.callCount).to.equal(2);
+    });
+
+    // AN UNMARKED POLICY ANNOUNCEMENT IS NOT FILTERED EITHER, for the reason the answer
+    // above is not: it carries nothing about its sender, and the sender is the whole of
+    // what it says. Two peers announcing the same sequence are two peers to ask, and the
+    // type is never relayed - so a content filter cannot be discarding a second route to
+    // one fact, only the second peer offering it.
+    it('does not deduplicate an unmarked policy announcement either', async () => {
+      const data = { type: 'fluxpolicyseq', version: 1, seq: 5 };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(false);
+      expect(verify.callCount, 'the second peer to announce it is still heard').to.equal(2);
+    });
+
+    // A message that never verified was never established as anything, so the fingerprint
+    // it left behind must not stand as one this node has seen. Left there, it suppresses
+    // the genuine message that hashes the same for the whole of the cache's ttl - which is
+    // a forged copy of any announcement silencing the real one.
+    it('gives the slot back when a message does not verify', async () => {
+      const data = {
+        type: 'fluxapprunning', version: 2, apps: [], ip: '1.2.3.4:16127', broadcastedAt: 1,
+      };
+      verify.resolves(fluxCommunicationUtils.VerifyResult.NODE_NOT_FOUND);
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(
+        cacheManager.announcementSeen.has(objectHash(data)),
+        'a message that failed verification is holding the fingerprint',
+      ).to.equal(false);
+    });
+
+    // The canary: the same type, verifying, DOES hold it - so the release above is the
+    // verification failing and not the filter having been switched off.
+    it('keeps the slot for a message that verifies', async () => {
+      const data = {
+        type: 'fluxapprunning', version: 2, apps: [], ip: '1.2.3.4:16127', broadcastedAt: 2,
+      };
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
     });
   });
 
   describe('handleAppRunningMessage tests', () => {
-    let relaySpy;
+    let broadcastHashSpy;
 
     before(requireMongo);
 
     beforeEach(async () => {
       peerManager.reset();
       await dbHelper.initiateDB();
-      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
+      broadcastHashSpy = sinon.stub(peerManager, 'broadcastHash');
     });
 
     afterEach(() => {
@@ -381,11 +502,9 @@ describe('fluxCommunication tests', () => {
         timestamp,
       };
 
-      const messageString = JSON.stringify(message);
-
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(relaySpy, messageString, `${fromIp}:${port}`);
+      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`);
     }).timeout(10000);
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
@@ -433,7 +552,7 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     }).timeout(5000);
   });
 
@@ -1241,6 +1360,50 @@ describe('fluxCommunication tests', () => {
       });
     }
 
+    // Policy arrives over the same dispatch, and each of the three types goes somewhere
+    // different: a request is answered, a claimed sequence is a prompt to ask, and a bundle
+    // is verified before it is believed. None of that had coverage.
+    const policyCases = [
+      { type: 'fluxpolicyrequest', data: { seq: 4 }, target: 'respondWithPolicy', on: () => fluxCommunicationMessagesSender },
+      { type: 'fluxpolicyseq', data: { seq: 12 }, target: 'notePeerSeq', on: () => policyStore },
+      { type: 'fluxpolicy', data: { bundle: '{"payload_b64":"x"}' }, target: 'offerBundle', on: () => policyStore },
+    ];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const testCase of policyCases) {
+      // eslint-disable-next-line no-loop-func
+      it(`routes ${testCase.type} to ${testCase.target}`, async () => {
+        const message = JSON.stringify({
+          timestamp: Date.now(),
+          pubKey: '1234asd',
+          signature: 'blabla',
+          version: 1,
+          data: { type: testCase.type, version: 1, ...testCase.data },
+        });
+        const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+          wss.on('connection', (ws) => {
+            ws.send(message);
+            resolve();
+          });
+          // eslint-disable-next-line no-param-reassign
+          wss.onerror = (err) => { reject(err); };
+        });
+        const ip = '127.0.0.2';
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
+        lruRateLimitStub.returns(true);
+        sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
+        sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(fluxCommunicationUtils.VerifyResult.OK);
+        sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+        const handler = sinon.stub(testCase.on(), testCase.target).returns(true);
+        daemonServiceMiscRpcsStub.returns({ data: { synced: false, height: 0 } });
+
+        await fluxCommunication.initiateAndHandleConnection(ip);
+        await waitForWsConnected(wsserver);
+        await waitFor(() => handler.called);
+
+        expect(handler.called).to.equal(true);
+      });
+    }
+
     const registerUpdateAppList = ['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate'];
     // eslint-disable-next-line no-restricted-syntax
     for (const command of registerUpdateAppList) {
@@ -1634,7 +1797,7 @@ describe('fluxCommunication tests', () => {
   });
 
   describe('handleNodeSigtermMessage tests', () => {
-    let relaySpy;
+    let broadcastHashSpy;
     let findInDatabaseStub;
     let updateInDatabaseStub;
     let logInfoSpy;
@@ -1644,7 +1807,7 @@ describe('fluxCommunication tests', () => {
     beforeEach(async () => {
       peerManager.reset();
       await dbHelper.initiateDB();
-      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
+      broadcastHashSpy = sinon.stub(peerManager, 'broadcastHash');
       sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000000 } });
 
@@ -1695,7 +1858,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
       sinon.assert.calledOnce(updateInDatabaseStub);
-      sinon.assert.calledOnce(relaySpy);
+      sinon.assert.calledOnce(broadcastHashSpy);
     }).timeout(10000);
 
     it('should not rebroadcast when no apps exist for the node', async () => {
@@ -1718,7 +1881,7 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
       sinon.assert.notCalled(updateInDatabaseStub);
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('should not rebroadcast when message timestamp is too old', async () => {
@@ -1739,7 +1902,7 @@ describe('fluxCommunication tests', () => {
 
       // Should not proceed to database lookup
       sinon.assert.notCalled(findInDatabaseStub);
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('should exclude sender from rebroadcast list', async () => {
@@ -1777,8 +1940,8 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
       // Verify that relay was called with the sender's key as the excludeKey
-      sinon.assert.calledOnce(relaySpy);
-      const excludeKey = relaySpy.getCall(0).args[1];
+      sinon.assert.calledOnce(broadcastHashSpy);
+      const excludeKey = broadcastHashSpy.getCall(0).args[1];
       expect(excludeKey).to.equal(`${fromIp}:${port}`);
     }).timeout(10000);
 
@@ -1801,7 +1964,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
-      sinon.assert.notCalled(relaySpy);
+      sinon.assert.notCalled(broadcastHashSpy);
     });
   });
 
@@ -2101,4 +2264,5 @@ describe('fluxCommunication tests', () => {
       });
     });
   });
+
 });

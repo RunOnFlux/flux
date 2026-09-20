@@ -75,7 +75,7 @@ describe('harness chain start', () => {
   // chain start unless it is something a height cannot be.
   //
   // Durations in milliseconds are named ...Ms throughout, sometimes on a parent
-  // (spawnDeferrals.targetedNodesMs.standard, crashBackoffDelaysMs.4).
+  // (spawnDeferrals.staticIpMs.standard, crashBackoffDelaysMs.4).
   const MILLISECONDS = /(^|\.)[A-Za-z0-9]*Ms(\.|$)/;
   // Sizes in bytes.
   const BYTES = /(Size|Bytes)(\.|$)/i;
@@ -93,9 +93,8 @@ describe('harness chain start', () => {
     'fluxapps.hashSyncFallbackRecheckBlocks',
   ]);
 
-  // Whole tree, from the root: messagesBroadcastRefactorStart (1751250) and
-  // deterministicNodesStart (558000) are top-level and were never reached by a
-  // scan that descended only fluxapps and daemon.
+  // Whole tree, from the root: deterministicNodesStart (558000) is top-level and
+  // is never reached by a scan that descends only fluxapps and daemon.
   const gates = (config) => {
     const found = [];
     const walk = (value, prefix) => {
@@ -148,7 +147,6 @@ describe('harness chain start', () => {
     const scanned = gates(CONFIGS.production.config).map((gate) => gate.at);
 
     expect(scanned).to.include.members([
-      'messagesBroadcastRefactorStart',
       'deterministicNodesStart',
       'fluxapps.multisigAddressChange',
       'fluxapps.epochstart',

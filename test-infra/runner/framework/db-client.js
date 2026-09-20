@@ -332,6 +332,28 @@ export function dbClient(nodeNum) {
       });
     },
 
+    // The signed policy bundle this node last verified, as policyArtifactRepository wrote
+    // it. Read from mongo rather than from an endpoint because it is the only surface that
+    // is neither cached nor derived: /flux/enterpriseappowners answers through apicache and
+    // remembers its first SUCCESSFUL answer for an hour, so a suite that changes policy and
+    // reads it twice is reading the first answer both times.
+    //
+    // THE PERSISTED COPY, AND IT LAGS ADOPTION. policyStore.adopt() writes memory, announces
+    // to peers and publishes policy:bundleChanged, then persists WITHOUT awaiting the write -
+    // deliberately, since a node already running on a bundle only loses it at the next boot.
+    // So this answers null for a node that has adopted and not yet stored. Poll it; a single
+    // sample compared across nodes reports a level fleet as out of step.
+    async policyBundle() {
+      const localDb = await db('local');
+      return localDb.collection('policydocuments').findOne({ _id: 'networkPolicy' });
+    },
+
+    // Forget the stored bundle, for the boot that has to resolve one from somewhere else.
+    async deletePolicyBundle() {
+      const localDb = await db('local');
+      await localDb.collection('policydocuments').deleteOne({ _id: 'networkPolicy' });
+    },
+
     async failpointFind(collection, { times = 1, errorCode = 50 } = {}) {
       const client = await getClient();
       const namespace = `${dbNames.explorer}.${collection}`;

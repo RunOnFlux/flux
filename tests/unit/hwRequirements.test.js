@@ -1,4 +1,8 @@
-const { expect } = require('chai');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -1235,6 +1239,68 @@ describe('hwRequirements tests', () => {
       expect(hwRequirements.checkAppStaticIpRequirements).to.be.a('function');
       expect(hwRequirements.checkAppNodesRequirements).to.be.a('function');
       expect(hwRequirements.checkAppGeolocationRequirements).to.be.a('function');
+    });
+  });
+
+  describe('checkAppNodesRequirements tests', () => {
+    const PINNED_ADDR = '10.0.0.1:16127';
+    const OUTPOINT = 'a'.repeat(64) + ':0';
+
+    const load = ({ collateral, localSocketAddr = PINNED_ADDR } = {}) => proxyquire(
+      '../../ZelBack/src/services/appRequirements/hwRequirements',
+      {
+        '../generalService': {
+          obtainNodeCollateralInformation: collateral instanceof Error
+            ? sinon.stub().rejects(collateral)
+            : sinon.stub().resolves(collateral),
+        },
+        '../fluxNetworkHelper': {
+          getLocalSocketAddress: sinon.stub().resolves(localSocketAddr),
+        },
+        '../../lib/log': {
+          info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
+        },
+      },
+    );
+
+    it('passes a spec that names this node by address, with the daemon unreachable', async () => {
+      // The address needs no daemon. Refusing here aborts an install over a fact the spec
+      // did not depend on, and the retry lands on a node whose daemon is still coming up.
+      const hw = load({ collateral: new Error('daemon down') });
+      expect(await hw.checkAppNodesRequirements({
+        version: 8, name: 'app', nodes: [PINNED_ADDR],
+      })).to.equal(true);
+    });
+
+    it('refuses a spec that names only other nodes, with the daemon unreachable', async () => {
+      // The narrowing must not become a bypass: an unresolved outpoint matches nothing.
+      const hw = load({ collateral: new Error('daemon down') });
+      await expect(hw.checkAppNodesRequirements({
+        version: 8, name: 'app', nodes: ['10.9.9.9:16127'],
+      })).to.be.rejectedWith(/not allowed to run on this node/);
+    });
+
+    it('matches a collateral pin when the daemon answers', async () => {
+      const hw = load({ collateral: { txhash: 'a'.repeat(64), txindex: 0 }, localSocketAddr: '10.5.5.5:16127' });
+      expect(await hw.checkAppNodesRequirements({
+        version: 8, name: 'app', nodes: [OUTPOINT],
+      })).to.equal(true);
+    });
+
+    it('checks v8 as well as v7, so an install reached by any path is held to its pin', async () => {
+      const hw = load({ collateral: { txhash: 'b'.repeat(64), txindex: 1 }, localSocketAddr: '10.5.5.5:16127' });
+      for (const version of [7, 8]) {
+        // eslint-disable-next-line no-await-in-loop
+        await expect(hw.checkAppNodesRequirements({
+          version, name: 'app', nodes: ['10.9.9.9:16127'],
+        }), `v${version}`).to.be.rejectedWith(/not allowed to run on this node/);
+      }
+    });
+
+    it('holds nothing to a pin it does not carry', async () => {
+      const hw = load({ collateral: new Error('daemon down') });
+      expect(await hw.checkAppNodesRequirements({ version: 8, name: 'app', nodes: [] })).to.equal(true);
+      expect(await hw.checkAppNodesRequirements({ version: 8, name: 'app' })).to.equal(true);
     });
   });
 });

@@ -26,6 +26,18 @@ describe('cpuBurstHelper tests', () => {
   });
 
   describe('isEnterpriseOwner', () => {
+    // An ethereum address is twenty bytes and its capitalisation is a checksum over them,
+    // so an owner listed one way and asking as the other is the same signer.
+    it('should recognise an ethereum owner listed in the other capitalisation', () => {
+      const LISTED = '0x2b8E7f6e8F0b6F4c6F8e2B8e7F6e8f0B6f4C6f8E';
+      const helper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
+        './enterpriseConfig': { getEnterpriseAppOwners: () => [LISTED] },
+      });
+
+      expect(helper.isEnterpriseOwner(LISTED.toLowerCase())).to.be.true;
+      expect(helper.isEnterpriseOwner('0x0000000000000000000000000000000000000001')).to.be.false;
+    });
+
     it('should return true for an owner in enterpriseAppOwners config', () => {
       const result = cpuBurstHelper.isEnterpriseOwner('16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW');
       expect(result).to.be.true;
