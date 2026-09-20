@@ -70,18 +70,18 @@ let dips = [];
  * @type {number|null}
  */
 let upSince = null;
-let ourDosActive = false;
 let timerHandle = null;
 let started = false;
 let deps = null;
 
+const OWNER = fluxNetworkHelper.StickyDosOwner.PEER_SET_STABILITY;
+
 /**
- * True when the sticky slot currently holds a message this service wrote.
+ * True while this service's own verdict holds the node out of service.
  * @returns {boolean}
  */
-function isOurStickyDos() {
-  const msg = fluxNetworkHelper.getStickyDosMessage();
-  return typeof msg === 'string' && msg.startsWith(DOS_MESSAGE_PREFIX);
+function isOurDosHeld() {
+  return fluxNetworkHelper.isStickyDosHeldBy(OWNER);
 }
 
 /**
@@ -96,26 +96,14 @@ function pruneDips(now) {
 
 /**
  * Put the node out of service, naming the reason.
- *
- * The slot is left alone when another owner holds it. That owner's verdict
- * already has the node out of service for its own reason, and taking the slot
- * would leave it unable to recognise or release its own state.
  * @param {number} count Dips inside the window.
  * @returns {void}
  */
 function applyDos(count) {
-  if (isOurStickyDos()) return;
-  const sticky = fluxNetworkHelper.getStickyDosMessage();
-  if (sticky) {
-    log.info('peerSetStability - another sticky DOS is active, not overwriting it');
-    return;
-  }
+  if (isOurDosHeld()) return;
   const message = `${DOS_MESSAGE_PREFIX}: lost every peer ${count} times in the last `
     + `${WINDOW_MS / 60000} minutes. Check this node's network connection.`;
-  fluxNetworkHelper.setStickyDosMessage(message);
-  fluxNetworkHelper.setStickyDosStateValue(100);
-  ourDosActive = true;
-  log.error(message);
+  fluxNetworkHelper.setStickyDos(OWNER, message);
   fluxEventBus.publish('peerSetStability:dos', { dips: count, windowMs: WINDOW_MS });
 }
 
@@ -125,19 +113,10 @@ function applyDos(count) {
  * @returns {void}
  */
 function releaseDos(reason) {
-  if (isOurStickyDos()) {
-    log.info(`peerSetStability - clearing sticky DOS (${reason})`);
-    fluxNetworkHelper.clearStickyDosMessage();
-    ourDosActive = false;
-    fluxEventBus.publish('peerSetStability:released', { reason });
-    return;
-  }
-  if (ourDosActive) {
-    // Someone else holds the slot now. Releasing our claim is all we may do -
-    // clearing it would drop their DOS on the floor.
-    log.info(`peerSetStability - our DOS was replaced by another owner, releasing our claim only (${reason})`);
-    ourDosActive = false;
-  }
+  if (!isOurDosHeld()) return;
+  log.info(`peerSetStability - clearing sticky DOS (${reason})`);
+  fluxNetworkHelper.clearStickyDos(OWNER);
+  fluxEventBus.publish('peerSetStability:released', { reason });
 }
 
 /**
@@ -167,7 +146,7 @@ function evaluate() {
     applyDos(remaining);
     return;
   }
-  if (!ourDosActive && !isOurStickyDos()) return;
+  if (!isOurDosHeld()) return;
   if (remaining > 0) return;
   if (upSince === null || now - upSince < WINDOW_MS) return;
   releaseDos('peer set held above the threshold for a whole window with no collapse');
@@ -238,11 +217,8 @@ function stop() {
     deps.offPeerEvent('peerThresholdReached', deps.onRise);
     deps = null;
   }
-  // Cleared with the timer, so a later start() does not inherit a claim from
-  // the previous run and skip the read-back that decides whether the slot is
-  // still ours. The DOS itself is deliberately NOT released here: stop() runs
-  // on teardown, and a node going down does not become stable by doing so.
-  ourDosActive = false;
+  // The DOS is deliberately NOT released here: stop() runs on teardown, and a
+  // node going down does not become stable by doing so.
   dips = [];
   upSince = null;
 }
@@ -253,7 +229,7 @@ module.exports = {
   noteDip,
   noteRecovery,
   evaluate,
-  isDosActive: () => ourDosActive,
+  isDosActive: () => isOurDosHeld(),
   dipCount: () => dips.length,
   DOS_MESSAGE_PREFIX,
   DIP_THRESHOLD,

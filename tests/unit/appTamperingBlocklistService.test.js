@@ -2,7 +2,13 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const { makeStickyDosDouble } = require('./stickyDosTestDouble');
+const { StickyDosOwner } = require('../../ZelBack/src/services/fluxNetworkHelper');
+
 describe('appTamperingBlocklistService tests', () => {
+  const OWNER = StickyDosOwner.APP_TAMPERING;
+  const RESIDENTIAL = StickyDosOwner.RESIDENTIAL_DOS;
+  const RESIDENTIAL_REASON = 'Residential node not running ArcaneOS';
   let service;
   let serviceHelperStub;
   let dbHelperStub;
@@ -12,6 +18,7 @@ describe('appTamperingBlocklistService tests', () => {
   let benchmarkServiceStub;
 
   const MOCK_TXHASH = 'abc123deadbeef';
+
   // The blocklist arrives in the signed policy bundle now. getDocument answering null is
   // what "could not read it" looks like, and the service treats that as a reason to skip a
   // tick rather than as nobody being blocked.
@@ -19,7 +26,6 @@ describe('appTamperingBlocklistService tests', () => {
 
   function loadService() {
     return proxyquire('../../ZelBack/src/services/appTamperingBlocklistService', {
-      './policyStore': policyStoreStub,
       config: {
         database: {
           local: {
@@ -35,6 +41,7 @@ describe('appTamperingBlocklistService tests', () => {
         info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(),
       },
       './serviceHelper': serviceHelperStub,
+      './policyStore': policyStoreStub,
       './dbHelper': dbHelperStub,
       './fluxNetworkHelper': fluxNetworkHelperStub,
       './generalService': generalServiceStub,
@@ -62,13 +69,7 @@ describe('appTamperingBlocklistService tests', () => {
     // was given, and every ownership rule in this service is written against
     // that read-back. A getter pinned to null would let a clear that must not
     // happen pass as if it had.
-    let sticky = null;
-    fluxNetworkHelperStub = {
-      setStickyDosMessage: sinon.stub().callsFake((msg) => { sticky = msg; }),
-      setStickyDosStateValue: sinon.stub(),
-      clearStickyDosMessage: sinon.stub().callsFake(() => { sticky = null; }),
-      getStickyDosMessage: sinon.stub().callsFake(() => sticky),
-    };
+    fluxNetworkHelperStub = makeStickyDosDouble();
 
     generalServiceStub = {
       obtainNodeCollateralInformation: sinon.stub().resolves({ txhash: MOCK_TXHASH, txindex: 0 }),
@@ -215,8 +216,8 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
-      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
     });
 
     it('skips when own txhash cannot be determined', async () => {
@@ -224,23 +225,23 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
-      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
     });
 
     it('keeps an active DOS when the blocklist cannot be fetched', async () => {
       // an unreadable blocklist is not an empty one: falling through would
       // take the clear branch and a github outage would undo enforcement
-      policyStoreStub.getDocument.returns(null); // could not read the policy
-      fluxNetworkHelperStub.getStickyDosMessage.returns(
+      policyStoreStub.getDocument.returns(null); // could not read the policy;
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(
         `Node flagged via tampering blocklist: tamper score 99, txhash ${MOCK_TXHASH}`,
       );
       setTamperScore(100);
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
     });
 
     it('does nothing when txhash is not on the blocklist', async () => {
@@ -249,7 +250,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
     });
 
     it('does nothing when listed but score <= threshold', async () => {
@@ -258,7 +259,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
     });
 
     it('skips the tick when the score cannot be read, leaving an active DOS in place', async () => {
@@ -267,8 +268,8 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
     });
 
     it('sets sticky DOS when listed AND score > threshold', async () => {
@@ -277,12 +278,11 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDosMessage);
-      const msg = fluxNetworkHelperStub.setStickyDosMessage.firstCall.args[0];
+      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDos);
+      const msg = fluxNetworkHelperStub.setStickyDos.firstCall.args[1];
       expect(msg).to.include(service.DOS_MESSAGE_PREFIX);
       expect(msg).to.include(MOCK_TXHASH);
       expect(msg).to.include('11');
-      sinon.assert.calledWith(fluxNetworkHelperStub.setStickyDosStateValue, 100);
       expect(service.isDosActive()).to.be.true;
     });
 
@@ -297,7 +297,7 @@ describe('appTamperingBlocklistService tests', () => {
       policyStoreStub.getDocument.returns([]);
       await service.enforceBlocklist();
 
-      sinon.assert.called(fluxNetworkHelperStub.clearStickyDosMessage);
+      sinon.assert.called(fluxNetworkHelperStub.clearStickyDos);
       expect(service.isDosActive()).to.be.false;
     });
 
@@ -310,126 +310,74 @@ describe('appTamperingBlocklistService tests', () => {
       setTamperScore(5);
       await service.enforceBlocklist();
 
-      sinon.assert.called(fluxNetworkHelperStub.clearStickyDosMessage);
+      sinon.assert.called(fluxNetworkHelperStub.clearStickyDos);
       expect(service.isDosActive()).to.be.false;
     });
 
-    it('clears an orphaned sticky DOS message owned by this service', async () => {
-      // ourDosActive is false, but sticky owned by us (prefix match) from prior run
+    it('clears a verdict of its own left standing by an earlier run', async () => {
       const ours = `${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`;
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(ours);
+      fluxNetworkHelperStub.holds.set(OWNER, ours);
       policyStoreStub.getDocument.returns([]);
       setTamperScore(0);
 
       await service.enforceBlocklist();
 
-      sinon.assert.called(fluxNetworkHelperStub.clearStickyDosMessage);
+      sinon.assert.called(fluxNetworkHelperStub.clearStickyDos);
     });
 
-    it('does NOT clear a sticky slot a different module took over after we set ours', async () => {
+    it("releases its own verdict and leaves another owner's standing", async () => {
       policyStoreStub.getDocument.returns([MOCK_TXHASH]);
       setTamperScore(15);
       await service.enforceBlocklist();
       expect(service.isDosActive()).to.be.true;
+      fluxNetworkHelperStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
 
-      // Another enforcer overwrote the single sticky slot with its own message.
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
       // ...and our own condition stops holding.
       policyStoreStub.getDocument.returns([]);
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
       expect(service.isDosActive()).to.be.false;
+      expect(fluxNetworkHelperStub.getStickyDosMessage(), "dropped another owner's DOS on the floor").to.equal(RESIDENTIAL_REASON);
     });
 
-    it('does NOT overwrite a sticky DOS another module already holds', async () => {
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
+    // Enforcement runs every 12 hours. A verdict that waited for another owner
+    // to let go of a shared slot left a node this build has determined should be
+    // out of service taking apps until the next tick.
+    it("records its verdict beside another owner's, without waiting for it", async () => {
+      fluxNetworkHelperStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
       policyStoreStub.getDocument.returns([MOCK_TXHASH]);
       setTamperScore(15);
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
-      expect(service.isDosActive()).to.be.false;
-    });
-
-    it('refreshes its own sticky DOS rather than treating it as foreign', async () => {
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(`${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`);
-      policyStoreStub.getDocument.returns([MOCK_TXHASH]);
-      setTamperScore(15);
-
-      await service.enforceBlocklist();
-
-      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDosMessage);
-      sinon.assert.calledWith(fluxNetworkHelperStub.setStickyDosStateValue, 100);
-    });
-
-    it('claims the slot as soon as the other owner releases it', async () => {
-      // Enforcement runs every 12 hours. The residential enforcer takes the
-      // single slot first at boot, and later RELEASES it when its own verdict
-      // flips - a residential address moving into a hosting range clears its
-      // sticky. Without the watch, a node this build has determined should be
-      // out of service sits at DOS 0 taking apps until the next 12-hourly tick.
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
-      policyStoreStub.getDocument.returns([MOCK_TXHASH]);
-      setTamperScore(15);
-
-      await service.enforceBlocklist();
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
-      expect(service.isDosActive()).to.be.false;
-
-      // The other owner lets go.
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(null);
-      service.claimSlotIfFree();
-
-      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDosMessage);
-      expect(fluxNetworkHelperStub.setStickyDosMessage.firstCall.args[0]).to.contain('tamper score 15');
-      sinon.assert.calledWith(fluxNetworkHelperStub.setStickyDosStateValue, 100);
       expect(service.isDosActive()).to.be.true;
+      const message = fluxNetworkHelperStub.getStickyDosMessage();
+      expect(message, 'overwrote a verdict it does not own').to.contain('Residential');
+      expect(message).to.contain('tamper score 15');
     });
 
-    it('leaves the slot alone while the other owner still holds it', async () => {
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
+    it('refreshes its own verdict rather than treating it as foreign', async () => {
+      fluxNetworkHelperStub.holds.set(OWNER, `${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`);
       policyStoreStub.getDocument.returns([MOCK_TXHASH]);
       setTamperScore(15);
+
       await service.enforceBlocklist();
 
-      service.claimSlotIfFree();
-      service.claimSlotIfFree();
-
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
-      expect(service.isDosActive()).to.be.false;
+      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDos);
+      expect(fluxNetworkHelperStub.getStickyDosMessage()).to.contain('tamper score 15');
     });
 
-    it('stops watching once this node should no longer be DOSed', async () => {
-      // The blocklist entry is withdrawn while another owner holds the slot.
-      // Claiming it afterwards would put the node out of service for a reason
-      // that no longer applies.
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
-      policyStoreStub.getDocument.returns([MOCK_TXHASH]);
-      setTamperScore(15);
-      await service.enforceBlocklist();
 
-      policyStoreStub.getDocument.returns([]);
-      setTamperScore(0);
-      await service.enforceBlocklist();
 
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(null);
-      service.claimSlotIfFree();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
-      expect(service.isDosActive()).to.be.false;
-    });
-
-    it('does NOT clear a sticky DOS set by a different module', async () => {
-      // Some other module set sticky for an unrelated reason
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('some other module sticky reason');
+    it('does NOT clear a verdict set by a different owner', async () => {
+      fluxNetworkHelperStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
       policyStoreStub.getDocument.returns([]);
       setTamperScore(0);
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
     });
   });
 
@@ -483,8 +431,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await arcaneService.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
-      expect(fluxNetworkHelperStub.setStickyDosStateValue.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
       expect(arcaneService.isDosActive()).to.be.false;
     });
 
@@ -516,7 +463,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await svc.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
       expect(serviceHelperStub.axiosGet.called).to.be.false;
     });
 
@@ -528,7 +475,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await svc.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
       expect(serviceHelperStub.axiosGet.called).to.be.false;
     });
 
@@ -543,7 +490,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await svc.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
     });
 
     it('FLUXOS_PATH env var alone does not skip enforcement (spoof guard)', async () => {
@@ -558,7 +505,7 @@ describe('appTamperingBlocklistService tests', () => {
 
         await svc.enforceBlocklist();
 
-        sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDosMessage);
+        sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDos);
       } finally {
         if (originalFluxOSPath !== undefined) process.env.FLUXOS_PATH = originalFluxOSPath;
         else delete process.env.FLUXOS_PATH;

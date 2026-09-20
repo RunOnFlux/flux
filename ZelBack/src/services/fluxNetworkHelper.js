@@ -47,18 +47,32 @@ function setOnAddressChanged(callback) {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-// Sticky DOS state. Owned exclusively by whoever set it (e.g. the tampering
-// blocklist enforcer). Not affected by setDosMessage(null) / setDosStateValue
-// calls from other checks. When set, it takes precedence in getDosMessage()
-// and getDOSState() over the regular dosMessage/dosState.
-let stickyDosState = 0;
-let stickyDosMessage = null;
+// Who may take this node out of service permanently. An owner is an IDENTITY,
+// not a message: the reason is what an operator reads, and the owner is what a
+// release is checked against. Adding a feature that DOSes the node means adding
+// a value here, which is the point - an unknown owner is refused rather than
+// accepted as a new one.
+const StickyDosOwner = Object.freeze({
+  RESIDENTIAL_DOS: 'residentialDos',
+  APP_TAMPERING: 'appTampering',
+  PEER_SET_STABILITY: 'peerSetStability',
+  NODEJS_FLOOR: 'nodejsFloor',
+});
 
-// Marks the sticky message as this check's, the way every other writer of the
-// slot marks its own. Nothing clears this one - the runtime cannot change under
-// a running process - but an unattributable reason in a single shared slot is
-// what the convention exists to prevent.
-const NODEJS_DOS_MESSAGE_PREFIX = 'NodeJS Version Error';
+// Declares the node unfit for the apps it already runs, and is not moved by the
+// setDosMessage(null) an availability pass ends in: the conditions held here
+// outlive a good pass, so a check that reaches one states it once and it stands.
+//
+// owner -> reason, rather than one slot. A single slot cannot express two
+// owners: a second verdict either overwrites the first, stranding an owner that
+// can no longer recognise - and so never release - its own DOS, or is dropped,
+// and the node returns to service on the first owner's release for a condition
+// that never lifted. The node is out of service while any owner holds it.
+const stickyDosHolds = new Map();
+
+// A hold is a verdict rather than a score: an owner holds the node out of
+// service or it does not, and this is the value the enforcing readers test.
+const STICKY_DOS_STATE = 100;
 
 // Who may hold this node back from placement. An owner is an IDENTITY, not a
 // message: the reason is what an operator reads, and the owner is what a release
@@ -854,46 +868,75 @@ function setDosMessage(message) {
  * @returns {string} dosMessage
  */
 function getDosMessage() {
-  return stickyDosMessage || dosMessage;
+  return getStickyDosMessage() || dosMessage;
 }
 
 /**
- * Setter for the sticky DOS message. The sticky slot is not cleared by
- * setDosMessage(null); only the owner that set it should clear it via
- * clearStickyDosMessage().
- * @param {string} message
+ * Take this node out of service for as long as one owner says so. Idempotent
+ * per owner.
+ * @param {string} owner A StickyDosOwner value. An unknown one throws: it is a
+ * caller that was never given an identity, and accepting it would create a DOS
+ * nothing can ever release.
+ * @param {string} reason What an operator reads, and what is reported.
  */
-function setStickyDosMessage(message) {
-  stickyDosMessage = message;
+function setStickyDos(owner, reason) {
+  if (!Object.values(StickyDosOwner).includes(owner)) {
+    throw new Error(`setStickyDos: unknown owner ${owner}`);
+  }
+  if (stickyDosHolds.get(owner) === reason) return;
+  stickyDosHolds.set(owner, reason);
+  log.error(`Sticky DOS set by ${owner}: ${reason}`);
   publishEffectiveDosState();
 }
 
 /**
- * Getter for the sticky DOS message (ignores regular dosMessage).
- * @returns {string|null}
+ * Release one owner's verdict. Every other owner's stands, and the node stays
+ * out of service until all of them have released - so a feature clearing its
+ * own condition can never speak for one it knows nothing about.
+ * @param {string} owner A StickyDosOwner value.
+ */
+function clearStickyDos(owner) {
+  const reason = stickyDosHolds.get(owner);
+  if (reason === undefined) return;
+  stickyDosHolds.delete(owner);
+  log.info(`Sticky DOS cleared by ${owner} (was: ${reason})`);
+  publishEffectiveDosState();
+}
+
+/**
+ * @param {string} owner A StickyDosOwner value.
+ * @returns {boolean} True while that owner holds this node out of service.
+ */
+function isStickyDosHeldBy(owner) {
+  return stickyDosHolds.has(owner);
+}
+
+/**
+ * @returns {string|null} Why the node is out of service, or null when no owner
+ * holds it. Every reason, not an arbitrary one: naming one of two would send an
+ * operator to lift a condition that would not return the node to service.
  */
 function getStickyDosMessage() {
-  return stickyDosMessage;
+  if (!stickyDosHolds.size) return null;
+  return [...stickyDosHolds.values()].join('; ');
 }
 
 /**
- * Clears the sticky DOS message and sticky state value.
+ * The DOS state a reader sees. A held node reports the sticky verdict; an
+ * unheld one reports what the availability checks have counted.
+ * @returns {number}
  */
-function clearStickyDosMessage() {
-  stickyDosMessage = null;
-  stickyDosState = 0;
-  publishEffectiveDosState();
+function effectiveDosState() {
+  return stickyDosHolds.size ? STICKY_DOS_STATE : dosState;
 }
 
 /**
  * Publish the DOS state a reader would actually see.
  *
- * isNodeDos() answers on `stickyDosMessage ? stickyDosState : dosState`, so the
- * effective value moves when EITHER half of the sticky pair moves, and neither
- * setter emitted anything. A consumer therefore had to poll /flux/info, and a
- * poll cannot order a DOS against anything else: the installed-apps record
- * outlives the removal it follows by ~20s, so two polls of two sources disagree
- * about what happened first. On one event stream the ids settle it.
+ * A consumer polling /flux/info cannot order a DOS against anything else: the
+ * installed-apps record outlives the removal it follows by ~20s, so two polls
+ * of two sources disagree about what happened first. On one event stream the
+ * ids settle it.
  *
  * Inert in production - fluxEventBus.publish returns immediately unless
  * config.testEventStream is set, which it is only under the harness. This is
@@ -901,20 +944,10 @@ function clearStickyDosMessage() {
  * product's own scattered dosState mutations.
  */
 function publishEffectiveDosState() {
-  const effectiveDosState = stickyDosMessage ? stickyDosState : dosState;
   fluxEventBus.publish('dos:changed', {
-    dosState: effectiveDosState,
-    dosMessage: stickyDosMessage || dosMessage,
+    dosState: effectiveDosState(),
+    dosMessage: getDosMessage(),
   });
-}
-
-/**
- * Setter for the sticky DOS state value.
- * @param {number} value
- */
-function setStickyDosStateValue(value) {
-  stickyDosState = value;
-  publishEffectiveDosState();
 }
 
 /**
@@ -943,8 +976,7 @@ function getDosStateValue() {
 // threshold crossing. This would eliminate polling and give immediate
 // response to DOS state changes.
 function isNodeDos() {
-  const effectiveState = stickyDosMessage ? stickyDosState : dosState;
-  return effectiveState >= 100;
+  return effectiveDosState() >= 100;
 }
 
 /**
@@ -1139,27 +1171,17 @@ function getStoredFluxBenchAllowed() {
 }
 
 /**
- * True when the sticky slot holds this check's message, identified by the
- * prefix it always carries. The slot takes one message and has several writers,
- * so recognising its own is what lets this one leave another's alone.
- * @returns {boolean}
- */
-function isOurNodeJsStickyDos() {
-  const message = getStickyDosMessage();
-  return typeof message === 'string' && message.startsWith(NODEJS_DOS_MESSAGE_PREFIX);
-}
-
-/**
  * Whether the NodeJS this process runs on meets the network minimum. FluxOS
  * calls runtime APIs that do not exist below it, so such a node cannot serve
  * correctly however healthy the rest of it looks.
  *
  * Asked once, at startup: the version is a property of the running process and
  * cannot change under it, so re-asking costs work to learn what is already
- * known. The verdict is held in the STICKY slot for the same reason - a good
- * availability pass ends in setDosMessage(null), which would clear an ordinary
- * message and let the node walk back into service on a runtime that cannot run
- * the code. Sticky survives that, so the answer is stated once and stands.
+ * known. The verdict is a STICKY hold for the same reason - a good availability
+ * pass ends in setDosMessage(null), which would clear an ordinary message and
+ * let the node walk back into service on a runtime that cannot run the code.
+ * A hold survives that, and is held by this check alone, so the answer is
+ * stated once and stands until the node boots on a runtime that satisfies it.
  * @returns {boolean} True if the runtime is allowed. Otherwise false.
  */
 function checkNodeJsVersionAllowed() {
@@ -1176,26 +1198,10 @@ function checkNodeJsVersionAllowed() {
   if (serviceHelper.minVersionSatisfy(nodeJsVersion, minimumVersion)) {
     return true;
   }
-  const message = `${NODEJS_DOS_MESSAGE_PREFIX}. Current lower version allowed is v${minimumVersion} found v${nodeJsVersion}`;
-  const sticky = getStickyDosMessage();
-  if (sticky) {
-    // One message, several writers, so the slot is taken only while free. Each
-    // writer decides both whether to set and whether to clear by recognising its
-    // own message, so an owner whose message is replaced holds a DOS it can
-    // never release. startFluxFunctions re-enters itself 15s after any throw and
-    // the other writers start partway through it, so every retry reaches here
-    // with all of them live.
-    //
-    // The verdict is independent of the slot: a node below the floor is unfit
-    // whether or not this check is the reason an operator reads.
-    if (!isOurNodeJsStickyDos()) {
-      log.error(`${message} - another sticky DOS is active, not overwriting it`);
-    }
-    return false;
-  }
-  setStickyDosMessage(message);
-  setStickyDosStateValue(100);
-  log.error(message);
+  setStickyDos(
+    StickyDosOwner.NODEJS_FLOOR,
+    `NodeJS Version Error. Current lower version allowed is v${minimumVersion} found v${nodeJsVersion}`,
+  );
   return false;
 }
 
@@ -2005,8 +2011,8 @@ async function checkDeterministicNodesCollisions() {
  */
 function getDOSState(req, res) {
   const data = {
-    dosState: stickyDosMessage ? stickyDosState : dosState,
-    dosMessage: stickyDosMessage || dosMessage,
+    dosState: effectiveDosState(),
+    dosMessage: getDosMessage(),
   };
   const message = messageHelper.createDataMessage(data);
   return res ? res.json(message) : message;
@@ -2723,10 +2729,11 @@ module.exports = {
   clearPlacementHold,
   getPlacementHold,
   isPlacementHeld,
-  setStickyDosMessage,
+  StickyDosOwner,
+  setStickyDos,
+  clearStickyDos,
+  isStickyDosHeldBy,
   getStickyDosMessage,
-  clearStickyDosMessage,
-  setStickyDosStateValue,
   fluxUptime,
   fluxSystemUptime,
   isCommunicationEstablished,
