@@ -249,12 +249,26 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
 
   it('replicates an m: directory and never an ml: one', async function () {
     this.timeout(420000);
-    const [a, b] = env.clients;
+    const folderId = `flux${appName}_${appName}`;
+
+    // WHICH node writes is read, never assumed. The cold-start election above is not
+    // pinned to an address - it waits for exactly one seed and does not say whose - and
+    // a receiveonly folder publishes its local files with a zeroed version vector, so
+    // they reach no peer at all. Writing on the wrong node makes the canary below time
+    // out and reports the fixture as a product failure.
+    const modes = await Promise.all(nodes.map(async (i) => {
+      const list = await getFolders(env.clients[i]).catch(() => []);
+      return list.find((folder) => folder.id === folderId)?.type;
+    }));
+    const from = modes[0] === 'sendreceive' ? 0 : 1;
+    expect(modes[from], 'no node holds the folder sendreceive, so nothing can replicate').to.equal('sendreceive');
+    const a = env.clients[nodes[from]];
+    const b = env.clients[nodes[from === 0 ? 1 : 0]];
 
     const ids = await Promise.all([getDeviceId(a), getDeviceId(b)]);
     expect(ids[0], 'the nodes must have distinct identities').to.not.equal(ids[1]);
     await waitFor(async () => (await getConnectedDevices(a)).includes(ids[1]), {
-      timeout: 240000, interval: 5000, label: 'node 0 connected to node 1',
+      timeout: 240000, interval: 5000, label: 'the writing node is connected to its peer',
     });
 
     // Written in the same breath, so the m: file is this test's canary: "the ml:
