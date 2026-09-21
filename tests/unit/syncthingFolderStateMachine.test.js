@@ -2369,6 +2369,57 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.reason).to.equal('phantom_index_empty_disk');
     });
 
+    // What a wiped volume ACTUALLY holds. Every app volume is formatted ext4, so
+    // lost+found is there before the app is, the staging directory is permanent, and
+    // an ml: directory is created at volume construction. A walk that counts any of
+    // them finds every volume occupied and the guard never fires on a real node -
+    // which is what the fixtures above, none of which carries lost+found, could not
+    // show.
+    it('still flags a phantom over the scaffolding a real volume is built with', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('.stfolder', false), dirent('lost+found', false),
+        dirent('.flux-op', false), dirent('backup', false), dirent('cache', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 500000, inSyncBytes: 0, state: 'idle' });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', ['cache']);
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
+    // The spec decides which directories are unsynced, not the name. A directory the
+    // specification never declared is the owner's data whatever it is called.
+    it('counts a directory the specification did not declare unsynced', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('lost+found', false), dirent('cache', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 500000, inSyncBytes: 0, state: 'idle' });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe).to.be.true;
+    });
+
+    // Every one of these exclusions is a .stignore line anchored to the folder root, so
+    // the same name inside the owner's own tree is their data. Asserted on the count,
+    // which is where it shows: the verdict is already decided by the root entry above it.
+    it('counts a scaffolding name that appears below the volume root', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/appdata').resolves([
+        dirent('backup', false),
+      ]);
+
+      const check = await stateMachine.checkDirectoryHasSyncScopedContent('/apps/test-app', []);
+
+      expect(check.fileCount, 'appdata and the backup directory inside it').to.equal(2);
+    });
+
     it('is safe on an empty disk when the index is empty too (cold-start seed)', async () => {
       fsMock.promises.readdir.resolves([dirent('.stignore')]);
       syncthingServiceMock.getDbStatus.resolves({ globalBytes: 0, inSyncBytes: 0, state: 'idle' });

@@ -72,11 +72,12 @@ const appsFolder = `${appsFolderPath}/`;
  * @param {string} appId - Docker app identifier
  * @param {string} appFolder - App folder path
  * @param {boolean} sending - Whether syncthing currently holds this folder sendreceive
+ * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
  * @returns {Promise<{isSafe: boolean, reason: string}>} Result after any repair
  */
-async function verifyAppFolderMountWithRepair(appId, appFolder, sending) {
+async function verifyAppFolderMountWithRepair(appId, appFolder, sending, unsyncedSubdirs = []) {
   const verify = sending ? verifySendReceiveFolderSafety : verifyFolderMountSafety;
-  let mountSafety = await verify(appId, appFolder);
+  let mountSafety = await verify(appId, appFolder, unsyncedSubdirs);
   if (!mountSafety.isSafe && !mountSafety.isMounted) {
     const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
     if (mountAttempt.mounted) {
@@ -91,7 +92,7 @@ async function verifyAppFolderMountWithRepair(appId, appFolder, sending) {
         );
       }
       log.info(`checkAppFolderMounts - ${appId} volume was not mounted; mounted it`);
-      mountSafety = await verify(appId, appFolder);
+      mountSafety = await verify(appId, appFolder, unsyncedSubdirs);
     }
   }
   return mountSafety;
@@ -133,9 +134,9 @@ async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolder
   const unmountedApps = [];
   const verifiedSafeIds = [];
 
-  const verifyOne = async (appId, appName) => {
+  const verifyOne = async (appId, appName, unsyncedSubdirs = []) => {
     const appFolder = `${appsFolder}${appId}`;
-    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder, sendingFolderIds.has(appId));
+    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder, sendingFolderIds.has(appId), unsyncedSubdirs);
     if (mountSafety.isSafe) {
       verifiedSafeIds.push(appId);
     } else {
@@ -147,14 +148,16 @@ async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolder
   // eslint-disable-next-line no-restricted-syntax
   for (const installedApp of appsInstalled) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const { appId } of appComponents(installedApp)) {
+    for (const { appId, containerData } of appComponents(installedApp)) {
       // eslint-disable-next-line no-await-in-loop
-      await verifyOne(appId, installedApp.name);
+      await verifyOne(appId, installedApp.name, mountParser.getUnsyncedSubdirs(containerData));
     }
   }
 
   // The verdict derives entirely from the folder id, so a folder whose owning
-  // app cannot be read this pass is verified all the same.
+  // app cannot be read this pass is verified all the same - without the
+  // specification that says which directories are unsynced, so each of those counts
+  // as the owner's data and the phantom check can only be more reluctant to fire.
   // eslint-disable-next-line no-restricted-syntax
   for (const { appId, appName } of extraFolders) {
     // eslint-disable-next-line no-await-in-loop

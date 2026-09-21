@@ -74,22 +74,29 @@ function noteSafetyObservation(appId, observation, logFn, message) {
  * process, no shell, and immune to the output-buffer truncation a
  * `find | wc` pipeline hits on huge trees (where a truncated listing could
  * make a safety guard misread a populated folder as empty).
+ * `excludeRoot` is asked about entries of the scan root ONLY, which is what an
+ * exclusion derived from a syncthing ignore line means: those lines are anchored to
+ * the folder root, so a name repeated deeper in the owner's own tree is their data
+ * and is counted.
  * @param {string} dirPath - Directory to scan
  * @param {number} limit - Stop counting once this many entries are found
- * @param {{excludeNames?: string[], excludeDirs?: string[], countDirs?: boolean}} options -
- *   Skips, and whether a (non-excluded) directory counts as content in its own
- *   right rather than only as a subtree to descend into.
+ * @param {{excludeNames?: string[], excludeDirs?: string[],
+ *   excludeRoot?: (name: string) => boolean, countDirs?: boolean}} options - Skips, and
+ *   whether a (non-excluded) directory counts as content in its own right rather than
+ *   only as a subtree to descend into.
  * @returns {Promise<number>} Number of entries found (capped at limit)
  */
-async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs = [], countDirs = false } = {}) {
+async function countFilesUpTo(dirPath, limit, {
+  excludeNames = [], excludeDirs = [], excludeRoot = null, countDirs = false,
+} = {}) {
   let count = 0;
-  const pending = [dirPath];
+  const pending = [{ dir: dirPath, isRoot: true }];
   while (pending.length > 0 && count < limit) {
     const current = pending.pop();
     let entries;
     try {
       // eslint-disable-next-line no-await-in-loop
-      entries = await fs.promises.readdir(current, { withFileTypes: true });
+      entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
     } catch (error) {
       // unreadable/missing directory - skip it, like find does
       // eslint-disable-next-line no-continue
@@ -97,6 +104,10 @@ async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs =
     }
     // eslint-disable-next-line no-restricted-syntax
     for (const entry of entries) {
+      if (current.isRoot && excludeRoot && excludeRoot(entry.name)) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (entry.isDirectory()) {
         if (excludeDirs.includes(entry.name)) {
           // eslint-disable-next-line no-continue
@@ -111,7 +122,7 @@ async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs =
           count += 1;
           if (count >= limit) break;
         }
-        pending.push(path.join(current, entry.name));
+        pending.push({ dir: path.join(current.dir, entry.name), isRoot: false });
       } else if (entry.isFile() && !excludeNames.includes(entry.name)) {
         count += 1;
         if (count >= limit) break;
@@ -135,26 +146,49 @@ async function checkDirectoryHasContent(dirPath) {
 }
 
 /**
+ * Whether a volume-root entry is the owner's data rather than scaffolding.
+ *
+ * The sync scope is what the syncthing index describes, and a volume carries
+ * entries at its root that the index never counts and a wipe never removes:
+ * syncthing's own control files, the `lost+found` every ext4 volume is formatted
+ * with, the executor's staging directory, the `/backup` subtree, and each
+ * directory the specification declared `ml:`. Read against the DISK they are the
+ * whole answer to "is anything here", which is why a walk that counts them can
+ * never find a volume empty.
+ *
+ * Stated once because the disk walk and the index read have to agree: a name one
+ * treats as the owner's and the other does not puts the two sides of the phantom
+ * check on different scopes.
+ *
+ * @param {string} name - a single volume-root path component, not a path
+ * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
+ * @returns {boolean}
+ */
+function isSyncedPayloadName(name, unsyncedSubdirs = []) {
+  return !isReservedName(name)
+    && name !== 'backup'
+    && !unsyncedSubdirs.includes(name);
+}
+
+/**
  * Like checkDirectoryHasContent, but counts entries inside the folder's SYNC
- * SCOPE - the same scope the syncthing index describes (globalBytes). Two
- * kinds of on-disk entry are NOT synced payload and are skipped so they cannot
- * mask a genuinely empty dataset: housekeeping that FluxOS/syncthing recreate
- * on any fresh or wiped volume (`.stignore`, the `.stfolder` marker), and the
- * `/backup` subtree `.stignore` tells syncthing to ignore. Everything else
- * counts - crucially INCLUDING directories, because the index counts each
- * directory entry too: a folder whose synced payload is only (empty)
- * directories has globalBytes > 0 with zero regular files, and a files-only
- * walk misread that as a phantom index over an empty disk (the 2026-07-04
- * false positive that stopped healthy, fully-synced apps and held them down).
- * A truly wiped disk keeps only the skipped housekeeping, so it still reads
- * empty and the phantom guard still fires.
+ * SCOPE - the same scope the syncthing index describes (globalBytes). What is not
+ * synced payload is skipped so it cannot mask a genuinely empty dataset; the set is
+ * isSyncedPayloadName, anchored to the root because that is where every one of those
+ * exclusions is anchored in .stignore. Everything else counts - crucially INCLUDING
+ * directories, because the index counts each directory entry too: a folder whose
+ * synced payload is only (empty) directories has globalBytes > 0 with zero regular
+ * files, and a files-only walk misread that as a phantom index over an empty disk
+ * (the 2026-07-04 false positive that stopped healthy, fully-synced apps and held
+ * them down). A truly wiped disk keeps only the skipped scaffolding, so it reads
+ * empty and the phantom guard fires.
  * @param {string} dirPath - Directory path to check
+ * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
  * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
  */
-async function checkDirectoryHasSyncScopedContent(dirPath) {
+async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = []) {
   const fileCount = await countFilesUpTo(dirPath, 100, {
-    excludeNames: ['.stignore'],
-    excludeDirs: ['backup', '.stfolder'],
+    excludeRoot: (name) => !isSyncedPayloadName(name, unsyncedSubdirs),
     countDirs: true,
   });
   return {
@@ -209,9 +243,7 @@ async function localHoldings(folderId, skipNames = []) {
       const topLevel = name.split('/')[0];
       const owned = entry?.type === 'FILE_INFO_TYPE_FILE'
         && entry.deleted !== true
-        && !isReservedName(topLevel)
-        && topLevel !== 'backup'
-        && !skipNames.includes(topLevel);
+        && isSyncedPayloadName(topLevel, skipNames);
       // An entry with no bytes contributes no timestamp either. The f: mount leaves a
       // zero-length file that FluxOS touches at volume creation, so its mtime is the
       // moment the volume was built - which would make a node holding nothing look more
@@ -327,14 +359,14 @@ async function verifyFolderMountSafety(appId, folderPath) {
  * @param {string} folderPath - Syncthing folder path
  * @returns {Promise<{isSafe: boolean, reason: string, isMounted: boolean, hasContent: boolean}>}
  */
-async function verifySendReceiveFolderSafety(appId, folderPath) {
+async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs = []) {
   const result = await verifyFolderMountSafety(appId, folderPath);
   if (!result.isSafe) return result;
 
   const syncStatus = await getFolderSyncCompletion(appId);
   if (!syncStatus || syncStatus.globalBytes === 0) return result;
 
-  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath);
+  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs);
   if (!dataCheck.hasContent) {
     result.isSafe = false;
     result.reason = 'phantom_index_empty_disk';
@@ -1193,7 +1225,7 @@ async function handleReceiveOnlyTransition(params) {
     // over an empty disk); an unmounted dir, or a stale index claiming bytes
     // over an empty volume, must never seed: sendreceive would broadcast the
     // missing files as deletions.
-    const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+    const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || []);
     if (!seedSafety.isSafe) {
       log.warn(`handleReceiveOnlyTransition - ${appId} elected leader but not safe to seed (${seedSafety.reason}); staying receiveonly`);
       syncthingFolder.type = 'receiveonly';
@@ -1292,7 +1324,7 @@ async function handleReceiveOnlyTransition(params) {
       // Same pre-flip verification as the seed above: completion metrics come
       // from the index, and an index can be stale - promotion requires the disk
       // to actually hold the data the index claims.
-      const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+      const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || []);
       if (!promoteSafety.isSafe) {
         log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
         return { syncthingFolder, cache };
@@ -1564,5 +1596,6 @@ module.exports = {
   isPathMounted,
   checkDirectoryHasContent,
   checkDirectoryHasSyncScopedContent,
+  isSyncedPayloadName,
   nudgeFolderDevices,
 };
