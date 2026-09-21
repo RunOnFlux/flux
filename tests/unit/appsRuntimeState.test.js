@@ -726,23 +726,35 @@ describe('appsRuntimeState tests', () => {
     // Everything else has to survive by being carried, or every field added to
     // this document after the merge was written is silently dropped by it -
     // and the volume record is what that would cost today.
-    it('carries fields the merge does not name, from the newest twin', async () => {
+    it('carries fields the merge does not name, from whichever twin has them', async () => {
       docs = [
+        // the older twin is the only one carrying the stamp, which is the
+        // scatter this merge exists to repair - taking fields from the newest
+        // document alone would drop it
         {
-          _id: 'a', identifier: 'www_App', volumeImagePath: '/mnt/old.img', volumeFsUuid: 'u-old', updatedAt: 1000,
+          identifier: 'www_App', volumeFsUuid: 'u-scattered', updatedAt: 1000,
         },
         {
-          _id: 'b', identifier: 'www_App', volumeImagePath: '/mnt/new.img', volumeFsUuid: 'u-new', updatedAt: 9000,
+          identifier: 'www_App', volumeImagePath: '/mnt/new.img', updatedAt: 9000,
         },
       ];
 
       await prepState.prepareCollection();
 
       const merged = upserts[0].set;
-      expect(merged.volumeImagePath, 'the volume record did not survive the merge').to.equal('/mnt/new.img');
-      expect(merged.volumeFsUuid).to.equal('u-new');
-      // the old identity must not travel into the fresh insert
-      expect(merged._id, 'the merged document carried an _id').to.equal(undefined);
+      expect(merged.volumeFsUuid, 'a field only the older twin carried was dropped').to.equal('u-scattered');
+      expect(merged.volumeImagePath).to.equal('/mnt/new.img');
+    });
+
+    it('takes the newest value when both twins carry the same field', async () => {
+      docs = [
+        { identifier: 'www_App', volumeImagePath: '/mnt/old.img', updatedAt: 1000 },
+        { identifier: 'www_App', volumeImagePath: '/mnt/new.img', updatedAt: 9000 },
+      ];
+
+      await prepState.prepareCollection();
+
+      expect(upserts[0].set.volumeImagePath).to.equal('/mnt/new.img');
     });
 
     it('merges twins field-wise: lock is OR, histories union, newest exit wins', async () => {

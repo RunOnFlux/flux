@@ -464,6 +464,27 @@ describe('volumeService tests', () => {
       expect(callsFor('mount')).to.have.lengthOf(0);
     });
 
+    // A record naming a path this node no longer uses describes an image that
+    // is not there. Refusing the real volume on that basis loses the app's
+    // data for good, and no other writer repairs it - so the record is
+    // replaced by what the mount just proved.
+    it('adopts the image it found when the record names a path that is gone', async () => {
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/gone/fluxapp1FLUXFSVOL', fsUuid: 'from-a-volume-that-went' });
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        blkid: async () => ({ error: null, stdout: 'the-real-one\n', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.mounted, 'the genuine volume was refused over a stale record').to.be.true;
+      sinon.assert.calledWith(appsRuntimeStateStub.setVolumeImage, 'fluxapp1', '/dat/fluxapp1FLUXFSVOL', 'the-real-one');
+    });
+
     it('mounts the image whose stamp matches', async () => {
       appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'someone-elses-uuid' });
       fsStub.promises.access.rejects(enoent());
@@ -634,6 +655,19 @@ describe('volumeService tests', () => {
       expect(result.conclusive).to.be.false;
     });
 
+    it('is not made short by a search root that is a file', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda2[/var/lib/docker/containers/abc/hostname]', target: '/etc/hostname', fstype: 'ext4' },
+      ]);
+      fsStub.promises.readdir.resolves([]);
+      fsStub.promises.readdir.withArgs('/etc/hostname')
+        .rejects(Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' }));
+
+      const result = await volumeService.getComponentAppIdsFromVolumeFiles('myapp');
+
+      expect(result.conclusive).to.be.true;
+    });
+
     it('says the list is short when a searched directory cannot be read', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
       fsStub.promises.readdir.resolves([]);
@@ -729,6 +763,27 @@ describe('volumeService tests', () => {
       expect(result.conclusive).to.be.false;
     });
 
+    // A mount can be a FILE: docker binds /etc/hostname and its siblings off
+    // the host disk wherever FluxOS runs in a container, and those are search
+    // roots. Nothing can exist beneath them, so that is an answer - reading it
+    // as "could not look" leaves every search on such a node inconclusive and
+    // silences the missing-image signal for good.
+    it('counts a search root that is a file as a definite absence', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda2[/var/lib/docker/containers/abc/hostname]', target: '/etc/hostname', fstype: 'ext4' },
+        { source: '/dev/sda2[/var/lib/docker/volumes/appdata/_data]', target: '/mnt/appdata', fstype: 'ext4' },
+      ]);
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/etc/hostname/fluxapp1FLUXFSVOL')
+        .rejects(Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' }));
+
+      const result = await volumeService.getVolumeFilePath('fluxapp1');
+
+      expect(result.path).to.be.null;
+      expect(result.conclusive, 'a file mount left the search unable to say the image is gone').to.be.true;
+      expect(result.blocked).to.be.null;
+    });
+
     it('settles the question when the image turns up despite an unreadable mount table', async () => {
       deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
       fsStub.promises.access.rejects(enoent());
@@ -759,8 +814,12 @@ describe('volumeService tests', () => {
     });
 
     it('should be a no-op when the app dir is already a mountpoint', async () => {
-      // the mountedness comes from mountinfo - proving the composition once
-      fsStub.promises.readFile.resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
+      // the mountedness comes from mountinfo - proving the composition once.
+      // Answered per path, not for every read: a blanket resolve hands the
+      // mountinfo blob back as the loop device's backing file, which is a
+      // state the kernel cannot produce and would be recorded as an image path.
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
+        .resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
 
       const result = await volumeService.ensureAppVolumeMounted('app1');
 

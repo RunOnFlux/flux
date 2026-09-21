@@ -526,12 +526,16 @@ async function prepareCollection() {
     // eslint-disable-next-line no-restricted-syntax
     for (const [identifier, twins] of byIdentifier) {
       if (twins.length > 1) {
-        // Start from the newest twin so a field added to this document later
-        // survives a merge without being named here; what follows overrides
-        // the ones whose correct value is not "whichever was written last".
-        const newest = [...twins].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+        // Oldest first, so every field any twin carries survives and the newest
+        // value of each wins. Fields scatter across twins - that is the whole
+        // reason this merge exists - so taking them from one document would
+        // drop exactly what the scatter put on the other, and a field added to
+        // this document later would be lost without ever being named here.
+        // What follows overrides the ones whose correct value is not simply
+        // "whichever was written last".
+        const oldestFirst = [...twins].sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
         const merged = {
-          ...newest,
+          ...Object.assign({}, ...oldestFirst),
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
@@ -550,8 +554,8 @@ async function prepareCollection() {
           autoRestartWindow: [...new Set(twins.flatMap((t) => t.autoRestartWindow || []))].sort((a, b) => a - b).slice(-RESTART_BURST_COUNT),
           updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
         };
-        // the merged doc is written by $set into a fresh insert, so the old
-        // identity must not travel with it
+        // the read projects _id away, but a spread of whatever the documents
+        // carry must not be the thing that reintroduces it into a $set
         delete merged._id;
         const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
         if (newestExit) {

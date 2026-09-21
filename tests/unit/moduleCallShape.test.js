@@ -17,7 +17,6 @@
 
 const fs = require('node:fs');
 const nodePath = require('node:path');
-const { execFileSync } = require('node:child_process');
 
 const { expect } = require('chai');
 const espree = require('espree');
@@ -39,8 +38,12 @@ function walk(node, visit) {
   }
 }
 
-const sourceFiles = () => execFileSync('git', ['-C', ROOT, 'ls-files', 'ZelBack/src'], { encoding: 'utf8' })
-  .split('\n').filter((file) => file.endsWith('.js'));
+// Read off the filesystem rather than asked of git: the unit suite also runs
+// inside a container that has no git, and a file that is not yet committed is
+// exactly the one whose calls have not been checked by anything.
+const sourceFiles = () => fs.readdirSync(nodePath.join(ROOT, 'ZelBack/src'), { recursive: true })
+  .map((entry) => nodePath.join('ZelBack/src', entry))
+  .filter((file) => file.endsWith('.js'));
 
 const astCache = new Map();
 function astOf(relPath) {

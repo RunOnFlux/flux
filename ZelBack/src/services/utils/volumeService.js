@@ -26,7 +26,7 @@ const BYTES_PER_GIB = 1024 ** 3;
  * an overlay is a container's own writable layer, and a squashfs cannot be
  * written to at all.
  */
-const EPHEMERAL_FSTYPES = new Set(['tmpfs', 'ramfs', 'devtmpfs', 'overlay', 'squashfs']);
+const UNUSABLE_FSTYPES = new Set(['tmpfs', 'ramfs', 'devtmpfs', 'overlay', 'squashfs']);
 
 /**
  * Filesystems whose bytes are on another machine. `fallocate` is unsupported on
@@ -52,8 +52,8 @@ const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
  * for the rest that sequence is not established on anything the fleet runs,
  * and `fuseblk` does not even name the driver it would go through - ntfs-3g
  * and exfat-fuse both arrive under it. `createAppVolume` takes one candidate
- * and never falls back, so a filesystem that cannot carry the sequence puts
- * the node in DOS rather than costing it a disk.
+ * and never falls back, so a filesystem that cannot carry the sequence fails
+ * the install outright rather than costing the node a disk.
  */
 const UNPLACEABLE_FSTYPES = new Set(['vfat', 'msdos', 'exfat', 'ntfs', 'ntfs3', 'fuseblk']);
 
@@ -153,7 +153,7 @@ function oneRowPerDevice(rows) {
  */
 function isSearchableFilesystem(mount) {
   const fstype = String(mount.fstype || '');
-  if (EPHEMERAL_FSTYPES.has(fstype)) return false;
+  if (UNUSABLE_FSTYPES.has(fstype)) return false;
   // A fuse type names the driver rather than the backing, and the drivers that
   // reach across a network are open-ended: gluster and sshfs arrive as
   // `fuse.glusterfs` and `fuse.sshfs`, the object stores as `fuse.rclone`,
@@ -273,7 +273,7 @@ async function placementVolumesInGib() {
   // otherwise looks exactly like a disk the node never had.
   if (writable.length !== hosts.length) {
     const refused = hosts.filter((mount) => !writable.includes(mount)).map((mount) => mount.target);
-    log.info(`placementVolumesInGib - not writable, so not offered: ${refused.join(', ')}`);
+    log.info(`placementVolumesInGib - not a writable directory this node reaches, so not offered: ${refused.join(', ')}`);
   }
   return oneRowPerDevice(writable)
     .sort((a, b) => b.availableBytes - a.availableBytes)
@@ -489,7 +489,12 @@ async function mountedImagePath(dirPath) {
   if (!loop) return null;
   const backing = await fs.readFile(`/sys/block/${loop[1]}/loop/backing_file`, 'utf8').catch(() => null);
   if (!backing) return null;
-  const backingPath = unescapeMount(backing.trim());
+  // Not unescaped: this is d_path() output from sysfs, which does not mangle
+  // anything the way mountinfo escapes space, tab, newline and backslash.
+  // Running the mountinfo rule over it would corrupt a path that legitimately
+  // contains a backslash-digit sequence, and that path is persisted and later
+  // handed to a removal.
+  const backingPath = backing.trim();
   // The kernel appends this for a backing file that has been unlinked. The
   // mount is still live and still readable, but the path names nothing and
   // never resolves again, so there is no image here to record a way back to.
@@ -523,17 +528,34 @@ async function getVolumeFilePath(appId) {
   // by a file somebody else named, which is the whole weakness of the search
   // below.
   const recorded = await recordedVolumeImage(appId);
+  let blocked = null;
   if (recorded) {
-    const present = await fs.access(recorded.path).then(() => true).catch(() => false);
-    if (present) return { path: recorded.path, conclusive: true, blocked: null };
+    const failure = await fs.access(recorded.path).then(() => null).catch((error) => error);
+    if (!failure) return { path: recorded.path, conclusive: true, blocked: null };
+    // The recorded path is where this node put the image. If it cannot be read
+    // at all, the search below can still find one - but it cannot say the
+    // image is GONE, because the one place it is known to have been is the
+    // place that would not answer.
+    if (failure.code !== 'ENOENT' && failure.code !== 'ENOTDIR') {
+      blocked = 'candidate_path_unreadable';
+      log.warn(`getVolumeFilePath - the recorded image ${recorded.path} could not be read (${failure.code || failure.message})`);
+    }
   }
 
   const volumeFileName = `${appId}FLUXFSVOL`;
-  const candidates = [];
-  // Which fault stopped the search covering everywhere, or null. A caller
-  // reports the fault it actually met: naming the mount table for a disk that
-  // answered EIO sends whoever reads it to the wrong thing.
-  let blocked = null;
+  // This node's own directories first, then the mounts. A component installed
+  // before the record existed has no stamp until its first successful mount,
+  // and until then a file planted under this name on any searched mount would
+  // outrank the genuine image here - and then be recorded as this node's own.
+  // Nothing else can write into these two.
+  const candidates = [
+    path.join(appVolumesPath, volumeFileName),
+    path.join(legacyAppVolumesPath, volumeFileName),
+  ];
+  // `blocked` above records which fault stopped the search covering
+  // everywhere, or null. A caller reports the fault it actually met: naming
+  // the mount table for a disk that answered EIO sends a reader to the wrong
+  // thing.
 
   try {
     const mounts = await eligibleHostMounts();
@@ -545,8 +567,6 @@ async function getVolumeFilePath(appId) {
     log.warn(`getVolumeFilePath - findmnt failed (${error.message}), searching the appvolumes locations only`);
   }
 
-  candidates.push(path.join(appVolumesPath, volumeFileName));
-  candidates.push(path.join(legacyAppVolumesPath, volumeFileName));
 
   // eslint-disable-next-line no-restricted-syntax
   for (const candidate of candidates) {
@@ -554,11 +574,14 @@ async function getVolumeFilePath(appId) {
     const failure = await fs.access(candidate).then(() => null).catch((error) => error);
     // Finding it settles the question whatever the search could not reach.
     if (!failure) return { path: candidate, conclusive: true, blocked: null };
-    // Only ENOENT says an image is not here. A path that could not be read -
-    // the disk answering EIO, a directory that denies the lookup - has ruled
-    // nothing out, and reporting it absent is how a failing disk becomes a
-    // tampering event against the operator.
-    if (failure.code !== 'ENOENT') {
+    // ENOENT and ENOTDIR both say an image is not here, and say it definitely:
+    // nothing can exist beneath a path component that is not a directory, and
+    // a mount can be a file - docker binds /etc/hostname and its siblings off
+    // the host disk, so those are search roots wherever FluxOS runs in a
+    // container. Everything else - the disk answering EIO, a directory that
+    // denies the lookup - has ruled nothing out, and reporting THAT absent is
+    // how a failing disk becomes a tampering event against the operator.
+    if (failure.code !== 'ENOENT' && failure.code !== 'ENOTDIR') {
       blocked = blocked || 'candidate_path_unreadable';
       log.warn(`getVolumeFilePath - ${candidate} could not be read (${failure.code || failure.message}), so the image is not ruled out`);
     }
@@ -615,10 +638,11 @@ async function getComponentAppIdsFromVolumeFiles(appName) {
       });
       return null;
     }).catch((error) => error);
-    // A directory that is not there held no images. One that could not be read
-    // may have held any of them, and the same argument applies as to the mount
+    // A directory that is not there, or a path that is not a directory at all,
+    // held no images and says so definitely. One that could not be READ may
+    // have held any of them, and the same argument applies as to the mount
     // table: a list short by an unknown amount is not a component set.
-    if (failure && failure.code !== 'ENOENT') {
+    if (failure && failure.code !== 'ENOENT' && failure.code !== 'ENOTDIR') {
       conclusive = false;
       log.warn(`getComponentAppIdsFromVolumeFiles - ${dir} could not be read (${failure.code || failure.message}), so ${appName}'s component list is not complete`);
     }
@@ -713,11 +737,19 @@ async function ensureAppVolumeMounted(identifier) {
     log.warn(`ensureAppVolumeMounted - ${mountPoint} is not mounted but holds ${mountPointEntries.length} entries; they were written while unmounted and will be shadowed by the volume`);
   }
 
-  // An image this node stamped identifies itself. A file that is not it -
-  // whatever it is called and wherever it was found - is not mounted as root
-  // over an app's data.
+  // The stamp is a claim about the image AT the recorded path: that the file
+  // still sitting where this node put one is the one it put there. A file
+  // substituted at that path is refused.
+  //
+  // It says nothing about an image found somewhere else. A volume legitimately
+  // re-created elsewhere, or a record left behind by a release that has since
+  // been rolled back, leaves a path this node no longer uses - and refusing on
+  // that basis would refuse the app's real data for good, with no way back
+  // short of destroying it. So a record that does not describe where the image
+  // actually is, is stale rather than damning: it is replaced below.
   const stamped = await recordedVolumeImage(appId);
-  if (stamped && stamped.fsUuid) {
+  const atRecordedPath = Boolean(stamped) && stamped.path === volumeFile;
+  if (atRecordedPath && stamped.fsUuid) {
     const found = await imageFsUuid(volumeFile);
     // A UUID that cannot be read says nothing either way, and the mount itself
     // refuses anything that is not a filesystem. Only a positive mismatch is a
@@ -765,9 +797,14 @@ async function ensureAppVolumeMounted(identifier) {
   log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);
   // An image found by the search is recorded now that it is known to mount, so
   // the search runs once for it and the lookup answers ever after.
-  if (!stamped || !stamped.fsUuid) {
+  // Recorded now that the mount has proved the image real: a first discovery,
+  // a stamp that could not be read last time, or a record naming a path this
+  // node no longer uses. Leaving that last one would send every later boot
+  // back through the filename search this record exists to remove, and hand
+  // the refusal above to whatever turned up at the old path.
+  if (!atRecordedPath || !stamped.fsUuid) {
     const stamp = await imageFsUuid(volumeFile);
-    if (!stamped || stamp) await recordVolumeImage(appId, volumeFile, stamp);
+    if (!atRecordedPath || stamp) await recordVolumeImage(appId, volumeFile, stamp);
   }
   return { mounted: true, alreadyMounted: false };
 }

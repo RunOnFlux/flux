@@ -243,15 +243,20 @@ async function cleanupVolumePath(volumepath, entityName, res, conclusive = true)
     if (res.flush) res.flush();
   }
 
-  const execVolumeDelete = `sudo rm -rf ${volumepath}`;
-  await cmdAsync(execVolumeDelete).catch((e) => {
-    log.error(e);
+  // Passed as an argument rather than interpolated into a command string. The
+  // path can come from the recorded image now, which reached this node as a
+  // kernel string and went through the database - so whitespace in it would
+  // turn one removal into several, and `rm -rf` is not a thing to be wrong
+  // about.
+  const removal = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumepath], logError: false });
+  if (removal.error) {
+    log.error(removal.error);
     log.info(`An error occured while cleaning ${entityName} volume. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} volume. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+  }
 
   log.info(`Volume of ${entityName} cleaned`);
   if (res) {
