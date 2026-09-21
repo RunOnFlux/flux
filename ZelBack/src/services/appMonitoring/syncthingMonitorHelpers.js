@@ -308,21 +308,36 @@ function folderNeedsUpdate(existingFolder, newFolder) {
  * for a brand-new folder syncthing does not yet know; this converges every
  * EXISTING folder whose ignores predate a policy line.
  *
- * Asserted by POSITION, not by presence. syncthing takes the FIRST pattern that
- * matches, so a policy line sitting below anything is a policy line something
- * else can answer for - an `!/backup` above it un-ignores the very directory
- * this exists to keep off the network, and a presence test would call that
- * converged. The policy lines therefore lead, and everything else follows in the
- * order it already had. That is the same rule the v9 spec-driven writer states,
- * where the owner supplies patterns of their own: they extend the set, they
- * never un-exclude what FluxOS put there.
+ * THE SPEC IS THE WHOLE FILE. What may leave this node is decided by the
+ * specification and by nothing that is found on the volume, so the ignores are
+ * set to the derived lines exactly rather than merged into whatever is already
+ * there. The app has its own directories mounted and can write this file, and a
+ * pattern it puts there is not configuration to preserve: an `!/backup` of its
+ * own would un-ignore the very directory these lines exist to keep off the
+ * network. Reading the file to decide what to keep is what would give that
+ * pattern standing.
  *
- * Nothing is lost. syncthing's POST replaces the whole set, so the desired list
- * is built FROM the current one and only duplicate copies of our own lines drop
- * out. Nothing is posted when the folder already reads that way, so a converged
- * folder is neither rewritten nor rescanned - which is what makes this safe on
- * every monitor pass. Every syncthing call returns its outcome in-band and never
- * throws, so status is checked rather than caught.
+ * It also makes the set exact in the other direction. A spec that drops an ml:
+ * mount has its exclusion removed with it, because the desired set is derived
+ * afresh every pass and never accumulates - where a merge could not tell a line
+ * it wrote last week from anything else in the file, and had to leave a directory
+ * unreplicated that the spec now asks to replicate.
+ *
+ * The current set is read only to decide whether a write is needed: nothing is
+ * posted when the folder already reads that way, so a converged folder is neither
+ * rewritten nor rescanned, which is what makes this safe on every monitor pass.
+ * Order is part of the comparison - syncthing takes the FIRST pattern that
+ * matches, so the same lines in another order are not the same policy. Every
+ * syncthing call returns its outcome in-band and never throws, so status is
+ * checked rather than caught.
+ *
+ * .stignore is syncthing's own control file - it writes it atomically, runs as
+ * root so it lands on any legacy root-owned file, and never replicates it or
+ * its temp. So FluxOS sets the patterns through syncthing's API rather than
+ * writing the file: there is no temp, no ownership dance, and nothing on the
+ * volume to orphan on a powercut. Volume creation still seeds the file directly
+ * for a brand-new folder syncthing does not yet know; this converges every
+ * EXISTING folder.
  *
  * Call only for a folder syncthing already knows (the caller checks); on an
  * unknown folder the API would answer with an error and nothing would converge.
@@ -336,20 +351,8 @@ async function ensureStignoreCovers(folderId, unsyncedSubdirs = []) {
     log.error(`ensureStignoreCovers - could not read ignores for ${folderId}: ${read.data?.message ?? 'unknown error'}`);
     return;
   }
-  const policyLines = syncthingIgnoreLines(unsyncedSubdirs);
+  const desired = syncthingIgnoreLines(unsyncedSubdirs);
   const current = Array.isArray(read.data?.ignore) ? read.data.ignore : [];
-  const rest = current.filter((line) => !policyLines.includes(line));
-  const desired = [...policyLines, ...rest];
-
-  // A spec that drops an ml: mount leaves its exclusion behind: nothing in the file
-  // says which lines FluxOS derived and which the owner wrote, and guessing wrong
-  // would delete the owner's. The line stays and keeps that directory off the
-  // network, which is the safe direction but not the one the spec now asks for, so
-  // say which line it is rather than leaving a silent exclusion for someone to find.
-  const stale = rest.filter((line) => /^\/[^/*]+$/.test(line));
-  if (stale.length > 0) {
-    log.warn(`ensureStignoreCovers - ${folderId} keeps ${stale.join(', ')}, which this spec does not declare; that path stays unreplicated until the volume is rebuilt`);
-  }
   const converged = desired.length === current.length
     && desired.every((line, index) => line === current[index]);
   if (converged) return;
@@ -358,7 +361,7 @@ async function ensureStignoreCovers(folderId, unsyncedSubdirs = []) {
     log.error(`ensureStignoreCovers - could not set ignores for ${folderId}: ${written.data?.message ?? 'unknown error'}`);
     return;
   }
-  log.info(`ensureStignoreCovers - ${folderId} ignores now lead with ${policyLines.join(', ')}`);
+  log.info(`ensureStignoreCovers - ${folderId} ignores set to ${desired.join(', ')}`);
 }
 
 module.exports = {
