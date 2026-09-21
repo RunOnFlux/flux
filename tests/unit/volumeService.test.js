@@ -417,6 +417,23 @@ describe('volumeService tests', () => {
       });
     });
 
+    // blkid keys its cache on the path, so a file replaced at a path it has
+    // probed before is answered with the previous file's UUID. Without the
+    // cache disabled the check reports a match for exactly the substitution it
+    // exists to catch.
+    it('probes the image with the blkid cache disabled', async () => {
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'ours-1' });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+
+      await volumeService.ensureAppVolumeMounted('app1');
+
+      const blkid = callsFor('blkid');
+      expect(blkid, 'the image was never probed').to.have.lengthOf.at.least(1);
+      expect(blkid[0].args[1].params).to.deep.equal(['-c', '/dev/null', '-o', 'value', '-s', 'UUID', '/dat/fluxapp1FLUXFSVOL']);
+    });
+
     it('refuses a file that is not the image this node created', async () => {
       appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'ours-1' });
       fsStub.promises.access.rejects(enoent());

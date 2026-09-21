@@ -35,8 +35,11 @@ async function isMountpoint(container, dir) {
   return r.exitCode === 0;
 }
 
+// Cache disabled: blkid keys on the path, so a file replaced at a path it has
+// already probed is answered with the previous file's UUID - which is exactly
+// what this suite substitutes, reported as though nothing had changed.
 async function fsUuidOf(container, file) {
-  const r = await execInContainer(container, `blkid -o value -s UUID ${file}`);
+  const r = await execInContainer(container, `blkid -c /dev/null -o value -s UUID ${file}`);
   return r.stdout.trim();
 }
 

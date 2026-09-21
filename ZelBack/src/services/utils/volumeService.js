@@ -382,12 +382,17 @@ async function recordVolumeImage(identifier, volumeFile, fsUuid) {
 /**
  * The filesystem UUID inside a volume image, or null when it cannot be read.
  *
+ * Probed with the cache disabled. blkid keys its cache on the path, so a file
+ * replaced at a path it has seen before is answered with the UUID of the file
+ * that used to be there - which is precisely the substitution this is asked
+ * about, answered with the very value that would hide it.
+ *
  * @param {string} volumeFile Absolute path of the image.
  * @returns {Promise<string|null>}
  */
 async function imageFsUuid(volumeFile) {
   const res = await serviceHelper.runCommand('blkid', {
-    runAsRoot: true, params: ['-o', 'value', '-s', 'UUID', volumeFile], logError: false,
+    runAsRoot: true, params: ['-c', '/dev/null', '-o', 'value', '-s', 'UUID', volumeFile], logError: false,
   });
   if (res.error) return null;
   const uuid = String(res.stdout || '').trim();
