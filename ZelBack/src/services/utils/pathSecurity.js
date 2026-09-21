@@ -246,6 +246,13 @@ function sanitizePath(userPath, basePath, options = {}) {
  * This prevents symlink escape attacks where a symlink inside the allowed directory
  * points to a location outside it.
  *
+ * A path that cannot be resolved is returned unchanged rather than refused, so
+ * this answers "does this resolve outside" and not "is this contained": a leaf
+ * that does not exist yet passes even when a directory above it is a link out.
+ * Callers guarding containment want verifyRealPathOfExistingPath, which walks
+ * to the deepest part that does exist. This one is for comparing where two
+ * paths land, and is what that function is built on.
+ *
  * @param {string} targetPath - The path to verify (should already be sanitized)
  * @param {string} basePath - The allowed base directory
  * @returns {Promise<string>} The real path if safe

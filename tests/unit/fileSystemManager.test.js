@@ -120,7 +120,7 @@ describe('fileSystemManager tests', () => {
       '../serviceHelper': serviceHelperStub,
       '../IOUtils': { getVolumeInfo: sinon.stub() },
       '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
-      '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPath: sinon.stub() },
+      '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPathOfExistingPath: sinon.stub() },
       './volumeSession': volumeSessionStub,
       './volumeExecutor': executorStub,
       '../utils/jobRegistry': jobRegistry,
@@ -716,6 +716,60 @@ describe('fileSystemManager tests', () => {
     });
   });
 
+  // Both downloads resolve the path before touching it, and resolution is held
+  // to the deepest part that exists: a name that has not been created yet
+  // cannot be resolved, and a check that reads "cannot resolve" as "nothing to
+  // verify" never sees the directory above it leading out of the volume.
+  //
+  // The real pathSecurity, because a stubbed one proves only that something was
+  // called - and each handler asserted separately, because each resolves for
+  // itself.
+  describe('a download whose existing parent leads out of the volume is refused', () => {
+    const parent = `${MOUNT}/parent`;
+    const missing = `${parent}/missing`;
+
+    const subjectWithRealChecks = (getVolumeInfo) => proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+      '../messageHelper': messageHelperStub,
+      '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+      '../serviceHelper': serviceHelperStub,
+      '../IOUtils': { getVolumeInfo },
+      '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+      '../utils/pathSecurity': require('../../ZelBack/src/services/utils/pathSecurity'),
+      './volumeSession': volumeSessionStub,
+      './volumeExecutor': executorStub,
+      '../utils/jobRegistry': jobRegistry,
+      archiver: sinon.stub(),
+      stream: { PassThrough: sinon.stub() },
+    });
+
+    const linkOutOfVolume = () => {
+      const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      // eslint-disable-next-line global-require
+      const realFs = require('fs');
+      sinon.stub(realFs.promises, 'lstat').callsFake(async (target) => {
+        if (target === missing) throw enoent;
+        return { isSymbolicLink: () => target === parent };
+      });
+      sinon.stub(realFs.promises, 'realpath').callsFake(async (target) => (target === parent ? '/test/apps/folder/fluxcomp_other' : target));
+    };
+
+    ['downloadAppsFolder', 'downloadAppsFile'].forEach((handler) => {
+      it(`${handler} refuses it`, async () => {
+        const getVolumeInfo = sinon.stub().resolves({ error: null, mounts: [{ mount: MOUNT }] });
+        linkOutOfVolume();
+        const subject = subjectWithRealChecks(getVolumeInfo);
+        const target = { params: { appname: 'myapp', component: 'comp', folder: 'parent/missing', file: 'parent/missing' }, query: {} };
+
+        await subject[handler](target, res);
+
+        // These two answer by writing the body rather than through res.json,
+        // so the refusal is observed where it is built.
+        expect(messageHelperStub.createErrorMessage.firstCall.args[0])
+          .to.match(/outside allowed directory|does not resolve on the host/);
+      });
+    });
+  });
+
   // The eight operations above are gated by openVolume's default privilege, which
   // volumeSession.test.js pins in one place. These two ask for themselves, so they
   // are pinned here: taking a customer's files off the node is not their host's to
@@ -731,7 +785,7 @@ describe('fileSystemManager tests', () => {
           '../serviceHelper': serviceHelperStub,
           '../IOUtils': { getVolumeInfo: sinon.stub() },
           '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
-          '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPath: sinon.stub() },
+          '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPathOfExistingPath: sinon.stub() },
           './volumeSession': volumeSessionStub,
           './volumeExecutor': executorStub,
           '../utils/jobRegistry': jobRegistry,

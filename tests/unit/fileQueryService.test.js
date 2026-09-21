@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const fs = require('fs').promises;
+const path = require('path');
 const fileQueryService = require('../../ZelBack/src/services/appQuery/fileQueryService');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
@@ -370,14 +371,19 @@ describe('fileQueryService tests', () => {
         ],
       });
       sinon.stub(fs, 'readdir').resolves(['link.txt']);
-      sinon.stub(fs, 'lstat').resolves({
+      // Keyed on the path: the volume root is lstat'd too, by the containment
+      // check, and it is a directory rather than one of the entries.
+      const entryStats = {
         isDirectory: () => false,
         isFile: () => false,
         isSymbolicLink: () => true,
         size: 512,
         birthtime: new Date(),
         mtime: new Date(),
-      });
+      };
+      sinon.stub(fs, 'lstat').callsFake(async (target) => (target === '/mnt/appvolumes/TestApp_Component1'
+        ? { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false }
+        : entryStats));
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
       await fileQueryService.getAppsFolder(req, res);
@@ -500,6 +506,33 @@ describe('fileQueryService tests', () => {
       expect(res.json.firstCall.args[0].status).to.equal('error');
     });
 
+    // The containment check is held to the deepest part of the path that
+    // exists. A folder that has not been created yet cannot be resolved, and a
+    // check that reads "cannot resolve" as "nothing to verify" never sees the
+    // directory above it leading out of the volume.
+    it('refuses a folder whose existing parent is a link out of the volume', async () => {
+      const req = { params: { appname: 'TestApp', component: 'Component1', folder: 'parent/missing' }, query: {} };
+      const res = { json: sinon.stub() };
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({
+        error: null,
+        mounts: [{ mount: '/mnt/appvolumes/TestApp_Component1' }],
+      });
+      const parent = '/mnt/appvolumes/TestApp_Component1/parent';
+      const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      sinon.stub(fs, 'lstat').callsFake(async (target) => {
+        if (target === `${parent}/missing`) throw enoent;
+        return { isSymbolicLink: () => target === parent };
+      });
+      sinon.stub(fs, 'realpath').callsFake(async (target) => (target === parent ? '/mnt/appvolumes/OtherApp_Component1' : target));
+      const readdir = sinon.stub(fs, 'readdir').resolves([]);
+
+      await fileQueryService.getAppsFolder(req, res);
+
+      sinon.assert.notCalled(readdir);
+    });
+
     it('should handle mixed files and folders', async () => {
       const req = {
         params: { appname: 'TestApp', component: 'Component1' },
@@ -516,35 +549,28 @@ describe('fileQueryService tests', () => {
           { mount: '/mnt/appvolumes/TestApp_Component1' },
         ],
       });
-      sinon.stub(fs, 'readdir').resolves(['file.txt', 'folder', 'link.txt']);
+      // Only the volume root holds these; the size walk descends into `folder`
+      // and an unkeyed stub would hand it the same three entries forever.
+      sinon.stub(fs, 'readdir').callsFake(async (target) => (target === '/mnt/appvolumes/TestApp_Component1'
+        ? ['file.txt', 'folder', 'link.txt']
+        : []));
 
-      const lstatStub = sinon.stub(fs, 'lstat');
-      lstatStub.onCall(0).resolves({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
+      // Keyed on the path rather than on call order: the containment check
+      // lstats the volume root as well, and an ordinal stub answers whichever
+      // call happens to arrive first.
+      const stats = (kind) => ({
+        isDirectory: () => kind === 'dir',
+        isFile: () => kind === 'file',
+        isSymbolicLink: () => kind === 'link',
         size: 1024,
         birthtime: new Date(),
         mtime: new Date(),
       });
-      lstatStub.onCall(1).resolves({
-        isDirectory: () => true,
-        isFile: () => false,
-        isSymbolicLink: () => false,
-        size: 4096,
-        birthtime: new Date(),
-        mtime: new Date(),
-      });
-      lstatStub.onCall(2).resolves({
-        isDirectory: () => false,
-        isFile: () => false,
-        isSymbolicLink: () => true,
-        size: 512,
-        birthtime: new Date(),
-        mtime: new Date(),
-      });
+      const byName = {
+        'file.txt': stats('file'), folder: stats('dir'), 'link.txt': stats('link'),
+      };
+      sinon.stub(fs, 'lstat').callsFake(async (target) => byName[path.basename(target)] || stats('dir'));
 
-      sinon.stub(IOUtils, 'getFolderSize').resolves(8192);
       sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
 
       await fileQueryService.getAppsFolder(req, res);
