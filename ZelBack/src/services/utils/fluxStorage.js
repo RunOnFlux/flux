@@ -37,6 +37,12 @@ function storageLinkOf(parameter) {
  * The host is compared whole. A suffix test would admit
  * `storage.runonflux.io.example.com` and a substring test any host carrying the
  * name in a query string, and both read as though they check the same thing.
+ *
+ * An address is more than a host. A port names a different service on the same
+ * machine, and userinfo makes a node send credentials a specification author
+ * wrote, over its own signed request - so a link naming either is not this
+ * node's to fetch. Flux storage answers on the default port and asks for no
+ * credentials, which is what the whole of the chain's history carries.
  * @param {string} link The URL a storage marker carries.
  * @returns {boolean} True when the node may fetch it.
  */
@@ -52,6 +58,9 @@ function isFluxStorageUrl(link) {
   try {
     url = new URL(link);
   } catch (error) {
+    return false;
+  }
+  if (url.port !== '' || url.username !== '' || url.password !== '') {
     return false;
   }
   return url.protocol === 'https:' && url.hostname === storageHost;

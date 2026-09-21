@@ -363,41 +363,6 @@ async function verifyRealPathOfExistingPath(targetPath, basePath) {
 }
 
 /**
- * Synchronous version of verifyRealPath.
- *
- * @param {string} targetPath - The path to verify
- * @param {string} basePath - The allowed base directory
- * @returns {string} The real path if safe
- * @throws {Error} If the real path escapes the base directory
- */
-function verifyRealPathSync(targetPath, basePath) {
-  const normalizedBase = path.resolve(basePath);
-  let realBasePath = normalizedBase;
-  try {
-    realBasePath = fs.realpathSync(normalizedBase);
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  try {
-    const realPath = fs.realpathSync(targetPath);
-
-    if (realPath !== realBasePath && !realPath.startsWith(realBasePath + path.sep)) {
-      throw new Error('Symlink escape: real path is outside allowed directory');
-    }
-
-    return realPath;
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return targetPath;
-    }
-    throw error;
-  }
-}
-
-/**
  * Validate that a filename/object name is safe (no path components).
  * Use this for parameters that should only be a single filename, not a path.
  *
@@ -438,25 +403,6 @@ function validateFilename(name) {
   }
 
   return name;
-}
-
-/**
- * Sanitize a path and verify it doesn't escape via symlinks.
- * This is the most secure option - combines lexical checks with symlink verification.
- *
- * @param {string} userPath - User-provided relative path
- * @param {string} basePath - The allowed base directory
- * @param {object} options - Optional configuration
- * @param {boolean} options.strict - If true, enforce strict allowlist (default: true)
- * @returns {Promise<string>} The verified real path
- * @throws {Error} If path is invalid or escapes base directory
- */
-async function sanitizeAndVerifyPath(userPath, basePath, options = {}) {
-  // First, sanitize the path lexically
-  const sanitizedPath = sanitizePath(userPath, basePath, options);
-
-  // Then verify the real path (after symlink resolution)
-  return verifyRealPath(sanitizedPath, basePath);
 }
 
 /**
@@ -541,7 +487,5 @@ module.exports = {
   isValidPathComponent,
   verifyRealPath,
   verifyRealPathOfExistingPath,
-  verifyRealPathSync,
-  sanitizeAndVerifyPath,
   rejectBackslashes,
 };

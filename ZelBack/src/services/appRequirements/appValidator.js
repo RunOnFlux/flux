@@ -1218,6 +1218,12 @@ function checkComposeHWParameters(appSpecsComposed) {
  * other node or the fleet builds different app lists from the same chain. What
  * a node will actually fetch is decided at the fetch instead, where it binds to
  * every app whatever height it was registered at.
+ *
+ * This reads the parameters the specification carries in the clear, which is
+ * all a validating node has: a v7 app's `secrets` are encrypted to the nodes
+ * that will run it, so a link inside one is not readable here and is refused
+ * at the fetch on each of those nodes instead. The fetch is what decides; this
+ * is what lets an owner be told at submission for the links it can see.
  * @param {object} appSpecifications - Application specifications to validate.
  * @throws {Error} If a storage link addresses anything else.
  */

@@ -1956,6 +1956,89 @@ describe('dockerService tests', () => {
       sinon.assert.notCalled(dockerStub);
     });
 
+    // The link the door approved is the link the fetch requests. Read by
+    // splitting on the marker, a second occurrence of it inside the query
+    // truncates the URL, and the node then asks for something nothing
+    // validated.
+    it('requests the whole link the marker carries', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const link = 'https://storage.runonflux.io/v1/env/123?x=F_S_ENV=y';
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: [`F_S_ENV=${link}`],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal(link);
+    });
+
+    // The command marker is fetched by the same rules as the environment one,
+    // and pinned separately: one reading them differently is how the two
+    // drifted apart.
+    it('requests the whole link the command marker carries', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['--chain'] });
+      const link = 'https://storage.runonflux.io/v1/cmd/123?x=F_S_CMD=y';
+      const nodeApp = {
+        ...baseNodeApp,
+        commands: [`F_S_CMD=${link}`],
+        enviromentParameters: [],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal(link);
+    });
+
+    it('refuses a command link that does not address Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['--chain'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        commands: ['F_S_CMD=https://storage.runonflux.io:8443/v1/cmd/123'],
+        enviromentParameters: [],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // An address is more than a host: another port on the same machine is
+    // another service, and the node signs whatever it sends there.
+    it('refuses a link naming another port on the storage host', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io:8443/v1/env/123'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
     // The host is the whole of the check, so a storage answering 302 would
     // otherwise choose the node's next request for it.
     it('does not follow a redirect away from Flux storage', async () => {

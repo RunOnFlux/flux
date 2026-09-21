@@ -12,6 +12,14 @@ describe('flux storage links', () => {
       expect(fluxStorage.storageLinkOf('F_S_CMD=https://storage.runonflux.io/v1/cmd/1')).to.equal('https://storage.runonflux.io/v1/cmd/1');
     });
 
+    // The whole of the parameter after the marker, so the link the door
+    // approved is the link the fetch requests - a second occurrence of the
+    // marker inside a query truncates a split, and does not truncate this.
+    it('reads the link a marker carries whatever the link contains', () => {
+      expect(fluxStorage.storageLinkOf('F_S_ENV=https://storage.runonflux.io/v1/env/1?x=F_S_ENV=y'))
+        .to.equal('https://storage.runonflux.io/v1/env/1?x=F_S_ENV=y');
+    });
+
     it('reads no link out of anything else', () => {
       expect(fluxStorage.storageLinkOf('F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/1')).to.equal(null);
       expect(fluxStorage.storageLinkOf('DATABASE_URL=https://example.com')).to.equal(null);
@@ -47,6 +55,13 @@ describe('flux storage links', () => {
       { what: 'a non-http scheme', link: 'file:///etc/passwd' },
       { what: 'something that is not a URL', link: 'undefined' },
       { what: 'an empty link', link: '' },
+      // An address is more than a host: a port names a different service on
+      // the same machine, and userinfo makes the node send credentials the
+      // specification author wrote over its own signed request.
+      { what: 'another port on the storage host', link: 'https://storage.runonflux.io:8443/v1/env/1' },
+      { what: 'the ssh port on the storage host', link: 'https://storage.runonflux.io:22/v1/env/1' },
+      { what: 'credentials the author chose', link: 'https://user:pass@storage.runonflux.io/v1/env/1' },
+      { what: 'a username with no password', link: 'https://user@storage.runonflux.io/v1/env/1' },
     ];
 
     refused.forEach(({ what, link }) => {

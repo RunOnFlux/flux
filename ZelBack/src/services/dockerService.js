@@ -10,7 +10,7 @@ const deviceHelper = require('./deviceHelper');
 const generalService = require('./generalService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
-const { isFluxStorageUrl } = require('./utils/fluxStorage');
+const { isFluxStorageUrl, storageLinkOf } = require('./utils/fluxStorage');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
@@ -1261,7 +1261,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       if (index > -1) {
         options.Env.splice(index, 1);
       }
-      const url = fluxStorageEnv.split('F_S_ENV=')[1];
+      const url = storageLinkOf(fluxStorageEnv);
       const envVars = await obtainPayloadFromStorage(url, appName);
       if (Array.isArray(envVars) && envVars.length < 200) {
         envVars.forEach((parameter) => {
@@ -1284,7 +1284,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       if (index > -1) {
         options.Cmd.splice(index, 1);
       }
-      const url = fluxStorageCmd.split('F_S_CMD=')[1];
+      const url = storageLinkOf(fluxStorageCmd);
       const cmdVars = await obtainPayloadFromStorage(url, appName);
       if (Array.isArray(cmdVars) && cmdVars.length < 200) {
         cmdVars.forEach((parameter) => {
