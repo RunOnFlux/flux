@@ -309,13 +309,14 @@ function folderNeedsUpdate(existingFolder, newFolder) {
  * EXISTING folder whose ignores predate a policy line.
  *
  * THE SPEC IS THE WHOLE FILE. What may leave this node is decided by the
- * specification and by nothing that is found on the volume, so the ignores are
- * set to the derived lines exactly rather than merged into whatever is already
- * there. The app has its own directories mounted and can write this file, and a
- * pattern it puts there is not configuration to preserve: an `!/backup` of its
- * own would un-ignore the very directory these lines exist to keep off the
- * network. Reading the file to decide what to keep is what would give that
- * pattern standing.
+ * specification and by nothing found on the volume, so the ignores are set to the
+ * derived lines exactly rather than merged into whatever is already there.
+ *
+ * Every node must compute the same set from the same spec, and a file on one
+ * node's disk is not an input the others have - merged in, the answer depends on
+ * which node is asked. syncthing also takes the FIRST pattern that matches, so a
+ * line ahead of a derived one answers in its place; the derived set leads because
+ * it is the whole list, not because it was sorted there.
  *
  * It also makes the set exact in the other direction. A spec that drops an ml:
  * mount has its exclusion removed with it, because the desired set is derived

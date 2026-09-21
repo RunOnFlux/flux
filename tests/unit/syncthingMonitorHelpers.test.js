@@ -453,9 +453,9 @@ describe('syncthingMonitorHelpers tests', () => {
     });
 
     it('removes a pattern it did not write', async () => {
-      // The app has its own directories mounted and can write this file. A pattern
-      // it puts there is not configuration to preserve - reading the file to decide
-      // what to keep is what would give it standing.
+      // Only what the spec derives survives a pass. Every node computes the set
+      // from the same specification, so a line present on one node's volume is not
+      // an input the others have.
       sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', 'cache/**'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
@@ -465,10 +465,9 @@ describe('syncthingMonitorHelpers tests', () => {
     });
 
     it('removes a negation that would otherwise answer for a policy line', async () => {
-      // The case this exists for: !/backup un-ignores the backup directory, and
-      // syncthing takes the FIRST pattern that matches. It is not demoted below the
-      // policy lines, it is gone - an app does not get to un-exclude what the spec
-      // keeps off the network.
+      // syncthing takes the FIRST pattern that matches, so a negation ahead of a
+      // derived line answers in its place. It is not demoted below the derived set
+      // - the derived set is the whole file, so it is not there at all.
       sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['!/backup', '/backup', '/.flux-op', '/.flux-op-*'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
