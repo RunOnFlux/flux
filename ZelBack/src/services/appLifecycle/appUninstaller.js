@@ -9,7 +9,9 @@ const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
-const { localAppsInformation, globalAppsInformation, globalAppsMessages } = require('../utils/appConstants');
+const {
+  localAppsInformation, globalAppsInformation, globalAppsMessages, ANNOUNCE_CYCLE_WAIT_MS,
+} = require('../utils/appConstants');
 const config = require('config');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const upnpService = require('../upnpService');
@@ -785,6 +787,14 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @returns {Promise<void>}
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
+  // Names what this call marked as departing, and nothing else: the guards below
+  // return through the same finally without having marked anything, and a refused
+  // duplicate must not unmark the removal that is actually running.
+  let departingName = null;
+  // Whether this call took the node's removal lock. The same guards return through
+  // the same finally, and a refused duplicate must not release the lock the removal
+  // actually running is holding.
+  let acquired = false;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -825,6 +835,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     }
 
     globalState.removalInProgress = true;
+    acquired = true;
 
     if (!app) {
       throw new Error('No App specified');
@@ -833,6 +844,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
+
+    // The node stops claiming the app here, at the decision to hand it back, and
+    // not when its container happens to die. Keyed by the name the removal message
+    // carries below, so the two can never name different things.
+    if (sendMessage) {
+      departingName = appName;
+      globalState.departingApps.enter(departingName);
+    }
 
     // Find app specifications in database
     const dbopen = dbHelper.databaseConnection();
@@ -921,6 +940,13 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     fluxEventBus.publish('app:removed', { name: appName });
 
     if (sendMessage) {
+      // An announcement cycle that took its list before this removal marked the
+      // app still names it, and a claim arriving after this message re-creates the
+      // row it cleared. Waiting for the cycle in flight puts the two on the wire in
+      // the order they happened, so the claim is applied first and this clears it.
+      // A cycle starting from here on reads the mark and leaves the app out.
+      // Bounded: a wedged cycle must not hold up the node's removals.
+      await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
       const ip = await fluxNetworkHelper.getLocalSocketAddress();
       if (ip) {
         const broadcastedAt = Date.now();
@@ -940,6 +966,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           runningAppsCache.delete(appName);
           log.info(`Removed ${appName} from running apps cache`);
         }
+      } else {
+        log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
       }
     }
 
@@ -1063,7 +1091,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
   } finally {
-    globalState.removalInProgress = false;
+    if (acquired) globalState.removalInProgress = false;
+    if (departingName) {
+      globalState.departingApps.leave(departingName);
+    }
   }
 }
 

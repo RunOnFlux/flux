@@ -10,6 +10,13 @@
  *   EXIT_AFTER_S  if > 0, self-exit with EXIT_CODE after this many seconds
  *                 (models a container that exits on its own, e.g. exit 0 to
  *                 free memory); if unset, stay up until signalled
+ *   EXIT_AFTER_MS if > 0, the same but in milliseconds, and it wins over
+ *                 EXIT_AFTER_S. For an app that must never be OBSERVED running:
+ *                 a start still succeeds, so the app installs and the node holds
+ *                 it, but the process is gone before anything that polls docker
+ *                 can see it. A second is far too long for that - a run-state
+ *                 broadcast triggered on the container-start edge snapshots
+ *                 inside it and reports the app as running.
  *   BURN_CPU      number of spinners to run, so the container reports sustained
  *                 load to the monitoring suites. One spinner saturates one core,
  *                 so this must be at least the app's cpu allocation or the
@@ -75,6 +82,18 @@ int main(void)
 
     signal(SIGTERM, on_signal);
     signal(SIGINT, on_signal);
+
+    const char *after_ms = getenv("EXIT_AFTER_MS");
+    if (after_ms) {
+        long ms = atol(after_ms);
+        if (ms > 0) {
+            struct timespec wait_for;
+            wait_for.tv_sec = (time_t)(ms / 1000);
+            wait_for.tv_nsec = (long)(ms % 1000) * 1000000L;
+            nanosleep(&wait_for, NULL);
+            return exit_code;
+        }
+    }
 
     const char *after = getenv("EXIT_AFTER_S");
     if (after) {

@@ -1030,6 +1030,25 @@ describe('appSpawner tests', () => {
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
     });
 
+    // A placement, not a rebuild: this node holds nothing here to keep. An
+    // announcement landing during the install has already told the network it
+    // holds the app, and the removal message is the only thing that takes that
+    // back before the location row expires and the app runs an instance short.
+    it('asks the installer to tell the network when a placement fails', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.FAILED);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        installStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
+      expect(installStub.firstCall.args[4], 'tore the placement down without telling the network').to.equal(true);
+    });
+
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});

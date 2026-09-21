@@ -381,10 +381,14 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, ...rest
+  name, exitCode = 0, exitAfterS = null, exitAfterMs = null, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
+  // Sub-second, for an app that must never be observed running: the install's
+  // own start still succeeds, so the node holds the app, but nothing that polls
+  // docker afterwards can catch the process alive.
+  if (exitAfterMs != null) environmentParameters.push(`EXIT_AFTER_MS=${exitAfterMs}`);
 
   const compose = [{
     name,

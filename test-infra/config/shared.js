@@ -283,6 +283,6 @@ module.exports = {
     // that over the fleet at 50% so a spec change does not restart every
     // instance at once. A suite has one app and a bounded wait, and nothing here
     // has an obsolete spec unless a suite deliberately made one.
-    redeploy: { probability: 1, delay: 1, composedDelay: 1 },
+    redeploy: { probability: 1, composedDelay: 1 },
   },
 };

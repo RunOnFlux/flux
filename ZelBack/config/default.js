@@ -477,7 +477,6 @@ module.exports = {
     },
     redeploy: {
       probability: 2, // 50%
-      delay: 30,
       composedDelay: 5,
     },
     blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
