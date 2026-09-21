@@ -562,6 +562,46 @@ describe('appReconciler tests', () => {
       expect(types).to.include('volume_image_unrecognised');
     });
 
+    // A removed component keeps no failure history. Keyed by identifier, a
+    // reinstall under the same name would otherwise have its first fault
+    // swallowed as one already recorded - and for the volume maps that fault
+    // is the record of somebody writing to the disk.
+    it('records a fault again for a component reinstalled under the same name', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      await appReconciler.reconcile('www_App');
+
+      appReconciler.forgetDesiredState('www_App');
+      await appReconciler.reconcile('www_App');
+
+      const volumeEvents = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_missing');
+      expect(volumeEvents, 'the reinstalled component\'s fault was swallowed').to.have.lengthOf(2);
+    });
+
+    // Deleting the image alone records volume_missing. Deleting it and leaving
+    // another where the search reaches would otherwise be the quieter of the
+    // two, which is the wrong way round.
+    it('records an image found somewhere other than where it was recorded', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false, imageMoved: true });
+
+      await appReconciler.reconcile('www_App');
+
+      const moved = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_image_moved');
+      expect(moved).to.have.lengthOf(1);
+      expect(moved[0].args[0]).to.equal('App');
+    });
+
+    it('records nothing when the image is where the record puts it', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false, imageMoved: false });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(
+        stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'volume_image_moved'),
+      ).to.equal(false);
+    });
+
     it('ensures the volume is mounted before actuating a pending data wipe', async () => {
       appReconciler.requestStopAndClearData('www_App', 'test wipe');
       // requestStopAndClearData enqueues its own reconcile; wait for it to land

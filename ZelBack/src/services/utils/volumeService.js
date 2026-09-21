@@ -450,16 +450,27 @@ async function imageFsUuid(volumeFile) {
  *
  * Probed with the cache disabled, for the same reason the UUID is.
  *
+ * THROWS when the image could not be probed. Null is `blkid` saying it finds
+ * no filesystem, which is evidence about the image; sudo refusing or a fork
+ * that failed is evidence about the node, and the two reach the same caller
+ * for opposite conclusions.
+ *
  * @param {string} volumeFile Absolute path of the image.
  * @returns {Promise<string|null>}
+ * @throws When the probe could not be made.
  */
 async function imageFsType(volumeFile) {
   const res = await serviceHelper.runCommand('blkid', {
     runAsRoot: true, params: ['-c', '/dev/null', '-o', 'value', '-s', 'TYPE', volumeFile], logError: false,
   });
-  if (res.error) return null;
   const kind = String(res.stdout || '').trim();
-  return kind || null;
+  if (kind) return kind;
+  // blkid exits 2 for a device it recognises no filesystem on, which is the
+  // answer this asks for. Every other failure is this node unable to ask.
+  if (res.error && res.error.code !== 2) {
+    throw new Error(`imageFsType - could not probe ${volumeFile}: ${res.error.message}`);
+  }
+  return null;
 }
 
 /**
@@ -835,7 +846,15 @@ async function ensureAppVolumeMounted(identifier) {
     // the image is asked directly: a filesystem the kernel recognises means
     // the mount failed for a reason that is not the image, and only an image
     // that no longer holds one is evidence about the volume itself.
-    const kind = await imageFsType(volumeFile);
+    // A filesystem the kernel recognises, or a probe that could not be made at
+    // all: neither is evidence that the image is what went wrong, and only the
+    // image is scored against the operator. The probe runs through the same
+    // sudo and the same fork the mount just failed on, so the case where it
+    // cannot answer is the case this is asked in.
+    const kind = await imageFsType(volumeFile).catch((error) => {
+      log.warn(`ensureAppVolumeMounted - ${volumeFile} could not be probed (${error.message}), so the mount failure is not laid at the image`);
+      return 'unprobed';
+    });
     if (kind) {
       return { mounted: false, reason: `mount_host_refused: ${mountRes.error.message}` };
     }
@@ -854,7 +873,15 @@ async function ensureAppVolumeMounted(identifier) {
     const stamp = await imageFsUuid(volumeFile);
     if (!atRecordedPath || stamp) await recordVolumeImage(appId, volumeFile, stamp);
   }
-  return { mounted: true, alreadyMounted: false };
+  // An image this node recorded a place for, found somewhere else. The stamp
+  // is only a claim about the recorded path, so the one that just mounted was
+  // never compared against it - a volume re-created elsewhere and an image
+  // deleted and replaced elsewhere arrive here identically. Refusing would
+  // refuse the first for good, so the record is replaced and the fact reported
+  // rather than swallowed: deleting the image alone is recorded, and deleting
+  // it and leaving another would otherwise be the quieter of the two.
+  const imageMoved = Boolean(stamped) && stamped.path !== volumeFile;
+  return { mounted: true, alreadyMounted: false, imageMoved };
 }
 
 async function verifyAppVolumeMount(appName, isComponent, componentName) {

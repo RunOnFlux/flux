@@ -227,6 +227,17 @@ describe('appTamperingDetectionService tests', () => {
         .to.equal(service.EVENT_SEVERITY.volume_missing);
     });
 
+    // An operator moving an image to a bigger disk by hand produces exactly
+    // this, and nobody has ever counted how often that happens - so it is
+    // recorded to be countable and weighs nothing until the fleet data says
+    // what it should weigh.
+    it('weighs an image that moved at nothing', async () => {
+      await service.recordEvent('myapp', 'volume_image_moved', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
+      expect(service.EVENT_SEVERITY.volume_image_moved).to.equal(0);
+    });
+
     it('leaves a name that is already the app its own', async () => {
       await service.recordEvent('myapp', 'container_vanished', 'x');
 

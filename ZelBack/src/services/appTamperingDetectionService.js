@@ -61,6 +61,7 @@ const EVENT_SEVERITY = {
   mount_vanished: 1,
   volume_missing: 1,
   volume_image_unrecognised: 1,
+  volume_image_moved: 0,
   recreation_failed: 0,
   volume_host_fault: 0,
 };

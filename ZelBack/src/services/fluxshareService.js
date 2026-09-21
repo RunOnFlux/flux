@@ -35,14 +35,23 @@ const shareRoot = path.join(appsFolder, 'ZelShare');
  * @returns {Promise<string|null>} The absolute path, or null when it escapes.
  */
 async function resolveInShare(relative) {
+  const target = sanitizePath(relative || '', shareRoot);
   try {
-    const target = sanitizePath(relative || '', shareRoot);
     await verifyRealPathOfExistingPath(target, shareRoot);
-    return target;
   } catch (error) {
+    // A path that resolves outside the share is refused; a path this node
+    // could not read has not been shown to be either. Telling an operator
+    // their path is invalid, when what happened is that the disk would not
+    // answer, sends them to fix the one thing that is not wrong - and these
+    // endpoints exist so they can collect files that are still there.
+    if (error.code && error.code !== 'ENOENT') {
+      log.warn(`fluxshare - could not read ${relative}: ${error.message}`);
+      throw new Error(`This node could not read ${relative}: ${error.code}`);
+    }
     log.warn(`fluxshare - refused ${relative}: ${error.message}`);
     return null;
   }
+  return target;
 }
 
 /**

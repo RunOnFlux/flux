@@ -118,6 +118,21 @@ describe('fluxshareService tests', () => {
       sinon.stub(fs.promises, 'realpath').callsFake(async (p) => (p === target ? landsAt : p));
     };
 
+    // The one error that means "your files are still there but this node
+    // cannot reach them" must not read as "your path is invalid" - these
+    // endpoints exist so an operator can collect what is on the disk.
+    it('says the node could not read a path, not that the path is invalid', async () => {
+      sinon.stub(fs.promises, 'lstat').rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
+      const res = responseRecorder();
+
+      await fluxshareService.fluxShareGetFolder({ params: { folder: 'docs' }, query: {} }, res);
+
+      const body = bodyOf(res);
+      expect(body.status).to.equal('error');
+      expect(body.data.message).to.include('could not read');
+      expect(body.data.message, 'an unreadable path was reported as an invalid one').to.not.include('Path validation');
+    });
+
     it('refuses a listing that resolves out of the share directory', async () => {
       escapes(path.join(shareRoot, 'link'), '/etc');
       const readdir = sinon.stub(fs.promises, 'readdir').resolves([]);

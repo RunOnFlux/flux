@@ -900,7 +900,7 @@ describe('volumeService tests', () => {
 
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
-      expect(result).to.deep.equal({ mounted: true, alreadyMounted: false });
+      expect(result).to.deep.include({ mounted: true, alreadyMounted: false });
       const chattr = callsFor('chattr');
       expect(chattr).to.have.lengthOf(1);
       expect(chattr[0].args[1].params).to.deep.equal(['+i', `${APPS_FOLDER}fluxapp1`]);
@@ -1009,6 +1009,40 @@ describe('volumeService tests', () => {
         serviceHelperStub.runCommand.getCalls().some((c) => c.args[0] === 'mount'),
         'mounted the volume without establishing the disk is writable',
       ).to.equal(false);
+    });
+
+    // The stamp is a claim about the RECORDED path, so an image found anywhere
+    // else was never compared against it. The record is replaced rather than
+    // the volume refused - a volume legitimately re-created elsewhere must not
+    // be refused for good - so the fact is handed back instead of swallowed.
+    it('says so when the image was found somewhere other than its record', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/test/flux/appvolumes/fluxapp1FLUXFSVOL').resolves();
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.mounted).to.equal(true);
+      expect(result.imageMoved, 'an image found elsewhere was adopted silently').to.equal(true);
+    });
+
+    it('says nothing moved when the image is where the record puts it', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
+      fsStub.promises.access.resolves();
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        blkid: async () => ({ error: null, stdout: 'u-1\n', stderr: '' }),
+      });
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.imageMoved).to.equal(false);
     });
 
     // A database that would not answer has not established that the image is
@@ -1161,6 +1195,45 @@ describe('volumeService tests', () => {
 
       expect(result.mounted).to.be.false;
       expect(result.reason).to.include('mount_host_refused');
+    });
+
+    // The probe runs through the same sudo and the same fork the mount just
+    // failed on, so the case where it cannot answer is the case it is asked
+    // in. An unanswered probe is not evidence that the image is at fault, and
+    // only the image is scored against the operator.
+    it('names the host when the image could not be probed at all', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mount: async () => ({ error: new Error('could not find any free loop device'), stdout: '', stderr: '' }),
+        blkid: async () => ({ error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: 'sudo: a password is required' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.mounted).to.be.false;
+      expect(result.reason, 'an unprobed image was scored against the operator').to.include('mount_host_refused');
+    });
+
+    // blkid exits 2 for a device it recognises no filesystem on. That is the
+    // answer this asks for, and the one case that IS about the image.
+    it('names the image when the probe says it holds no filesystem', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mount: async () => ({ error: new Error('bad superblock'), stdout: '', stderr: '' }),
+        blkid: async () => ({ error: Object.assign(new Error('exit 2'), { code: 2 }), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.reason).to.include('mount_failed');
     });
 
     it('should report mount_failed when the mount fails and the dir stays unmounted', async () => {

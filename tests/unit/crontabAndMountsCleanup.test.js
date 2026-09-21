@@ -266,6 +266,16 @@ describe('crontabAndMountsCleanup tests', () => {
     // One fact, one name, whichever of the two found it: the reconciler calls a
     // missing image `volume_missing`, and a boot that calls the same thing
     // something else scores it twice and splits every fleet query in half.
+    it('records an image found somewhere other than where it was recorded', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false, imageMoved: true });
+
+      await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_moved')).to.be.true;
+    });
+
     it('records a missing image under the name the reconciler uses', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');

@@ -821,6 +821,9 @@ async function reconcile(rawIdentifier) {
     return;
   }
   volumeFaultNoted.delete(identifier);
+  if (volumeMount.imageMoved) {
+    await appTamperingDetectionService.recordEvent(mainAppName, 'volume_image_moved', `Volume image for ${identifier} was found somewhere other than where this node recorded it`);
+  }
   if (!volumeMount.alreadyMounted) {
     log.info(`appReconciler - mounted data volume for ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeMounted' });
@@ -1453,10 +1456,15 @@ function forgetDesiredState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   controllerDesired.delete(identifier);
   dataDesired.delete(identifier);
-  // A removed component keeps no failure history: the map is keyed by identifier
+  // A removed component keeps no failure history: these are keyed by identifier
   // and a reinstall under the same name would otherwise start part-way up the
-  // count and reach the sweep sooner than a first failure should.
+  // count and reach the sweep sooner than a first failure should - or, for the
+  // noted maps, have a new fault swallowed as one already recorded.
   unhandledFailures.delete(identifier);
+  volumeFaultNoted.delete(identifier);
+  networkDetachedNoted.delete(identifier);
+  networkPrunedNoted.delete(identifier);
+  detachedSince.delete(identifier);
 }
 
 /**

@@ -162,6 +162,14 @@ async function ensureInstalledAppVolumesMounted() {
     } else {
       log.info(`ensureInstalledAppVolumesMounted - mounted volume of ${appId}`);
       results.mounted.push(appId);
+      if (mountResult.imageMoved) {
+        // eslint-disable-next-line no-await-in-loop
+        await appTamperingDetectionService.recordEvent(
+          appId,
+          'volume_image_moved',
+          'Volume image was found somewhere other than where this node recorded it',
+        );
+      }
     }
   }
 
