@@ -272,6 +272,18 @@ describe('app volume placement', () => {
       expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
     });
 
+    // Each name the family arrives under, and each survives `findmnt --real`.
+    // exfat is the one the size argument does not reach: it has no 4 GiB cap,
+    // and is refused for the ownership it cannot store.
+    it('refuses every name the FAT family is reported under', async () => {
+      const volumes = await placements([
+        row('/dev/sda2', '/', 'ext4', 50),
+        row('/dev/sdb1', '/mnt/exfat', 'exfat', 900),
+        row('/dev/sdc1', '/mnt/msdos', 'msdos', 800),
+      ]);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
     it("refuses a container runtime's own storage, whatever the filesystem says", async () => {
       const volumes = await placements(ZFS_DOCKER_GRAPH);
       // The container datasets are refused; the disk the operator gave docker

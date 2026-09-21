@@ -35,6 +35,11 @@ const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
   'afs', 'ncpfs', 'ceph', 'glusterfs', 'lustre', 'gpfs', 'beegfs',
   'virtiofs', '9p']);
 
+// The FAT family, under each name the kernel reports it by. `msdos` and `vfat`
+// are the same on-disk format through the old and the current driver; `exfat`
+// is its successor.
+const FAT_FSTYPES = new Set(['vfat', 'msdos', 'exfat']);
+
 /**
  * Where a container runtime keeps the filesystems it owns.
  *
@@ -134,10 +139,13 @@ function isHostFilesystem(mount) {
   // `fuse.s3fs`, `fuse.gcsfuse`. A local fuse pool loses nothing by being
   // refused here - the disks it pools are mounted in their own right.
   if (REMOTE_FSTYPES.has(fstype) || fstype.startsWith('fuse.')) return false;
-  // FAT caps a file at 4 GiB and carries no ownership or permissions, so an
-  // app's image cannot live on one whatever its free space says. The ESP is
-  // the usual one, but a removable stick is mounted anywhere.
-  if (fstype === 'vfat') return false;
+  // A FAT filesystem stores no ownership and no permissions - it synthesises
+  // both from the mount options - so nothing on one can be given to an app
+  // alone, and vfat and msdos additionally cap a file at 4 GiB, under the size
+  // of most volumes. An image is therefore not placed on one whatever its free
+  // space says. The ESP is the usual one, but a removable stick is mounted
+  // anywhere.
+  if (FAT_FSTYPES.has(fstype)) return false;
   if (mount.target === '/boot' || mount.target.startsWith('/boot/')) return false;
   const device = String(mount.source).split('[')[0];
   if (device.startsWith('/dev/loop') && mount.target !== '/') return false;
