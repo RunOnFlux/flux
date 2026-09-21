@@ -62,8 +62,12 @@ function inGib(volume) {
  * `findmnt` names a bind mount and a btrfs subvolume `<device>[<subpath>]`, so
  * a single disk is reported once per bind - in a containerised FluxOS that is
  * `/etc/hostname`, `/etc/hosts` and `/etc/resolv.conf` beside the data volume,
- * four views of one disk. The shortest target is kept, which is the mount the
- * others are subpaths of.
+ * four views of one disk reporting its free space four times.
+ *
+ * Which view survives is an arbitrary tie-break on the shortest target. They
+ * are views of one disk, so they agree on every number; all it settles is the
+ * directory an image is written into, and the mount table says nothing about
+ * which of two directories on a disk was meant for one.
  *
  * Device identity is not filesystem identity. ZFS names each dataset in a pool
  * separately while every one of them reports the pool's free space, so a pool
