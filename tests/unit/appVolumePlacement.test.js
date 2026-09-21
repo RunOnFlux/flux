@@ -116,8 +116,10 @@ const FUSE_NETWORK_STORAGE = [
 // dataset reports the pool's free space, so ranking cannot tell them from a
 // disk. An image placed in one lands inside another app's container.
 const ZFS_DOCKER_GRAPH = [
-  row('rpool/ROOT/node', '/', 'zfs', 500, { used: 40 }),
-  row('rpool/docker', '/var/lib/docker', 'zfs', 500),
+  row('rpool/ROOT/node', '/', 'zfs', 50, { used: 40 }),
+  // The disk an operator gave docker, and the emptiest thing here - so if it
+  // were being refused, ranking would not hide it.
+  row('/dev/sdb1', '/var/lib/docker', 'ext4', 838),
   row('rpool/docker/3f9c1e', '/var/lib/docker/zfs/graph/3f9c1e', 'zfs', 500),
   row('rpool/docker/a17b22', '/var/lib/docker/zfs/graph/a17b22', 'zfs', 500),
 ];
@@ -272,9 +274,10 @@ describe('app volume placement', () => {
 
     it("refuses a container runtime's own storage, whatever the filesystem says", async () => {
       const volumes = await placements(ZFS_DOCKER_GRAPH);
-      // Only the node's own root survives: the data directory and every
-      // container dataset under it belong to docker.
-      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+      // The container datasets are refused; the disk the operator gave docker
+      // is not - that one is an ordinary disk mounted at an ordinary path, and
+      // nothing a container owns can reach the root of it.
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/var/lib/docker', '/']);
     });
 
     it('refuses the boot filesystem', async () => {

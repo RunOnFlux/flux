@@ -46,6 +46,11 @@ const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
  *
  * Neither belongs to this node to use, on any filesystem, so the rule is not
  * about ZFS - it is that a runtime's storage is the runtime's.
+ *
+ * What is UNDER the directory, never the directory itself: an operator giving
+ * docker its own disk mounts it at exactly this path, and that disk is an
+ * ordinary one to place on. Nothing a container owns reaches the root of the
+ * data directory - only the runtime writes there.
  */
 const RUNTIME_DATA_DIRS = ['/var/lib/docker', '/var/lib/containerd', '/var/lib/lxd',
   '/var/snap/lxd/common/lxd', '/var/lib/kubelet', '/dat/var/lib/docker'];
@@ -140,7 +145,7 @@ function isHostFilesystem(mount) {
   // <appsFolder>/<appId>, while the folder is an ordinary directory an operator
   // may well have given its own disk. An image there is <appId>FLUXFSVOL, which
   // collides with no mount point.
-  if (RUNTIME_DATA_DIRS.some((dir) => mount.target === dir || mount.target.startsWith(`${dir}/`))) return false;
+  if (RUNTIME_DATA_DIRS.some((dir) => mount.target.startsWith(`${dir}/`))) return false;
   const appsRoot = appsFolder.replace(/\/+$/, '');
   return !mount.target.startsWith(`${appsRoot}/`);
 }

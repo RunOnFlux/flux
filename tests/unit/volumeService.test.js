@@ -288,6 +288,22 @@ describe('volumeService tests', () => {
 
       expect(found).to.equal(null);
     });
+
+    // The directory itself is not the runtime's container storage, it is where
+    // an operator mounted docker a disk of its own - and development places
+    // images there once the root disk fills. Refusing it would lose an image
+    // that is sitting on the node.
+    it('is not the disk the operator mounted at that path, which still holds images', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sdb1', target: '/var/lib/docker', fstype: 'ext4', sizeBytes: 9e11, usedBytes: 0, availableBytes: 9e11 },
+      ]);
+      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.withArgs('/var/lib/docker/fluxweb_appFLUXFSVOL').resolves();
+
+      const found = await volumeService.getVolumeFilePath('fluxweb_app');
+
+      expect(found).to.equal('/var/lib/docker/fluxweb_appFLUXFSVOL');
+    });
   });
 
   describe('getVolumeFilePath tests', () => {
