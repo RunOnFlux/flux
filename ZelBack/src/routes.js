@@ -1373,9 +1373,6 @@ module.exports = (app) => {
   app.post('/syncthing/config/defaults/device', asyncRoute((req, res) => {
     return syncthingService.postConfigDefaultsDevice(req, res);
   }));
-  app.post('/syncthing/config/defaults/ignores', asyncRoute((req, res) => {
-    return syncthingService.postConfigDefaultsIgnores(req, res);
-  }));
   app.post('/syncthing/config/options', asyncRoute((req, res) => {
     return syncthingService.postConfigOptions(req, res);
   }));
@@ -1393,9 +1390,6 @@ module.exports = (app) => {
   }));
   app.post('/syncthing/folder/versions', asyncRoute((req, res) => {
     return syncthingService.postFolderVersions(req, res);
-  }));
-  app.post('/syncthing/db/ignores', asyncRoute((req, res) => {
-    return syncthingService.postDbIgnores(req, res);
   }));
   app.post('/syncthing/db/override', asyncRoute((req, res) => {
     return syncthingService.postDbOverride(req, res);

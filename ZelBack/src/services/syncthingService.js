@@ -800,38 +800,6 @@ async function postConfigDefaultsDevice(req, res) {
 }
 
 /**
- * To replace the default ignore patterns from an object of the same format
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigDefaultsIgnores(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const method = 'put';
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, '/rest/config/defaults/ignores', newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
  * Returns the options object
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1218,49 +1186,6 @@ async function eachDbLocalChanged(folder, onBatch) {
     if (batch.length < LOCAL_CHANGED_PAGE_SIZE) return { read: true, pages: page, truncated: false };
     if (page >= LOCAL_CHANGED_MAX_PAGES) return { read: true, pages: page, truncated: true };
   }
-}
-
-/**
- * Updates the content of the .stignore echoing it back as a response. Takes one parameter {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postDbIgnores(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/db/ignores';
-      if (folder) {
-        apiPath += `?folder=${folder}`;
-      }
-      // fluxteam, not adminandfluxteam like its siblings. .stignore decides what
-      // LEAVES this node for an app the node operator does not own, and a pattern
-      // dropped here replicates that app's backup and operation staging to every
-      // other node running it - so the blast radius of this one call is the fleet,
-      // not the box. Reading the volume is the operator's already; choosing what
-      // the network carries is not.
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
 }
 
 /**
@@ -2807,7 +2732,6 @@ module.exports = {
   postConfigDevices,
   postConfigDefaultsFolder,
   postConfigDefaultsDevice,
-  postConfigDefaultsIgnores,
   postConfigOptions,
   postConfigGui,
   postConfigLdap,
@@ -2824,7 +2748,6 @@ module.exports = {
   getDbStatus,
   getDbLocalChanged,
   eachDbLocalChanged,
-  postDbIgnores,
   postDbOverride,
   postDbPrio,
   postDbRevert,

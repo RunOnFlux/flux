@@ -3,14 +3,11 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
-const EventEmitter = require('node:events');
 
 // 3rd Party Stubbed
 const axios = require('axios');
 const log = require('../../ZelBack/src/lib/log');
-const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
 // Testing imports
 const chai = require('chai');
@@ -50,42 +47,6 @@ function advanceMonotonic(ms) {
 describe('syncthingService tests', () => {
   // The gui config carries syncthing's apikey - the credential that authenticates
   // every syncthing call on this node - so these ask for fluxteam where their
-  describe('postDbIgnores privilege tests', () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    // .stignore decides what LEAVES the node for an app the node operator does
-    // not own, so this route asks for fluxteam where its siblings take
-    // adminandfluxteam. Pinned because the difference is a single string.
-    const answerFor = (req) => new Promise((resolve) => {
-      syncthingService.postDbIgnores(req, { json: resolve });
-      req.emit('data', JSON.stringify({ folder: 'fluxcomp_app', config: { ignore: ['!/backup'] } }));
-      req.emit('end');
-    });
-
-    it('should ask for fluxteam, not the node operator', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const req = new EventEmitter();
-
-      const answer = await answerFor(req);
-
-      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
-      expect(answer.data.code).to.equal(401);
-      expect(answer.data.name).to.equal('Unauthorized');
-    });
-
-    it('should refuse a session the privilege check rejects, without reaching syncthing', async () => {
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const requested = sinon.stub(axios, 'create');
-
-      const answer = await answerFor(new EventEmitter());
-
-      sinon.assert.notCalled(requested);
-      expect(answer.status).to.equal('error');
-    });
-  });
-
   describe('getConfigFile tests', () => {
     let runCmdStub;
     beforeEach(async () => {
