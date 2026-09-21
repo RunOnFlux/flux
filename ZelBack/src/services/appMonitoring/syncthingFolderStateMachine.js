@@ -183,6 +183,14 @@ async function checkDirectoryHasSyncScopedContent(dirPath) {
  * Directories are excluded by TYPE, not by size: syncthing still reports the legacy
  * synthetic size of 128 for some of them, which a size test would read as content.
  *
+ * READ TO THE END OF THE PAGES, because the total is what decides which copy of the
+ * owner's data survives. One page is a PREFIX of a folder larger than it, and two
+ * nodes each totalling their own prefix produce numbers that no longer order by how
+ * much each holds - a node holding more can report less, and lose the seed to the
+ * node it should have outranked. Only the entry list can answer this: db/status
+ * totals the scaffolding along with the data, so its figure never reaches zero on a
+ * volume that holds nothing of the owner's.
+ *
  * @param {string} folderId
  * @param {string[]} skipNames - volume-root names the spec declared unsynced with ml:
  * @returns {Promise<{bytes: number, newestModified: number}|null>} null when it cannot
@@ -192,13 +200,13 @@ async function checkDirectoryHasSyncScopedContent(dirPath) {
 async function localHoldings(folderId, skipNames = []) {
   let answer;
   try {
-    answer = await syncthingService.getDbLocalChanged(folderId);
+    answer = await syncthingService.getAllDbLocalChanged(folderId);
   } catch (error) {
     log.warn(`localHoldings - ${folderId}: could not read local changes (${error.message}); treating as holding data`);
     return null;
   }
-  const files = answer?.files;
-  if (!Array.isArray(files)) {
+  const entries = answer?.files;
+  if (!Array.isArray(entries)) {
     log.warn(`localHoldings - ${folderId}: db/localchanged returned no file list; treating as holding data`);
     return null;
   }
@@ -206,7 +214,7 @@ async function localHoldings(folderId, skipNames = []) {
   let bytes = 0;
   let newestModified = 0;
   // eslint-disable-next-line no-restricted-syntax
-  for (const entry of files) {
+  for (const entry of entries) {
     const name = typeof entry?.name === 'string' ? entry.name : '';
     const topLevel = name.split('/')[0];
     const owned = entry?.type === 'FILE_INFO_TYPE_FILE'

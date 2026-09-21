@@ -156,6 +156,95 @@ describe('syncthingService tests', () => {
     });
   });
 
+  describe('getAllDbLocalChanged tests', () => {
+    // syncthing serves local changes a page at a time. The total is what decides
+    // which copy of an owner's data survives an election, so a caller totalling one
+    // page totals a prefix of any larger folder - and two nodes each totalling their
+    // own prefix produce figures that no longer order by how much each holds.
+    const PAGE = 65536;
+    const entry = (i) => ({ name: `f${i}`, type: 'FILE_INFO_TYPE_FILE', size: 1, deleted: false, modified: '2026-09-16T10:00:00Z' });
+    const pageOf = (n) => Array.from({ length: n }, (_, i) => entry(i));
+
+    let pagesServed;
+    let pathsRequested;
+
+    const serve = (pages) => {
+      pagesServed = [];
+      pathsRequested = [];
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      sinon.stub(axios, 'create').returns({
+        get: sinon.fake(async (reqPath) => {
+          pathsRequested.push(reqPath);
+          const page = Number(new URLSearchParams(reqPath.split('?')[1]).get('page'));
+          pagesServed.push(page);
+          return { data: { files: pages[page - 1] ?? null } };
+        }),
+      });
+    };
+
+    afterEach(async () => {
+      syncthingService.getAxiosCache().reset();
+      await syncthingService.syncthingController().abort();
+      sinon.restore();
+    });
+
+    it('asks for one page and stops when it comes back short', async () => {
+      serve([pageOf(3)]);
+
+      const answer = await syncthingService.getAllDbLocalChanged('fluxapp_x');
+
+      expect(answer.files).to.have.length(3);
+      expect(pagesServed).to.deep.equal([1]);
+    });
+
+    it('reads on while a page comes back full, and returns every entry', async () => {
+      serve([pageOf(PAGE), pageOf(PAGE), pageOf(7)]);
+
+      const answer = await syncthingService.getAllDbLocalChanged('fluxapp_x');
+
+      expect(answer.files).to.have.length(PAGE * 2 + 7);
+      expect(pagesServed).to.deep.equal([1, 2, 3]);
+    });
+
+    it('stops on a page with no list at all, which is how an exact multiple ends', async () => {
+      // A folder holding exactly one page of entries answers the second request with
+      // no list rather than an empty one. That is the end, not a failure.
+      serve([pageOf(PAGE)]);
+
+      const answer = await syncthingService.getAllDbLocalChanged('fluxapp_x');
+
+      expect(answer.files).to.have.length(PAGE);
+      expect(pagesServed).to.deep.equal([1, 2]);
+    });
+
+    it('reports an unreadable folder rather than an empty one', async () => {
+      // Only the FIRST page can say the folder cannot be read. The caller must tell
+      // that from "holds nothing", because it treats unknown as holding data.
+      serve([null]);
+
+      const answer = await syncthingService.getAllDbLocalChanged('fluxapp_x');
+
+      expect(answer.files).to.equal(null);
+      expect(pagesServed).to.deep.equal([1]);
+    });
+
+    it('sends the page size it counts against rather than inheriting a default', async () => {
+      // The loop ends on a page shorter than the size it asked for, so the size has
+      // to be the one sent - a default left to syncthing is not a contract, and a
+      // larger one there would make every full page read as short.
+      serve([pageOf(1)]);
+
+      await syncthingService.getAllDbLocalChanged('fluxapp_x');
+
+      expect(pathsRequested).to.have.length(1);
+      const query = new URLSearchParams(pathsRequested[0].split('?')[1]);
+      expect(query.get('folder')).to.equal('fluxapp_x');
+      expect(query.get('page')).to.equal('1');
+      expect(query.get('perpage')).to.equal(String(PAGE));
+    });
+  });
+
   describe('getDeviceId tests', () => {
     let fakePerformRequest;
     let fakeMeta;

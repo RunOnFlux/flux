@@ -18,6 +18,10 @@ const { Privilege, authOf } = require('./utils/privileges');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
+// Sent rather than inherited, so the page size a caller totals against is the one
+// it asked for. syncthing's own default is this value; a default is not a contract.
+const LOCAL_CHANGED_PAGE_SIZE = 65536;
+
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // Whether this process is the one that installs, spawns and owns the syncthing
@@ -1146,17 +1150,60 @@ async function getDbStatus(folder) {
  * without walking the volume.
  *
  * Only ever populated for a receiveonly or receiveencrypted folder; syncthing reports
- * nothing here for a sendreceive one whatever is on disk (folder_summary.go). The
- * default page size is 65536 entries, so one call covers any app volume.
+ * nothing here for a sendreceive one whatever is on disk (folder_summary.go).
+ *
+ * PAGED, and the caller must read to the end of it. A page carries at most `perpage`
+ * entries, so a caller that totals one page totals a PREFIX of the folder on anything
+ * larger - and two nodes summing different prefixes of their own folders compare
+ * numbers that no longer order by how much each holds.
  *
  * @param {string} folder Folder ID.
+ * @param {number} [page] 1-based page number.
+ * @param {number} [perpage] entries per page; syncthing's own default is 65536.
  * @returns {Promise<object>} { files: [{ name, size, modified, deleted, type }], page, perpage }
  */
-async function getDbLocalChanged(folder) {
+async function getDbLocalChanged(folder, page = 1, perpage = LOCAL_CHANGED_PAGE_SIZE) {
   if (!folder) {
     throw new Error('folder parameter is mandatory');
   }
-  return request('get', `/rest/db/localchanged?folder=${folder}`);
+  return request('get', `/rest/db/localchanged?folder=${folder}&page=${page}&perpage=${perpage}`);
+}
+
+/**
+ * Every entry of a folder's local changes, across as many pages as it takes.
+ *
+ * The paging is syncthing's, so it is answered here rather than by each caller: a
+ * caller that totals one page totals a PREFIX of any folder larger than it, and two
+ * nodes each totalling their own prefix produce figures that no longer order by how
+ * much each holds.
+ *
+ * Unbounded by intent. The work is bounded by what the node itself stores, and the
+ * page size is large enough that the loop makes one request for any folder the
+ * network currently carries - the largest measured across the fleet holds about half
+ * a page.
+ *
+ * A short page ends it. A full page does not: the next request decides, and a folder
+ * whose entry count is an exact multiple of the page size answers that one with no
+ * list at all, which is the end rather than a failure. Only the FIRST page can say
+ * the folder is unreadable.
+ *
+ * @param {string} folder Folder ID.
+ * @returns {Promise<object>} { files: [...] }, files null when the folder cannot be read
+ */
+async function getAllDbLocalChanged(folder) {
+  const files = [];
+  for (let page = 1; ; page += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const answer = await getDbLocalChanged(folder, page, LOCAL_CHANGED_PAGE_SIZE);
+    const batch = answer?.files;
+    if (!Array.isArray(batch)) {
+      if (page === 1) return { files: batch ?? null };
+      break;
+    }
+    files.push(...batch);
+    if (batch.length < LOCAL_CHANGED_PAGE_SIZE) break;
+  }
+  return { files };
 }
 
 /**
@@ -2762,6 +2809,7 @@ module.exports = {
   setFolderIgnores,
   getDbStatus,
   getDbLocalChanged,
+  getAllDbLocalChanged,
   postDbIgnores,
   postDbOverride,
   postDbPrio,
