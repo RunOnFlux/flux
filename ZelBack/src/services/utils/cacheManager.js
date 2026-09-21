@@ -210,6 +210,13 @@ class FluxCacheManager {
       max: 100,
       ttl: FluxCacheManager.oneMinute,
     },
+    // paymentRelayService - one entry per browser waiting on a wallet, holding
+    // the transaction id that wallet leaves. An hour is how long a wallet has
+    // to answer; the bound is what a flood of unauthenticated requests costs.
+    paymentRelayCache: {
+      max: 20000,
+      ttl: FluxCacheManager.oneHour,
+    },
   };
 
   constructor() {

@@ -12,6 +12,7 @@ const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxshareService = require('./services/fluxshareService');
+const paymentRelayService = require('./services/paymentRelayService');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const {
   asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
@@ -1069,7 +1070,13 @@ module.exports = (app) => {
     return idService.checkLoggedUser(req, res);
   }));
 
-  // Payment request routes
+  // The rendezvous a wallet posts to, addressed by the sites that open it.
+  app.get('/payment/paymentrequest', asyncRoute((req, res) => {
+    return paymentRelayService.paymentRequest(req, res);
+  }));
+  app.post('/payment/verifypayment', asyncRoute((req, res) => {
+    return paymentRelayService.receivePaymentCallback(req, res);
+  }));
 
   app.post('/daemon/createrawtransaction', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.createRawTransactionPost(req, res);

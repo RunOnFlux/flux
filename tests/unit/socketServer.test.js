@@ -174,12 +174,8 @@ describe('FluxSocketServer tests', () => {
   });
 
   // The websocket routes a node answers, as a whole list rather than a set of
-  // absences. A node used to carry a payment callback here that any caller could
-  // complete for any payment id it held, and it asserted a payment nothing ever
-  // checked against a chain - registration payments are confirmed by every node
-  // reading the blockchain itself, which is why nothing was left depending on
-  // it. Pinned whole because an assertion that one route is missing holds just
-  // as well over a handler table that failed to build.
+  // absences: an assertion that one route is missing holds just as well over a
+  // handler table that failed to build.
   describe('the websocket routes a node answers', () => {
     it('is exactly this list', () => {
       // eslint-disable-next-line global-require
@@ -189,6 +185,7 @@ describe('FluxSocketServer tests', () => {
         '/ws/flux',
         '/ws/flux/:port',
         '/ws/id/:loginphrase',
+        '/ws/payment/:paymentid',
         '/ws/sign/:message',
       ]);
     });

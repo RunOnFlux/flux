@@ -1,4 +1,5 @@
 const idService = require('../services/idService');
+const paymentRelayService = require('../services/paymentRelayService');
 const { peerManager } = require('../services/utils/peerState');
 
 // these need to be most specific first (on the same route)
@@ -7,6 +8,7 @@ const socketHandlers = {
   '/ws/flux': peerManager.validateAndAddInbound.bind(peerManager),
   '/ws/id/:loginphrase': idService.wsRespondLoginPhrase,
   '/ws/sign/:message': idService.wsRespondSignature,
+  '/ws/payment/:paymentid': paymentRelayService.wsRespondPayment,
 };
 
 const FLUX_PEER_ROUTE = /^\/ws\/flux(\/|$)/;
@@ -23,8 +25,8 @@ const FLUX_PEER_ROUTE = /^\/ws\/flux(\/|$)/;
  * cleanly instead - no peer is constructed, so nothing is queued for reconnect
  * and nothing counts it as a lost peer; the next discovery pass dials again.
  *
- * Only the peer routes. Browsers reach /ws/id and /ws/sign, and those have
- * nothing to do with whether this node has peers yet.
+ * Only the peer routes. Browsers reach /ws/id, /ws/sign and /ws/payment, and
+ * those have nothing to do with whether this node has peers yet.
  * @param {import('node:http').IncomingMessage} request
  * @returns {{status: number, message: string, reason: string}|null} null to admit.
  */
