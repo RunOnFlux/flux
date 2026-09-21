@@ -58,16 +58,47 @@ async function pinColdStart(holders, folder) {
   ])));
 }
 
+// One holder carries the owner's data, declared the way seedSyncScopedData declares it:
+// the ENTRIES, not a count, because localHoldings totals the entry list and excludes the
+// scaffolding in it by type and by name. Written after pinColdStart, which it overwrites
+// for this one node.
+async function pinHolding(index, folder, bytes) {
+  const modified = new Date().toISOString();
+  await setSyncState({
+    ip: subnet.nodeIp(index + 1),
+    folder,
+    state: 'idle',
+    globalBytes: 0,
+    inSyncBytes: 0,
+    localChanged: [
+      {
+        name: 'appdata', type: 'FILE_INFO_TYPE_DIRECTORY', size: 128, deleted: false, modified,
+      },
+      {
+        name: 'appdata/seed-data', type: 'FILE_INFO_TYPE_FILE', size: bytes, deleted: false, modified,
+      },
+    ],
+  });
+  await setNoPeerData({ ip: subnet.nodeIp(index + 1), folder });
+}
+
 describe('reconciler cold start - fresh multi-node placement, no seeded source', function () {
   let env;
   dumpLogsOnFailure(() => env);
   const rApp = `e2ecoldr${Date.now()}`;
   const gApp = `e2ecoldg${Date.now()}`;
+  const claimApp = `e2ecoldclaim${Date.now()}`;
   const holders = [0, 1, 2];
   // Asked rather than assumed. `holders[0]` is the lowest address only while the
   // list happens to be written in order, and it silently names the wrong node
   // for the first fixture that is not.
   const seedIndex = syncthingSeedIndex(holders);
+  // The holder the address order would pick LAST, so that seeding it is a decision the
+  // address order cannot also have produced. The subnet's last octets are .10 upwards,
+  // which order the same way under the product's string compare and this helper's
+  // numeric one - so the two cannot disagree about who would otherwise have won.
+  const claimHolder = [...holders].sort((a, b) => (subnet.nodeIp(a + 1) < subnet.nodeIp(b + 1) ? -1 : 1)).pop();
+  const claimBytes = 5821604997;
 
   before(async function () {
     this.timeout(480000);
@@ -80,13 +111,21 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
     const rSpec = await buildSeedableSyncthingApp({ name: rApp, mode: 'r' });
     const gSpec = await buildSeedableSyncthingApp({ name: gApp, mode: 'g' });
 
+    await pushImage(claimApp, 'v1');
+    const claimSpec = await buildSeedableSyncthingApp({ name: claimApp, mode: 'r' });
+
     await pinColdStart(holders, `flux${rApp}_${rApp}`);
     await pinColdStart(holders, `flux${gApp}_${gApp}`);
+    await pinColdStart(holders, `flux${claimApp}_${claimApp}`);
+    // Declared BEFORE install, like the cold start itself, so the first election
+    // evaluation already has a field where one candidate holds the owner's data.
+    await pinHolding(claimHolder, `flux${claimApp}_${claimApp}`, claimBytes);
 
     // place both apps on every holder AT ONCE (installOnNodes installs in parallel) so
     // they all broadcast placement before any confirms leadership - the standoff shape
     await installOnNodes(env, rSpec, holders);
     await installOnNodes(env, gSpec, holders);
+    await installOnNodes(env, claimSpec, holders);
   });
 
   after(async function () {
@@ -110,6 +149,42 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
     expect(await countUp(env, holders, rApp)).to.equal(1);
     // the seed is the deterministic tiebreaker winner (lowest IP)
     expect(await isUp(env.clients[seedIndex], rApp)).to.equal(true);
+  });
+
+  // THE ELECTION'S OTHER QUESTION. The two tests above are a field where nobody holds
+  // anything and any candidate is as good a seed as another, which the address order
+  // answers. This is the field where one candidate holds the owner's data: seeding
+  // anyone else publishes an empty folder over it, and the full one's files then become
+  // local changes that a later revert deletes.
+  //
+  // Everything between the claim and the outcome is the product's: the holder totals its
+  // own local-change list, publishes what it holds, and each peer asks for it over the
+  // signed endpoint and ranks the field on the answers. A unit test reaches the
+  // comparator with a claims object handed to it; only a fleet reaches it through a
+  // node's own reading of its volume and a peer's reading of that node.
+  it('r: the holder seeds, against the address the field would otherwise elect', async function () {
+    this.timeout(180000);
+    // The premise, asserted so a fixture that stops being divergent fails here rather
+    // than passing for the wrong reason: seeding the holder has to be a different
+    // answer from seeding the lowest address.
+    expect(claimHolder, 'the holder IS the address-order winner, so this proves nothing').to.not.equal(seedIndex);
+
+    await waitFor(
+      async () => (await countUp(env, holders, claimApp)) >= 1,
+      { timeout: 90000, interval: 3000, label: 'a holder seeds the cold-start r: app' },
+    );
+    // Settle, then read the whole field: a second seed is a split, and the wrong seed is
+    // an empty volume published over the owner's data.
+    await new Promise((r) => { setTimeout(r, 12000); });
+    expect(await countUp(env, holders, claimApp)).to.equal(1);
+    expect(
+      await isUp(env.clients[claimHolder], claimApp),
+      'the node holding the data did not seed',
+    ).to.equal(true);
+    expect(
+      await isUp(env.clients[seedIndex], claimApp),
+      'the lowest address seeded over a peer that holds the owner data',
+    ).to.equal(false);
   });
 
   it('g: the seed reaches sendreceive and starts once FDM-elected (no deadlock)', async function () {
