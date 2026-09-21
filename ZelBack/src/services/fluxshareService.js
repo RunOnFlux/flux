@@ -11,7 +11,7 @@ const log = require('../lib/log');
 
 // What a node will still do with the files an operator left in ZelShare: list
 // them, and hand them back. It will not take new ones, rename them, delete
-// them, or serve them to anybody unauthenticated - a node is not a file host,
+// them, or serve them to anybody but the operator - a node is not a file host,
 // and the rest of FluxShare went for that reason.
 //
 // This exists so that removal does not take an operator's files with it on the
@@ -60,7 +60,7 @@ async function resolveInShare(relative) {
  */
 async function fluxShareGetFolder(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (!authorized) {
       res.json(messageHelper.errUnauthorizedMessage());
       return;
@@ -110,16 +110,18 @@ async function fluxShareGetFolder(req, res) {
 /**
  * Sends one file from under the share root.
  *
- * The operator or the flux team. FluxShare used to fall through to a token
- * lookup when the privilege check failed, which served the file to whoever
- * held the link; there is no such path here and a test asserts there is not.
+ * The node's operator, and nobody else. These are their files on their
+ * hardware, and the flux team has never been able to read them. FluxShare used
+ * to fall through to a token lookup when the privilege check failed, which
+ * served the file to whoever held the link; there is no such path here and a
+ * test asserts there is not.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<void>}
  */
 async function fluxShareDownloadFile(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (!authorized) {
       res.json(messageHelper.errUnauthorizedMessage());
       return;

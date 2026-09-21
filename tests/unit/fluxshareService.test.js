@@ -28,15 +28,15 @@ describe('fluxshareService tests', () => {
   // What is left is a way to collect files a previous release allowed onto the
   // node. Everything that put them there, renamed them, deleted them or served
   // them to a stranger is gone, and these assert it stays gone.
-  describe('who reaches it', () => {
+  describe('only the node operator reaches it', () => {
     ['fluxShareGetFolder', 'fluxShareDownloadFile'].forEach((handler) => {
-      it(`${handler} asks for the operator-or-flux-team privilege`, async () => {
+      it(`${handler} asks for the node operator, and nothing wider`, async () => {
         const verifyPrivilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
         const res = responseRecorder();
 
         await fluxshareService[handler]({ params: { file: 'x', folder: '' }, query: {} }, res);
 
-        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf({ params: { file: 'x', folder: '' }, query: {} }));
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.NODE_OPERATOR, authOf({ params: { file: 'x', folder: '' }, query: {} }));
         expect(bodyOf(res).status).to.equal('error');
       });
     });
