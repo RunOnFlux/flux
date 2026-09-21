@@ -248,7 +248,10 @@ async function isOnReadOnlyFilesystem(target) {
     return target === at || target.startsWith(`${at}/`);
   });
   if (!holders.length) return false;
-  const deepest = holders.reduce((a, b) => (b.target.length > a.target.length ? b : a));
+  // Holders of equal length are the same path, i.e. mounts stacked on it, and
+  // findmnt lists them in mountinfo order where the last one is what the
+  // kernel resolves through. So equality takes the later row.
+  const deepest = holders.reduce((a, b) => (b.target.length >= a.target.length ? b : a));
   return Boolean(deepest.readOnly);
 }
 
@@ -374,9 +377,12 @@ async function ensureAppVolumeMounted(identifier) {
   }
 
   // A disk the kernel remounted read-only after an I/O error still holds the
-  // image and still reads. The mount would fail anyway, so the app is down
-  // either way - but it is down because the hardware went, and saying the
-  // image is missing blames an operator for a disk fault.
+  // image and still reads, and mount would loop-mount it read-only rather
+  // than fail - APP_VOLUME_MOUNT_OPTIONS asks for no explicit `rw`, and
+  // util-linux falls back when the backing file cannot be opened for writing.
+  // An app whose volume cannot be written to is down regardless, so the
+  // volume is refused here by choice, under the reason that names the disk:
+  // calling the image missing blames an operator for a hardware fault.
   if (await isOnReadOnlyFilesystem(volumeFile)) {
     return { mounted: false, reason: 'host_filesystem_readonly' };
   }

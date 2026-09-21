@@ -269,6 +269,25 @@ describe('volumeService tests', () => {
       ]);
       expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(false);
     });
+
+    // Mounts stacked on one path are listed in mountinfo order and the last
+    // is the one the kernel resolves through, so both directions are pinned:
+    // reading the shadowed row answers about a filesystem nothing can reach.
+    it('reads the mount stacked on top, not the one it shadows', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { ...roMount, target: '/mnt/data', readOnly: false },
+        { ...roMount, target: '/mnt/data', source: '/dev/sdc1', readOnly: true },
+      ]);
+      expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(true);
+    });
+
+    it('does not report a shadowed read-only mount when the top one is writable', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { ...roMount, target: '/mnt/data', readOnly: true },
+        { ...roMount, target: '/mnt/data', source: '/dev/sdc1', readOnly: false },
+      ]);
+      expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(false);
+    });
   });
 
   // A container runtime's own storage is not a place an image may be found. On
