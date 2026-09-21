@@ -482,6 +482,36 @@ async function remove(rawIdentifier) {
  * than keep one doc whole: dropping a doc could drop a real operator lock,
  * whose loss would auto-start a deliberately stopped app.
  */
+/**
+ * Records where this node put a component's volume image and the filesystem
+ * UUID it stamped that image with.
+ *
+ * The node chooses the path and the UUID, so this is the node's own account of
+ * its storage: what it made, and where. It belongs beside the other facts this
+ * node observed about the component rather than on the installed-apps row,
+ * which is the owner's signed specification.
+ *
+ * @param {string} identifier Component identifier or docker app id.
+ * @param {string} volumeImagePath Absolute path of the image.
+ * @param {string|null} volumeFsUuid Filesystem UUID inside the image.
+ */
+async function setVolumeImage(identifier, volumeImagePath, volumeFsUuid) {
+  await setFields(identifier, { volumeImagePath, volumeFsUuid: volumeFsUuid || null });
+}
+
+/**
+ * The volume image this node recorded for a component, or null when it has
+ * none - every component installed before the record existed.
+ *
+ * @param {string} rawIdentifier Component identifier or docker app id.
+ * @returns {Promise<{path: string, fsUuid: string|null}|null>}
+ */
+async function getVolumeImage(rawIdentifier) {
+  const state = await getState(rawIdentifier);
+  if (!state || !state.volumeImagePath) return null;
+  return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null };
+}
+
 async function prepareCollection() {
   try {
     const database = collection();
@@ -550,6 +580,8 @@ module.exports = {
   networkHealWaitMs,
   clearNetworkHeal,
   recordExit,
+  setVolumeImage,
+  getVolumeImage,
   remove,
   BACKOFF_DELAYS_MS,
   STABLE_RUN_MS,

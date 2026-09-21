@@ -358,9 +358,7 @@ async function isPathMounted(dirPath) {
  * @returns {Promise<{path: string, fsUuid: string|null}|null>}
  */
 async function recordedVolumeImage(identifier) {
-  const state = await appsRuntimeState.getState(identifier);
-  if (!state || !state.volumeImagePath) return null;
-  return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null };
+  return appsRuntimeState.getVolumeImage(identifier);
 }
 
 /**
@@ -376,10 +374,7 @@ async function recordedVolumeImage(identifier) {
  * @param {string|null} fsUuid Filesystem UUID inside the image.
  */
 async function recordVolumeImage(identifier, volumeFile, fsUuid) {
-  await appsRuntimeState.setFields(identifier, {
-    volumeImagePath: volumeFile,
-    volumeFsUuid: fsUuid || null,
-  }).catch((error) => {
+  await appsRuntimeState.setVolumeImage(identifier, volumeFile, fsUuid).catch((error) => {
     log.warn(`recordVolumeImage - could not record ${volumeFile} for ${identifier}: ${error.message}`);
   });
 }

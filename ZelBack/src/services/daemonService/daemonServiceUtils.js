@@ -1,3 +1,4 @@
+const log = require('../../lib/log');
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
 const daemonConfig = require('../utils/daemonConfig');
@@ -24,7 +25,7 @@ configManager.on('configReloaded', async (newConfig) => {
     await buildFluxdClient();
     const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
     const rpcPort = fluxdConfig?.rpcport || config.daemon[portId];
-    serviceHelper.log('info', `Testnet mode changed, rebuilt daemon RPC client on port ${rpcPort}`);
+    log.info(`Testnet mode changed, rebuilt daemon RPC client on port ${rpcPort}`);
   }
 });
 

@@ -58,7 +58,7 @@ describe('volumeService tests', () => {
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]), listAllMounts: sinon.stub().resolves([]) };
     // Nothing recorded unless a test says so: that is a node that has never
     // created a volume through this code, which is every legacy install.
-    appsRuntimeStateStub = { getState: sinon.stub().resolves(null), setFields: sinon.stub().resolves() };
+    appsRuntimeStateStub = { getVolumeImage: sinon.stub().resolves(null), setVolumeImage: sinon.stub().resolves() };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
@@ -383,7 +383,7 @@ describe('volumeService tests', () => {
     });
 
     it('is used without searching the disks at all', async () => {
-      appsRuntimeStateStub.getState.resolves({ volumeImagePath: '/mnt/data/fluxapp1FLUXFSVOL', volumeFsUuid: 'u-1' });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/data/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
       fsStub.promises.access.resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
@@ -394,7 +394,7 @@ describe('volumeService tests', () => {
     });
 
     it('falls back to the search when the recorded image is gone', async () => {
-      appsRuntimeStateStub.getState.resolves({ volumeImagePath: '/mnt/gone/fluxapp1FLUXFSVOL', volumeFsUuid: 'u-1' });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/gone/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
       deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
       fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
@@ -418,7 +418,7 @@ describe('volumeService tests', () => {
     });
 
     it('refuses a file that is not the image this node created', async () => {
-      appsRuntimeStateStub.getState.resolves({ volumeImagePath: '/dat/fluxapp1FLUXFSVOL', volumeFsUuid: 'ours-1' });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'ours-1' });
       fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dev/loop-control').resolves();
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
@@ -430,7 +430,7 @@ describe('volumeService tests', () => {
     });
 
     it('mounts the image whose stamp matches', async () => {
-      appsRuntimeStateStub.getState.resolves({ volumeImagePath: '/dat/fluxapp1FLUXFSVOL', volumeFsUuid: 'someone-elses-uuid' });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'someone-elses-uuid' });
       fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dev/loop-control').resolves();
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
@@ -444,7 +444,7 @@ describe('volumeService tests', () => {
     // A stamp that cannot be read is not a mismatch, and the mount refuses
     // anything that is not a filesystem anyway.
     it('does not refuse on a stamp it cannot read', async () => {
-      appsRuntimeStateStub.getState.resolves({ volumeImagePath: '/dat/fluxapp1FLUXFSVOL', volumeFsUuid: 'ours-1' });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'ours-1' });
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
         blkid: async () => ({ error: new Error('cannot open'), stdout: '', stderr: '' }),
@@ -465,7 +465,7 @@ describe('volumeService tests', () => {
   describe('what a mounted volume teaches a node that never recorded it', () => {
     it('reads the image path from the kernel and records it', async () => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
-      appsRuntimeStateStub.getState.resolves(null);
+      appsRuntimeStateStub.getVolumeImage.resolves(null);
       fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
         .resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
       fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/backing_file', 'utf8')
@@ -475,17 +475,14 @@ describe('volumeService tests', () => {
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
       expect(result).to.deep.equal({ mounted: true, alreadyMounted: true });
-      sinon.assert.calledWith(appsRuntimeStateStub.setFields, 'fluxapp1', {
-        volumeImagePath: '/mnt/data/fluxapp1FLUXFSVOL',
-        volumeFsUuid: 'learned-uuid',
-      });
+      sinon.assert.calledWith(appsRuntimeStateStub.setVolumeImage, 'fluxapp1', '/mnt/data/fluxapp1FLUXFSVOL', 'learned-uuid');
     });
 
     // The search runs once for a legacy image: what it found is recorded the
     // moment the mount proves it real, and the lookup answers ever after.
     it('records an image the search found, once it is known to mount', async () => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
-      appsRuntimeStateStub.getState.resolves(null);
+      appsRuntimeStateStub.getVolumeImage.resolves(null);
       deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
@@ -499,21 +496,18 @@ describe('volumeService tests', () => {
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
       expect(result.mounted).to.be.true;
-      sinon.assert.calledWith(appsRuntimeStateStub.setFields, 'fluxapp1', {
-        volumeImagePath: '/dat/fluxapp1FLUXFSVOL',
-        volumeFsUuid: 'found-uuid',
-      });
+      sinon.assert.calledWith(appsRuntimeStateStub.setVolumeImage, 'fluxapp1', '/dat/fluxapp1FLUXFSVOL', 'found-uuid');
     });
 
     it('does not overwrite a record it already has', async () => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
-      appsRuntimeStateStub.getState.resolves({ volumeImagePath: '/mnt/data/fluxapp1FLUXFSVOL', volumeFsUuid: 'u-1' });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/data/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
       fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
         .resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
 
       await volumeService.ensureAppVolumeMounted('app1');
 
-      sinon.assert.notCalled(appsRuntimeStateStub.setFields);
+      sinon.assert.notCalled(appsRuntimeStateStub.setVolumeImage);
     });
   });
 

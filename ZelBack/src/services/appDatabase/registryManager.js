@@ -1314,7 +1314,7 @@ async function removeAppSpecificationFromStorage(appName) {
     const database = db.db(config.database.appsglobal.database);
 
     const query = { name: new RegExp(`^${appName}$`, 'i') };
-    const result = await dbHelper.removeInDatabase(database, globalAppsInformation, query);
+    const result = await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
 
     log.info(`App specification removed for ${appName}`);
     return { status: 'success', deletedCount: result.deletedCount };
