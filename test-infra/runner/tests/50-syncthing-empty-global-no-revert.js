@@ -209,5 +209,21 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     const started = await client.waitForEvent('reconciler:actuated', (d) => d.identifier === aPart.identifier && d.action === 'started', 90000);
     expect(started).to.exist;
     expect(await isUp(client, appPart)).to.equal(true);
+
+    // What a folder holds that the cluster's index does not is a receive-only
+    // question, and this folder has just stopped being receive-only. Peers rank a
+    // seed on this answer, so a figure left behind describes a state the node is no
+    // longer in and goes on being ranked - and the write site sits behind the
+    // promoted-folder early return, so nothing later can correct it.
+    await waitFor(async () => {
+      const { data } = await client.get('/apps/promotedfolders');
+      return data?.ready === true && !!data.folders?.includes(aPart.folder);
+    }, { timeout: 60000, interval: 2000, label: `${aPart.folder} published as promoted` });
+
+    const { data: published } = await client.get('/apps/promotedfolders');
+    expect(
+      Object.keys(published.holding || {}),
+      'a promoted folder still publishes receive-only holdings',
+    ).to.not.include(aPart.folder);
   });
 });

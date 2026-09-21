@@ -1125,6 +1125,11 @@ describe('syncthingMonitor tests', () => {
 
   describe('holds a busy app out of the config write', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
+    // Bound while this file loads, which is when the module under test bound its
+    // own. A suite that clears the require cache later makes a run-time require
+    // here a DIFFERENT singleton from the one the monitor writes to.
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
 
     function writesAFolder() {
       mockState.backupInProgress = [];
@@ -1169,6 +1174,31 @@ describe('syncthingMonitor tests', () => {
         .find((c) => c.args[0] === 'put' && Array.isArray(c.args[1]));
       expect(put, 'the folder is written when the app is free').to.not.equal(undefined);
       expect(put.args[1].map((f) => f.id)).to.include('testapp');
+    });
+
+    // What a folder holds that the cluster's index does not is a receive-only
+    // question. Promotion answers it - everything this node holds is published
+    // from here - so the claim stops being true as the write lands, which is
+    // where promotedFolderIds is reconciled for the same reason.
+    it('drops the published holding of a folder it promotes', async () => {
+      writesAFolder();
+      globalState.folderHoldings = new Map([
+        ['testapp', { bytes: 5821604997, newestModified: 200 }],
+        ['untouchedapp', { bytes: 4096, newestModified: 100 }],
+      ]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const put = syncthingServiceMock.adjustConfigFolders.getCalls()
+        .find((c) => c.args[0] === 'put' && Array.isArray(c.args[1]));
+      expect(put, 'nothing was written, so this asserts nothing').to.not.equal(undefined);
+      expect(put.args[1].find((f) => f.id === 'testapp')?.type).to.equal('sendreceive');
+
+      expect(globalState.folderHoldings.has('testapp'), 'a promoted folder still claims receive-only holdings').to.equal(false);
+      // A folder this pass did not promote keeps its claim: the drop is scoped to
+      // what changed, not a clear of everything the node has answered for.
+      expect(globalState.folderHoldings.has('untouchedapp')).to.equal(true);
     });
   });
 

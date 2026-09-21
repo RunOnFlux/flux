@@ -610,6 +610,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     // second-encounter chain, which clears it. The allocation below is the
     // first act that cannot be undone.
     globalState.receiveOnlySyncthingAppsCache.delete(appId);
+    // Same dead incarnation, and this claim is published: peers rank a seed on what
+    // each node says it holds, so the old volume's figures describe the one being
+    // replaced and can win the election for a volume that is about to be empty.
+    globalState.folderHoldings?.delete(appId);
     await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
       status: 'Space allocated',

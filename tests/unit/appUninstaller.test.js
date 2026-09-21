@@ -573,6 +573,7 @@ describe('appUninstaller tests', () => {
         installationInProgress: false,
         runningAppsCache: new Set(),
         receiveOnlySyncthingAppsCache: new Map(),
+        folderHoldings: new Map(),
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         '../utils/globalState': globalStateStub,
@@ -708,6 +709,26 @@ describe('appUninstaller tests', () => {
       await uninstaller.removeAppLocally('comp1_testapp', res, true);
 
       sinon.assert.calledOnceWithExactly(onRemoved, 'comp1_testapp');
+    });
+
+    // Peers rank which copy seeds on what each node claims to hold, and a claim
+    // kept past the removal offers a volume this node no longer has - outranking
+    // a node that still holds the app, and seeding an empty folder in its place.
+    it('drops the published holding when the data is deleted', async () => {
+      const uninstaller = buildUninstaller(composedSpec);
+      // Keyed by the app IDENTIFIER, which is what the folder id and the cleanup
+      // both use - not the component name the removal is asked for.
+      globalStateStub.folderHoldings = new Map([
+        ['fluxcomp1_testapp', { bytes: 5821604997, newestModified: 200 }],
+        ['otherapp', { bytes: 4096, newestModified: 100 }],
+      ]);
+
+      await uninstaller.removeAppLocally('comp1_testapp', res, true);
+
+      expect(globalStateStub.folderHoldings.has('fluxcomp1_testapp'), 'a removed app still claims to hold its data').to.equal(false);
+      // Scoped to what was removed - a component-scoped removal is not a clear of
+      // everything this node has answered for.
+      expect(globalStateStub.folderHoldings.has('otherapp')).to.equal(true);
     });
 
     it('pairs the seam with the durable runtime-state clear (same identifiers)', async () => {

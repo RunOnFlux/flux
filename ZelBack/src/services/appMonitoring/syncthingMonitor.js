@@ -878,6 +878,12 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       for (const folder of foldersToWrite) {
         if (folder.type === 'sendreceive') globalState.promotedFolderIds.add(folder.id);
         else globalState.promotedFolderIds.delete(folder.id);
+        // What a folder holds that the cluster's index does not is a receive-only
+        // question, and promotion answers it: everything this node holds is now
+        // published. Dropped rather than zeroed - absent is what a peer reads as
+        // "not a receive-only holder", where a figure left behind goes on being
+        // ranked after the folder it described has stopped being one.
+        if (folder.type === 'sendreceive') globalState.folderHoldings?.delete(folder.id);
       }
     }
 

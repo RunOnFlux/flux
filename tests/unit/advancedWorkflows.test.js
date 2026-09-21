@@ -2971,9 +2971,19 @@ describe('advancedWorkflows tests', () => {
       });
     };
 
+    // What this node publishes about the volume being replaced. Peers rank a seed
+    // on it, so it describes one incarnation and must not outlive it.
+    const armHolding = () => {
+      volGlobalState.folderHoldings = new Map([
+        [identifier, { bytes: 5821604997, newestModified: 200 }],
+        ['fluxother_TestApp', { bytes: 4096, newestModified: 100 }],
+      ]);
+    };
+
     beforeEach(() => {
       volGlobalState = require('../../ZelBack/src/services/utils/globalState');
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
+      volGlobalState.folderHoldings = null;
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
@@ -3129,6 +3139,52 @@ describe('advancedWorkflows tests', () => {
         volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
         'the point of no return left a stale synced-mark in place',
       ).to.equal(false);
+    });
+
+    it('preserves the published holding when the pre-flight aborts', async () => {
+      // Same reasoning as the synced-mark above: the existing volume and its data
+      // are untouched, so what this node says it holds is still true.
+      armHolding();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'error' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
+      expect(
+        volGlobalState.folderHoldings.has(identifier),
+        'an aborted pre-flight withdrew a claim whose data is intact',
+      ).to.equal(true);
+    });
+
+    it('drops the published holding at the point of no return', async () => {
+      // Once the allocation runs the volume is empty. A claim surviving from the
+      // previous incarnation describes data this node no longer has, and peers rank
+      // the seed on it - so it outranks a node that still holds the app and seeds
+      // an empty folder over the owner's world.
+      armHolding();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('fallocate blocked by test') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
+      expect(
+        volGlobalState.folderHoldings.has(identifier),
+        'the point of no return left a claim for a volume that is now empty',
+      ).to.equal(false);
+      // Scoped to the volume being replaced, not a clear of every answer the node holds.
+      expect(volGlobalState.folderHoldings.has('fluxother_TestApp')).to.equal(true);
     });
   });
 
