@@ -10,6 +10,8 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
+const { EventEmitter } = require('node:events');
+const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
@@ -1111,16 +1113,25 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
   });
   const UNREACHABLE = 'unreachable';
 
-  // A free port, taken and released, so two runs of the suite cannot collide on
-  // a hard-coded one. The test servers below bind it for real.
-  before(async () => {
-    const probe = require('node:net').createServer();
-    await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-    ({ port } = probe.address());
-    await new Promise((resolve) => probe.close(resolve));
+  // The subject here is the verdict, not the socket: what this decides when the
+  // peers it asked do not give it a clean answer. So the listener is stubbed like
+  // every other collaborator in this block - a real one binds a real port, and a
+  // port this process was given and then released is one the rest of the suite can
+  // be handed before these tests reach it. That bind then fails, the whole check
+  // exits as { ok: false, reason: 'error' }, and every test here fails together
+  // over a port. What the listener itself answers is fluxHttpTestServer's own
+  // suite, which tests it against real sockets.
+  before(() => {
+    port = 31350;
   });
 
   beforeEach(() => {
+    sinon.stub(fluxHttpTestServer, 'FluxHttpTestServer').callsFake(() => {
+      const server = new EventEmitter();
+      server.listen = () => { setImmediate(() => server.emit('listening')); return server; };
+      server.close = (callback) => { if (callback) setImmediate(callback); return server; };
+      return server;
+    });
     sinon.stub(serviceHelper, 'delay').resolves();
     sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('1.2.3.4:16127');
     sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('04pubkey');
