@@ -252,6 +252,45 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_file_missing' }]);
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
     });
+
+    // A disk coming up read-only is what startup catches, and the score these
+    // events feed is meant to weigh operator interference. The failure is
+    // still reported; it just does not accuse anyone.
+    it('reports a host fault as failed without recording a tampering event', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'host_filesystem_readonly' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'host_filesystem_readonly' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+    });
+
+    it('does not record a tampering event when the mountpoint cannot be made', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_point_unavailable: EACCES' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_point_unavailable: EACCES' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+    });
+
+    // An image written over with anything that is not a filesystem is still on
+    // disk, so it is never reported missing - the mount is where it shows up,
+    // and this sweep is the only thing that records it.
+    it('records a tampering event when the image will no longer mount', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_failed: wrong fs type, bad superblock' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_failed: wrong fs type, bad superblock' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
+    });
   });
 
   describe('removeLegacyMountCrontabEntries', () => {

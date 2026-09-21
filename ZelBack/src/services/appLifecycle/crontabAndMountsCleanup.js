@@ -11,6 +11,11 @@ const appTamperingDetectionService = require('../appTamperingDetectionService');
 
 const crontabLoad = util.promisify(systemcrontab.load);
 
+// Mount failures that describe the host rather than the volume. Matched on the
+// part before the colon, because two of the reasons carry the underlying error
+// after one.
+const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable']);
+
 /**
  * Get all locally installed app IDs. Enterprise apps are stored locally with
  * `compose` deliberately emptied (the components only exist inside the
@@ -118,8 +123,15 @@ async function ensureInstalledAppVolumesMounted() {
     if (!mountResult.mounted) {
       log.error(`ensureInstalledAppVolumesMounted - ${appId} volume could not be mounted: ${mountResult.reason}`);
       results.failed.push({ appId, reason: mountResult.reason });
-      // eslint-disable-next-line no-await-in-loop
-      await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Volume not mountable at startup: ${mountResult.reason}`);
+      // A node's tampering score is a plain sum over every incident recorded on
+      // it, so a fault of the host's own must not add to one. What is left
+      // says something about the volume itself: an image that is gone, and an
+      // image the kernel will no longer mount as a filesystem - which is what
+      // an overwritten one looks like, the file still being there.
+      if (!HOST_FAULT_MOUNT_REASONS.has(String(mountResult.reason).split(':')[0])) {
+        // eslint-disable-next-line no-await-in-loop
+        await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Volume not mountable at startup: ${mountResult.reason}`);
+      }
     } else if (mountResult.alreadyMounted) {
       results.alreadyMounted.push(appId);
     } else {
