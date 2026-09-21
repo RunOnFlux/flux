@@ -205,16 +205,21 @@ function visibleMountAt(target, mounts) {
  * A row with another mount stacked over it answers for a filesystem the path
  * no longer reaches - neither its `ro` flag nor its free space describes what
  * a write there would do - so only the mount a path resolves through is a
- * candidate. A mount table read with `--real` carries no pseudo filesystem, so
- * a tmpfs or an overlay laid over a candidate is not visible here and the row
- * beneath it still answers.
+ * candidate. Asked of every mount the kernel holds and not of the block-backed
+ * ones alone, because a tmpfs laid over a disk is the case that turns a
+ * multi-gigabyte image into RAM the app loses at the next restart.
  *
  * @param {object} mount One mount row from deviceHelper.
- * @param {Array<object>} mounts The whole mount table the row came from.
+ * @param {Array<object>} allMounts Every mount, in mount table order.
  * @returns {Promise<boolean>} True when an image can be written there.
  */
-async function canHoldAppVolume(mount, mounts) {
-  if (visibleMountAt(mount.target, mounts) !== mount) return false;
+async function canHoldAppVolume(mount, allMounts) {
+  const visible = visibleMountAt(mount.target, allMounts);
+  // Only ever used to REFUSE: a candidate reaches here from the block-backed
+  // table, so nothing this list contains can promote one. When no row at the
+  // target names this mount's source the comparison has nothing to say, and
+  // saying nothing costs a disk rather than filling the wrong one.
+  if (visible && visible.source !== mount.source) return false;
   if (mount.readOnly) return false;
   const stats = await fs.stat(mount.target).catch(() => null);
   return Boolean(stats && stats.isDirectory());
@@ -235,16 +240,16 @@ async function canHoldAppVolume(mount, mounts) {
  *   used: number, available: number}>>}
  */
 async function placementVolumesInGib() {
-  // Unfiltered by this module's own rules, because what shadows a candidate
-  // decides where a write lands whether or not an image could be placed on the
-  // thing doing the shadowing. `--real` has already dropped the pseudo
-  // filesystems, so a tmpfs over a candidate is not among them.
   const mounts = await deviceHelper.listMountedFilesystems();
+  // Every mount, for the shadowing question alone: what a write to a candidate
+  // actually lands on is whatever the kernel resolves that path through, which
+  // need not be block-backed and so need not appear above.
+  const allMounts = await deviceHelper.listAllMounts();
   const hosts = mounts.filter(isHostFilesystem);
   const writable = [];
   for (const mount of hosts) {
     // eslint-disable-next-line no-await-in-loop
-    if (await canHoldAppVolume(mount, mounts)) writable.push(mount);
+    if (await canHoldAppVolume(mount, allMounts)) writable.push(mount);
   }
   return oneRowPerDevice(writable)
     .sort((a, b) => b.availableBytes - a.availableBytes)

@@ -96,6 +96,36 @@ async function hasQuotaOptionForMountTarget(target) {
   return Boolean(stdout);
 }
 
+/**
+ * Every mount the kernel holds, pseudo filesystems included.
+ *
+ * `listMountedFilesystems` answers the df question, and `--real` drops
+ * anything not block-backed. This answers a different one - what a path
+ * resolves through - and a tmpfs or an overlay laid over a disk is exactly
+ * what decides that, which is what `--real` hides. No byte counts: a caller
+ * asking this is asking about visibility, not about room.
+ *
+ * Throws on findmnt failure, so a caller cannot read "nothing is mounted
+ * there" out of a table it never got.
+ *
+ * @returns {Promise<Array<{source: string, target: string, fstype: string}>>}
+ */
+async function listAllMounts() {
+  const res = await serviceHelper.runCommand('findmnt', {
+    logError: false,
+    params: ['--list', '--json', '--output', 'SOURCE,TARGET,FSTYPE'],
+  });
+  if (res.error) {
+    throw new Error(`findmnt --list failed: ${res.error.message || res.error}`);
+  }
+  const filesystems = JSON.parse(res.stdout || '{}').filesystems || [];
+  return filesystems.map((entry) => ({
+    source: entry.source,
+    target: entry.target,
+    fstype: entry.fstype,
+  }));
+}
+
 // For testing. Run: node <this file> /var/lib/docker (or another xfs target wth pquota)
 if (require.main === module) {
   hasQuotaOptionForMountTarget(process.argv[2]).then((res) => console.log('Has quota:', res));
@@ -103,5 +133,6 @@ if (require.main === module) {
 
 module.exports = {
   hasQuotaOptionForMountTarget,
+  listAllMounts,
   listMountedFilesystems,
 };

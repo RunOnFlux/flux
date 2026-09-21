@@ -136,7 +136,7 @@ describe('app volume placement', () => {
   let volumeService;
 
   beforeEach(() => {
-    deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]) };
+    deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]), listAllMounts: sinon.stub().resolves([]) };
     const statStub = sinon.stub().callsFake(async (target) => {
       if (FILES.has(target)) return { isDirectory: () => false };
       return { isDirectory: () => true };
@@ -164,8 +164,12 @@ describe('app volume placement', () => {
     sinon.restore();
   });
 
-  const placements = async (table) => {
+  // `allTable` is every mount the kernel holds, which decides what a write to a
+  // candidate resolves through; it defaults to the block-backed table, the case
+  // where nothing pseudo is stacked on anything.
+  const placements = async (table, allTable = table) => {
     deviceHelperStub.listMountedFilesystems.resolves(table);
+    deviceHelperStub.listAllMounts.resolves(allTable);
     return volumeService.placementVolumesInGib();
   };
 
@@ -326,6 +330,23 @@ describe('app volume placement', () => {
         row('/dev/sdb1', '/mnt/data', 'ext4', 900),
         row('/dev/sdc1', '/mnt/data', 'ext4', 800, { options: 'ro,relatime' }),
       ]);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
+    // The case `findmnt --real` cannot show: a pseudo filesystem laid over a
+    // disk. The disk's row still reports its own free space, and a write to
+    // that path lands in RAM - a volume the app loses at the next restart,
+    // which is what the ephemeral rule exists to prevent.
+    it('refuses a disk a pseudo filesystem is mounted over', async () => {
+      const disk = row('/dev/sdb1', '/mnt/data', 'ext4', 900);
+      const volumes = await placements(
+        [row('/dev/sda2', '/', 'ext4', 50), disk],
+        [
+          { source: '/dev/sda2', target: '/', fstype: 'ext4' },
+          { source: '/dev/sdb1', target: '/mnt/data', fstype: 'ext4' },
+          { source: 'tmpfs', target: '/mnt/data', fstype: 'tmpfs' },
+        ],
+      );
       expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
     });
 

@@ -52,7 +52,7 @@ describe('volumeService tests', () => {
         stat: sinon.stub().resolves({ isDirectory: () => true }),
       },
     };
-    deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]) };
+    deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]), listAllMounts: sinon.stub().resolves([]) };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
