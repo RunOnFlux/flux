@@ -267,6 +267,17 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
     });
 
+    it('does not record a tampering event when the mount table could not be read', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_table_unreadable' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_table_unreadable' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+    });
+
     it('does not record a tampering event when the mountpoint cannot be made', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');

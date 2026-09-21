@@ -246,7 +246,7 @@ describe('volumeService tests', () => {
 
       const found = await volumeService.getVolumeFilePath('fluxcomp_app');
 
-      expect(found).to.equal('/mnt/data/fluxcomp_appFLUXFSVOL');
+      expect(found.path).to.equal('/mnt/data/fluxcomp_appFLUXFSVOL');
     });
 
     it('is reported as what it is, not as a missing image', async () => {
@@ -305,7 +305,7 @@ describe('volumeService tests', () => {
 
       const found = await volumeService.getVolumeFilePath('fluxweb_victim');
 
-      expect(found).to.equal(null);
+      expect(found.path).to.equal(null);
     });
 
     // The directory itself is not the runtime's container storage, it is where
@@ -321,7 +321,7 @@ describe('volumeService tests', () => {
 
       const found = await volumeService.getVolumeFilePath('fluxweb_app');
 
-      expect(found).to.equal('/var/lib/docker/fluxweb_appFLUXFSVOL');
+      expect(found.path).to.equal('/var/lib/docker/fluxweb_appFLUXFSVOL');
     });
   });
 
@@ -335,7 +335,7 @@ describe('volumeService tests', () => {
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
-      expect(result).to.equal('/dat/fluxapp1FLUXFSVOL');
+      expect(result.path).to.equal('/dat/fluxapp1FLUXFSVOL');
     });
 
     it('should not look for images at the root filesystem itself', async () => {
@@ -352,7 +352,7 @@ describe('volumeService tests', () => {
       fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
-      expect(result).to.equal(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`);
+      expect(result.path).to.equal(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`);
     });
 
     it('should find an image left at the legacy glued appvolumes location', async () => {
@@ -360,14 +360,37 @@ describe('volumeService tests', () => {
       fsStub.promises.access.withArgs(`${LEGACY_APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
-      expect(result).to.equal(`${LEGACY_APP_VOLUMES}/fluxapp1FLUXFSVOL`);
+      expect(result.path).to.equal(`${LEGACY_APP_VOLUMES}/fluxapp1FLUXFSVOL`);
     });
 
     it('should return null when the image exists nowhere', async () => {
       fsStub.promises.access.rejects(new Error('ENOENT'));
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
-      expect(result).to.be.null;
+      expect(result.path).to.be.null;
+      // every location was searched, so the null means the image is gone
+      expect(result.conclusive).to.be.true;
+    });
+
+    // A search that could not cover the host mounts has not established that
+    // the image is absent, only that it is not in the two places left to look.
+    it('does not call an image absent when the mount table could not be read', async () => {
+      deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
+      fsStub.promises.access.rejects(new Error('ENOENT'));
+
+      const result = await volumeService.getVolumeFilePath('fluxapp1');
+      expect(result.path).to.be.null;
+      expect(result.conclusive).to.be.false;
+    });
+
+    it('settles the question when the image turns up despite an unreadable mount table', async () => {
+      deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
+      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
+
+      const result = await volumeService.getVolumeFilePath('fluxapp1');
+      expect(result.path).to.equal(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`);
+      expect(result.conclusive).to.be.true;
     });
 
     it('should still check appvolumes locations when the mount table cannot be read', async () => {
@@ -376,7 +399,7 @@ describe('volumeService tests', () => {
       fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
-      expect(result).to.equal(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`);
+      expect(result.path).to.equal(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`);
     });
   });
 
@@ -475,6 +498,20 @@ describe('volumeService tests', () => {
       const mkdir = callsFor('mkdir');
       expect(mkdir).to.have.lengthOf(1);
       expect(mkdir[0].args[1].params).to.deep.equal(['-p', `${APPS_FOLDER}fluxapp1`]);
+    });
+
+    // The reason a mount did not happen is what other services act on, so an
+    // image nothing could look for must not arrive as one that is not there.
+    it('reports the mount table, not a missing image, when it could not be read', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
+      fsStub.promises.access.rejects(new Error('ENOENT'));
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: false, reason: 'mount_table_unreadable' });
     });
 
     it('should report volume_file_missing when no image exists anywhere', async () => {

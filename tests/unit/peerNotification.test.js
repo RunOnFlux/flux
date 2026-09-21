@@ -135,12 +135,14 @@ describe('peerNotification tests', () => {
       status: 'success',
       data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
     });
-    // The REAL departing tracker, taken fresh per test rather than reimplemented
-    // here: a fake that counts differently from the module would pass this suite
-    // over the defect the counting exists to prevent.
-    delete require.cache[require.resolve('../../ZelBack/src/services/utils/globalState')];
-    // eslint-disable-next-line global-require
-    ({ departingApps, testInstallingApps, announceCycle } = require('../../ZelBack/src/services/utils/globalState'));
+    // The REAL departing tracker, taken fresh per test rather than
+    // reimplemented here: a fake that counts differently from the module would
+    // pass this suite over the defect the counting exists to prevent.
+    // proxyquire restores the require cache after loading, so the fresh copy is
+    // this suite's alone - evicting the entry instead would hand another object
+    // to every module loaded after it, and globalState is a singleton whose
+    // flags decide whether an operation may start at all.
+    ({ departingApps, testInstallingApps, announceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {}));
 
     peerNotification = loadPeerNotification();
   });

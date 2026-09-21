@@ -216,8 +216,21 @@ async function cleanupCrontab(appId, res) {
  * @param {object} res - Response object for streaming
  * @returns {Promise<void>}
  */
-async function cleanupVolumePath(volumepath, entityName, res) {
-  if (!volumepath) return;
+async function cleanupVolumePath(volumepath, entityName, res, conclusive = true) {
+  if (!volumepath) {
+    // Nothing to delete and nowhere left to look are different answers, and
+    // only the first of them means the disk is clear. An image whose location
+    // could not be established outlives the app's last record of itself, so
+    // the one chance to say it is here.
+    if (!conclusive) {
+      log.warn(`Data volume of ${entityName} could not be located and is left on disk`);
+      if (res) {
+        res.write(serviceHelper.ensureString({ status: `Data volume of ${entityName} could not be located and is left on disk` }));
+        if (res.flush) res.flush();
+      }
+    }
+    return;
+  }
 
   log.info(`Cleaning up data volume of ${entityName}...`);
   if (res) {
@@ -356,11 +369,11 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
   // The backing image is discovered deterministically; the crontab (legacy
   // remount mechanism) is only cleaned up, never relied on - a missing entry
   // used to orphan the image on disk.
-  const discoveredVolume = await volumeService.getVolumeFilePath(appId);
+  const discovered = await volumeService.getVolumeFilePath(appId);
   const crontabVolume = await cleanupCrontab(appId, res);
 
   // Clean up volume path
-  await cleanupVolumePath(discoveredVolume ?? crontabVolume, `component ${componentName}`, res);
+  await cleanupVolumePath(discovered.path ?? crontabVolume, `component ${componentName}`, res, discovered.conclusive);
 
   // Remove image (only if container was successfully removed)
   if (containerRemoved) {
@@ -507,11 +520,11 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
   // The backing image is discovered deterministically; the crontab (legacy
   // remount mechanism) is only cleaned up, never relied on - a missing entry
   // used to orphan the image on disk.
-  const discoveredVolume = await volumeService.getVolumeFilePath(appId);
+  const discovered = await volumeService.getVolumeFilePath(appId);
   const crontabVolume = await cleanupCrontab(appId, res);
 
   // Clean up volume path
-  await cleanupVolumePath(discoveredVolume ?? crontabVolume, appName, res);
+  await cleanupVolumePath(discovered.path ?? crontabVolume, appName, res, discovered.conclusive);
 
   // Remove image (only if container was successfully removed)
   if (containerRemoved) {

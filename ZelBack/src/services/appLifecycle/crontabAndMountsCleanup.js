@@ -14,7 +14,7 @@ const crontabLoad = util.promisify(systemcrontab.load);
 // Mount failures that describe the host rather than the volume. Matched on the
 // part before the colon, because two of the reasons carry the underlying error
 // after one.
-const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable']);
+const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable', 'mount_table_unreadable']);
 
 /**
  * Get all locally installed app IDs. Enterprise apps are stored locally with

@@ -316,12 +316,20 @@ async function isPathMounted(dirPath) {
  * reboot). Candidates mirror where createAppVolume places images: the root of
  * each eligible host volume, or the appvolumes directory (proper and legacy
  * glued layout) when the root filesystem hosts them.
+ * An unreadable mount table leaves the appvolumes locations searchable and the
+ * rest not, so the answer carries whether the search covered everywhere it
+ * should have. A null path is only evidence the image is gone when it did:
+ * callers decide what an image they could not look for means to them, and none
+ * of them may treat it as one that is not there.
+ *
  * @param {string} appId Docker app identifier (e.g. fluxcomp_app).
- * @returns {Promise<string|null>} Absolute path of the image, or null.
+ * @returns {Promise<{path: string|null, conclusive: boolean}>} Absolute path of
+ *   the image or null, and whether every location was searched.
  */
 async function getVolumeFilePath(appId) {
   const volumeFileName = `${appId}FLUXFSVOL`;
   const candidates = [];
+  let conclusive = true;
 
   try {
     const mounts = await eligibleHostMounts();
@@ -329,7 +337,8 @@ async function getVolumeFilePath(appId) {
       candidates.push(path.join(mount.target, volumeFileName));
     });
   } catch (error) {
-    log.warn(`getVolumeFilePath - findmnt failed (${error.message}), falling back to appvolumes locations only`);
+    conclusive = false;
+    log.warn(`getVolumeFilePath - findmnt failed (${error.message}), searching the appvolumes locations only`);
   }
 
   candidates.push(path.join(appVolumesPath, volumeFileName));
@@ -339,10 +348,11 @@ async function getVolumeFilePath(appId) {
   for (const candidate of candidates) {
     // eslint-disable-next-line no-await-in-loop
     const exists = await fs.access(candidate).then(() => true).catch(() => false);
-    if (exists) return candidate;
+    // Finding it settles the question whatever the search could not reach.
+    if (exists) return { path: candidate, conclusive: true };
   }
 
-  return null;
+  return { path: null, conclusive };
 }
 
 /**
@@ -401,10 +411,11 @@ async function ensureAppVolumeMounted(identifier) {
     return { mounted: true, alreadyMounted: true };
   }
 
-  const volumeFile = await getVolumeFilePath(appId);
-  if (!volumeFile) {
-    return { mounted: false, reason: 'volume_file_missing' };
+  const discovered = await getVolumeFilePath(appId);
+  if (!discovered.path) {
+    return { mounted: false, reason: discovered.conclusive ? 'volume_file_missing' : 'mount_table_unreadable' };
   }
+  const volumeFile = discovered.path;
 
   // A disk the kernel remounted read-only after an I/O error still holds the
   // image and still reads, and mount would loop-mount it read-only rather
