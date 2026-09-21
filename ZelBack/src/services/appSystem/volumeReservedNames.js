@@ -138,29 +138,36 @@ function syncthingIgnoreLines(unsyncedSubdirs = []) {
 }
 
 /**
- * The characters syncthing reads as pattern syntax inside an ignore line.
+ * What a name may not carry to stand for itself as ONE LINE of .stignore.
  *
- * `*` and `?` are wildcards, `[a]` is a character class, `{x,y}` is an alternation and
- * `\` escapes what follows.
+ * Pattern syntax, because the line is a pattern: `*` and `?` are wildcards, `[a]` is a
+ * character class, `{x,y}` is an alternation and `\` escapes what follows.
+ *
+ * Control characters, because the file is line-oriented: the derived lines are joined
+ * with a newline and written as one document, so a name carrying one IS two lines. It
+ * is the class pathSecurity.UNSAFE_PATH_COMPONENT refuses, for the same reason.
  */
-const SYNCTHING_PATTERN_CHARS = /[*?[\]{}\\]/;
+// eslint-disable-next-line no-control-regex
+const UNSAFE_IGNORE_NAME = /[*?[\]{}\\\u0000-\u001F\u007F-\u009F]/;
 
 /**
  * Whether a volume-root name written into .stignore means itself.
  *
- * An ignore line is a pattern, not a name, so a name carrying pattern syntax describes
- * some OTHER set of entries. `/[a]ppdata` excludes appdata - the component's synced
- * storage - and leaves the directory literally named `[a]ppdata` replicating, so the
- * line asserts the reverse of the spec, on every node at once and without an error
- * anywhere. Escaping is the alternative and it takes a dependency on syncthing's escape
- * syntax; a name is refused instead, because the form that needs this is new and no
- * spec has one.
+ * An ignore line is a pattern AND a line, and a name that is neither excludes something
+ * the specification did not name. `/[a]ppdata` excludes appdata - the component's synced
+ * storage - and leaves the directory literally named `[a]ppdata` replicating. A name
+ * holding a newline writes a second line of its own, and the converge then reads back
+ * more lines than it derived, so it rewrites the file and rescans the folder every pass
+ * for as long as the app exists.
+ *
+ * Refused rather than escaped: escaping takes a dependency on syncthing's own escape
+ * syntax, and answers nothing about how many lines the name becomes.
  *
  * @param {string} name - a single path component, not a path
  * @returns {boolean}
  */
 function isLiteralIgnoreName(name) {
-  return typeof name === 'string' && !SYNCTHING_PATTERN_CHARS.test(name);
+  return typeof name === 'string' && !UNSAFE_IGNORE_NAME.test(name);
 }
 
 const FOREIGN_NAMES = new Set([SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, 'lost+found']);

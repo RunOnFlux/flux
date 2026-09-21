@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const mountParser = require('../../ZelBack/src/services/utils/mountParser');
+const { syncthingIgnoreLines } = require('../../ZelBack/src/services/appSystem/volumeReservedNames');
 
 describe('mountParser tests', () => {
   describe('parseContainerData tests', () => {
@@ -355,6 +356,18 @@ describe('mountParser tests', () => {
       });
     });
 
+    // The derived lines are joined with a newline and written as one document, so a
+    // name carrying a line terminator writes a SECOND line the specification never
+    // named - and the converge reads back more lines than it derived, so it rewrites
+    // the file and rescans the folder every pass for as long as the app exists.
+    [['newline', 'cache\nsecret'], ['carriage return', 'cache\rsecret'], ['tab', 'ca\tche'], ['delete', 'cache\u007f']]
+      .forEach(([what, name]) => {
+        it(`refuses a name carrying a ${what}`, () => {
+          expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+            .to.throw(/may not contain/);
+        });
+      });
+
     // Refused before the rule above sees them, by the character set every mount name
     // is held to. Named here because the ignore line is the reason they must stay out.
     ['star*', 'quer?y'].forEach((name) => {
@@ -367,6 +380,13 @@ describe('mountParser tests', () => {
     it('still accepts the ordinary names an ignore line can carry', () => {
       expect(mountParser.getUnsyncedSubdirs('/data|ml:steam-content.v2:/a|ml:build_cache:/b'))
         .to.deep.equal(['steam-content.v2', 'build_cache']);
+    });
+
+    // What the refusal is for: one declared name, one derived line.
+    it('derives exactly one ignore line per declared directory', () => {
+      const lines = syncthingIgnoreLines(mountParser.getUnsyncedSubdirs('/data|ml:cache:/a'));
+      expect(lines).to.deep.equal(['/backup', '/.flux-op', '/.flux-op-*', '/cache']);
+      expect(lines.join('\n').split('\n')).to.have.length(lines.length);
     });
 
     it('is not a primary mount - the primary carries the sync mode', () => {
