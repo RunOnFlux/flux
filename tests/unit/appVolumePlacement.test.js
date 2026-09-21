@@ -262,6 +262,18 @@ describe('app volume placement', () => {
       expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
     });
 
+    // The block-backed fuse form, which a real disk reaches a node under: an
+    // NTFS or exFAT volume through ntfs-3g or exfat-fuse. The source is an
+    // ordinary /dev/ node and the room is real, so nothing but the type says
+    // no.
+    it('refuses a local disk mounted through fuse, which names no driver', async () => {
+      const volumes = await placements([
+        row('/dev/sda2', '/', 'ext4', 50),
+        row('/dev/sdb1', '/mnt/external', 'fuseblk', 3000),
+      ]);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
     it('refuses a FAT filesystem, which can hold neither the image nor its permissions', async () => {
       const volumes = await placements([
         row('/dev/sda2', '/', 'ext4', 50),

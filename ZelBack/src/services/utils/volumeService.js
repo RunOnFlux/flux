@@ -136,9 +136,14 @@ function isHostFilesystem(mount) {
   // A fuse type names the driver rather than the backing, and the drivers that
   // reach across a network are open-ended: gluster and sshfs arrive as
   // `fuse.glusterfs` and `fuse.sshfs`, the object stores as `fuse.rclone`,
-  // `fuse.s3fs`, `fuse.gcsfuse`. A local fuse pool loses nothing by being
-  // refused here - the disks it pools are mounted in their own right.
-  if (REMOTE_FSTYPES.has(fstype) || fstype.startsWith('fuse.')) return false;
+  // `fuse.s3fs`, `fuse.gcsfuse`. `fuseblk` is the block-backed form and names
+  // no driver at all - ntfs-3g and exfat-fuse both arrive under it - so what
+  // an image would be written into is not knowable from the mount table. A
+  // bare `fuse` is on libmount's pseudofs list and never survives
+  // `findmnt --real`, so there is nothing here to test it for. A local fuse
+  // pool loses nothing by the rule: the disks it pools are mounted in their
+  // own right.
+  if (REMOTE_FSTYPES.has(fstype) || fstype === 'fuseblk' || fstype.startsWith('fuse.')) return false;
   // A FAT filesystem stores no ownership and no permissions - it synthesises
   // both from the mount options - so nothing on one can be given to an app
   // alone, and vfat and msdos additionally cap a file at 4 GiB, under the size
