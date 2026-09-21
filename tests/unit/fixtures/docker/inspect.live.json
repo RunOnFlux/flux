@@ -1,0 +1,207 @@
+{
+  "Id": "d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089",
+  "Created": "2026-09-21T06:00:48.309122405Z",
+  "Path": "apache2ctl",
+  "Args": [
+    "-D",
+    "FOREGROUND"
+  ],
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": false,
+    "Dead": false,
+    "Pid": 63155,
+    "ExitCode": 0,
+    "Error": "",
+    "StartedAt": "2026-09-21T06:00:48.746394115Z",
+    "FinishedAt": "0001-01-01T00:00:00Z"
+  },
+  "Image": "sha256:9762ba21a55bfb1cd28aab565306b6a75b6273e7208aa0776a9969a59cbb413a",
+  "ResolvConfPath": "/var/lib/docker/containers/d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089/resolv.conf",
+  "HostnamePath": "/var/lib/docker/containers/d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089/hostname",
+  "HostsPath": "/var/lib/docker/containers/d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089/hosts",
+  "LogPath": "/var/lib/docker/containers/d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089/d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089-json.log",
+  "Name": "/fluxwebsite",
+  "RestartCount": 0,
+  "Driver": "overlay2",
+  "Platform": "linux",
+  "MountLabel": "",
+  "ProcessLabel": "",
+  "AppArmorProfile": "",
+  "ExecIDs": null,
+  "HostConfig": {
+    "Binds": null,
+    "ContainerIDFile": "",
+    "LogConfig": {
+      "Type": "json-file",
+      "Config": {}
+    },
+    "NetworkMode": "default",
+    "PortBindings": {},
+    "RestartPolicy": {
+      "Name": "no",
+      "MaximumRetryCount": 0
+    },
+    "AutoRemove": true,
+    "VolumeDriver": "",
+    "VolumesFrom": null,
+    "ConsoleSize": [
+      0,
+      0
+    ],
+    "CapAdd": null,
+    "CapDrop": null,
+    "CgroupnsMode": "private",
+    "Dns": [],
+    "DnsOptions": [],
+    "DnsSearch": [],
+    "ExtraHosts": null,
+    "GroupAdd": null,
+    "IpcMode": "private",
+    "Cgroup": "",
+    "Links": null,
+    "OomScoreAdj": 0,
+    "PidMode": "",
+    "Privileged": false,
+    "PublishAllPorts": false,
+    "ReadonlyRootfs": false,
+    "SecurityOpt": null,
+    "UTSMode": "",
+    "UsernsMode": "",
+    "ShmSize": 67108864,
+    "Runtime": "runc",
+    "Isolation": "",
+    "CpuShares": 0,
+    "Memory": 0,
+    "NanoCpus": 0,
+    "CgroupParent": "",
+    "BlkioWeight": 0,
+    "BlkioWeightDevice": [],
+    "BlkioDeviceReadBps": [],
+    "BlkioDeviceWriteBps": [],
+    "BlkioDeviceReadIOps": [],
+    "BlkioDeviceWriteIOps": [],
+    "CpuPeriod": 0,
+    "CpuQuota": 0,
+    "CpuRealtimePeriod": 0,
+    "CpuRealtimeRuntime": 0,
+    "CpusetCpus": "",
+    "CpusetMems": "",
+    "Devices": [],
+    "DeviceCgroupRules": null,
+    "DeviceRequests": null,
+    "MemoryReservation": 0,
+    "MemorySwap": 0,
+    "MemorySwappiness": null,
+    "OomKillDisable": null,
+    "PidsLimit": null,
+    "Ulimits": null,
+    "CpuCount": 0,
+    "CpuPercent": 0,
+    "IOMaximumIOps": 0,
+    "IOMaximumBandwidth": 0,
+    "MaskedPaths": [
+      "/proc/asound",
+      "/proc/acpi",
+      "/proc/kcore",
+      "/proc/keys",
+      "/proc/latency_stats",
+      "/proc/timer_list",
+      "/proc/timer_stats",
+      "/proc/sched_debug",
+      "/proc/scsi",
+      "/sys/firmware",
+      "/sys/devices/virtual/powercap"
+    ],
+    "ReadonlyPaths": [
+      "/proc/bus",
+      "/proc/fs",
+      "/proc/irq",
+      "/proc/sys",
+      "/proc/sysrq-trigger"
+    ]
+  },
+  "GraphDriver": {
+    "Data": {
+      "LowerDir": "/var/lib/docker/overlay2/551c84848ceb0b6807026a8c2406b799763ed1220ad78ae4867596c80c39fa74-init/diff:/var/lib/docker/overlay2/78eee8d56d6a9fa0fa880082336189f73a71cdc1cc33144e6c4b4afc88d38e18/diff:/var/lib/docker/overlay2/c131939752d42112877d82b5286ac682e739628197d00c1ef21bd7b71db7aa67/diff:/var/lib/docker/overlay2/5007d067d3046e7947d0565680c1b98877b38d32a26d8f07ecd3a7679e7eb166/diff:/var/lib/docker/overlay2/790a4597732469c24b0a5a57431b55d358844ff80014d7321a1d8f4618682ca0/diff:/var/lib/docker/overlay2/188f0b909af71b5bf24f16bf2046462de2cb18c3cdfd77309b2ad205bac6ecb4/diff:/var/lib/docker/overlay2/ba79b0662d0216f08589c61de89ed8db710fe1f9059ecb084199a9a8a2a445ed/diff:/var/lib/docker/overlay2/c99eeb914569afe9a5ee583cf84961fc004dc30ef51c16ee97df7d9e830249c1/diff:/var/lib/docker/overlay2/3db204b7a08d76e8f1c846c1202c04bbbb3eb163eff1c51684b67ccfbf8b2b25/diff",
+      "MergedDir": "/var/lib/docker/overlay2/551c84848ceb0b6807026a8c2406b799763ed1220ad78ae4867596c80c39fa74/merged",
+      "UpperDir": "/var/lib/docker/overlay2/551c84848ceb0b6807026a8c2406b799763ed1220ad78ae4867596c80c39fa74/diff",
+      "WorkDir": "/var/lib/docker/overlay2/551c84848ceb0b6807026a8c2406b799763ed1220ad78ae4867596c80c39fa74/work"
+    },
+    "Name": "overlay2"
+  },
+  "Mounts": [],
+  "Config": {
+    "Hostname": "d67d3509bdfe",
+    "Domainname": "",
+    "User": "",
+    "AttachStdin": false,
+    "AttachStdout": false,
+    "AttachStderr": false,
+    "ExposedPorts": {
+      "80/tcp": {}
+    },
+    "Tty": false,
+    "OpenStdin": false,
+    "StdinOnce": false,
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "DEBIAN_FRONTEND=noninteractive"
+    ],
+    "Cmd": [
+      "apache2ctl",
+      "-D",
+      "FOREGROUND"
+    ],
+    "Image": "runonflux/website",
+    "Volumes": null,
+    "WorkingDir": "/app",
+    "Entrypoint": null,
+    "OnBuild": null,
+    "Labels": {
+      "org.opencontainers.image.ref.name": "ubuntu",
+      "org.opencontainers.image.version": "22.04"
+    }
+  },
+  "NetworkSettings": {
+    "Bridge": "",
+    "SandboxID": "47689d636ae8d02a622aa945dade82cbba66b5274477a794b6cc192d74da27e2",
+    "HairpinMode": false,
+    "LinkLocalIPv6Address": "",
+    "LinkLocalIPv6PrefixLen": 0,
+    "Ports": {
+      "80/tcp": null
+    },
+    "SandboxKey": "/var/run/docker/netns/47689d636ae8",
+    "SecondaryIPAddresses": null,
+    "SecondaryIPv6Addresses": null,
+    "EndpointID": "93843342e7ebc83701bef2f59c193738662a30129d7f36ffcb6349b03b586762",
+    "Gateway": "172.17.0.1",
+    "GlobalIPv6Address": "",
+    "GlobalIPv6PrefixLen": 0,
+    "IPAddress": "172.17.0.3",
+    "IPPrefixLen": 16,
+    "IPv6Gateway": "",
+    "MacAddress": "02:42:ac:11:00:03",
+    "Networks": {
+      "bridge": {
+        "IPAMConfig": null,
+        "Links": null,
+        "Aliases": null,
+        "MacAddress": "02:42:ac:11:00:03",
+        "NetworkID": "8c05a73e061523802e88231a68c760f2381a35871826eca9a905304e2f28f9e3",
+        "EndpointID": "93843342e7ebc83701bef2f59c193738662a30129d7f36ffcb6349b03b586762",
+        "Gateway": "172.17.0.1",
+        "IPAddress": "172.17.0.3",
+        "IPPrefixLen": 16,
+        "IPv6Gateway": "",
+        "GlobalIPv6Address": "",
+        "GlobalIPv6PrefixLen": 0,
+        "DriverOpts": null
+      }
+    }
+  }
+}

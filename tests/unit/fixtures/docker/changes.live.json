@@ -1,0 +1,38 @@
+[
+  {
+    "Path": "/run",
+    "Kind": 0
+  },
+  {
+    "Path": "/run/apache2",
+    "Kind": 1
+  },
+  {
+    "Path": "/run/apache2/apache2.pid",
+    "Kind": 1
+  },
+  {
+    "Path": "/run/lock",
+    "Kind": 0
+  },
+  {
+    "Path": "/run/lock/apache2",
+    "Kind": 1
+  },
+  {
+    "Path": "/var",
+    "Kind": 0
+  },
+  {
+    "Path": "/var/log",
+    "Kind": 0
+  },
+  {
+    "Path": "/var/log/apache2",
+    "Kind": 0
+  },
+  {
+    "Path": "/var/log/apache2/error.log",
+    "Kind": 0
+  }
+]

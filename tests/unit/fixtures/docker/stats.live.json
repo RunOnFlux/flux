@@ -1,0 +1,112 @@
+{
+  "read": "2026-09-21T06:00:54.67660467Z",
+  "preread": "2026-09-21T06:00:53.672531638Z",
+  "pids_stats": {
+    "current": 56,
+    "limit": 18446744073709552000
+  },
+  "blkio_stats": {
+    "io_service_bytes_recursive": [
+      {
+        "major": 254,
+        "minor": 0,
+        "op": "read",
+        "value": 0
+      },
+      {
+        "major": 254,
+        "minor": 0,
+        "op": "write",
+        "value": 8192
+      }
+    ],
+    "io_serviced_recursive": null,
+    "io_queue_recursive": null,
+    "io_service_time_recursive": null,
+    "io_wait_time_recursive": null,
+    "io_merged_recursive": null,
+    "io_time_recursive": null,
+    "sectors_recursive": null
+  },
+  "num_procs": 0,
+  "storage_stats": {},
+  "cpu_stats": {
+    "cpu_usage": {
+      "total_usage": 104218000,
+      "usage_in_kernelmode": 75082000,
+      "usage_in_usermode": 29136000
+    },
+    "system_cpu_usage": 24514577260000000,
+    "online_cpus": 16,
+    "throttling_data": {
+      "periods": 0,
+      "throttled_periods": 0,
+      "throttled_time": 0
+    }
+  },
+  "precpu_stats": {
+    "cpu_usage": {
+      "total_usage": 104140000,
+      "usage_in_kernelmode": 75026000,
+      "usage_in_usermode": 29114000
+    },
+    "system_cpu_usage": 24514561230000000,
+    "online_cpus": 16,
+    "throttling_data": {
+      "periods": 0,
+      "throttled_periods": 0,
+      "throttled_time": 0
+    }
+  },
+  "memory_stats": {
+    "usage": 18157568,
+    "stats": {
+      "active_anon": 4096,
+      "active_file": 0,
+      "anon": 15224832,
+      "anon_thp": 12582912,
+      "file": 356352,
+      "file_dirty": 0,
+      "file_mapped": 348160,
+      "file_writeback": 0,
+      "inactive_anon": 15568896,
+      "inactive_file": 8192,
+      "kernel_stack": 917504,
+      "pgactivate": 0,
+      "pgdeactivate": 0,
+      "pgfault": 2350,
+      "pglazyfree": 0,
+      "pglazyfreed": 0,
+      "pgmajfault": 0,
+      "pgrefill": 0,
+      "pgscan": 0,
+      "pgsteal": 0,
+      "shmem": 348160,
+      "slab": 916504,
+      "slab_reclaimable": 255392,
+      "slab_unreclaimable": 661112,
+      "sock": 0,
+      "thp_collapse_alloc": 0,
+      "thp_fault_alloc": 7,
+      "unevictable": 0,
+      "workingset_activate": 0,
+      "workingset_nodereclaim": 0,
+      "workingset_refault": 0
+    },
+    "limit": 8334258176
+  },
+  "name": "/fluxwebsite",
+  "id": "d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089",
+  "networks": {
+    "eth0": {
+      "rx_bytes": 586,
+      "rx_packets": 7,
+      "rx_errors": 0,
+      "rx_dropped": 0,
+      "tx_bytes": 0,
+      "tx_packets": 0,
+      "tx_errors": 0,
+      "tx_dropped": 0
+    }
+  }
+}

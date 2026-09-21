@@ -1,0 +1,45 @@
+{
+  "Id": "d67d3509bdfe621d90c41824c3bfcb94d03a0b7b4a4be73d79699f932e168089",
+  "Names": [
+    "/fluxwebsite"
+  ],
+  "Image": "runonflux/website",
+  "ImageID": "sha256:9762ba21a55bfb1cd28aab565306b6a75b6273e7208aa0776a9969a59cbb413a",
+  "Command": "apache2ctl -D FOREGROUND",
+  "Created": 1789970448,
+  "Ports": [
+    {
+      "PrivatePort": 80,
+      "Type": "tcp"
+    }
+  ],
+  "Labels": {
+    "org.opencontainers.image.ref.name": "ubuntu",
+    "org.opencontainers.image.version": "22.04"
+  },
+  "State": "running",
+  "Status": "Up 4 seconds",
+  "HostConfig": {
+    "NetworkMode": "default"
+  },
+  "NetworkSettings": {
+    "Networks": {
+      "bridge": {
+        "IPAMConfig": null,
+        "Links": null,
+        "Aliases": null,
+        "MacAddress": "02:42:ac:11:00:03",
+        "NetworkID": "8c05a73e061523802e88231a68c760f2381a35871826eca9a905304e2f28f9e3",
+        "EndpointID": "93843342e7ebc83701bef2f59c193738662a30129d7f36ffcb6349b03b586762",
+        "Gateway": "172.17.0.1",
+        "IPAddress": "172.17.0.3",
+        "IPPrefixLen": 16,
+        "IPv6Gateway": "",
+        "GlobalIPv6Address": "",
+        "GlobalIPv6PrefixLen": 0,
+        "DriverOpts": null
+      }
+    }
+  },
+  "Mounts": []
+}
