@@ -547,24 +547,30 @@ async function getVolumeFilePath(appId) {
   // second chance to disagree with this one, and the caller decides what to
   // mount from both.
   let recorded = null;
+  let blocked = null;
+  // Whether this node knows where it put the image. False when the record
+  // would not read, and when the recorded path answered something other than
+  // "not here" - in both cases an image found elsewhere cannot be told apart
+  // from the recorded one, because there is nothing to compare it against.
+  let recordSettled = true;
   try {
     recorded = await recordedVolumeImage(appId);
   } catch (error) {
-    // The search below is exactly what the record exists to replace - it
-    // trusts a filename, so a planted one outranks the genuine image. Running
-    // it because the record could not be read would reopen that on a database
-    // hiccup, so nothing is searched and nothing is concluded.
-    log.warn(`getVolumeFilePath - the image recorded for ${appId} could not be read (${error.message}), so no search is made`);
-    return {
-      path: null, conclusive: false, blocked: 'record_unreadable', recorded: null,
-    };
+    // The search still runs - a caller removing an app needs the image found
+    // whatever the database is doing, and leaving it is how a node loses a
+    // disk to a file nothing will account for again. What the search cannot do
+    // is settle anything: it trusts a filename, so a planted one outranks the
+    // genuine image, and a caller about to MOUNT what it finds is told the
+    // record was not read rather than that it does not exist.
+    log.warn(`getVolumeFilePath - the image recorded for ${appId} could not be read (${error.message})`);
+    blocked = 'record_unreadable';
+    recordSettled = false;
   }
-  let blocked = null;
   if (recorded) {
     const failure = await fs.access(recorded.path).then(() => null).catch((error) => error);
     if (!failure) {
       return {
-        path: recorded.path, conclusive: true, blocked: null, recorded,
+        path: recorded.path, conclusive: true, blocked: null, recorded, recordSettled,
       };
     }
     // The recorded path is where this node put the image. If it cannot be read
@@ -573,6 +579,7 @@ async function getVolumeFilePath(appId) {
     // place that would not answer.
     if (failure.code !== 'ENOENT' && failure.code !== 'ENOTDIR') {
       blocked = 'candidate_path_unreadable';
+      recordSettled = false;
       log.warn(`getVolumeFilePath - the recorded image ${recorded.path} could not be read (${failure.code || failure.message})`);
     }
   }
@@ -590,7 +597,8 @@ async function getVolumeFilePath(appId) {
   // `blocked` above records which fault stopped the search covering
   // everywhere, or null. A caller reports the fault it actually met: naming
   // the mount table for a disk that answered EIO sends a reader to the wrong
-  // thing.
+  // thing. It travels with a found path too, where it says which question the
+  // search left open rather than why it came up short.
 
   try {
     const mounts = await eligibleHostMounts();
@@ -609,8 +617,12 @@ async function getVolumeFilePath(appId) {
     const failure = await fs.access(candidate).then(() => null).catch((error) => error);
     // Finding it settles the question whatever the search could not reach.
     if (!failure) {
+      // Finding it settles where an image IS, whatever the search could not
+      // reach. It does not settle whether the one this node recorded is still
+      // where it was put, and a caller about to mount what turned up needs
+      // that second answer too.
       return {
-        path: candidate, conclusive: true, blocked: null, recorded,
+        path: candidate, conclusive: true, blocked, recorded, recordSettled,
       };
     }
     // ENOENT and ENOTDIR both say an image is not here, and say it definitely:
@@ -627,7 +639,7 @@ async function getVolumeFilePath(appId) {
   }
 
   return {
-    path: null, conclusive: !blocked, blocked, recorded,
+    path: null, conclusive: !blocked, blocked, recorded, recordSettled,
   };
 }
 
@@ -728,7 +740,12 @@ async function ensureAppVolumeMounted(identifier) {
       // elsewhere leaves that path naming a file this mount does not use.
       // Stamping that file would harden the record onto data the app is not
       // running on.
-      const backing = await mountedImagePath(mountPoint) || (known && known.path);
+      // Only what the mount actually resolves through. The kernel not saying
+      // is not permission to stamp the recorded path: a volume mounted from
+      // somewhere else would then get a complete, self-consistent record for a
+      // file the app is not running on, and every later boot would mount that
+      // one and pass the check.
+      const backing = await mountedImagePath(mountPoint);
       if (backing) {
         const stamp = await imageFsUuid(backing);
         if (!known || stamp) await recordVolumeImage(appId, backing, stamp);
@@ -742,6 +759,17 @@ async function ensureAppVolumeMounted(identifier) {
     return { mounted: false, reason: discovered.conclusive ? 'volume_file_missing' : discovered.blocked };
   }
   const volumeFile = discovered.path;
+  // An image somewhere other than where the record puts it, and no way to tell
+  // whether the recorded one is still there: the record would not read, or the
+  // path it names answered something other than "not here". Mounting this one
+  // skips the stamp for want of anything to compare against, and then writes
+  // it down as this node's own - which is the filename search the record
+  // exists to replace, run once and made permanent. The volume defers under
+  // the fault that stopped the question being settled.
+  if (!discovered.recordSettled && (!discovered.recorded || discovered.recorded.path !== volumeFile)) {
+    log.warn(`ensureAppVolumeMounted - ${volumeFile} was found for ${appId} while ${discovered.blocked}, so it is not adopted`);
+    return { mounted: false, reason: discovered.blocked };
+  }
 
   // A disk the kernel remounted read-only after an I/O error still holds the
   // image and still reads, and mount would loop-mount it read-only rather

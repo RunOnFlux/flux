@@ -417,7 +417,11 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_failed: wrong fs type, bad superblock' }]);
-      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
+      // an image that holds no filesystem at all has been written over, the
+      // same fact as one that mounts and is not this node's - and the
+      // reconciler records it under this name mid-run
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
   });
 

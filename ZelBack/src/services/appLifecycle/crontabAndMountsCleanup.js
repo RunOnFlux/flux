@@ -149,8 +149,10 @@ async function ensureInstalledAppVolumesMounted() {
       const reason = String(mountResult.reason).split(':')[0];
       let eventType = 'mount_vanished';
       if (HOST_FAULT_MOUNT_REASONS.has(reason)) eventType = 'volume_host_fault';
-      else if (reason === 'volume_image_unrecognised') eventType = 'volume_image_unrecognised';
       else if (reason === 'volume_file_missing') eventType = 'volume_missing';
+      // An image that mounts but is not this node's, and an image that holds
+      // no filesystem at all, are both the image having been written over.
+      else if (reason === 'volume_image_unrecognised' || reason === 'mount_failed') eventType = 'volume_image_unrecognised';
       // eslint-disable-next-line no-await-in-loop
       await appTamperingDetectionService.recordEvent(
         appId,

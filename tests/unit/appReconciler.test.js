@@ -562,6 +562,19 @@ describe('appReconciler tests', () => {
       expect(types).to.include('volume_image_unrecognised');
     });
 
+    // The file is there and holds no filesystem the kernel knows, which is an
+    // image written over. It went unattributed until the node next restarted,
+    // because the boot sweep was the only thing that named it.
+    it('records an image that no longer holds a filesystem', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_failed: bad superblock' });
+
+      await appReconciler.reconcile('www_App');
+
+      const events = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_image_unrecognised');
+      expect(events).to.have.lengthOf(1);
+    });
+
     // A removed component keeps no failure history. Keyed by identifier, a
     // reinstall under the same name would otherwise have its first fault
     // swallowed as one already recorded - and for the volume maps that fault
