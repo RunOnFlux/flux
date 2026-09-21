@@ -6,6 +6,11 @@ const proxyquire = require('proxyquire').noCallThru();
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
+// A real fs rejection carries a `code`; a bare Error carries only a message,
+// and `code` is what tells "not there" from "could not look". A fixture
+// without it exercises the wrong branch.
+const enoent = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+
 describe('volumeService tests', () => {
   const APPS_FOLDER = '/test/apps/folder/';
   const APP_VOLUMES = '/test/flux/appvolumes';
@@ -241,7 +246,7 @@ describe('volumeService tests', () => {
 
     it('is still searched for an existing image', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([roMount]);
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/mnt/data/fluxcomp_appFLUXFSVOL').resolves();
 
       const found = await volumeService.getVolumeFilePath('fluxcomp_app');
@@ -290,6 +295,43 @@ describe('volumeService tests', () => {
     });
   });
 
+  // Where an image may be PUT is a narrower question than where one may be
+  // FOUND. An earlier release placed by source alone, taking any /dev/ mount
+  // whatever its type, so images sit on these filesystems on nodes today.
+  // Narrowing the search to the types a new image may be created on reports
+  // every one of them missing.
+  describe('a filesystem an image may not be placed on', () => {
+    const row = (fstype) => ({
+      source: '/dev/sdb1', target: '/mnt/data', fstype, readOnly: false, sizeBytes: 1e12, usedBytes: 0, availableBytes: 1e12,
+    });
+
+    ['exfat', 'vfat', 'msdos', 'ntfs', 'ntfs3', 'fuseblk'].forEach((fstype) => {
+      it(`is still searched for an existing image: ${fstype}`, async () => {
+        deviceHelperStub.listMountedFilesystems.resolves([row(fstype)]);
+        fsStub.promises.access.rejects(enoent());
+        fsStub.promises.access.withArgs('/mnt/data/fluxcomp_appFLUXFSVOL').resolves();
+
+        const found = await volumeService.getVolumeFilePath('fluxcomp_app');
+
+        expect(found.path).to.equal('/mnt/data/fluxcomp_appFLUXFSVOL');
+      });
+    });
+
+    // The counterpart, so the two questions cannot quietly become one again:
+    // storage on another machine is neither placed on nor searched.
+    it('is not searched when the storage is on another machine', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: 'nas:/vol0', target: '/mnt/nas', fstype: 'nfs4', readOnly: false, sizeBytes: 1e12, usedBytes: 0, availableBytes: 1e12 },
+      ]);
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/mnt/nas/fluxcomp_appFLUXFSVOL').resolves();
+
+      const found = await volumeService.getVolumeFilePath('fluxcomp_app');
+
+      expect(found.path).to.equal(null);
+    });
+  });
+
   // A container runtime's own storage is not a place an image may be found. On
   // a storage driver backed by real filesystems, each container's root is a
   // mount like any other - so a file the container's owner put there would
@@ -300,7 +342,7 @@ describe('volumeService tests', () => {
         { source: 'rpool/docker/3f9c1e', target: '/var/lib/docker/zfs/graph/3f9c1e', fstype: 'zfs', sizeBytes: 1e12, usedBytes: 0, availableBytes: 1e12 },
       ]);
       // The planted file exists; the real volume is in appvolumes.
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/var/lib/docker/zfs/graph/3f9c1e/fluxweb_victimFLUXFSVOL').resolves();
 
       const found = await volumeService.getVolumeFilePath('fluxweb_victim');
@@ -316,12 +358,33 @@ describe('volumeService tests', () => {
       deviceHelperStub.listMountedFilesystems.resolves([
         { source: '/dev/sdb1', target: '/var/lib/docker', fstype: 'ext4', sizeBytes: 9e11, usedBytes: 0, availableBytes: 9e11 },
       ]);
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/var/lib/docker/fluxweb_appFLUXFSVOL').resolves();
 
       const found = await volumeService.getVolumeFilePath('fluxweb_app');
 
       expect(found.path).to.equal('/var/lib/docker/fluxweb_appFLUXFSVOL');
+    });
+  });
+
+  describe('getComponentAppIdsFromVolumeFiles tests', () => {
+    // This list IS the component set for an app whose specification cannot be
+    // decrypted, so a short one is indistinguishable from an app with fewer
+    // components and every decision made from it is silently wrong.
+    it('refuses to answer from a partial search when the mount table cannot be read', async () => {
+      deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
+
+      await expect(volumeService.getComponentAppIdsFromVolumeFiles('myapp')).to.be.rejectedWith('findmnt failed');
+    });
+
+    it('answers from every eligible mount when the table reads', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      fsStub.promises.readdir.resolves([]);
+      fsStub.promises.readdir.withArgs('/dat').resolves(['fluxweb_myappFLUXFSVOL', 'unrelated']);
+
+      const ids = await volumeService.getComponentAppIdsFromVolumeFiles('myapp');
+
+      expect(ids).to.deep.equal(['fluxweb_myapp']);
     });
   });
 
@@ -331,7 +394,7 @@ describe('volumeService tests', () => {
         { source: '/dev/sda1', target: '/dat' },
         { source: 'tmpfs', target: '/run' },
       ]);
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
@@ -340,7 +403,7 @@ describe('volumeService tests', () => {
 
     it('should not look for images at the root filesystem itself', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/' }]);
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
 
       await volumeService.getVolumeFilePath('fluxapp1');
       const checked = fsStub.promises.access.getCalls().map((c) => c.args[0]);
@@ -348,7 +411,7 @@ describe('volumeService tests', () => {
     });
 
     it('should find the image in the appvolumes directory', async () => {
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
@@ -356,7 +419,7 @@ describe('volumeService tests', () => {
     });
 
     it('should find an image left at the legacy glued appvolumes location', async () => {
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs(`${LEGACY_APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
@@ -364,7 +427,7 @@ describe('volumeService tests', () => {
     });
 
     it('should return null when the image exists nowhere', async () => {
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
       expect(result.path).to.be.null;
@@ -376,7 +439,21 @@ describe('volumeService tests', () => {
     // the image is absent, only that it is not in the two places left to look.
     it('does not call an image absent when the mount table could not be read', async () => {
       deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
+
+      const result = await volumeService.getVolumeFilePath('fluxapp1');
+      expect(result.path).to.be.null;
+      expect(result.conclusive).to.be.false;
+    });
+
+    // ENOENT is the only answer that means the image is not here. A disk
+    // answering EIO, or a directory that denies the lookup, has ruled nothing
+    // out - and calling it absent is how a failing disk becomes a tampering
+    // event against the operator.
+    it('does not call an image absent when a candidate path could not be read', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').rejects(Object.assign(new Error('EIO'), { code: 'EIO' }));
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
       expect(result.path).to.be.null;
@@ -385,7 +462,7 @@ describe('volumeService tests', () => {
 
     it('settles the question when the image turns up despite an unreadable mount table', async () => {
       deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
@@ -395,7 +472,7 @@ describe('volumeService tests', () => {
 
     it('should still check appvolumes locations when the mount table cannot be read', async () => {
       deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
@@ -424,7 +501,7 @@ describe('volumeService tests', () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
       });
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
       fsStub.promises.readdir.resolves([]);
 
@@ -457,7 +534,7 @@ describe('volumeService tests', () => {
       deviceHelperStub.listMountedFilesystems.resolves([
         { source: '/dev/sda1', target: '/dat', readOnly: true },
       ]);
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
       fsStub.promises.readdir.resolves([]);
 
@@ -472,7 +549,7 @@ describe('volumeService tests', () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
       });
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
       fsStub.promises.readdir.resolves(['leaked.db']);
 
@@ -488,9 +565,9 @@ describe('volumeService tests', () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
       });
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
-      fsStub.promises.readdir.rejects(new Error('ENOENT'));
+      fsStub.promises.readdir.rejects(enoent());
 
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
@@ -507,7 +584,7 @@ describe('volumeService tests', () => {
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
       });
       deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
 
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
@@ -518,7 +595,7 @@ describe('volumeService tests', () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
       });
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
 
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
@@ -538,7 +615,7 @@ describe('volumeService tests', () => {
         },
         mount: async () => ({ error: new Error('already mounted'), stdout: '', stderr: '' }),
       });
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
       fsStub.promises.readdir.resolves([]);
 
@@ -547,12 +624,30 @@ describe('volumeService tests', () => {
       expect(result).to.deep.equal({ mounted: true, alreadyMounted: true });
     });
 
+    // A mount failure says something about the image only once the host is
+    // known to be able to mount at all. The two arms are pinned together so
+    // neither reason can quietly absorb the other.
+    it('reports the host, not the image, when no loop device can be had', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mount: async () => ({ error: new Error('failed to set up loop device'), stdout: '', stderr: '' }),
+        losetup: async () => ({ error: new Error('could not find any free loop device'), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: false, reason: 'loop_unavailable' });
+    });
+
     it('should report mount_failed when the mount fails and the dir stays unmounted', async () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
         mount: async () => ({ error: new Error('bad superblock'), stdout: '', stderr: '' }),
       });
-      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
       fsStub.promises.readdir.resolves([]);
 
@@ -575,7 +670,7 @@ describe('volumeService tests', () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
       });
-      fsStub.promises.access.rejects(new Error('ENOENT')); // no volume image anywhere
+      fsStub.promises.access.rejects(enoent()); // no volume image anywhere
 
       await expect(
         volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data' }, 'testapp', true, null),
@@ -606,7 +701,7 @@ describe('volumeService tests', () => {
         { name: 'config.yaml', isFile: true },
       ]);
       fsStub.promises.access.onFirstCall().resolves(); // appdata exists
-      fsStub.promises.access.onSecondCall().rejects(new Error('ENOENT')); // config.yaml missing
+      fsStub.promises.access.onSecondCall().rejects(enoent()); // config.yaml missing
 
       await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data|f:config.yaml:/etc/config.yaml' }, 'testapp', true, null);
 
@@ -629,7 +724,7 @@ describe('volumeService tests', () => {
         { name: 'logs', isFile: false },
       ]);
       fsStub.promises.access.onFirstCall().resolves(); // appdata exists
-      fsStub.promises.access.onSecondCall().rejects(new Error('ENOENT')); // logs missing
+      fsStub.promises.access.onSecondCall().rejects(enoent()); // logs missing
 
       await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data|m:logs:/var/log' }, 'testapp', true, null);
 
@@ -649,9 +744,9 @@ describe('volumeService tests', () => {
         { name: 'cache', isFile: false },
       ]);
       fsStub.promises.access.onCall(0).resolves(); // appdata exists
-      fsStub.promises.access.onCall(1).rejects(new Error('ENOENT')); // logs
-      fsStub.promises.access.onCall(2).rejects(new Error('ENOENT')); // config.yaml
-      fsStub.promises.access.onCall(3).rejects(new Error('ENOENT')); // cache
+      fsStub.promises.access.onCall(1).rejects(enoent()); // logs
+      fsStub.promises.access.onCall(2).rejects(enoent()); // config.yaml
+      fsStub.promises.access.onCall(3).rejects(enoent()); // cache
 
       await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data|m:logs:/var/log|f:config.yaml:/etc/config.yaml|m:cache:/var/cache' }, 'testapp', true, null);
 
@@ -686,7 +781,7 @@ describe('volumeService tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
       mountParserStub.parseContainerData.returns({ allMounts: [] });
       mountParserStub.getRequiredLocalPaths.returns([{ name: 'logs', isFile: false }]);
-      fsStub.promises.access.rejects(new Error('ENOENT')); // missing → must create
+      fsStub.promises.access.rejects(enoent()); // missing → must create
       dispatchRunCommand({
         mkdir: async () => ({ error: new Error('mkdir failed'), stdout: '', stderr: '' }),
       });

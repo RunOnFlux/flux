@@ -266,6 +266,15 @@ describe('app volume placement', () => {
     // NTFS or exFAT volume through ntfs-3g or exfat-fuse. The source is an
     // ordinary /dev/ node and the room is real, so nothing but the type says
     // no.
+    it('refuses NTFS through either kernel driver', async () => {
+      const volumes = await placements([
+        row('/dev/sda2', '/', 'ext4', 50),
+        row('/dev/sdb1', '/mnt/ntfs', 'ntfs', 900),
+        row('/dev/sdc1', '/mnt/ntfs3', 'ntfs3', 800),
+      ]);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
     it('refuses a local disk mounted through fuse, which names no driver', async () => {
       const volumes = await placements([
         row('/dev/sda2', '/', 'ext4', 50),

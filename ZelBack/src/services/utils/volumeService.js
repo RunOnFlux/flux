@@ -35,10 +35,19 @@ const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
   'afs', 'ncpfs', 'ceph', 'glusterfs', 'lustre', 'gpfs', 'beegfs',
   'virtiofs', '9p']);
 
-// The FAT family, under each name the kernel reports it by. `msdos` and `vfat`
-// are the same on-disk format through the old and the current driver; `exfat`
-// is its successor.
-const FAT_FSTYPES = new Set(['vfat', 'msdos', 'exfat']);
+/**
+ * Filesystems an image is not PLACED on, though one already sitting on any of
+ * them is still found.
+ *
+ * A volume is created with `fallocate` and loop-mounted with an ext4 inside
+ * it. `vfat` and `msdos` cap a file at 4 GiB, under the size of most volumes;
+ * for the rest that sequence is not established on anything the fleet runs,
+ * and `fuseblk` does not even name the driver it would go through - ntfs-3g
+ * and exfat-fuse both arrive under it. `createAppVolume` takes one candidate
+ * and never falls back, so a filesystem that cannot carry the sequence puts
+ * the node in DOS rather than costing it a disk.
+ */
+const UNPLACEABLE_FSTYPES = new Set(['vfat', 'msdos', 'exfat', 'ntfs', 'ntfs3', 'fuseblk']);
 
 /**
  * Where a container runtime keeps the filesystems it owns.
@@ -115,7 +124,14 @@ function oneRowPerDevice(rows) {
 }
 
 /**
- * Whether this is a filesystem the node may use for its own storage.
+ * Whether an image may be FOUND on this filesystem: is it this machine's
+ * storage, in a place one may sit.
+ *
+ * Location and ownership only. The filesystem's TYPE is not asked, because an
+ * image already written to a disk is readable whatever the disk is formatted
+ * as, and an earlier release placed images by source alone. Narrowing a search
+ * by type reports those images missing, which is a tampering event against the
+ * operator and an orphan on the disk.
  *
  * `findmnt --real` has already dropped the pseudo filesystems and a container's
  * own overlay, so what is left to exclude is storage on another machine, the
@@ -124,59 +140,60 @@ function oneRowPerDevice(rows) {
  * bytes twice. A loop mount IS such an image - except at the root, where a loop
  * is the host disk itself.
  *
- * Says nothing about writing: that is a separate question, asked where an image
- * is actually placed.
- *
  * @param {object} mount One mount row from deviceHelper.
- * @returns {boolean} True when the filesystem is the node's to use.
+ * @returns {boolean} True when an image may be looked for on the filesystem.
  */
-function isHostFilesystem(mount) {
+function isSearchableFilesystem(mount) {
   const fstype = String(mount.fstype || '');
   if (EPHEMERAL_FSTYPES.has(fstype)) return false;
   // A fuse type names the driver rather than the backing, and the drivers that
   // reach across a network are open-ended: gluster and sshfs arrive as
   // `fuse.glusterfs` and `fuse.sshfs`, the object stores as `fuse.rclone`,
-  // `fuse.s3fs`, `fuse.gcsfuse`. `fuseblk` is the block-backed form and names
-  // no driver at all - ntfs-3g and exfat-fuse both arrive under it - so what
-  // an image would be written into is not knowable from the mount table. A
-  // bare `fuse` is on libmount's pseudofs list and never survives
-  // `findmnt --real`, so there is nothing here to test it for. A local fuse
-  // pool loses nothing by the rule: the disks it pools are mounted in their
-  // own right.
-  if (REMOTE_FSTYPES.has(fstype) || fstype === 'fuseblk' || fstype.startsWith('fuse.')) return false;
-  // A FAT filesystem stores no ownership and no permissions - it synthesises
-  // both from the mount options - so nothing on one can be given to an app
-  // alone, and vfat and msdos additionally cap a file at 4 GiB, under the size
-  // of most volumes. An image is therefore not placed on one whatever its free
-  // space says. The ESP is the usual one, but a removable stick is mounted
-  // anywhere.
-  if (FAT_FSTYPES.has(fstype)) return false;
+  // `fuse.s3fs`, `fuse.gcsfuse`. A bare `fuse` is on libmount's pseudofs list
+  // and never survives `findmnt --real`, so there is nothing here to test it
+  // for. A local fuse pool loses nothing by the rule: the disks it pools are
+  // mounted in their own right. `fuseblk` is the block-backed form and IS this
+  // machine's storage, so it is searched - it is only refused a new image.
+  if (REMOTE_FSTYPES.has(fstype) || fstype.startsWith('fuse.')) return false;
   if (mount.target === '/boot' || mount.target.startsWith('/boot/')) return false;
   const device = String(mount.source).split('[')[0];
   if (device.startsWith('/dev/loop') && mount.target !== '/') return false;
-  // Under the apps folder, not the folder itself: an app's volume is mounted at
-  // <appsFolder>/<appId>, while the folder is an ordinary directory an operator
-  // may well have given its own disk. An image there is <appId>FLUXFSVOL, which
-  // collides with no mount point.
+  // Strict descendants of each, never the directory itself: a runtime owns
+  // what it mounts underneath its data directory, while the directory may be a
+  // disk an operator gave it, and an app's volume is mounted at
+  // <appsFolder>/<appId> while the folder itself is ordinary. An image sits at
+  // <appId>FLUXFSVOL, which collides with no mount point.
   if (RUNTIME_DATA_DIRS.some((dir) => mount.target.startsWith(`${dir}/`))) return false;
   const appsRoot = appsFolder.replace(/\/+$/, '');
   return !mount.target.startsWith(`${appsRoot}/`);
 }
 
 /**
- * Every filesystem the node may use, as many times as it is mounted.
+ * Whether an image may be PUT on this filesystem.
  *
- * Deliberately not deduplicated: how many times one disk should count depends
- * on the question being asked of it, so each caller decides.
+ * Everywhere one may be found, less the types that cannot carry a new one.
+ * The narrower question, and the one that must never be asked of a search:
+ * a type refused here still holds every image an earlier release placed on it.
  *
- * Throws when the mount table cannot be read, so a caller cannot read "no
- * disks" as "no space".
- *
- * @returns {Promise<Array<object>>} mount rows from deviceHelper
+ * @param {object} mount One mount row from deviceHelper.
+ * @returns {boolean} True when an image may be created on the filesystem.
  */
-async function hostFilesystems() {
-  const mounts = await deviceHelper.listMountedFilesystems();
-  return mounts.filter(isHostFilesystem);
+function isHostFilesystem(mount) {
+  if (!isSearchableFilesystem(mount)) return false;
+  return !UNPLACEABLE_FSTYPES.has(String(mount.fstype || ''));
+}
+
+/**
+ * The mount a path resolves through: the last row listed at that exact target.
+ *
+ * @param {string} target Absolute path of a mount point.
+ * @param {Array<object>} mounts Mount rows, in mount table order.
+ * @returns {object|null} The visible row, or null when nothing is mounted there.
+ */
+function visibleMountAt(target, mounts) {
+  const at = String(target).replace(/\/+$/, '');
+  const stack = mounts.filter((mount) => String(mount.target).replace(/\/+$/, '') === at);
+  return stack.length ? stack[stack.length - 1] : null;
 }
 
 /**
@@ -187,19 +204,15 @@ async function hostFilesystems() {
  *
  * A row with another mount stacked over it answers for a filesystem the path
  * no longer reaches - neither its `ro` flag nor its free space describes what
- * a write there would do - so only the mount a path resolves through, the last
- * one listed at that target, is a candidate.
+ * a write there would do - so only the mount a path resolves through is a
+ * candidate. A mount table read with `--real` carries no pseudo filesystem, so
+ * a tmpfs or an overlay laid over a candidate is not visible here and the row
+ * beneath it still answers.
  *
  * @param {object} mount One mount row from deviceHelper.
  * @param {Array<object>} mounts The whole mount table the row came from.
  * @returns {Promise<boolean>} True when an image can be written there.
  */
-function visibleMountAt(target, mounts) {
-  const at = String(target).replace(/\/+$/, '');
-  const stack = mounts.filter((mount) => String(mount.target).replace(/\/+$/, '') === at);
-  return stack.length ? stack[stack.length - 1] : null;
-}
-
 async function canHoldAppVolume(mount, mounts) {
   if (visibleMountAt(mount.target, mounts) !== mount) return false;
   if (mount.readOnly) return false;
@@ -222,9 +235,10 @@ async function canHoldAppVolume(mount, mounts) {
  *   used: number, available: number}>>}
  */
 async function placementVolumesInGib() {
-  // The unfiltered table, because what shadows a candidate decides where a
-  // write lands whether or not the node would place an image on the thing
-  // doing the shadowing.
+  // Unfiltered by this module's own rules, because what shadows a candidate
+  // decides where a write lands whether or not an image could be placed on the
+  // thing doing the shadowing. `--real` has already dropped the pseudo
+  // filesystems, so a tmpfs over a candidate is not among them.
   const mounts = await deviceHelper.listMountedFilesystems();
   const hosts = mounts.filter(isHostFilesystem);
   const writable = [];
@@ -254,8 +268,8 @@ async function placementVolumesInGib() {
  * @returns {Promise<Array<object>>} mount rows from deviceHelper
  */
 async function eligibleHostMounts() {
-  const hosts = await hostFilesystems();
-  return hosts.filter((mount) => mount.target !== '/');
+  const mounts = await deviceHelper.listMountedFilesystems();
+  return mounts.filter((mount) => isSearchableFilesystem(mount) && mount.target !== '/');
 }
 
 /**
@@ -347,9 +361,17 @@ async function getVolumeFilePath(appId) {
   // eslint-disable-next-line no-restricted-syntax
   for (const candidate of candidates) {
     // eslint-disable-next-line no-await-in-loop
-    const exists = await fs.access(candidate).then(() => true).catch(() => false);
+    const failure = await fs.access(candidate).then(() => null).catch((error) => error);
     // Finding it settles the question whatever the search could not reach.
-    if (exists) return { path: candidate, conclusive: true };
+    if (!failure) return { path: candidate, conclusive: true };
+    // Only ENOENT says an image is not here. A path that could not be read -
+    // the disk answering EIO, a directory that denies the lookup - has ruled
+    // nothing out, and reporting it absent is how a failing disk becomes a
+    // tampering event against the operator.
+    if (failure.code !== 'ENOENT') {
+      conclusive = false;
+      log.warn(`getVolumeFilePath - ${candidate} could not be read (${failure.code || failure.message}), so the image is not ruled out`);
+    }
   }
 
   return { path: null, conclusive };
@@ -364,17 +386,19 @@ async function getVolumeFilePath(appId) {
  * decryption needs fluxbenchd, while the images need nothing.
  * @param {string} appName Application name.
  * @returns {Promise<string[]>} Docker app identifiers whose images exist on disk.
+ * @throws when the mount table cannot be read, because a short list here is
+ *   indistinguishable from an app with fewer components.
  */
 async function getComponentAppIdsFromVolumeFiles(appName) {
   const appIds = new Set();
   const searchDirs = new Set([appVolumesPath, legacyAppVolumesPath]);
 
-  try {
-    const mounts = await eligibleHostMounts();
-    mounts.forEach((mount) => searchDirs.add(mount.target));
-  } catch (error) {
-    log.warn(`getComponentAppIdsFromVolumeFiles - findmnt failed (${error.message}), searching appvolumes locations only`);
-  }
+  // Throws rather than answering from the appvolumes locations alone: this
+  // list IS the component set for an app whose specification cannot be read,
+  // so a partial one silently leaves components out of every decision made
+  // from it. "Could not enumerate" has to reach the caller as unknown.
+  const mounts = await eligibleHostMounts();
+  mounts.forEach((mount) => searchDirs.add(mount.target));
 
   const escapedName = appName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const componentImage = new RegExp(`^flux\\w+_${escapedName}FLUXFSVOL$`);
@@ -465,6 +489,17 @@ async function ensureAppVolumeMounted(identifier) {
       return { mounted: true, alreadyMounted: true };
     }
     log.error(`ensureAppVolumeMounted - failed to mount ${volumeFile} at ${mountPoint}: ${mountRes.error.message}`);
+    // A failed mount is evidence about the image only once the host is known
+    // to be able to mount anything at all. `losetup -f` names the next free
+    // loop device and fails when the machinery is missing - no
+    // /dev/loop-control, the module unloaded, every device taken - which is
+    // the host's condition and not something an operator did to the volume.
+    // Asked here rather than read out of the mount error, because one message
+    // covers both and the deciding state is answerable directly.
+    const loop = await serviceHelper.runCommand('losetup', { runAsRoot: true, params: ['-f'], logError: false });
+    if (loop.error) {
+      return { mounted: false, reason: 'loop_unavailable' };
+    }
     return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };
   }
 
