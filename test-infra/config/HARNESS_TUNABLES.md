@@ -73,6 +73,10 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.appSyncMinPeerUptime` | 7500 | 0 | n/a |
 | `fluxapps.appSyncPeerThreshold` | 12 | 2 | 6.0x |
 | `fluxapps.bootDelayMultiplier` | 1 | 0.01 | 100.0x |
+| `fluxapps.complianceRemovalSpacingMs` | 180000 | 2000 | 90.0x |
+| `fluxapps.complianceRetryBaseMs` | 60000 | 2000 | 30.0x |
+| `fluxapps.complianceRetryMaxMs` | 3600000 | 20000 | 180.0x |
+| `fluxapps.complianceSweepStaggerMs` | 120000 | 1000 | 120.0x |
 | `fluxapps.cpuCheckIntervalMs` | 900000 | 30000 | 30.0x |
 | `fluxapps.daemonInfoIntervalMs` | 30000 | 5000 | 6.0x |
 | `fluxapps.defaultSwap` | 2 | 0 | n/a |
@@ -90,7 +94,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.hashSyncRetryMs` | 300000 | 10000 | 30.0x |
 | `fluxapps.hashSyncSettleMs` | 4000 | 2000 | 2.0x |
 | `fluxapps.hddFileSystemMinimum` | 10 | 2 | 5.0x |
-| `fluxapps.imageComplianceIntervalMs` | 3600000 | 60000 | 60.0x |
 | `fluxapps.imageUpdateCheckIntervalMs` | 21600000 | 5000 | 4320.0x |
 | `fluxapps.imageUpdateDelayAfterRedeployMs` | 120000 | 1000 | 120.0x |
 | `fluxapps.imageUpdateDelayBetweenAppsMs` | 5000 | 100 | 50.0x |

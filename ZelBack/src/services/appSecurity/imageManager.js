@@ -12,6 +12,7 @@ const globalState = require('../utils/globalState');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
+const { RemovalOutcome } = require('../utils/removalOutcome');
 
 /**
  * Classify error type and determine appropriate cache TTL
@@ -504,84 +505,437 @@ async function checkDockerAccessibility(req, res) {
 }
 
 /**
- * Check applications compliance and remove blacklisted apps
+ * The node's compliance sweeper: what removes an application the network's blocklist
+ * names, once it is already installed.
+ *
+ * EVERY OTHER PATH GATES ON THE WAY IN. The spawner will not acquire a blocked
+ * application, the validator will not answer for one and the installer will not pull
+ * it - so this exists for the case none of them can answer: an application that was
+ * permitted when it was installed and is not any more.
+ *
+ * ONE OBJECT HOLDING ITS OWN STATE. The set of applications still owed a pass, the
+ * pass in flight, and the two timers are one another's invariants - what may be
+ * dropped from the held set depends on what the pass in flight has reached. As file
+ * scope they were reachable from two entry points that disagreed about them, and a
+ * test could only get a clean one by deleting the module from the require cache.
+ *
+ * WHAT IT DEPENDS ON IS PASSED IN, including the clock and the knobs. A pass is
+ * entirely about timing - when it starts, how long it holds itself open, when it
+ * asks again - so a test that cannot control time can only assert the parts that are
+ * not the point.
+ *
+ * @param {object} deps
+ * @param {Function} deps.installedApps Whole table with no argument, one row with a name
+ * @param {Function} deps.removeAppLocally Answers a RemovalOutcome
+ * @param {Function} [deps.blocklist] The typed blocklist, or null when it cannot be read
+ * @param {Function} [deps.decryptApps] Splits installed apps into readable and unreadable
+ * @param {object} [deps.policy] Carries policyReady and waitForPolicyReady
+ * @param {object} [deps.bundle] Carries onBundleChanged
+ * @param {object} [deps.knobs] Read once: the sweeper's timings do not change under it
+ * @param {object} [deps.timers] set and clear, for a test that owns time
+ * @param {Function} [deps.wait] Holds the pass open between removals
+ * @returns {{runPass: Function, request: Function, start: Function, stop: Function}}
+ */
+function createComplianceSweeper({
+  installedApps,
+  removeAppLocally,
+  blocklist = getBlocklist,
+  decryptApps = decryptEnterpriseApps,
+  policy = globalState,
+  bundle = policyStore,
+  knobs = config.fluxapps,
+  timers = { set: setTimeout, clear: clearTimeout },
+  wait = serviceHelper.delay,
+} = {}) {
+  const {
+    complianceSweepStaggerMs: staggerMs,
+    complianceRemovalSpacingMs: spacingMs,
+    complianceRetryBaseMs: retryBaseMs,
+    complianceRetryMaxMs: retryMaxMs,
+  } = knobs;
+
+  // Applications this node still owes a pass, by name, and why it owes them.
+  //
+  //   deferred    an enterprise specification that did not decrypt, so its images were
+  //               never judged. Nothing announces that it has become readable.
+  //   busy        the node was installing or removing something else, so the removal
+  //               was refused. It says nothing about the application.
+  //   failed      the removal was attempted and did not complete.
+  //   unexamined  a pass stopped before reaching it.
+  //
+  // None of these has an event to wait on. Everything else this acts on does: the
+  // bundle changing, the gate opening, and the install and redeploy paths that judge an
+  // application before its record is ever written.
+  const owed = new Map();
+  // Whether what is owed is the whole node rather than named applications. A pass that
+  // stopped before it classified anything knows no names to owe, and the applications
+  // it never looked at are owed a pass all the same.
+  let owedWholeNode = false;
+
+  let inFlight = null;
+  let again = false;
+  let staggerTimer = null;
+  let retryTimer = null;
+  let retryDelayMs = retryBaseMs;
+
+  /** Hold one application for a later pass. */
+  function hold(appName, reason) {
+    // A newly held application is a change of subject, so the wait starts again rather
+    // than inheriting one earned by whatever was held before it.
+    if (!owed.has(appName)) retryDelayMs = retryBaseMs;
+    owed.set(appName, reason);
+  }
+
+  /** Hold the whole node, for a pass that stopped before it could name anything. */
+  function holdEverything() {
+    if (!owedWholeNode) retryDelayMs = retryBaseMs;
+    owedWholeNode = true;
+  }
+
+  /**
+   * Arm the retry, if anything is owed and nothing is armed.
+   *
+   * SELF-CANCELLING: the timer exists for what is owed and ends with it, so a node
+   * owing nothing runs no timer. Armed once a pass is over, never while one runs - a
+   * pass spaces its removals over minutes and holds applications as it goes, so a timer
+   * armed at the moment of holding fires inside the pass that armed it.
+   */
+  function armRetry() {
+    if (retryTimer || (!owed.size && !owedWholeNode)) return;
+    const delayMs = Math.min(retryDelayMs, retryMaxMs);
+    retryTimer = timers.set(() => {
+      retryTimer = null;
+      const wholeNode = owedWholeNode;
+      owedWholeNode = false;
+      const scope = wholeNode ? null : new Set(owed.keys());
+      if (!wholeNode && !scope.size) return;
+      // Grown before the pass, not after: a pass that resolves everything leaves nothing
+      // owed and is never armed again, and one that resolves nothing has already earned
+      // the longer wait.
+      retryDelayMs = Math.min(delayMs * 2, retryMaxMs);
+      log.info(`Asking again about ${wholeNode ? 'every installed application' : [...owed].map(([name, why]) => `${name} (${why})`).join(', ')}`);
+      // Returned, not discarded: setTimeout ignores it, and a scheduler that drives this
+      // deliberately - a test owning the clock - can wait for the pass it just started
+      // rather than guess at how many turns of the queue it takes to finish.
+      return request(scope);
+    }, delayMs);
+    if (retryTimer && retryTimer.unref) retryTimer.unref();
+  }
+
+  /**
+   * The application as the node holds it NOW, judged on the fields that are plaintext
+   * on the stored record.
+   *
+   * A pass spaces its removals, so minutes separate the decision from the act. The
+   * record can move in between - a redeploy onto a different image, a specification
+   * update - and a verdict reached against the old one is a verdict about an
+   * application this node is no longer running.
+   *
+   * Images are the one field this cannot re-derive: reading them means decrypting an
+   * enterprise specification, which is the work the pass already did. They are carried
+   * forward only while the record they came from is unchanged, and dropped the moment
+   * its hash moves - a redeployed application is judged on what can still be read of
+   * it, and the next pass judges the rest.
+   *
+   * @returns {Promise<object|null>} Null when the node no longer holds it
+   */
+  async function subjectNow(appName, decided) {
+    const res = await installedApps(appName).catch(() => null);
+    const row = res && res.status === 'success' && Array.isArray(res.data)
+      ? res.data.find((app) => app.name === appName)
+      : null;
+    if (!row) return null;
+    return {
+      name: row.name,
+      owner: row.owner,
+      hash: row.hash,
+      images: row.hash === decided.hash ? decided.images : imagesOf(row),
+    };
+  }
+
+  /**
+   * One pass: judge what the node holds and remove what the network refuses.
+   *
+   * @param {Set<string>} [scope] Only these applications. Every installed one when absent.
+   * @returns {Promise<void>}
+   */
+  async function runPass(scope = null) {
+    try {
+      // THE LIST THIS ACTS ON HAS TO BE THE NETWORK'S, not whatever this node last held.
+      // A bundle restored from disk answers the blocklist without anything having
+      // established that it is still current, so a ban lifted while this node was down
+      // still reads as a ban - and what follows is an uninstall, broadcast to the
+      // network, of an application that is now permitted.
+      //
+      // The same bar every other judgement is held to: the spawner will not acquire, the
+      // validator will not answer a live submission and the installer will not pull while
+      // this is shut. Removing an application is the most destructive of the four.
+      if (!policy.policyReady) {
+        log.info('Network policy not confirmed; leaving installed applications as they are this pass');
+        holdEverything();
+        return;
+      }
+      const res = await installedApps();
+      if (res.status !== 'success') {
+        holdEverything();
+        throw new Error('Failed to get installed Apps');
+      }
+      const entries = blocklist();
+      if (!entries) {
+        // Removing on this would tear down every application on the node the first time
+        // the document was unreadable.
+        log.warn('Blocklist unavailable; leaving installed applications as they are this pass');
+        holdEverything();
+        return;
+      }
+
+      const subjects = scope ? res.data.filter((app) => scope.has(app.name)) : res.data;
+      // An application named in a scope that the node no longer holds has nothing left
+      // to answer for, and owing it would arm a timer for an application that is gone.
+      if (scope) {
+        const present = new Set(subjects.map((app) => app.name));
+        scope.forEach((name) => { if (!present.has(name)) owed.delete(name); });
+      }
+
+      const toRemove = new Map();
+
+      // Name, owner and hash are plaintext on the stored record, so a ban on any of them
+      // is answered for every installed application - including one whose specification
+      // this node cannot decrypt. They are asked before the decrypt for exactly that
+      // reason: an application dropped from the readable set must still be judged on
+      // what it is.
+      subjects.forEach((app) => {
+        const subject = {
+          name: app.name, owner: app.owner, hash: app.hash, images: null,
+        };
+        const reason = blockedReasonFor(entries, subject);
+        if (reason) toRemove.set(app.name, { reason, subject });
+      });
+
+      // Images are the part that genuinely needs the specification: an enterprise
+      // application carries its components inside the encrypted blob. One that cannot be
+      // read is owed a later pass, and says so - it is not cleared.
+      const { readable, unreadable } = await decryptApps(subjects);
+      if (unreadable.length) {
+        log.warn(`Cannot check blocked images for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
+      }
+      unreadable.forEach((app) => {
+        if (toRemove.has(app.name)) return;
+        hold(app.name, 'deferred');
+      });
+      readable.forEach((app) => {
+        if (toRemove.has(app.name)) return;
+        const subject = {
+          name: app.name, owner: app.owner, hash: app.hash, images: imagesOf(app),
+        };
+        const reason = blockedReasonFor(entries, subject);
+        if (reason) {
+          toRemove.set(app.name, { reason, subject });
+          return;
+        }
+        // Read, and answered on every field, with nothing owed. An application that IS
+        // blocked is answered for by its removal and not before.
+        owed.delete(app.name);
+      });
+
+      const removals = [...toRemove.entries()];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [index, [appName, decided]] of removals.entries()) {
+        // ASKED AGAIN FOR EACH ONE, against the list as it stands now and the record as
+        // it stands now. Spacing holds a pass open for minutes and neither half of what
+        // it decided at the top survives that: an entry lifted while the pass ran would
+        // otherwise still be acted on, and an application redeployed onto a different
+        // image would be judged on the one it no longer runs.
+        //
+        // WHAT IT COULD NOT ASK IS OWED, never assumed either way. A pass that stops
+        // here leaves the applications after this one unexamined.
+        if (!policy.policyReady) {
+          log.warn('Network policy no longer confirmed; ending this pass');
+          removals.slice(index).forEach(([name]) => hold(name, 'unexamined'));
+          return;
+        }
+        const current = blocklist();
+        if (!current) {
+          log.warn('Blocklist no longer available; ending this pass');
+          removals.slice(index).forEach(([name]) => hold(name, 'unexamined'));
+          return;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        const subject = await subjectNow(appName, decided.subject);
+        if (!subject) {
+          // The node no longer holds it, so there is nothing left to refuse.
+          owed.delete(appName);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const reason = blockedReasonFor(current, subject);
+        if (!reason) {
+          log.info(`Application ${appName} is no longer blocked, leaving it installed`);
+          owed.delete(appName);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        log.warn(`Application ${appName} is blacklisted, removing`);
+        log.warn(`REMOVAL REASON: Blocked by network policy - ${reason} (imageManager)`);
+        // eslint-disable-next-line no-await-in-loop
+        const outcome = await removeAppLocally(appName, null, false, true, true);
+        if (outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED) {
+          owed.delete(appName);
+        } else {
+          // BUSY says nothing about the application - the node was doing something else -
+          // and FAILED says it may still be here. Neither is a removal, and reading
+          // either as one leaves a blocked application running with nothing coming back
+          // for it.
+          log.warn(`Application ${appName} was not removed (${outcome}); asking again`);
+          hold(appName, outcome === RemovalOutcome.BUSY ? 'busy' : 'failed');
+        }
+        if (index < removals.length - 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await wait(spacingMs);
+        }
+      }
+    } catch (error) {
+      log.error(error);
+    }
+  }
+
+  /**
+   * Run a pass, and once more if anything asked for one while it ran.
+   *
+   * COALESCED RATHER THAN QUEUED. A pass is a function of the blocklist this node holds
+   * now, so requests arriving during one are all answered by a single further pass - a
+   * queue of them would each re-read the same final state and walk the whole local app
+   * table again. A scoped request coalesces into a full pass rather than narrowing it:
+   * the full pass answers everything the scoped one would have.
+   *
+   * @param {Set<string>} [scope] Only these applications. Every installed one when absent.
+   * @returns {Promise<void>} The run in progress, so a caller can wait for it.
+   */
+  function request(scope = null) {
+    if (inFlight) {
+      again = true;
+      return inFlight;
+    }
+    let mine = null;
+    mine = (async () => {
+      let next = scope;
+      do {
+        // Cleared BEFORE the pass, so a request arriving during it is not read as one
+        // this pass already accounted for.
+        again = false;
+        // eslint-disable-next-line no-await-in-loop
+        await runPass(next);
+        // Whatever asked for another pass did not say which applications it was about,
+        // so the pass it gets is the whole node.
+        next = null;
+      } while (again);
+      armRetry();
+    })().finally(() => { if (inFlight === mine) inFlight = null; });
+    inFlight = mine;
+    return mine;
+  }
+
+  /**
+   * Sweep whenever the policy this node enforces changes.
+   *
+   * TWO TRIGGERS, BECAUSE NEITHER COVERS THE OTHER. The gate opening is what makes the
+   * blocklist safe to act on at all, and it opens without the bundle changing - a node
+   * confirmed by its peers holds exactly what it restored. A bundle changing is what
+   * makes an already-safe blocklist say something different, and that happens for the
+   * rest of the node's life.
+   *
+   * BOTH ARE STAGGERED, because adopting a bundle fires both: policyStore.adopt opens
+   * the gate before it announces, and the gate drains its waiters synchronously, so an
+   * unstaggered gate trigger would run first and put the whole fleet's removals - and
+   * the broadcast of each one - into the same instant.
+   *
+   * NOTHING WAITS ON THIS. It uninstalls applications, so it runs only on policy this
+   * node has established is the network's, which may be a long time coming.
+   *
+   * @returns {Function} Ends the subscription.
+   */
+  function start() {
+    const stagger = () => {
+      // One is enough: a pass that has not started yet already reads whatever arrives
+      // before it does.
+      if (staggerTimer) return;
+      staggerTimer = timers.set(() => {
+        staggerTimer = null;
+        return request();
+      }, Math.floor(Math.random() * staggerMs));
+      if (staggerTimer && staggerTimer.unref) staggerTimer.unref();
+    };
+    const unsubscribe = bundle.onBundleChanged(() => {
+      // A bundle this node may not act on yet changes nothing it may do. The gate
+      // opening carries its own trigger.
+      if (!policy.policyReady) return;
+      stagger();
+    });
+    policy.waitForPolicyReady().then(stagger);
+    return unsubscribe;
+  }
+
+  /**
+   * Drop the timers and everything owed.
+   *
+   * A pass already running is not cancellable - it is awaiting a removal - so it is
+   * disowned rather than stopped: its handle is dropped, and it can no longer clear the
+   * handle of whatever starts next.
+   */
+  function stop() {
+    if (staggerTimer) timers.clear(staggerTimer);
+    if (retryTimer) timers.clear(retryTimer);
+    staggerTimer = null;
+    retryTimer = null;
+    retryDelayMs = retryBaseMs;
+    owedWholeNode = false;
+    inFlight = null;
+    again = false;
+    owed.clear();
+  }
+
+  return {
+    runPass, request, start, stop,
+  };
+}
+
+// The sweeper this node is running. A module-level reference rather than module-level
+// state: one object, created at boot, that the redeploy path can ask for a scoped pass
+// without building a second one over the same node.
+let activeSweeper = null;
+
+/**
+ * Start the node's compliance sweeper. Called once, at boot.
  * @param {Function} installedApps - Function to get installed apps
  * @param {Function} removeAppLocally - Function to remove app locally
+ * @returns {Function} Ends the subscription.
+ */
+function startComplianceSweeps(installedApps, removeAppLocally) {
+  activeSweeper = createComplianceSweeper({ installedApps, removeAppLocally });
+  return activeSweeper.start();
+}
+
+/**
+ * Ask the running sweeper for a pass. Does nothing before boot has started one - there
+ * is no node state to act on, and building a sweeper here would make a second one.
+ * @param {Set<string>} [scope] Only these applications
  * @returns {Promise<void>}
  */
-async function checkApplicationsCompliance(installedApps, removeAppLocally) {
-  try {
-    // THE LIST THIS ACTS ON HAS TO BE THE NETWORK'S, not whatever this node last held. A
-    // bundle restored from disk answers getBlocklist without anything having established
-    // that it is still current, so a ban lifted while this node was down still reads as a
-    // ban - and what follows is an uninstall, broadcast to the network, of an application
-    // that is now permitted.
-    //
-    // The same bar every other judgement is held to: the spawner will not acquire, the
-    // validator will not answer a live submission and the installer will not pull while
-    // this is shut. Removing an application is the most destructive of the four.
-    //
-    // What it costs is an application that IS banned staying up on this node until it can
-    // confirm. That node is already refusing to take on new ones for the same reason.
-    if (!globalState.policyReady) {
-      log.info('Network policy not confirmed; leaving installed applications as they are this pass');
-      return;
-    }
-    // get list of locally installed apps.
-    const installedAppsRes = await installedApps();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
-    }
-    const entries = getBlocklist();
-    if (!entries) {
-      // The list could not be obtained. Removing on that would tear down every
-      // application on the node the first time the document was unreachable.
-      log.warn('Blocklist unavailable; leaving installed applications as they are this pass');
-      return;
-    }
+function requestComplianceSweep(scope = null) {
+  if (!activeSweeper) return Promise.resolve();
+  return activeSweeper.request(scope);
+}
 
-    const appsToRemove = new Map();
-
-    // Name, owner and hash are plaintext on the stored record, so a ban on any of
-    // them is answered for every installed application - including one whose
-    // specification this node cannot decrypt. They are asked before the decrypt
-    // for exactly that reason: an application dropped from the readable set must
-    // still be judged on what it is.
-    installedAppsRes.data.forEach((app) => {
-      const reason = blockedReasonFor(entries, {
-        name: app.name, owner: app.owner, hash: app.hash, images: null,
-      });
-      if (reason) appsToRemove.set(app.name, reason);
-    });
-
-    // Images are the part that genuinely needs the specification: an enterprise
-    // application carries its components inside the encrypted blob. One that
-    // cannot be read is deferred here, and says so - it is not cleared.
-    const { readable: appsInstalled, unreadable } = await decryptEnterpriseApps(installedAppsRes.data);
-    if (unreadable.length) {
-      log.warn(`Cannot check blocked images for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
-    }
-    appsInstalled.forEach((app) => {
-      if (appsToRemove.has(app.name)) return;
-      const reason = blockedReasonFor(entries, {
-        name: app.name, owner: app.owner, hash: app.hash, images: imagesOf(app),
-      });
-      if (reason) appsToRemove.set(app.name, reason);
-    });
-
-    // remove appsToRemove apps from locally running
-    // eslint-disable-next-line no-restricted-syntax
-    for (const [appName, reason] of appsToRemove) {
-      log.warn(`Application ${appName} is blacklisted, removing`);
-      log.warn(`REMOVAL REASON: Blocked by network policy - ${reason} (imageManager)`);
-      // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName, null, false, true, true);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
-    }
-  } catch (error) {
-    log.error(error);
-  }
+/**
+ * One pass, now, with nothing scheduled. For a caller that wants the judgement without
+ * the sweeper that repeats it.
+ * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} removeAppLocally - Function to remove app locally
+ * @param {Set<string>} [scope] Only these applications
+ * @returns {Promise<void>}
+ */
+function checkApplicationsCompliance(installedApps, removeAppLocally, scope = null) {
+  return createComplianceSweeper({ installedApps, removeAppLocally }).runPass(scope);
 }
 
 module.exports = {
@@ -593,4 +947,7 @@ module.exports = {
   checkApplicationImagesCompliance,
   checkDockerAccessibility,
   checkApplicationsCompliance,
+  createComplianceSweeper,
+  requestComplianceSweep,
+  startComplianceSweeps,
 };

@@ -79,7 +79,6 @@ function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 const {
   portRestoreIntervalMs,
   cpuCheckIntervalMs,
-  imageComplianceIntervalMs,
   forceRemovalIntervalMs,
   tempMsgTtlS,
 } = config.fluxapps;
@@ -758,6 +757,17 @@ async function startFluxFunctions() {
       // Detached. The sweep uninstalls apps, so it waits for policy this node has confirmed
       // is the network's, and everything below here starts whether or not that ever arrives.
       enterpriseNetwork.startOwnershipSweeps();
+      // STARTED ON THE POLICY, NOT ON A CLOCK. What this removes is decided by the
+      // blocklist in the signed bundle, so it runs when that changes and when the gate
+      // opens on it. An application arriving afterwards is judged by the installer
+      // before it is written, and what has neither - a specification that did not
+      // decrypt, a removal the node was too busy to take, a pass that stopped part way
+      // - is held by name and asked again on its own timer.
+      //
+      // Here rather than beside the other app services: the first thing a pass does is
+      // read the local app table, so it waits on the same db the sweep beside it waits
+      // on.
+      imageManager.startComplianceSweeps(appQueryService.installedApps, appUninstaller.removeAppLocally);
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);
@@ -831,9 +841,6 @@ async function startFluxFunctions() {
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)
     orchestrator.start(bootContext);
     log.info('AppSyncOrchestrator started');
-    setInterval(() => {
-      imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
-    }, imageComplianceIntervalMs);
     setTimeout(() => {
       advancedWorkflows.forceAppRemovals();
       setInterval(() => {

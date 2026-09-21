@@ -4271,6 +4271,10 @@ async function reinstallOldApplications() {
   }
   reinstallPassLock.register();
 
+  // Applications this pass rewrote the owner of without redeploying. Swept after the
+  // pass, never inside it - see the branch that fills this.
+  const transferredOwners = new Set();
+
   try {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
@@ -4382,6 +4386,18 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line no-await-in-loop
             await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
             log.info(`Application ${installedApp.name} Database updated`);
+            // THE OWNER IS NOT PART OF THE COMPARISON ABOVE, so a transfer reaches this
+            // branch: the same components under a different owner, written without a
+            // redeploy. Nothing else will judge the record that leaves here - the
+            // installer judges what it installs, and this installs nothing - so an owner
+            // the network refuses would hold this application until something unrelated
+            // swept the node.
+            //
+            // NAMED NOW, SWEPT AFTER THIS PASS. The sweep uninstalls, and this pass
+            // uninstalls; running them together is the collision this function's own
+            // lock exists to prevent, and a redeploy below removes with force, which
+            // does not queue behind anything.
+            transferredOwners.add(appSpecifications.name);
             // eslint-disable-next-line no-continue
             continue;
           }
@@ -4725,6 +4741,16 @@ async function reinstallOldApplications() {
     // loop, on a path that can return or throw from several places, and a leaked
     // true would make every neighbour stand aside indefinitely.
     globalState.reinstallationOfOldAppsInProgress = false;
+    // AFTER THE LOCK IS RELEASED, so the sweep's removals cannot meet this pass's.
+    // One request for the whole set: a scoped request coalesces into a full pass
+    // anyway once another is in flight, so asking per application buys nothing.
+    // Not awaited - the sweep takes the policy gate, which may be a long time coming,
+    // and nothing here depends on it.
+    if (transferredOwners.size) {
+      // eslint-disable-next-line global-require
+      const imageManager = require('../appSecurity/imageManager');
+      imageManager.requestComplianceSweep(transferredOwners);
+    }
   }
 }
 

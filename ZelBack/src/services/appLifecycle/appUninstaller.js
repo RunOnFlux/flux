@@ -25,6 +25,7 @@ const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const volumeService = require('../utils/volumeService');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { Privilege, authOf } = require('../utils/privileges');
+const { RemovalOutcome } = require('../utils/removalOutcome');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -784,7 +785,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @param {boolean} force - Force removal
  * @param {boolean} endResponse - Whether to end response
  * @param {boolean} sendMessage - Whether to send message to network
- * @returns {Promise<void>}
+ * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   // Names what this call marked as departing, and nothing else: the guards below
@@ -818,7 +819,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
             res.end();
           }
         }
-        return;
+        return RemovalOutcome.BUSY;
       }
       if (globalState.installationInProgress) {
         const warnResponse = messageHelper.createWarningMessage('Another application is undergoing installation. Removal not possible.');
@@ -830,7 +831,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
             res.end();
           }
         }
-        return;
+        return RemovalOutcome.BUSY;
       }
     }
 
@@ -1075,6 +1076,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.end();
       }
     }
+    return RemovalOutcome.REMOVED;
   } catch (error) {
     log.error(`Error removing app ${app}: ${error.message}`);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1090,6 +1092,13 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.end();
       }
     }
+    // A specification that cannot be found anywhere means the node is not holding
+    // this app, which answers a caller asking for it to be gone. Every other error
+    // leaves it possibly here, whole or in part, and only the caller can decide what
+    // that costs it.
+    return error.message === 'Flux App not found'
+      ? RemovalOutcome.NOT_INSTALLED
+      : RemovalOutcome.FAILED;
   } finally {
     if (acquired) globalState.removalInProgress = false;
     if (departingName) {

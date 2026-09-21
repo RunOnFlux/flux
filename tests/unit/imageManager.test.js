@@ -8,6 +8,7 @@ const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const imageVerifier = require('../../ZelBack/src/services/utils/imageVerifier');
 const policyStore = require('../../ZelBack/src/services/policyStore');
+const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('imageManager tests', () => {
@@ -805,7 +806,8 @@ describe('imageManager tests', () => {
 
       await imageManager.checkApplicationsCompliance(installedApps, removeAppLocally);
 
-      sinon.assert.calledOnce(installedApps);
+      // Twice: the table, then the one row again immediately before removing it.
+      sinon.assert.calledTwice(installedApps);
       sinon.assert.calledOnce(removeAppLocally);
       sinon.assert.calledWith(removeAppLocally, 'BadApp', null, false, true, true);
     });
@@ -857,6 +859,9 @@ describe('imageManager tests', () => {
       sinon.assert.notCalled(removeAppLocally);
     });
 
+    // SPACING IS BETWEEN REMOVALS, so two of them are separated by one wait. A wait after
+    // the last one holds the pass open over an empty remainder, which is time the node
+    // spends unable to answer the next bundle.
     it('should delay between removing multiple apps', async () => {
       const installedApps = sinon.stub().resolves({
         status: 'success',
@@ -896,8 +901,8 @@ describe('imageManager tests', () => {
       await imageManager.checkApplicationsCompliance(installedApps, removeAppLocally);
 
       sinon.assert.calledTwice(removeAppLocally);
-      sinon.assert.calledTwice(delayStub);
-      sinon.assert.calledWith(delayStub, 3 * 60 * 1000);
+      sinon.assert.calledOnce(delayStub);
+      sinon.assert.calledWith(delayStub, config.fluxapps.complianceRemovalSpacingMs);
     });
   });
 
@@ -1264,6 +1269,431 @@ describe('imageManager tests', () => {
       await manager.checkApplicationsCompliance(installedApps, removeAppLocally);
 
       sinon.assert.calledOnceWithExactly(removeAppLocally, 'ReadableApp', null, false, true, true);
+    });
+  });
+
+  // WHEN THE SWEEP RUNS, AND WHAT IT CARRIES BETWEEN PASSES.
+  //
+  // The blocklist reaches a node within seconds of the network adopting it, so the wait
+  // between a change and this node acting on it is whatever this schedules. Each case
+  // below is a way that wait, a pass already running, or a removal that did not happen
+  // produces the wrong answer.
+  //
+  // EVERYTHING IS PASSED IN, so there are no stubs here and no reloading. The clock is
+  // one of the dependencies, and firing a timer returns the pass it started - so a case
+  // waits for the work rather than for a number of turns of the event loop.
+  describe('compliance sweep scheduling', () => {
+    const KNOBS = {
+      complianceSweepStaggerMs: 100,
+      complianceRemovalSpacingMs: 0,
+      complianceRetryBaseMs: 10,
+      complianceRetryMaxMs: 80,
+    };
+
+    // A clock the test owns. `fire` runs what is due and waits for it, because an armed
+    // callback returns the pass it starts.
+    function testTimers() {
+      let nextId = 0;
+      const armed = new Map();
+      return {
+        api: {
+          set: (fn) => { nextId += 1; armed.set(nextId, fn); return nextId; },
+          clear: (id) => armed.delete(id),
+        },
+        count: () => armed.size,
+        async fire() {
+          const due = [...armed.values()];
+          armed.clear();
+          // eslint-disable-next-line no-restricted-syntax
+          for (const fn of due) {
+            // eslint-disable-next-line no-await-in-loop
+            await fn();
+          }
+        },
+      };
+    }
+
+    const blockedApp = (name, hash = 'd'.repeat(64)) => ({
+      name, version: 4, owner: '1Owner', hash, compose: [{ repotag: 'blocked/repo:latest' }],
+    });
+
+    const BANS_THE_IMAGE = [{ kind: 'image', value: 'blocked/repo' }];
+
+    // Answers both shapes the pass uses: the whole table, and one row by name for the
+    // re-check before a removal.
+    const tableOf = (rows) => async (name) => ({
+      status: 'success',
+      data: name ? rows().filter((row) => row.name === name) : rows(),
+    });
+
+    const readsEverything = async (apps) => ({ readable: apps, unreadable: [], inPlace: apps });
+
+    // A sweeper wired to the test's own clock, policy and documents.
+    function build({
+      rows = () => [],
+      blocklist = () => BANS_THE_IMAGE,
+      decryptApps = readsEverything,
+      removeAppLocally = sinon.stub().resolves(RemovalOutcome.REMOVED),
+      policyReady = true,
+    } = {}) {
+      const timers = testTimers();
+      let openGate;
+      const gate = new Promise((resolve) => { openGate = resolve; });
+      const policy = { policyReady, waitForPolicyReady: () => gate };
+      let listener = null;
+      const bundle = { onBundleChanged: (fn) => { listener = fn; return () => { listener = null; }; } };
+      const installedApps = sinon.spy(tableOf(rows));
+      const sweeper = imageManager.createComplianceSweeper({
+        installedApps,
+        removeAppLocally,
+        blocklist,
+        decryptApps,
+        policy,
+        bundle,
+        knobs: KNOBS,
+        timers: timers.api,
+        wait: async () => {},
+      });
+      return {
+        sweeper,
+        timers,
+        installedApps,
+        removeAppLocally,
+        policy,
+        openGate,
+        changeBundle: () => listener && listener({ seq: 2, source: 'peer' }),
+      };
+    }
+
+    // ONE MORE PASS, NOT ONE PER REQUEST. A pass is a function of the blocklist this node
+    // holds when it runs, so requests arriving during one are all answered by a single
+    // further pass - a queue of them would each re-read the same final state and walk the
+    // whole local app table again.
+    it('coalesces requests arriving during a pass into exactly one more', async () => {
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      let passes = 0;
+      const installedApps = async () => {
+        passes += 1;
+        if (passes === 1) await held;
+        return { status: 'success', data: [] };
+      };
+      const sweeper = imageManager.createComplianceSweeper({
+        installedApps,
+        removeAppLocally: sinon.stub().resolves(RemovalOutcome.REMOVED),
+        blocklist: () => [],
+        decryptApps: readsEverything,
+        policy: { policyReady: true, waitForPolicyReady: () => new Promise(() => {}) },
+        bundle: { onBundleChanged: () => () => {} },
+        knobs: KNOBS,
+        timers: testTimers().api,
+        wait: async () => {},
+      });
+
+      const running = sweeper.request();
+      sweeper.request();
+      sweeper.request();
+      sweeper.request();
+      release();
+      await running;
+
+      expect(passes, 'each request took its own pass over the whole node').to.equal(2);
+    });
+
+    // A PASS HOLDS ITSELF OPEN FOR MINUTES. Removals are spaced, so what the blocklist
+    // said when the pass started is not what the network says by the time it reaches the
+    // last application - and an entry lifted in between would otherwise still be acted
+    // on, and the uninstall broadcast.
+    it('does not remove an application whose entry is lifted while the pass runs', async () => {
+      let lifted = false;
+      const rows = [blockedApp('FirstApp'), blockedApp('SecondApp')];
+      const t = build({
+        rows: () => rows,
+        blocklist: () => (lifted ? [] : BANS_THE_IMAGE),
+      });
+      // The lift lands in the spacing between the two removals.
+      t.removeAppLocally.callsFake(async () => { lifted = true; return RemovalOutcome.REMOVED; });
+
+      await t.sweeper.runPass();
+
+      expect(t.removeAppLocally.callCount, 'the pass kept removing on a list the network had moved past').to.equal(1);
+      expect(t.removeAppLocally.firstCall.args[0]).to.equal('FirstApp');
+    });
+
+    // THE RECORD MOVES TOO, not only the list. An application redeployed onto a different
+    // image while the pass was spacing is judged on the image it no longer runs, and a
+    // customer's now-compliant application is uninstalled and the removal broadcast.
+    it('re-reads the application before removing it, not only the blocklist', async () => {
+      const rows = [blockedApp('FirstApp'), blockedApp('SecondApp')];
+      const t = build({ rows: () => rows });
+      t.removeAppLocally.callsFake(async () => {
+        // The redeploy lands after the first removal: same application, new hash, an
+        // image the blocklist says nothing about.
+        rows[1] = {
+          name: 'SecondApp', version: 4, owner: '1Owner', hash: 'f'.repeat(64), compose: [{ repotag: 'allowed/repo:latest' }],
+        };
+        return RemovalOutcome.REMOVED;
+      });
+
+      await t.sweeper.runPass();
+
+      expect(t.removeAppLocally.callCount, 'an application was removed on a specification it no longer runs').to.equal(1);
+      expect(t.removeAppLocally.firstCall.args[0]).to.equal('FirstApp');
+    });
+
+    // The canary for the two above: with nothing moving, BOTH go.
+    it('removes every blocked application when nothing changes under it', async () => {
+      const t = build({ rows: () => [blockedApp('FirstApp'), blockedApp('SecondApp')] });
+      await t.sweeper.runPass();
+      expect(t.removeAppLocally.callCount).to.equal(2);
+    });
+
+    // A REFUSAL IS NOT A REMOVAL. removeAppLocally answers BUSY when the node is doing
+    // something else, having touched nothing - and a caller that reads that as done
+    // leaves a blocked application running with nothing coming back for it.
+    it('does not treat a refused removal as done, and asks again', async () => {
+      const t = build({ rows: () => [blockedApp('BusyApp')] });
+      t.removeAppLocally.onFirstCall().resolves(RemovalOutcome.BUSY);
+      t.removeAppLocally.onSecondCall().resolves(RemovalOutcome.REMOVED);
+
+      await t.sweeper.request();
+      expect(t.removeAppLocally.callCount, 'the first attempt was refused').to.equal(1);
+      expect(t.timers.count(), 'a refused removal left nothing to come back for it').to.equal(1);
+
+      await t.timers.fire();
+      expect(t.removeAppLocally.callCount, 'a refused removal was never retried').to.equal(2);
+    });
+
+    // FAILED says the application may still be here, whole or in part.
+    it('asks again after a removal that did not complete', async () => {
+      const t = build({ rows: () => [blockedApp('BrokenApp')] });
+      t.removeAppLocally.resolves(RemovalOutcome.FAILED);
+
+      await t.sweeper.request();
+      await t.timers.fire();
+
+      expect(t.removeAppLocally.callCount).to.equal(2);
+    });
+
+    // NOT_INSTALLED settles the question: the node does not hold it either way.
+    it('stops asking once the node no longer holds it', async () => {
+      const t = build({ rows: () => [blockedApp('GoneApp')] });
+      t.removeAppLocally.resolves(RemovalOutcome.NOT_INSTALLED);
+
+      await t.sweeper.request();
+
+      expect(t.removeAppLocally.callCount).to.equal(1);
+      expect(t.timers.count(), 'an application the node does not hold was still owed a pass').to.equal(0);
+    });
+
+    // A NODE OWING NOTHING RUNS NO TIMER.
+    it('arms no timer when every application was answered for', async () => {
+      const t = build({ rows: () => [blockedApp('CleanApp')] });
+      await t.sweeper.request();
+      expect(t.timers.count(), 'a timer outlived a pass that owed nothing').to.equal(0);
+    });
+
+    // A pass that stops part way has answered for what is behind it and nothing about
+    // what is ahead. Left unowed, those wait for the next bundle change - a day away at
+    // production's backstop, and never if policy never changes again.
+    it('holds the applications a stopped pass never reached', async () => {
+      let usable = true;
+      const rows = [blockedApp('FirstApp'), blockedApp('SecondApp')];
+      const t = build({ rows: () => rows, blocklist: () => (usable ? BANS_THE_IMAGE : null) });
+      t.removeAppLocally.callsFake(async () => { usable = false; return RemovalOutcome.REMOVED; });
+
+      await t.sweeper.request();
+      expect(t.removeAppLocally.callCount, 'the pass should have stopped').to.equal(1);
+
+      usable = true;
+      t.removeAppLocally.callsFake(async () => RemovalOutcome.REMOVED);
+      await t.timers.fire();
+
+      expect(t.removeAppLocally.callCount, 'the application the pass never reached was dropped').to.equal(2);
+      expect(t.removeAppLocally.secondCall.args[0]).to.equal('SecondApp');
+    });
+
+    // A pass that stopped before it classified anything knows no names to owe, so what
+    // it owes is the node.
+    it('holds the whole node when a pass could not start', async () => {
+      let usable = false;
+      const t = build({ rows: () => [blockedApp('SomeApp')], blocklist: () => (usable ? BANS_THE_IMAGE : null) });
+
+      await t.sweeper.request();
+      expect(t.removeAppLocally.called).to.equal(false);
+      expect(t.timers.count(), 'a pass that could not read the list owed nothing').to.equal(1);
+
+      usable = true;
+      await t.timers.fire();
+      expect(t.removeAppLocally.callCount).to.equal(1);
+    });
+
+    // The wait grows, so a node that cannot make progress stops asking at the base rate
+    // forever.
+    it('doubles the wait between retries that resolve nothing', async () => {
+      const delays = [];
+      const rows = [blockedApp('StuckApp')];
+      const timers = testTimers();
+      const armed = [];
+      const recording = {
+        set: (fn, ms) => { delays.push(ms); armed.push(fn); return timers.api.set(fn, ms); },
+        clear: timers.api.clear,
+      };
+      const sweeper = imageManager.createComplianceSweeper({
+        installedApps: tableOf(() => rows),
+        removeAppLocally: sinon.stub().resolves(RemovalOutcome.BUSY),
+        blocklist: () => BANS_THE_IMAGE,
+        decryptApps: readsEverything,
+        policy: { policyReady: true, waitForPolicyReady: () => new Promise(() => {}) },
+        bundle: { onBundleChanged: () => () => {} },
+        knobs: KNOBS,
+        timers: recording,
+        wait: async () => {},
+      });
+
+      await sweeper.request();
+      await timers.fire();
+      await timers.fire();
+      await timers.fire();
+
+      expect(delays.slice(0, 4), 'the wait did not grow, or grew past its ceiling')
+        .to.deep.equal([10, 20, 40, 80]);
+    });
+
+    it('holds the wait at its ceiling', async () => {
+      const delays = [];
+      const timers = testTimers();
+      const recording = {
+        set: (fn, ms) => { delays.push(ms); return timers.api.set(fn, ms); },
+        clear: timers.api.clear,
+      };
+      const sweeper = imageManager.createComplianceSweeper({
+        installedApps: tableOf(() => [blockedApp('StuckApp')]),
+        removeAppLocally: sinon.stub().resolves(RemovalOutcome.BUSY),
+        blocklist: () => BANS_THE_IMAGE,
+        decryptApps: readsEverything,
+        policy: { policyReady: true, waitForPolicyReady: () => new Promise(() => {}) },
+        bundle: { onBundleChanged: () => () => {} },
+        knobs: KNOBS,
+        timers: recording,
+        wait: async () => {},
+      });
+
+      await sweeper.request();
+      // Well past the point the wait would reach the ceiling if it kept doubling.
+      // eslint-disable-next-line no-restricted-syntax
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await timers.fire();
+      }
+
+      expect(Math.max(...delays), 'the wait grew past the ceiling').to.equal(KNOBS.complianceRetryMaxMs);
+    });
+
+    // An application whose specification does not decrypt was never judged on its
+    // images, and nothing announces that it has become readable.
+    it('asks again about an application it could not read, and stops once it can', async () => {
+      let readable = false;
+      const sealed = {
+        name: 'SealedApp', version: 8, owner: '1Owner', hash: 'e'.repeat(64), enterprise: 'blob', compose: [],
+      };
+      const t = build({
+        rows: () => [sealed],
+        decryptApps: async (apps) => (readable
+          // A decrypt reveals the components; it does not make it a different
+          // application, so the hash is the record's.
+          ? { readable: apps.map(() => blockedApp('SealedApp', 'e'.repeat(64))), unreadable: [], inPlace: apps }
+          : { readable: [], unreadable: apps, inPlace: apps }),
+      });
+
+      await t.sweeper.request();
+      expect(t.removeAppLocally.called, 'a sealed specification was judged on images nobody read').to.equal(false);
+      expect(t.timers.count(), 'an unreadable application was cleared rather than deferred').to.equal(1);
+
+      readable = true;
+      await t.timers.fire();
+
+      expect(t.removeAppLocally.callCount, 'the held application was never asked about again').to.equal(1);
+      expect(t.removeAppLocally.firstCall.args[0]).to.equal('SealedApp');
+    });
+
+    // An application named in a scope the node no longer holds has nothing left to
+    // answer for, and owing it would arm a timer for an application that is gone.
+    it('drops a scoped application that is gone rather than holding it', async () => {
+      const t = build({ rows: () => [blockedApp('StillHere')] });
+
+      await t.sweeper.request(new Set(['AlreadyGone']));
+
+      sinon.assert.notCalled(t.removeAppLocally);
+      expect(t.timers.count(), 'a timer was armed for an application the node does not hold').to.equal(0);
+    });
+
+    // TWO TRIGGERS, AND NEITHER COVERS THE OTHER. The gate opens without the bundle
+    // changing, and the bundle changes for the rest of the node's life after it.
+    it('sweeps when the gate opens, after its stagger', async () => {
+      const t = build();
+      t.sweeper.start();
+      expect(t.installedApps.called, 'a pass ran before the gate opened').to.equal(false);
+
+      t.openGate();
+      await Promise.resolve();
+      expect(t.installedApps.called, 'the gate opening swept immediately, unstaggered').to.equal(false);
+      expect(t.timers.count(), 'the gate opening armed nothing').to.equal(1);
+
+      await t.timers.fire();
+      expect(t.installedApps.callCount, 'the gate opening produced no pass').to.equal(1);
+    });
+
+    it('sweeps again on a bundle change', async () => {
+      const t = build();
+      t.sweeper.start();
+      t.openGate();
+      await Promise.resolve();
+      await t.timers.fire();
+      expect(t.installedApps.callCount).to.equal(1);
+
+      t.changeBundle();
+      expect(t.timers.count(), 'a bundle change armed nothing').to.equal(1);
+      await t.timers.fire();
+
+      expect(t.installedApps.callCount, 'a bundle change produced no pass').to.equal(2);
+    });
+
+    // One stagger is enough: a pass that has not started yet already reads whatever
+    // arrives before it does.
+    it('arms one stagger however many changes arrive', async () => {
+      const t = build();
+      t.sweeper.start();
+      t.openGate();
+      await Promise.resolve();
+      t.changeBundle();
+      t.changeBundle();
+      t.changeBundle();
+
+      expect(t.timers.count(), 'each change armed its own pass').to.equal(1);
+    });
+
+    // A bundle this node may not act on yet changes nothing it may do.
+    it('ignores a bundle change while the gate is shut', async () => {
+      const t = build({ policyReady: false });
+      t.sweeper.start();
+
+      t.changeBundle();
+
+      expect(t.timers.count(), 'a pass was armed on a bundle the node may not act on').to.equal(0);
+      expect(t.installedApps.called).to.equal(false);
+    });
+
+    // Stopping drops the timers rather than leaving them to fire into a torn-down node.
+    it('drops what is owed when it is stopped', async () => {
+      const t = build({ rows: () => [blockedApp('BusyApp')] });
+      t.removeAppLocally.resolves(RemovalOutcome.BUSY);
+
+      await t.sweeper.request();
+      expect(t.timers.count()).to.equal(1);
+
+      t.sweeper.stop();
+      expect(t.timers.count(), 'a timer outlived the sweeper it belonged to').to.equal(0);
     });
   });
 });
