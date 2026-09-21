@@ -106,6 +106,17 @@ const FUSE_NETWORK_STORAGE = [
   row('gluster1:/vol0', '/mnt/gluster', 'fuse.glusterfs', 4000),
 ];
 
+// A ZFS-rooted node whose docker uses the zfs storage driver: every container's
+// root filesystem is its own dataset under docker's data directory, and every
+// dataset reports the pool's free space, so ranking cannot tell them from a
+// disk. An image placed in one lands inside another app's container.
+const ZFS_DOCKER_GRAPH = [
+  row('rpool/ROOT/node', '/', 'zfs', 500, { used: 40 }),
+  row('rpool/docker', '/var/lib/docker', 'zfs', 500),
+  row('rpool/docker/3f9c1e', '/var/lib/docker/zfs/graph/3f9c1e', 'zfs', 500),
+  row('rpool/docker/a17b22', '/var/lib/docker/zfs/graph/a17b22', 'zfs', 500),
+];
+
 // A ZFS or btrfs root, which findmnt names by dataset and not under /dev.
 const DATASET_ROOTED_NODE = [
   row('rpool/lxc/ct-101', '/', 'zfs', 900, { used: 40 }),
@@ -251,6 +262,13 @@ describe('app volume placement', () => {
         // far the most room, so ranking alone would have taken it.
         row('/dev/sda1', '/efi', 'vfat', 900),
       ]);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
+    it("refuses a container runtime's own storage, whatever the filesystem says", async () => {
+      const volumes = await placements(ZFS_DOCKER_GRAPH);
+      // Only the node's own root survives: the data directory and every
+      // container dataset under it belong to docker.
       expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
     });
 

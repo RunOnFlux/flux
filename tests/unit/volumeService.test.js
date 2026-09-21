@@ -271,6 +271,25 @@ describe('volumeService tests', () => {
     });
   });
 
+  // A container runtime's own storage is not a place an image may be found. On
+  // a storage driver backed by real filesystems, each container's root is a
+  // mount like any other - so a file the container's owner put there would
+  // otherwise be answered as the app's volume and loop-mounted as root.
+  describe("a container runtime's storage", () => {
+    it('is not searched for an image, even when one is sitting there', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: 'rpool/docker/3f9c1e', target: '/var/lib/docker/zfs/graph/3f9c1e', fstype: 'zfs', sizeBytes: 1e12, usedBytes: 0, availableBytes: 1e12 },
+      ]);
+      // The planted file exists; the real volume is in appvolumes.
+      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.withArgs('/var/lib/docker/zfs/graph/3f9c1e/fluxweb_victimFLUXFSVOL').resolves();
+
+      const found = await volumeService.getVolumeFilePath('fluxweb_victim');
+
+      expect(found).to.equal(null);
+    });
+  });
+
   describe('getVolumeFilePath tests', () => {
     it('should find the image at the root of an eligible host volume', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([

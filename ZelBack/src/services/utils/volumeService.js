@@ -35,6 +35,21 @@ const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
   'afs', 'ncpfs', 'ceph', 'glusterfs', 'virtiofs', '9p']);
 
 /**
+ * Where a container runtime keeps the filesystems it owns.
+ *
+ * A runtime mounts each container's root under its own data directory, and on
+ * a storage driver that uses real filesystems - ZFS, btrfs - those mounts are
+ * indistinguishable from a disk by fstype alone. An image placed in one lands
+ * inside somebody else's container, and is destroyed with it; an image LOOKED
+ * FOR in one can be answered by a file the container's owner put there.
+ *
+ * Neither belongs to this node to use, on any filesystem, so the rule is not
+ * about ZFS - it is that a runtime's storage is the runtime's.
+ */
+const RUNTIME_DATA_DIRS = ['/var/lib/docker', '/var/lib/containerd', '/var/lib/lxd',
+  '/var/snap/lxd/common/lxd', '/var/lib/kubelet', '/dat/var/lib/docker'];
+
+/**
  * A mount row in the unit an app's storage is spent in.
  *
  * Whole GiB, because `createAppVolume` allocates with `fallocate -l <hdd>G`
@@ -124,6 +139,7 @@ function isHostFilesystem(mount) {
   // <appsFolder>/<appId>, while the folder is an ordinary directory an operator
   // may well have given its own disk. An image there is <appId>FLUXFSVOL, which
   // collides with no mount point.
+  if (RUNTIME_DATA_DIRS.some((dir) => mount.target === dir || mount.target.startsWith(`${dir}/`))) return false;
   const appsRoot = appsFolder.replace(/\/+$/, '');
   return !mount.target.startsWith(`${appsRoot}/`);
 }
