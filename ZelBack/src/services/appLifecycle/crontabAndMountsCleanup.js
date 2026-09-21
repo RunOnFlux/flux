@@ -132,14 +132,21 @@ async function ensureInstalledAppVolumesMounted() {
       log.error(`ensureInstalledAppVolumesMounted - ${appId} volume could not be mounted: ${mountResult.reason}`);
       results.failed.push({ appId, reason: mountResult.reason });
       // A node's tampering score is a plain sum over every incident recorded on
-      // it, so a fault of the host's own must not add to one. What is left
-      // says something about the volume itself: an image that is gone, and an
-      // image the kernel will no longer mount as a filesystem - which is what
-      // an overwritten one looks like, the file still being there.
-      if (!HOST_FAULT_MOUNT_REASONS.has(String(mountResult.reason).split(':')[0])) {
-        // eslint-disable-next-line no-await-in-loop
-        await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Volume not mountable at startup: ${mountResult.reason}`);
-      }
+      // it, so a fault of the host's own must not add to one. But it is still
+      // recorded - as the zero-weighted class - because a host that cannot
+      // mount volumes is worth seeing and counting even though it is nobody's
+      // fault, and nothing else on the node reports it.
+      //
+      // What is left scores: an image that is gone, and an image the kernel
+      // will no longer mount as a filesystem, which is what an overwritten one
+      // looks like, the file still being there.
+      const hostFault = HOST_FAULT_MOUNT_REASONS.has(String(mountResult.reason).split(':')[0]);
+      // eslint-disable-next-line no-await-in-loop
+      await appTamperingDetectionService.recordEvent(
+        appId,
+        hostFault ? 'volume_host_fault' : 'mount_vanished',
+        `Volume not mountable at startup: ${mountResult.reason}`,
+      );
     } else if (mountResult.alreadyMounted) {
       results.alreadyMounted.push(appId);
     } else {

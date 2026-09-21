@@ -277,7 +277,7 @@ describe('crontabAndMountsCleanup tests', () => {
     // A disk coming up read-only is what startup catches, and the score these
     // events feed is meant to weigh operator interference. The failure is
     // still reported; it just does not accuse anyone.
-    it('reports a host fault as failed without recording a tampering event', async () => {
+    it('records a host fault as one, not as something the operator did', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'host_filesystem_readonly' });
@@ -285,7 +285,10 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'host_filesystem_readonly' }]);
-      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
 
     // The reason that says an operator replaced the image is the one that must
@@ -302,7 +305,7 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
     });
 
-    it('does not record a tampering event when no loop device can be had', async () => {
+    it('records a missing loop device as a host fault', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'loop_unavailable' });
@@ -310,10 +313,13 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'loop_unavailable' }]);
-      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
 
-    it('does not record a tampering event when the host refused a mountable image', async () => {
+    it('records a host refusal over a mountable image as a host fault', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_host_refused: no free loop device' });
@@ -321,10 +327,13 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_host_refused: no free loop device' }]);
-      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
 
-    it('does not record a tampering event when the mount table could not be read', async () => {
+    it('records the unreadable mount table as a host fault', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_table_unreadable' });
@@ -332,10 +341,13 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_table_unreadable' }]);
-      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
 
-    it('does not record a tampering event when the mountpoint cannot be made', async () => {
+    it('records a mountpoint that cannot be made as a host fault', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_point_unavailable: EACCES' });
@@ -343,7 +355,10 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_point_unavailable: EACCES' }]);
-      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
 
     // An image written over with anything that is not a filesystem is still on

@@ -47,6 +47,13 @@ const INCIDENT_BUCKET_MS = 60 * 60 * 1000;
 // host — fleet-wide they are dominated by persistent faults on broken nodes —
 // and a persistent fault re-records in every hourly bucket, so anything real
 // accumulates weight without needing a high per-incident severity.
+// volume_host_fault is the same class as recreation_failed: a volume that
+// could not be mounted for a reason that describes the HOST - no loop device,
+// a disk the kernel remounted read-only, a mount table that would not read.
+// Recorded so the population is visible and can be counted fleet-wide, and
+// weighted zero because none of it is the operator's doing. Nothing acts on
+// it today; whether a node that cannot mount volumes at all should be taken
+// out of service is a question this data is here to answer.
 const EVENT_SEVERITY = {
   container_vanished: 3,
   network_pruned: 1,
@@ -54,6 +61,7 @@ const EVENT_SEVERITY = {
   mount_vanished: 1,
   volume_missing: 1,
   recreation_failed: 0,
+  volume_host_fault: 0,
 };
 
 const EVENTS_DEFAULT_LIMIT = 500;

@@ -334,6 +334,18 @@ describe('appTamperingDetectionService tests', () => {
       expect(eventUpserts()[1].update.$setOnInsert.severity).to.equal(0);
     });
 
+    // A volume that would not mount for the host's own reasons is recorded so
+    // the population can be counted, and weighs nothing because none of it is
+    // the operator's doing. Given any weight it would accumulate in every
+    // hourly bucket for as long as the disk stays broken and DOS an honest
+    // node - which is exactly why it is recorded rather than acted on.
+    it('weighs a host fault at nothing, so a broken disk cannot DOS its operator', async () => {
+      await service.recordEvent('myapp', 'volume_host_fault', 'no loop device');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
+      expect(service.EVENT_SEVERITY.volume_host_fault).to.equal(0);
+    });
+
     it('retries once when concurrent upserts race on the unique index', async () => {
       const dupErr = new Error('E11000 duplicate key');
       dupErr.code = 11000;
