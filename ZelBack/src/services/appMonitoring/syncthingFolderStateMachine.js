@@ -26,7 +26,7 @@ const {
 
 const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
-const { STAGING_ROOT, isReservedName } = require('../appSystem/volumeReservedNames');
+const { isReservedName } = require('../appSystem/volumeReservedNames');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -356,41 +356,20 @@ async function fixAppdataPermissions(appId) {
     // (appdata, logs, config, file mounts, etc.)
     const appPath = `${appsFolder}${appId}`;
 
-    // Everything the app was given, set so a container running as any UID can
-    // write its own data - and nothing else. The volume root holds one directory
-    // that is not the app's: the staging directory the executor works in.
+    // ONE ARGUMENT, AND IT IS THE DIRECTORY FLUXOS CREATED. chmod resolves a
+    // symbolic link given as an argument and ignores one met inside a traversal,
+    // so a path named here that something else can replace with a link has that
+    // link's TARGET widened, as root, at a path of that writer's choosing. Every
+    // name inside the volume is such a path: the owner's file API copies and moves
+    // a link as a link, and syncthing replicates one into this very folder. The
+    // volume root is the only path FluxOS owns, so it is the only one named.
     //
-    // PRUNED RATHER THAN PUT BACK. Widening it and narrowing it afterwards leaves
-    // two holes a single pass does not: a window where it is open, and everything
-    // INSIDE it - a live operation's staging entry - already widened by the
-    // recursive pass and not reached by narrowing the top. Skipping the subtree
-    // has neither, and says what is meant: this widens the app's tree, and the
-    // staging directory is not part of it.
-    //
-    // Root owns that directory and the executor runs in the container as root, so
-    // it needs nothing from this.
-    //
-    // ONE RECURSIVE chmod PER TOP-LEVEL ENTRY, never a path walk that execs chmod
-    // over what it lists. A link on the volume is content: the app has its own
-    // directories mounted and can create one at any time, pointing anywhere on the
-    // host. chmod follows a link given as an ARGUMENT and ignores one met inside a
-    // traversal, so handing it a walk's output widens the link's TARGET - as root,
-    // at a path the app chose. These entries are the only arguments it is given,
-    // and the app can create none of them: the volume root is not mounted into any
-    // container, only the directories beneath it.
-    const entries = await fs.promises.readdir(appPath);
-    const widen = entries
-      .filter((entry) => entry !== STAGING_ROOT)
-      .map((entry) => path.join(appPath, entry));
-
-    // The root carries no -R of its own: recursing from there walks into the
-    // staging directory the filter exists to keep out.
-    const root = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', appPath] });
-    if (root.error) throw root.error;
-    if (widen.length) {
-      const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', ...widen] });
-      if (chmod.error) throw chmod.error;
-    }
+    // The executor's staging directory is widened with the rest. Root owns it and
+    // the executor runs as root in the container, so the mode buys nothing there;
+    // reaching it needs a path to the volume root, which no app container is given
+    // and the owner's file API refuses.
+    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', appPath] });
+    if (chmod.error) throw chmod.error;
     log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
   } catch (error) {
     log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
