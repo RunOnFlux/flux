@@ -188,9 +188,13 @@ async function placementVolumesInGib() {
 /**
  * The mounts an app's FLUXFSVOL image may be found on.
  *
- * The same filesystems placement writes to, so an image is looked for exactly
- * where one can be put. The root is left out because an image the root hosts is
- * written to the appvolumes directory instead, which callers search separately.
+ * Where an image may be FOUND, which is a wider question than where one may be
+ * PUT: an image on a filesystem that has since come up read-only is still
+ * perfectly readable, and refusing to look there reports it missing. Placement
+ * asks the write question; this asks only containment.
+ *
+ * The root is left out because an image the root hosts is written to the
+ * appvolumes directory instead, which callers search separately.
  *
  * Not deduplicated: two directories on one disk are two places an image can
  * sit, and a search that visited only one of them would miss it.
@@ -199,13 +203,31 @@ async function placementVolumesInGib() {
  */
 async function eligibleHostMounts() {
   const hosts = await hostFilesystems();
-  const eligible = [];
-  for (const mount of hosts) {
-    if (mount.target === '/') continue;
-    // eslint-disable-next-line no-await-in-loop
-    if (await canHoldAppVolume(mount)) eligible.push(mount);
-  }
-  return eligible;
+  return hosts.filter((mount) => mount.target !== '/');
+}
+
+/**
+ * Whether the filesystem holding a path is mounted read-only.
+ *
+ * The deepest mount whose target the path sits under is the one holding it: a
+ * path can be under several, and only the deepest describes the filesystem the
+ * bytes are actually on.
+ *
+ * An unreadable mount table answers false. This decides which reason a caller
+ * reports, never whether a volume is safe to touch, so a failure here should
+ * not turn into a diagnosis of its own.
+ * @param {string} target Absolute path.
+ * @returns {Promise<boolean>} True when that filesystem is mounted `ro`.
+ */
+async function isOnReadOnlyFilesystem(target) {
+  const mounts = await deviceHelper.listMountedFilesystems().catch(() => []);
+  const holders = mounts.filter((mount) => {
+    const at = String(mount.target).replace(/\/+$/, '');
+    return target === at || target.startsWith(`${at}/`);
+  });
+  if (!holders.length) return false;
+  const deepest = holders.reduce((a, b) => (b.target.length > a.target.length ? b : a));
+  return Boolean(deepest.readOnly);
 }
 
 /**
@@ -327,6 +349,14 @@ async function ensureAppVolumeMounted(identifier) {
   const volumeFile = await getVolumeFilePath(appId);
   if (!volumeFile) {
     return { mounted: false, reason: 'volume_file_missing' };
+  }
+
+  // A disk the kernel remounted read-only after an I/O error still holds the
+  // image and still reads. The mount would fail anyway, so the app is down
+  // either way - but it is down because the hardware went, and saying the
+  // image is missing blames an operator for a disk fault.
+  if (await isOnReadOnlyFilesystem(volumeFile)) {
+    return { mounted: false, reason: 'host_filesystem_readonly' };
   }
 
   let mountPointEntries;
@@ -595,6 +625,7 @@ async function clearAppVolumeData(identifier) {
 module.exports = {
   verifyAppVolumeMount,
   placementVolumesInGib,
+  isOnReadOnlyFilesystem,
   ensureMountPathsExist,
   isPathMounted,
   getVolumeFilePath,

@@ -230,6 +230,47 @@ describe('volumeService tests', () => {
     });
   });
 
+  // Where an image may be FOUND is wider than where one may be PUT. A disk the
+  // kernel remounted read-only after an I/O error still holds the image and
+  // still reads; refusing to look there reports it missing, and the node then
+  // records a tampering event against an operator whose disk failed.
+  describe('a read-only host filesystem', () => {
+    const roMount = {
+      source: '/dev/sdb1', target: '/mnt/data', fstype: 'ext4', readOnly: true, sizeBytes: 1e12, usedBytes: 0, availableBytes: 1e12,
+    };
+
+    it('is still searched for an existing image', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([roMount]);
+      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.withArgs('/mnt/data/fluxcomp_appFLUXFSVOL').resolves();
+
+      const found = await volumeService.getVolumeFilePath('fluxcomp_app');
+
+      expect(found).to.equal('/mnt/data/fluxcomp_appFLUXFSVOL');
+    });
+
+    it('is reported as what it is, not as a missing image', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([roMount]);
+      expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(true);
+    });
+
+    it('does not claim a writable filesystem is read-only', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([{ ...roMount, readOnly: false }]);
+      expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(false);
+    });
+
+    // A path sits under several mounts; only the deepest describes the disk
+    // the bytes are on. Keyed the other way, a read-only `/` would condemn
+    // every volume on every other disk.
+    it('asks the deepest mount, not the widest', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { ...roMount, target: '/', readOnly: true },
+        { ...roMount, target: '/mnt/data', readOnly: false },
+      ]);
+      expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(false);
+    });
+  });
+
   describe('getVolumeFilePath tests', () => {
     it('should find the image at the root of an eligible host volume', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([
