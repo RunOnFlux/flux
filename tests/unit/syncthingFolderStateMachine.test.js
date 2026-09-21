@@ -575,6 +575,39 @@ describe('syncthingFolderStateMachine tests', () => {
       const claims = { [high]: { bytes: 5821604997, newestModified: 200 } };
       expect(stateMachine.bestHolder(peers(low, high), claims)).to.equal(low);
     });
+
+    // A claim is read from an unauthenticated endpoint, so it is input. Subtracting a
+    // field that is not a number gives NaN, which sort() reads as EQUAL: the comparison
+    // returns before the address tiebreak, and the winner becomes whichever candidate
+    // the peer list carried first - a per-node database order, so two nodes elect two
+    // leaders. Each case below is a field the ranking cannot compare, and `high` claims
+    // enough to win if it were compared at all.
+    [
+      ['an empty claim, which an older peer sends', {}],
+      ['a claim with no byte count', { newestModified: 200 }],
+      ['a claim with no timestamp', { bytes: 5821604997 }],
+      ['a byte count that is not a number', { bytes: '5821604997', newestModified: 200 }],
+      ['a byte count that is not finite', { bytes: Infinity, newestModified: 200 }],
+      ['a timestamp that is not a number', { bytes: 5821604997, newestModified: null }],
+    ].forEach(([what, claim]) => {
+      it(`does not rank at all against ${what}`, () => {
+        const claims = { [low]: { bytes: 900, newestModified: 100 }, [high]: claim };
+        expect(stateMachine.bestHolder(peers(low, high), claims)).to.equal(low);
+        // The order the list arrives in must not decide it either.
+        expect(stateMachine.bestHolder(peers(high, low), claims)).to.equal(low);
+      });
+    });
+
+    // Comparable is all the ranking asks. A figure no measurement could produce is
+    // still ordered against the rest, and refusing it would hand the whole field to
+    // the address order - which here would return `low`, so this can fail.
+    it('ranks a byte count no measurement could produce, and it loses', () => {
+      const claims = {
+        [low]: { bytes: -1, newestModified: 0 },
+        [high]: { bytes: 900, newestModified: 100 },
+      };
+      expect(stateMachine.bestHolder(peers(low, high), claims)).to.equal(high);
+    });
   });
 
   describe('manageFolderSyncState', () => {

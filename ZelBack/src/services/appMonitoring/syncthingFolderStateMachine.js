@@ -473,6 +473,32 @@ function lowestIpHolder(allPeersList) {
 }
 
 /**
+ * Whether a claim can be compared with the others.
+ *
+ * Both fields cross the network from an endpoint that takes no authentication, so they
+ * are input and not measurements, and the ranking needs them to be finite numbers.
+ * Subtracting one that is not gives NaN, which sort() reads as EQUAL - so the
+ * comparison returns before the address tiebreak below it and the winner becomes
+ * whichever candidate the peer list happened to carry first. That list is a database
+ * read ordered by when each node received the broadcasts, so it differs per node: the
+ * ranking stops being the same computation everywhere and two nodes elect two leaders.
+ * A claim that cannot be compared therefore counts as no answer, which is the case the
+ * address order exists for. An empty object reaches this, and an older peer sends one.
+ *
+ * COMPARABLE IS THE WHOLE REQUIREMENT, and nothing here asks whether the numbers are
+ * plausible. A figure no local measurement could produce still orders against the rest
+ * - a negative one sorts last, which is where a claim to hold less than nothing
+ * belongs - and refusing it would collapse the entire field to the address order over
+ * one peer's answer. Ranking cannot establish honesty either way; see bestHolder.
+ *
+ * @param {object} claim - a candidate's { bytes, newestModified }, or nothing
+ * @returns {boolean}
+ */
+function isRankableClaim(claim) {
+  return Number.isFinite(claim?.bytes) && Number.isFinite(claim.newestModified);
+}
+
+/**
  * The candidate that should seed, given what each one says it holds.
  *
  * Ordering by address is only defensible when nothing is at stake - a true cold start,
@@ -490,18 +516,29 @@ function lowestIpHolder(allPeersList) {
  * cannot be recovered from. Recency decides only where the byte counts are identical,
  * which is the one case it can be read as the same content written at different times.
  *
- * Every candidate must have answered for the ranking to be used. A peer too old for the
- * endpoint, or unreachable this pass, cannot be ranked - and ranking the ones that did
- * answer would put a silent holder last and hand the seed to an empty node. Unless the
- * whole field can be compared, this falls back to the address order, which is what the
- * fleet did before any of them could answer.
+ * Every candidate must have answered, in numbers, for the ranking to be used. A peer
+ * too old for the endpoint, unreachable this pass, or answering something that cannot
+ * be compared cannot be ranked - and ranking the ones that did answer would put a
+ * silent holder last and hand the seed to an empty node. Unless the whole field can be
+ * compared, this falls back to the address order, which is what the fleet did before
+ * any of them could answer.
+ *
+ * THE CLAIMS ARE SELF-REPORTED AND UNAUTHENTICATED. They are read from a peer's own
+ * /apps/promotedfolders, which takes no authentication, and a running claim establishes
+ * only that its sender is a confirmed node - never that the app was placed on it. So
+ * this is a better answer among honest candidates and it is not a defence: a candidate
+ * that overstates what it holds wins, and no ceiling derived here changes that, because
+ * whatever this node can derive the candidate can claim. What the field is required to
+ * be is COMPARABLE, so that every node ranks it identically; what it cannot be made is
+ * trustworthy. The consensus-grounded election named in the RESIDUAL LIMITATION below
+ * is what closes that.
  *
  * @param {Array<object>} allPeersList - holders in the election
  * @param {object} claims - socket address -> { bytes, newestModified }, absent = no answer
  * @returns {string|null} the address that should seed
  */
 function bestHolder(allPeersList, claims) {
-  const everyoneAnswered = allPeersList.every((peer) => claims[peer.ip]);
+  const everyoneAnswered = allPeersList.every((peer) => isRankableClaim(claims[peer.ip]));
   const anyoneHolds = allPeersList.some((peer) => (claims[peer.ip]?.bytes || 0) > 0);
   if (!everyoneAnswered || !anyoneHolds) return lowestIpHolder(allPeersList);
 
