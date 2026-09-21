@@ -1,4 +1,5 @@
 const chai = require('chai');
+const fs = require('fs');
 const sinon = require('sinon');
 const backupRestoreService = require('../../ZelBack/src/services/backupRestoreService');
 const IOUtils = require('../../ZelBack/src/services/IOUtils');
@@ -182,6 +183,107 @@ describe('backupRestoreService tests', () => {
 
   // The query-string form read `number` for the app name, so every caller that
   // passed `?appname=` authorized against the empty string and was refused.
+  // A path inside the caller's own volume can still name another tenant's data,
+  // if something in it is a symlink: the literal path passes every textual check
+  // and only resolution shows where it lands. The boundary resolution is held to
+  // is the app's OWN volume - appsFolder holds every tenant's, so a link from one
+  // volume into another stays inside it.
+  //
+  // Each endpoint asserted separately because each resolves for itself, and a
+  // handler that forgot to is invisible in a test of the others.
+  describe('a symlink out of the app volume is refused', () => {
+    const appname = 'myapp';
+    const volume = `${appsFolder}fluxmyapp`;
+    const escapes = `${appsFolder}fluxvictim/backup/local/secret.tar.gz`;
+
+    // Identity except for the one path that leads out, so the control and the
+    // refusal differ by where resolution lands and by nothing else.
+    // The deepest existing ancestor is the path itself here, and it is not a
+    // symlink on the host - the link is one the resolution follows.
+    const onDisk = () => sinon.stub(fs.promises, 'lstat').resolves({ isSymbolicLink: () => false });
+    const resolvesOutward = (escaping) => {
+      onDisk();
+      sinon.stub(fs.promises, 'realpath').callsFake(async (target) => (target === escaping ? escapes : target));
+    };
+
+    beforeEach(() => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+    });
+
+    it('refuses to list a directory that resolves into another volume', async () => {
+      const vPath = `${volume}/backup/local`;
+      resolvesOutward(vPath);
+      const getPathFileList = sinon.stub(IOUtils, 'getPathFileList').resolves([]);
+
+      await backupRestoreService.getLocalBackupList({ params: { appname, path: vPath }, query: {} }, responseRecorder());
+
+      sinon.assert.notCalled(getPathFileList);
+    });
+
+    it('refuses to remove a file that resolves into another volume', async () => {
+      const filepath = `${volume}/backup/local/link.tar.gz`;
+      resolvesOutward(filepath);
+      const removeFile = sinon.stub(IOUtils, 'removeFile').resolves('removed');
+
+      await backupRestoreService.removeBackupFile({ params: { appname, filepath }, query: {} }, responseRecorder());
+
+      sinon.assert.notCalled(removeFile);
+    });
+
+    it('refuses to download a file that resolves into another volume', async () => {
+      const filepath = `${volume}/backup/local/link.tar.gz`;
+      resolvesOutward(filepath);
+      const res = responseRecorder();
+
+      await backupRestoreService.downloadLocalFile({ params: { appname, filepath }, query: {} }, res);
+
+      // sendFile is destructured at require time, so what it did is not
+      // observable from here - the refusal itself is, and it names the boundary.
+      expect(messageOf(res)).to.match(/outside allowed directory/);
+    });
+
+    // The case the weaker check cannot see: the file itself does not exist, so
+    // resolving it raises ENOENT and "cannot resolve" reads as "safe". The
+    // directory holding it is the symlink, and it leads out of the volume.
+    it('refuses a path whose existing ancestor is a link out, even when the leaf does not exist', async () => {
+      const dir = `${volume}/backup/local`;
+      const filepath = `${dir}/gone.tar.gz`;
+      const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      sinon.stub(fs.promises, 'lstat').callsFake(async (target) => {
+        if (target === filepath) throw enoent;
+        return { isSymbolicLink: () => target === dir };
+      });
+      sinon.stub(fs.promises, 'realpath').callsFake(async (target) => (target === dir ? escapes : target));
+      const removeFile = sinon.stub(IOUtils, 'removeFile').resolves('removed');
+
+      await backupRestoreService.removeBackupFile({ params: { appname, filepath }, query: {} }, responseRecorder());
+
+      sinon.assert.notCalled(removeFile);
+    });
+
+    // The control: same paths, resolution landing where it started. Without it
+    // the three above would pass against a handler that refuses everything.
+    it('allows each of them when resolution stays inside the volume', async () => {
+      onDisk();
+      sinon.stub(fs.promises, 'realpath').callsFake(async (target) => target);
+      const dir = `${volume}/backup/local`;
+      const filepath = `${dir}/real.tar.gz`;
+      const getPathFileList = sinon.stub(IOUtils, 'getPathFileList').resolves([{ name: 'real.tar.gz' }]);
+      const removeFile = sinon.stub(IOUtils, 'removeFile').resolves('removed');
+      const res = responseRecorder();
+
+      await backupRestoreService.getLocalBackupList({ params: { appname, path: dir }, query: {} }, responseRecorder());
+      await backupRestoreService.removeBackupFile({ params: { appname, filepath }, query: {} }, responseRecorder());
+      await backupRestoreService.downloadLocalFile({ params: { appname, filepath }, query: {} }, res);
+
+      sinon.assert.calledOnce(getPathFileList);
+      sinon.assert.calledOnce(removeFile);
+      // The download reaches the real file read and fails there, which is past
+      // the boundary check - the refusal above is the only thing being excluded.
+      expect(messageOf(res)).to.not.match(/outside allowed directory/);
+    });
+  });
+
   describe('getLocalBackupList accepts its parameters from the query string', () => {
     it('reads the app name from the query rather than another parameter', async () => {
       const verifyPrivilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);

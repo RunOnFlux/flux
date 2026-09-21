@@ -7,7 +7,7 @@ const IOUtils = require('./IOUtils');
 const dockerService = require('./dockerService');
 const { appsFolder } = require('./utils/appConstants');
 const fs = require('fs').promises;
-const { sanitizePath, verifyRealPath } = require('./utils/pathSecurity');
+const { sanitizePath, verifyRealPathOfExistingPath } = require('./utils/pathSecurity');
 const { Privilege, authOf } = require('./utils/privileges');
 
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -39,6 +39,30 @@ function volumeDirectoryBelongsToApp(volumeDir, appname) {
   }
   const component = dockerService.getBaseAppName(volumeDir.slice(0, separatorIndex));
   return volumeDir === dockerService.getAppIdentifier(`${component}_${appname}`);
+}
+
+/**
+ * The app volume a backup path names: `<appsFolder>/<identifier>`, the boundary
+ * a request authorised over one app may reach.
+ *
+ * The symlink check resolves against this rather than against appsFolder, which
+ * holds every app's volume - a link inside one app's backup directory pointing
+ * at another's is under appsFolder too.
+ * @param {string} filepath - A path already known to start with appsFolder.
+ * @returns {string} The volume directory the path names.
+ */
+function appVolumeDir(filepath) {
+  const [volumeDir] = filepath.slice(appsFolder.length).split('/');
+  return volumeDir;
+}
+
+/**
+ * The absolute path of that volume.
+ * @param {string} filepath - A path already known to start with appsFolder.
+ * @returns {string} `<appsFolder>/<identifier>`.
+ */
+function appVolumeRoot(filepath) {
+  return path.join(appsFolder, appVolumeDir(filepath));
 }
 
 /**
@@ -74,8 +98,7 @@ function pathValidation(filepath, appname) {
   // An app volume is mounted at `<appsFolder>/<identifier>` and sanitizePath has
   // already refused any traversal leaving it, so the first segment of the
   // relative path is the volume the request would reach.
-  const [volumeDir] = relativePath.split('/');
-  if (!volumeDirectoryBelongsToApp(volumeDir, appname)) {
+  if (!volumeDirectoryBelongsToApp(appVolumeDir(filepath), appname)) {
     return false;
   }
 
@@ -178,6 +201,7 @@ async function getLocalBackupList(req, res) {
       if (!pathValidation(vPath, appname)) {
         throw new Error('Path validation failed..');
       }
+      await verifyRealPathOfExistingPath(vPath, appVolumeRoot(vPath));
       const listData = await IOUtils.getPathFileList(vPath, multiplier, decimal, ['.tar.gz'], number);
       if (listData.length === 0) {
         throw new Error('No matching mount found');
@@ -269,6 +293,7 @@ async function removeBackupFile(req, res) {
       if (!pathValidation(filepath, appname)) {
         throw new Error('Path validation failed..');
       }
+      await verifyRealPathOfExistingPath(filepath, appVolumeRoot(filepath));
       const output = await IOUtils.removeFile(filepath);
       const response = messageHelper.createSuccessMessage(output);
       return res.json(response);
@@ -310,8 +335,7 @@ async function downloadLocalFile(req, res) {
       if (!pathValidation(filepath, appname)) {
         throw new Error('Path validation failed..');
       }
-      // Verify real path after symlink resolution to prevent symlink escape attacks
-      await verifyRealPath(filepath, appsFolder);
+      await verifyRealPathOfExistingPath(filepath, appVolumeRoot(filepath));
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
       return await sendFile(res, filepath, fileName);
