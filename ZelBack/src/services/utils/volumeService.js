@@ -255,15 +255,12 @@ async function placementVolumesInGib() {
   // Every mount, for the shadowing question alone: what a write to a candidate
   // actually lands on is whatever the kernel resolves that path through, which
   // need not be block-backed and so need not appear above.
-  // A reading that does not arrive leaves the shadowing question unanswered
-  // rather than failing the install: the block-backed table already in hand
-  // still shows a stacked real mount, and refusing every disk because a second
-  // findmnt did not return is worse than the answer this node gave before the
-  // question was asked at all.
-  const allMounts = await deviceHelper.listAllMounts().catch((error) => {
-    log.warn(`placementVolumesInGib - could not read the full mount table (${error.message}); shadowing is judged from the block-backed one`);
-    return mounts;
-  });
+  // Throws with the reading above rather than falling back to it: answering
+  // the shadowing question from the block-backed table is answering it from
+  // the one table that cannot show a pseudo mount, which is the case the
+  // question exists for. A caller must no more read "nothing is stacked here"
+  // out of a table it did not get than it may read "no disks" as "no space".
+  const allMounts = await deviceHelper.listAllMounts();
   const hosts = mounts.filter(isHostFilesystem);
   const writable = [];
   for (const mount of hosts) {

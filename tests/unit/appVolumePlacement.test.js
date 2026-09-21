@@ -384,18 +384,17 @@ describe('app volume placement', () => {
       expect(volumes[0].mount).to.equal('/mnt/appdata');
     });
 
-    // The second reading is a second findmnt, and it can fail on its own. It
-    // decides a refusal, so losing it must cost the shadowing check and not
-    // the install: development ran one findmnt and never failed for this.
-    it('still offers disks when the full mount table cannot be read at all', async () => {
+    // Both readings answer "may an image go here", and a mount table that did
+    // not arrive answers nothing. Offering disks from the one table that
+    // cannot show a pseudo mount would be reading "nothing is stacked here"
+    // out of a reading that was never taken.
+    it('refuses to answer at all when the full mount table cannot be read', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([
         row('/dev/sda2', '/', 'ext4', 50), row('/dev/sdb1', '/mnt/data', 'ext4', 900),
       ]);
       deviceHelperStub.listAllMounts.rejects(new Error('findmnt --list failed'));
 
-      const volumes = await volumeService.placementVolumesInGib();
-
-      expect(volumes.map((v) => v.mount)).to.deep.equal(['/mnt/data', '/']);
+      await expect(volumeService.placementVolumesInGib()).to.be.rejectedWith('findmnt --list failed');
     });
 
     // The abstain branch: a candidate the full table does not mention at all is
