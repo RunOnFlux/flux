@@ -131,10 +131,16 @@ describe('fluxshareService tests', () => {
 
     it('refuses a download that resolves out of the share directory', async () => {
       escapes(path.join(shareRoot, 'link'), '/etc/shadow');
+      // The refusal has to be what stops it. Without this the handler reaches
+      // the open, which fails ENOENT on any host running this suite, and the
+      // catch produces the same error body over a file it never refused - so
+      // both assertions below would hold with the containment check removed.
+      const open = sinon.stub(fs.promises, 'open').rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
       const res = responseRecorder();
 
       await fluxshareService.fluxShareDownloadFile({ params: { file: 'link' }, query: {} }, res);
 
+      sinon.assert.notCalled(open);
       expect(bodyOf(res).status).to.equal('error');
       sinon.assert.notCalled(res.attachment);
     });

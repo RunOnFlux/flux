@@ -33,7 +33,6 @@ const {
   globalAppsLocations,
   appsFolder,
   appVolumesPath,
-  legacyAppVolumesPath,
   APP_VOLUME_MOUNT_OPTIONS,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -3270,112 +3269,6 @@ async function appendRestoreTask(req, res) {
 }
 
 /**
- * Remove test app mount
- * @param {string} specifiedVolume - Volume to remove
- * @returns {Promise<void>}
- */
-async function removeTestAppMount(specifiedVolume) {
-  try {
-    const appId = 'flux_fluxTestVol';
-    const appDir = path.join(appsFolder, appId);
-    log.info('Mount Test: Unmounting volume');
-    const unmount = await serviceHelper.runCommand('umount', { runAsRoot: true, params: [appDir], logError: false });
-    if (unmount.error) {
-      log.info('Mount Test: Volume not mounted. Continuing. Most likely false positive.');
-    } else {
-      log.info('Mount Test: Volume unmounted');
-    }
-
-    log.info('Mount Test: Cleaning up data');
-    await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', appDir] });
-    log.info('Mount Test: Data cleaned');
-    log.info('Mount Test: Cleaning up data volume');
-    const volumesToRemove = specifiedVolume
-      ? [specifiedVolume]
-      // no volume given: remove from both the current location and the legacy
-      // glued location a previous FluxOS version may have left an image at
-      : [path.join(appVolumesPath, `${appId}FLUXFSVOL`), path.join(legacyAppVolumesPath, `${appId}FLUXFSVOL`)];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const volumeToRemove of volumesToRemove) {
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumeToRemove] });
-    }
-    log.info('Mount Test: Volume cleaned');
-  } catch (error) {
-    log.error('Mount Test Removal: Error');
-    log.error(error);
-  }
-}
-
-/**
- * Test application mounting capability
- * @returns {Promise<void>}
- */
-async function testAppMount() {
-  try {
-    // before running, try to remove first
-    await removeTestAppMount();
-    const appSize = 1;
-    const overHeadRequired = 2;
-    const appId = 'flux_fluxTestVol';
-
-    log.info('Mount Test: started');
-    log.info('Mount Test: Searching available space...');
-
-    const okVolumes = await volumeService.placementVolumesInGib();
-
-    // The same volumes a real install would be offered, emptiest first: a test
-    // that mounted somewhere an install never would proves nothing about it.
-    let useThisVolume = null;
-    const totalVolumes = okVolumes.length;
-    for (let i = 0; i < totalVolumes; i += 1) {
-      if (okVolumes[i].available > appSize + overHeadRequired) {
-        useThisVolume = okVolumes[i];
-        break;
-      }
-    }
-    if (!useThisVolume) {
-      // no useable volume has such a big space for the app
-      log.warn('Mount Test: Insufficient space on Flux Node. No useable volume found.');
-      // node marked OK
-      return;
-    }
-
-    // now we know there is a space and we have a volume we can operate with. Let's do volume magic
-    log.info('Mount Test: Space found');
-    log.info('Mount Test: Allocating space...');
-
-    let volumePath = path.join(useThisVolume.mount, `${appId}FLUXFSVOL`); // eg /mnt/sthMounted
-    if (useThisVolume.mount === '/') {
-      await execAsRoot('mkdir', ['-p', appVolumesPath]);
-      volumePath = path.join(appVolumesPath, `${appId}FLUXFSVOL`); // if root mount then temp file is in flux folder/appvolumes
-    }
-
-    await execAsRoot('fallocate', ['-l', `${appSize}G`, volumePath]);
-
-    log.info('Mount Test: Space allocated');
-    log.info('Mount Test: Creating filesystem...');
-
-    await execAsRoot('mke2fs', ['-t', 'ext4', volumePath]);
-    log.info('Mount Test: Filesystem created');
-    log.info('Mount Test: Making directory...');
-
-    await execAsRoot('mkdir', ['-p', path.join(appsFolder, appId)]);
-    log.info('Mount Test: Directory made');
-    log.info('Mount Test: Mounting volume...');
-
-    await execAsRoot('mount', ['-o', APP_VOLUME_MOUNT_OPTIONS, volumePath, path.join(appsFolder, appId)]);
-    log.info('Mount Test: Volume mounted. Test completed.');
-    // run removal
-    removeTestAppMount(volumePath);
-  } catch (error) {
-    log.error('Mount Test: Error...');
-    log.error(error);
-    removeTestAppMount();
-  }
-}
-
-/**
  * Validates that an application update is compatible with the previous version.
  * Enforces structural consistency rules based on app specification version:
  * - v1-3: Repository tags (repotag) cannot be changed
@@ -5592,8 +5485,6 @@ module.exports = {
   stopSyncthingApp,
   appendBackupTask,
   appendRestoreTask,
-  removeTestAppMount,
-  testAppMount,
   validateApplicationUpdateCompatibility,
   setInstallationInProgress,
   setRemovalInProgress,
