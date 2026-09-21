@@ -27,15 +27,11 @@ const cacheManager = require('./utils/cacheManager').default;
  */
 
 /**
- * How many ids may be outstanding at once.
+ * The most a body may be when this end has to read it itself.
  *
- * Ids are issued to anyone who asks, so the bound is what stops a flood
- * costing the node memory. Eviction is oldest-first, which under a flood
- * spends a legitimate caller's id - the failure a caller can retry, rather
- * than the one the node cannot.
+ * Only the content types no mounted parser claims reach that path; a JSON body
+ * is bounded by express.json before it gets here.
  */
-const MAX_OUTSTANDING = 20000;
-
 const MAX_BODY_SIZE = 10000;
 const TXID_MAX_LENGTH = 500;
 const WS_POLL_INTERVAL = 500;
@@ -57,9 +53,6 @@ const pending = cacheManager.paymentRelayCache;
  */
 function paymentRequest(req, res) {
   try {
-    if (pending.size >= MAX_OUTSTANDING) {
-      throw new Error('Too many payment requests are outstanding');
-    }
     // Unguessable, because the id is the only thing the wallet's callback is
     // held to: whoever holds a live one can leave a transaction id for the
     // browser waiting on it.
@@ -73,16 +66,71 @@ function paymentRequest(req, res) {
 }
 
 /**
+ * Leaves a wallet's transaction id for the listener waiting on its id.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {object} payload The callback's body, however it was read.
+ * @returns {void}
+ */
+function answerCallback(req, res, payload) {
+  try {
+    const txid = payload.transaction_id || payload.txid;
+    const paymentId = req.query.paymentid || payload.paymentid;
+
+    if (!paymentId) {
+      throw new Error('No payment ID is specified');
+    }
+    if (typeof paymentId !== 'string' || paymentId.length < 10 || paymentId.length > 100) {
+      throw new Error('Invalid payment ID format');
+    }
+    if (!txid) {
+      throw new Error('No transaction ID is specified');
+    }
+    if (typeof txid !== 'string') {
+      throw new Error('Transaction ID must be a string');
+    }
+    if (txid.length > TXID_MAX_LENGTH) {
+      throw new Error('Invalid transaction ID length');
+    }
+    if (!pending.has(paymentId)) {
+      throw new Error('Payment request not found or has expired');
+    }
+
+    pending.set(paymentId, { txid });
+
+    res.json(messageHelper.createDataMessage({
+      message: 'Payment received successfully',
+      paymentId,
+      txid,
+      success_url: 'https://home.runonflux.io/successcheckout',
+    }));
+  } catch (error) {
+    log.error(error);
+    res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+  }
+}
+
+/**
  * Takes the wallet's callback and leaves its transaction id for the listener.
  *
- * The body is read off the request rather than a parser, because the wallet
- * chooses its own content type and this end does not get to state one.
+ * The wallet chooses its own content type, and only one parser is mounted. A
+ * JSON body therefore arrives already parsed with its stream spent - waiting
+ * on `end` for one waits forever, holding the connection open and answering
+ * nothing - while every other type arrives unread. Which of the two happened
+ * is read off the stream rather than the headers: what decides is whether
+ * anything is left to read.
  *
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {void}
  */
 function receivePaymentCallback(req, res) {
+  if (req.readableEnded) {
+    answerCallback(req, res, req.body || {});
+    return;
+  }
+
   let body = '';
   let refused = false;
 
@@ -91,49 +139,17 @@ function receivePaymentCallback(req, res) {
     body += data;
     if (body.length > MAX_BODY_SIZE) {
       refused = true;
-      req.destroy();
+      // Answered before the socket goes: a write to a destroyed socket is
+      // discarded without complaint, and the caller sees a reset in place of
+      // the refusal.
       res.status(413).json(messageHelper.createErrorMessage('Request body too large'));
+      res.on('finish', () => req.destroy());
     }
   });
 
   req.on('end', () => {
     if (refused) return;
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const txid = processedBody.transaction_id || processedBody.txid;
-      const paymentId = req.query.paymentid || processedBody.paymentid;
-
-      if (!paymentId) {
-        throw new Error('No payment ID is specified');
-      }
-      if (typeof paymentId !== 'string' || paymentId.length < 10 || paymentId.length > 100) {
-        throw new Error('Invalid payment ID format');
-      }
-      if (!txid) {
-        throw new Error('No transaction ID is specified');
-      }
-      if (typeof txid !== 'string') {
-        throw new Error('Transaction ID must be a string');
-      }
-      if (txid.length > TXID_MAX_LENGTH) {
-        throw new Error('Invalid transaction ID length');
-      }
-      if (!pending.has(paymentId)) {
-        throw new Error('Payment request not found or has expired');
-      }
-
-      pending.set(paymentId, { txid });
-
-      res.json(messageHelper.createDataMessage({
-        message: 'Payment received successfully',
-        paymentId,
-        txid,
-        success_url: 'https://home.runonflux.io/successcheckout',
-      }));
-    } catch (error) {
-      log.error(error);
-      res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
-    }
+    answerCallback(req, res, serviceHelper.ensureObject(body));
   });
 }
 

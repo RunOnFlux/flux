@@ -11,9 +11,16 @@ const { expect } = chai;
 const pending = cacheManager.paymentRelayCache;
 
 const generateResponse = () => {
-  const res = {};
+  const res = { finishHandlers: [] };
   res.status = sinon.stub().returns(res);
   res.json = sinon.fake((param) => param);
+  // The real response is an event emitter, and the refusal path waits on
+  // 'finish' before it destroys the socket under it.
+  res.on = sinon.fake((event, handler) => {
+    if (event === 'finish') res.finishHandlers.push(handler);
+    return res;
+  });
+  res.finish = () => res.finishHandlers.forEach((h) => h());
   return res;
 };
 
@@ -82,7 +89,12 @@ describe('paymentRelayService tests', () => {
       expect(first.split('_')[1]).to.match(/^[0-9a-f]{32}$/);
     });
 
-    it('refuses once too many ids are outstanding', () => {
+    // The cache's own bound is what stops a flood costing memory, and it spends
+    // the oldest id to stay inside it. A guard that refused at that size
+    // instead would keep the cache below its maximum, so nothing would ever be
+    // evicted - and every wallet, legitimate ones included, would be turned
+    // away for as long as the flood's ids lived.
+    it('still issues an id when the cache is at its bound', () => {
       Object.defineProperty(pending, 'size', { get: () => 20000, configurable: true });
       const res = generateResponse();
 
@@ -90,8 +102,8 @@ describe('paymentRelayService tests', () => {
 
       delete pending.size;
       const response = res.json.firstCall.args[0];
-      expect(response.status).to.equal('error');
-      expect(response.data.message).to.equal('Too many payment requests are outstanding');
+      expect(response.status).to.equal('success');
+      expect(response.data.paymentId).to.be.a('string');
     });
   });
 
@@ -120,6 +132,29 @@ describe('paymentRelayService tests', () => {
       await callWithBody(JSON.stringify({ txid: 'abc123', paymentid: paymentId }), {});
 
       expect(pending.get(paymentId)).to.deep.equal({ txid: 'abc123' });
+    });
+
+    // express.json is mounted globally, so a JSON callback arrives parsed with
+    // its stream already spent. Waiting on 'end' for one waits forever: no
+    // answer is written, the connection is held open, and the browser on the
+    // socket waits out the full timeout for a transaction id that was
+    // delivered to the node and dropped.
+    it('answers a callback whose body a parser already took', () => {
+      const paymentId = issueId();
+      const res = generateResponse();
+      const req = new PassThrough();
+      req.query = { paymentid: paymentId };
+      req.body = { txid: 'parsed-by-express' };
+      req.push(null);
+      req.resume();
+
+      req.on('end', () => {
+        paymentRelayService.receivePaymentCallback(req, res);
+
+        sinon.assert.calledOnce(res.json);
+        expect(res.json.firstCall.args[0].status).to.equal('success');
+        expect(pending.get(paymentId)).to.deep.equal({ txid: 'parsed-by-express' });
+      });
     });
 
     it('refuses an id nothing is waiting on, and leaves nothing behind', async () => {
@@ -167,6 +202,26 @@ describe('paymentRelayService tests', () => {
       sinon.assert.calledOnce(res.json);
       sinon.assert.calledOnceWithExactly(res.status, 413);
       expect(pending.get(paymentId)).to.deep.equal({ txid: null });
+    });
+
+    // A write to a destroyed socket is discarded without complaint, so
+    // destroying first leaves the caller a connection reset in place of the
+    // refusal. The socket goes only once the refusal has been written.
+    it('writes the refusal before it takes the socket away', () => {
+      const paymentId = issueId();
+      const res = generateResponse();
+      const req = new PassThrough();
+      req.query = { paymentid: paymentId };
+      req.destroy = sinon.fake();
+
+      paymentRelayService.receivePaymentCallback(req, res);
+      req.emit('data', 'a'.repeat(20000));
+
+      sinon.assert.calledWith(res.status, 413);
+      sinon.assert.notCalled(req.destroy);
+
+      res.finish();
+      sinon.assert.calledOnce(req.destroy);
     });
 
     it('refuses a body too large to be a callback, and answers 413', async () => {
