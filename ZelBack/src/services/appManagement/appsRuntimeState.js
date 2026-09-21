@@ -474,22 +474,31 @@ const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid'];
  * it sends the next boot back to searching the disks by filename, and stamps
  * whatever that search turns up as this node's own.
  *
+ * THROWS rather than reporting a clear it did not make.
+ *
  * @param {string} identifier
+ * @throws When the state cannot be read or replaced.
  */
 async function removeControllerState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
-  try {
-    const state = await getState(identifier);
-    if (!state) return;
-    const kept = { identifier, updatedAt: Date.now() };
-    SURVIVES_SOFT_REMOVAL.forEach((field) => {
-      if (state[field] !== undefined) kept[field] = state[field];
-    });
-    const database = collection();
-    await dbHelper.replaceOneInDatabase(database, appsRuntimeState, { identifier }, kept);
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to clear controller state for ${identifier}: ${err.message}`);
-  }
+  const database = collection();
+  // Read without the swallow: a document that could not be READ is not a
+  // document that is absent, and the difference is the operator stop lock.
+  // Answering "nothing here" for a database that would not speak leaves the
+  // lock in place and reports the redeploy done, so the component the operator
+  // asked to run stays down and nothing says why.
+  const state = await dbHelper.findOneInDatabase(
+    database,
+    appsRuntimeState,
+    { identifier },
+    { projection: { _id: 0 } },
+  );
+  if (!state) return;
+  const kept = { identifier, updatedAt: Date.now() };
+  SURVIVES_SOFT_REMOVAL.forEach((field) => {
+    if (state[field] !== undefined) kept[field] = state[field];
+  });
+  await dbHelper.replaceOneInDatabase(database, appsRuntimeState, { identifier }, kept);
 }
 
 /**

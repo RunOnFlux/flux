@@ -1396,61 +1396,73 @@ describe('volumeService tests', () => {
     // Nothing to clear is not a failed clear: an app whose volume was never
     // populated must not hold the reconciler on a retry forever. The stderr is
     // deliberately NOT the English message: find renders strerror in the node's
-    // locale, so the classification must come from `test -d`'s exit status and
-    // never from the words.
+    // locale, so the verdict must come from the kernel and never from find's
+    // words.
     it('returns quietly when there is no app data directory, whatever language find speaks', async () => {
       serviceHelperStub.runCommand.onFirstCall().resolves({
         error: new Error('exit 1'),
         stdout: '',
         stderr: "find: '/test/apps/folder/fluxdb_MyApp/appdata': Aucun fichier ou dossier de ce type",
       });
-      // the directory does not exist - there was nothing to clear. execFile
-      // rejects with the exit STATUS on `code`, and `test` says nothing at all
-      serviceHelperStub.runCommand.onSecondCall().resolves({ error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: '' });
+      fsStub.promises.stat.withArgs(`${APPS_FOLDER}fluxdb_MyApp/appdata`).rejects(enoent());
 
       await volumeService.clearAppVolumeData('db_MyApp');
 
       expect(
         logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
       ).to.equal(true);
-      // The classifier runs as root, like the wipe: an unprivileged check paired
-      // with a root action fails on a data dir the image chmods to 700.
-      const [cmd, opts] = serviceHelperStub.runCommand.secondCall.args;
-      expect(cmd).to.equal('test');
-      expect(opts.runAsRoot).to.equal(true);
-      expect(opts.params).to.deep.equal(['-d', `${APPS_FOLDER}fluxdb_MyApp/appdata`]);
+      // asked of the kernel, so nothing is spawned to answer it
+      expect(serviceHelperStub.runCommand.callCount).to.equal(1);
     });
 
-    // `test` answers with its exit status and nothing else. sudo refusing, or a
-    // spawn that never reached `test`, is not the probe answering - and reading
-    // either as "nothing to delete" reports a wipe that did not happen, which
-    // the caller acts on by starting the component over the data it asked to
-    // be rid of.
-    it('does not read a refused probe as an empty directory', async () => {
+    // A mount point replaced by a file holds nothing to wipe either, and the
+    // kernel says so with its own code rather than through a message.
+    it('reads a path that is not a directory as nothing to delete', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: 'find: not a directory',
+      });
+      fsStub.promises.stat.withArgs(`${APPS_FOLDER}fluxdb_MyApp/appdata`)
+        .rejects(Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' }));
+
+      await volumeService.clearAppVolumeData('db_MyApp');
+
+      expect(
+        logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
+      ).to.equal(true);
+    });
+
+    it('does not read a directory that is there as nothing to delete', async () => {
       serviceHelperStub.runCommand.onFirstCall().resolves({
         error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: 'find: cannot read',
       });
-      serviceHelperStub.runCommand.onSecondCall().resolves({
-        error: Object.assign(new Error('exit 1'), { code: 1 }),
-        stdout: '',
-        stderr: 'sudo: a password is required',
+      fsStub.promises.stat.withArgs(`${APPS_FOLDER}fluxdb_MyApp/appdata`).resolves({ isDirectory: () => true });
+
+      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith(/Failed to delete data/);
+    });
+
+    // An unanswered question is not an empty directory. Reading one as the
+    // other reports a wipe that did not happen, which the caller acts on by
+    // starting the component over the data it asked to be rid of.
+    it('does not read a path it could not ask about as an empty directory', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: 'find: cannot read',
       });
+      fsStub.promises.stat.withArgs(`${APPS_FOLDER}fluxdb_MyApp/appdata`)
+        .rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
 
       await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith(/Failed to delete data/);
       expect(
         logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
-        'reported nothing to delete when the probe was refused',
+        'reported nothing to delete over a path it could not read',
       ).to.equal(false);
     });
 
-    it('does not read a probe that never ran as an empty directory', async () => {
+    it('does not read a disk answering EIO as an empty directory', async () => {
       serviceHelperStub.runCommand.onFirstCall().resolves({
         error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: 'find: cannot read',
       });
-      // a spawn failure carries a string code, never an exit status
-      serviceHelperStub.runCommand.onSecondCall().resolves({
-        error: Object.assign(new Error('spawn sudo ENOENT'), { code: 'ENOENT' }), stdout: '', stderr: '',
-      });
+      fsStub.promises.stat.withArgs(`${APPS_FOLDER}fluxdb_MyApp/appdata`)
+        .rejects(Object.assign(new Error('EIO'), { code: 'EIO' }));
 
       await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith(/Failed to delete data/);
     });
@@ -1459,7 +1471,7 @@ describe('volumeService tests', () => {
       serviceHelperStub.runCommand.onFirstCall().resolves({
         error: new Error('exit 1'), stdout: '', stderr: 'rm: cannot remove: Read-only file system',
       });
-      serviceHelperStub.runCommand.onSecondCall().resolves({ error: null, stdout: '', stderr: '' });
+      fsStub.promises.stat.withArgs(`${APPS_FOLDER}fluxdb_MyApp/appdata`).resolves({ isDirectory: () => true });
 
       await expect(volumeService.clearAppVolumeData('db_MyApp'))
         .to.be.rejectedWith(/Read-only file system/);

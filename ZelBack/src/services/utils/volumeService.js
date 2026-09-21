@@ -1048,32 +1048,26 @@ async function clearAppVolumeData(identifier) {
     // Nothing to clear is not a failed clear: an app whose volume was never
     // populated must not hold the reconciler on a retry forever.
     //
-    // Classified by exit code, never by find's message: that text is strerror
-    // output, rendered in the node's locale (sudo keeps LANG/LC_* through
-    // env_keep), so matching the English words works only on English nodes -
-    // anywhere else a missing directory reads as a failed wipe and the
-    // reconciler retries it every 5s forever. `test -d` answers with its exit
-    // status alone. As root, like the wipe: an unprivileged check paired with
-    // a root action fails on a data dir the image chmods to 700.
+    // Asked of the kernel, not of find's message and not of a second command.
+    // find renders strerror in the node's locale, so its words answer only on
+    // an English node; a command asked instead comes back through sudo, which
+    // refuses with the same status a negative answer uses and writes warnings
+    // of its own. `stat` needs traverse permission on the parents and no read
+    // permission on the target, so the chmod that defeats a host-side readdir
+    // - postgres does `chmod 700 $PGDATA`, and for a component mounting
+    // /var/lib/postgresql/data that dir IS this appdata - does not reach it.
     //
-    // And classified AFTER the wipe rather than checked before it: check-first
-    // races toward "falsely clean" when the directory appears inside the
-    // window, where this order races toward a throw - and the next pass wipes
-    // whatever arrived.
-    const probe = await serviceHelper.runCommand('test', {
-      runAsRoot: true,
-      logError: false,
-      params: ['-d', appDataPath],
-    });
-    // Exit status 1 with nothing on stderr is `test` answering "not a
-    // directory". sudo refusing, or a spawn that never reached `test`, also
-    // arrives as an error - and reading either as "nothing to delete" reports
-    // a wipe that did not happen, which the caller acts on by starting the
-    // component over the data it asked to be rid of. A spawn failure carries
-    // a string code rather than an exit status, and sudo says why on stderr;
-    // neither is the probe answering.
-    const answered = probe.error && typeof probe.error.code === 'number' && !probe.stderr;
-    if (answered) {
+    // ENOENT and ENOTDIR are the two codes that say there was nothing here to
+    // wipe. Anything else - EACCES on a parent, EIO - is this node unable to
+    // ask, and an unanswered question is not an empty directory.
+    //
+    // Asked AFTER the wipe rather than before it: check-first races toward
+    // "falsely clean" when the directory appears inside the window, where this
+    // order races toward a throw - and the next pass wipes whatever arrived.
+    const absent = await fs.stat(appDataPath)
+      .then(() => false)
+      .catch((error) => error.code === 'ENOENT' || error.code === 'ENOTDIR');
+    if (absent) {
       log.info(`No data to delete for app ${appId}`);
       return;
     }

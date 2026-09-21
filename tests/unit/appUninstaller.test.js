@@ -976,6 +976,10 @@ describe('appUninstaller tests', () => {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
+        // Stubbed rather than reached: the real one opens the runtime-state
+        // collection, and a soft removal that could not clear the controller
+        // state does not report itself done.
+        '../appManagement/appsRuntimeState': { removeControllerState: sinon.stub().resolves() },
         '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),

@@ -642,6 +642,58 @@ describe('appsRuntimeState tests', () => {
       expect(await appsRuntimeState.isNetworkHealRemoval('www_App')).to.be.false;
     });
 
+    // A soft redeploy is an explicit "make it run", so the operator lock must
+    // not survive it. Answering "nothing here" for a database that would not
+    // speak leaves the lock in place and reports the redeploy done: the
+    // component the operator asked for stays down and nothing says why.
+    it('a read failure throws rather than clearing nothing and reporting done', async () => {
+      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => { throw new Error('db unavailable'); },
+          replaceOneInDatabase: async () => {},
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      let thrown = null;
+      await failing.removeControllerState('www_App').catch((e) => { thrown = e; });
+
+      expect(thrown, 'must not report a clear it did not make').to.be.an('error');
+    });
+
+    it('keeps the image record and drops everything else', async () => {
+      const replaced = [];
+      const kept = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => ({
+            identifier: 'www_App',
+            operatorStopped: true,
+            restartHistory: [1, 2, 3],
+            volumeImagePath: '/mnt/data/img',
+            volumeFsUuid: 'u-1',
+          }),
+          replaceOneInDatabase: async (_db, _coll, _query, doc) => { replaced.push(doc); },
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      await kept.removeControllerState('www_App');
+
+      expect(replaced).to.have.lengthOf(1);
+      expect(replaced[0].volumeImagePath).to.equal('/mnt/data/img');
+      expect(replaced[0].volumeFsUuid).to.equal('u-1');
+      expect(replaced[0].operatorStopped, 'the operator lock survived a redeploy').to.equal(undefined);
+      expect(replaced[0].restartHistory).to.equal(undefined);
+    });
+
     it('a read failure throws rather than reporting "no image recorded"', async () => {
       // null is "this node recorded no image", and a caller acts on that by
       // searching the disks and trusting what it finds. A database that would
