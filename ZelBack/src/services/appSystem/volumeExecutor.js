@@ -1885,9 +1885,11 @@ async function run(session, argv, options = {}) {
  * Remove one staging entry, on the host.
  *
  * Host-side rather than in a container, for the same reasons the sweep is: the
- * path is the mount plus one minted component with nothing to traverse, `rm
- * -rf` removes a symlink rather than following it, and a node that cannot
- * fetch the executor image still reclaims its debris. Root, because the
+ * path is the mount plus the staging root and one minted component, neither of
+ * them the app's to interpose a link on - the volume root is not mounted into
+ * any container and the staging root is created by FluxOS as root. `rm -rf`
+ * removes a symlink rather than following it in any case, and a node that
+ * cannot fetch the executor image still reclaims its debris. Root, because the
  * container wrote into it as root and the FluxOS process is not root
  * everywhere.
  *

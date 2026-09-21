@@ -485,14 +485,14 @@ function getComponentSyncMode(containerData) {
  * The subdirectory names a component has declared it does not want replicated.
  *
  * These become .stignore patterns, so every node must compute the same set from the
- * same spec - which is why the answer comes from the containerData and never from
+ * same spec - which is why the answer comes from the parsed mounts and never from
  * what happens to be on this node's disk.
  *
- * Returns [] for an unparseable spec rather than throwing: the callers are the
- * .stignore writers, and refusing to write ignores is worse than writing the base
- * set. An invalid spec is surfaced by the install path, which parses explicitly.
+ * Takes mounts already parsed, so a caller holding them does not parse twice and the
+ * throw stays where the spec is read. getUnsyncedSubdirs is the form for a caller
+ * that holds only the containerData.
  *
- * @param {string} containerData
+ * @param {object} parsedMounts - result of parseContainerData
  * @returns {string[]} subdirectory names, relative to the volume root
  */
 function unsyncedSubdirsOf(parsedMounts) {
@@ -501,6 +501,16 @@ function unsyncedSubdirsOf(parsedMounts) {
     .map((mount) => mount.subdir);
 }
 
+/**
+ * The same answer for a caller holding only the containerData.
+ *
+ * Returns [] for an unparseable spec rather than throwing: the callers are the
+ * .stignore writers, and refusing to write ignores is worse than writing the base
+ * set. An invalid spec is surfaced by the install path, which parses explicitly.
+ *
+ * @param {string} containerData
+ * @returns {string[]} subdirectory names, relative to the volume root
+ */
 function getUnsyncedSubdirs(containerData) {
   try {
     return unsyncedSubdirsOf(parseContainerData(containerData));
