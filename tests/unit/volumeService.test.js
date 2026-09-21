@@ -160,6 +160,16 @@ describe('volumeService tests', () => {
       expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
     });
 
+    it('excludes storage on another machine, which is not the node to advertise', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('nas:/export', '/mnt/nas', 4e12, 'nfs4'),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGib();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
+    });
+
     it('excludes a loop device, which is an app volume rather than a host disk', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([
         mount('/dev/sda1', '/dat', 1e12),

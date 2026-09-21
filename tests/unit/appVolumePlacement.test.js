@@ -88,6 +88,24 @@ const NON_LOOP_APP_VOLUME = [
   row('/dev/sdc1', '/dat/var/lib/fluxos/flux-apps/fluxbig_big', 'ext4', 900),
 ];
 
+// An operator's network storage, roomier and emptier than anything local.
+// `findmnt --real` lists it, and ranking by free space would otherwise offer it
+// ahead of every disk the node owns.
+const NETWORK_STORAGE = [
+  row('/dev/sda2', '/', 'ext4', 100),
+  row('nas:/export', '/mnt/nas', 'nfs4', 4000),
+  row('//nas/media', '/mnt/media', 'cifs', 3000),
+  row('hostshare', '/mnt/hostshare', 'virtiofs', 2000),
+];
+
+// The same, mounted through fuse, which names the driver rather than the
+// backing. Its own fixture: the named types and the fuse family are two rules,
+// and either one broken has to fail a test of its own.
+const FUSE_NETWORK_STORAGE = [
+  row('/dev/sda2', '/', 'ext4', 100),
+  row('gluster1:/vol0', '/mnt/gluster', 'fuse.glusterfs', 4000),
+];
+
 // A ZFS or btrfs root, which findmnt names by dataset and not under /dev.
 const DATASET_ROOTED_NODE = [
   row('rpool/lxc/ct-101', '/', 'zfs', 900, { used: 40 }),
@@ -214,6 +232,16 @@ describe('app volume placement', () => {
         row('/dev/sdb1', '/dat/var/lib/fluxos/flux-apps', 'ext4', 900),
       ]);
       expect(volumes[0].mount).to.equal('/dat/var/lib/fluxos/flux-apps');
+    });
+
+    it('refuses storage on another machine, however much room it has', async () => {
+      const volumes = await placements(NETWORK_STORAGE);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
+    it('refuses network storage mounted through fuse, which names its driver', async () => {
+      const volumes = await placements(FUSE_NETWORK_STORAGE);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
     });
 
     it('refuses the boot filesystem', async () => {

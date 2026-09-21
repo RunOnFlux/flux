@@ -23,6 +23,18 @@ const BYTES_PER_GIB = 1024 ** 3;
 const EPHEMERAL_FSTYPES = new Set(['tmpfs', 'ramfs', 'devtmpfs', 'overlay', 'squashfs']);
 
 /**
+ * Filesystems whose bytes are on another machine. `fallocate` is unsupported on
+ * CIFS and on NFSv3, so an image cannot be created on one at all, and where it
+ * can the app's data is hostage to a share that can go away while the node
+ * keeps running.
+ *
+ * `findmnt --real` excludes pseudo filesystems and nothing else, so these
+ * arrive in the mount table looking like any local disk.
+ */
+const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
+  'afs', 'ncpfs', 'ceph', 'glusterfs', 'virtiofs', '9p']);
+
+/**
  * A mount row in the unit node capacity is spent in.
  * @param {object} volume One mount row from deviceHelper.
  * @returns {{filesystem: string, mount: string, size: number, used: number,
@@ -64,10 +76,11 @@ function oneRowPerFilesystem(rows) {
  * Whether this is a filesystem the node may use for its own storage.
  *
  * `findmnt --real` has already dropped the pseudo filesystems and a container's
- * own overlay, so what is left to exclude is the boot disk and the app volumes
- * this node has already placed: an app's image is carved out of one of these
- * filesystems, so counting it counts the same bytes twice. A loop mount IS such
- * an image - except at the root, where a loop is the host disk itself.
+ * own overlay, so what is left to exclude is storage on another machine, the
+ * boot disk, and the app volumes this node has already placed: an app's image
+ * is carved out of one of these filesystems, so counting it counts the same
+ * bytes twice. A loop mount IS such an image - except at the root, where a loop
+ * is the host disk itself.
  *
  * Says nothing about writing: that is a separate question, asked where an image
  * is actually placed.
@@ -76,8 +89,15 @@ function oneRowPerFilesystem(rows) {
  * @returns {boolean} True when the filesystem is the node's to use.
  */
 function isHostFilesystem(mount) {
-  if (EPHEMERAL_FSTYPES.has(mount.fstype)) return false;
-  if (mount.fstype === 'vfat') return false;
+  const fstype = String(mount.fstype || '');
+  if (EPHEMERAL_FSTYPES.has(fstype)) return false;
+  // A fuse type names the driver rather than the backing, and the drivers that
+  // reach across a network are open-ended: gluster and sshfs arrive as
+  // `fuse.glusterfs` and `fuse.sshfs`, the object stores as `fuse.rclone`,
+  // `fuse.s3fs`, `fuse.gcsfuse`. A local fuse pool loses nothing by being
+  // refused here - the disks it pools are mounted in their own right.
+  if (REMOTE_FSTYPES.has(fstype) || fstype.startsWith('fuse.')) return false;
+  if (fstype === 'vfat') return false;
   if (mount.target === '/boot' || mount.target.startsWith('/boot/')) return false;
   const device = String(mount.source).split('[')[0];
   if (device.startsWith('/dev/loop') && mount.target !== '/') return false;
