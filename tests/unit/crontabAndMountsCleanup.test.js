@@ -263,7 +263,10 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(result.failed).to.have.lengthOf(0);
     });
 
-    it('should record a tampering event when a volume cannot be mounted', async () => {
+    // One fact, one name, whichever of the two found it: the reconciler calls a
+    // missing image `volume_missing`, and a boot that calls the same thing
+    // something else scores it twice and splits every fleet query in half.
+    it('records a missing image under the name the reconciler uses', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
@@ -271,6 +274,20 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_file_missing' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_missing')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    // `mount_vanished` keeps the meaning its other producer gives it, so a
+    // reason that is about the mount point rather than the image still lands
+    // there and nothing else does.
+    it('keeps mount_vanished for a fault about the mount point', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_point_not_a_directory' });
+
+      await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
     });
 
