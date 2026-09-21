@@ -554,6 +554,12 @@ app.get('/rest/db/status', (req, res) => {
   const ov = lookupSync(clientIp(req), folderId || '');
   if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
   const globalBytes = ov?.globalBytes ?? 0;
+  // How many of the indexed entries are FILES, which is what says WHICH KIND of claim
+  // globalBytes is. Declared rather than derived from the byte count, because both
+  // readings are real: a folder of empty directories has bytes and no files, and one
+  // holding the owner's data has both. Undeclared reads 0 - the reading a consumer
+  // treats as "the payload is directories".
+  const globalFiles = ov?.globalFiles ?? 0;
   const inSyncBytes = ov?.inSyncBytes ?? 0;
   const state = ov?.state ?? 'idle';
   // Derived, never declared separately - see the /sync-state comment.
@@ -569,7 +575,7 @@ app.get('/rest/db/status', (req, res) => {
     globalBytes,
     globalDeleted: 0,
     globalDirectories: 0,
-    globalFiles: 0,
+    globalFiles,
     globalSymlinks: 0,
     globalTotalItems: 0,
     ignorePatterns: false,
@@ -767,8 +773,8 @@ control.post('/folder-patch-delay', (req, res) => {
 // reads as a stall (the production stall detector needs N unchanged samples).
 control.post('/sync-state', (req, res) => {
   const {
-    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
-    localChanged = null, statusUnreadable = false,
+    ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles = 0, inSyncBytes = 0,
+    receiveOnlyChangedFiles = 0, localChanged = null, statusUnreadable = false,
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
   console.log(`[write] sync-state from=${clientIp(req)} ip=${ip} folder=${folder} state=${state} bytes=${inSyncBytes}/${globalBytes} unreadable=${statusUnreadable}`);
@@ -803,7 +809,7 @@ control.post('/sync-state', (req, res) => {
     }
   }
   syncOverrides.set(`${ip}|${folder}`, {
-    state, globalBytes, inSyncBytes, localChanged: entries, statusUnreadable,
+    state, globalBytes, globalFiles, inSyncBytes, localChanged: entries, statusUnreadable,
   });
   // A declared sync state is also the folder's peer evidence: when OTHER
   // nodes ask db/completion about this folder, the declaring node is a

@@ -137,25 +137,15 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     expect(await folderType(ip1, phantomFolder)).to.equal('sendreceive');
   });
 
-  // PENDING, and deliberately so - this is a known gap in the product, not a
-  // broken test. `checkDirectoryHasSyncScopedContent` walks with countDirs:true
-  // and reports hasContent when it finds ANY directory, so the emptied-but-
-  // present appdata/ below counts as content, the index/disk mismatch is never
-  // seen, and no demotion happens. That countDirs behaviour was added
-  // deliberately (2026-07-04) to stop an all-directory folder being misread as
-  // empty and wrongly demoted - a real production false positive.
+  // The index says which kind of claim it makes, and the disk is read on those terms:
+  // globalFiles > 0 is answered by FILES on disk, because the mount structure FluxOS
+  // builds a volume from survives any wipe and counting it answers every volume the
+  // same way. An index claiming bytes and no files is a folder of empty directories,
+  // where directories are the payload - the 2026-07-04 false positive that stopped
+  // healthy apps, and the reason a files-only walk cannot be the only reading.
   //
-  // So FluxOS currently cannot detect a stale index over an emptied volume:
-  // a sendreceive folder in that state will broadcast every missing file as a
-  // deletion. The resolution is the files-aware discriminator - use the index's
-  // globalFiles to tell "claims files" from "claims only directory entries",
-  // then count files rather than directories - at which point this test is the
-  // natural proof it worked. Un-skip it then.
-  //
-  // Left pending rather than deleted: deleting it destroys the only record that
-  // this gap exists. Left pending rather than failing: a permanently red suite
-  // trains everyone to skim past gate failures.
-  it.skip('demotes a sendreceive folder whose index claims data over an empty volume (phantom index)', async function () {
+  // So this declares globalFiles, and the volume below holds an emptied appdata/.
+  it('demotes a sendreceive folder whose index claims data over an empty volume (phantom index)', async function () {
     this.timeout(120000);
     const client = env.clients[1];
     const afterId = client.getLastEventId();
@@ -163,7 +153,9 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // the stale-index state: the index claims fully-synced data while the
     // mounted volume holds none - in sendreceive, syncthing would broadcast
     // every "missing" file as a deletion
-    await setSyncState({ ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, inSyncBytes: 100000, receiveOnlyChangedFiles: 0 });
+    await setSyncState({
+      ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0,
+    });
     // flag the folder: steady state is never swept, so the verify (which
     // includes the phantom-index check) runs when syncthing flags the folder
     await injectSyncthingEvent({ ip: ip1, type: 'FolderErrors', data: { folder: phantomFolder, errors: [{ error: 'pull failed' }] } });

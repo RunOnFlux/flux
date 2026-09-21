@@ -175,21 +175,27 @@ function isSyncedPayloadName(name, unsyncedSubdirs = []) {
  * SCOPE - the same scope the syncthing index describes (globalBytes). What is not
  * synced payload is skipped so it cannot mask a genuinely empty dataset; the set is
  * isSyncedPayloadName, anchored to the root because that is where every one of those
- * exclusions is anchored in .stignore. Everything else counts - crucially INCLUDING
- * directories, because the index counts each directory entry too: a folder whose
- * synced payload is only (empty) directories has globalBytes > 0 with zero regular
- * files, and a files-only walk misread that as a phantom index over an empty disk
- * (the 2026-07-04 false positive that stopped healthy, fully-synced apps and held
- * them down). A truly wiped disk keeps only the skipped scaffolding, so it reads
- * empty and the phantom guard fires.
+ * exclusions is anchored in .stignore.
+ *
+ * WHETHER A DIRECTORY IS CONTENT IS THE CALLER'S TO DECIDE, from what the index
+ * claims, because the two readings answer different questions and each is wrong for
+ * the other. Counting directories is required of a folder whose payload is empty
+ * directories - the index counts each directory entry, so it has bytes and no files,
+ * and a files-only walk calls it a phantom (the 2026-07-04 false positive that
+ * stopped healthy apps and held them down). Counting them is fatal to a folder whose
+ * payload is files: FluxOS creates the primary mount and every m: directory and a
+ * wipe preserves them, so the volume reads occupied whatever it holds and a stale
+ * index over emptied data is never caught.
  * @param {string} dirPath - Directory path to check
  * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
+ * @param {{countDirs?: boolean}} options - whether a directory is content in its own
+ *   right, which the caller decides from what the index claims
  * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
  */
-async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = []) {
+async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = [], { countDirs = true } = {}) {
   const fileCount = await countFilesUpTo(dirPath, 100, {
     excludeRoot: (name) => !isSyncedPayloadName(name, unsyncedSubdirs),
-    countDirs: true,
+    countDirs,
   });
   return {
     hasContent: fileCount > 0,
@@ -366,11 +372,17 @@ async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs 
   const syncStatus = await getFolderSyncCompletion(appId);
   if (!syncStatus || syncStatus.globalBytes === 0) return result;
 
-  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs);
+  // The index says which kind of claim it is making, and the disk is read on those
+  // terms. Claiming FILES is answered by files on disk: the directories FluxOS builds
+  // the volume from survive a wipe, so counting them answers every volume the same
+  // way and the check decides nothing. Claiming bytes and NO files is a folder of
+  // empty directories, where directories are the payload and the only honest count.
+  const claimsFiles = syncStatus.globalFiles > 0;
+  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs, { countDirs: !claimsFiles });
   if (!dataCheck.hasContent) {
     result.isSafe = false;
     result.reason = 'phantom_index_empty_disk';
-    log.error(`verifySendReceiveFolderSafety - CRITICAL: ${appId} index claims ${syncStatus.globalBytes} bytes but the disk holds no synced files - stale index over an empty volume; sendreceive would broadcast deletions.`);
+    log.error(`verifySendReceiveFolderSafety - CRITICAL: ${appId} index claims ${syncStatus.globalBytes} bytes in ${syncStatus.globalFiles} files but the disk holds none of them - stale index over an empty volume; sendreceive would broadcast deletions.`);
   }
   return result;
 }
@@ -431,7 +443,7 @@ async function fixAppdataPermissions(appId) {
 async function probeFolderSyncCompletion(folderId) {
   try {
     const {
-      globalBytes = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
+      globalBytes = 0, globalFiles = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
     } = await syncthingService.getDbStatus(folderId);
 
     const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
@@ -439,6 +451,11 @@ async function probeFolderSyncCompletion(folderId) {
     const status = {
       syncPercentage,
       globalBytes,
+      // How many of the indexed entries are FILES. It is what says which kind of
+      // claim globalBytes is: a folder whose payload is empty directories has bytes
+      // and no files, and one holding the owner's data has both. A daemon too old to
+      // report it reads 0, which is the reading that changes nothing.
+      globalFiles,
       inSyncBytes,
       state,
       // local additions/modifications in a receiveonly folder; invisible to the

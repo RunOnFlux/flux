@@ -2322,12 +2322,17 @@ describe('syncthingFolderStateMachine tests', () => {
   });
 
   describe('verifySendReceiveFolderSafety', () => {
-    it('is unsafe when the index claims data but the disk holds no sync-scoped files', async () => {
-      // stale ("phantom") index over a fresh empty volume: only FluxOS's own
-      // housekeeping (.stignore, backup/) on disk, yet the index claims bytes -
-      // sendreceive would broadcast every "missing" file as a deletion
-      fsMock.promises.readdir.resolves([dirent('.stignore'), dirent('backup', false)]);
-      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 500000, inSyncBytes: 500000, state: 'idle' });
+    it('is unsafe when the index claims files and the disk holds none of them', async () => {
+      // stale ("phantom") index over a wiped volume: the mount structure FluxOS built
+      // it from is still there, as it is after any wipe, and not one of the files the
+      // index claims - sendreceive would broadcast every one as a deletion
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('backup', false), dirent('appdata', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, state: 'idle',
+      });
 
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
 
@@ -2345,7 +2350,10 @@ describe('syncthingFolderStateMachine tests', () => {
       fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
         dirent('.stignore'), dirent('.stfolder', false), dirent('data', false),
       ]);
-      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 256, inSyncBytes: 256, state: 'idle' });
+      // bytes and no files is the index saying its payload IS directories
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 256, globalFiles: 0, inSyncBytes: 256, state: 'idle',
+      });
 
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
 
@@ -2361,7 +2369,9 @@ describe('syncthingFolderStateMachine tests', () => {
       fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
         dirent('.stignore'), dirent('.stfolder', false), dirent('backup', false),
       ]);
-      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 500000, inSyncBytes: 0, state: 'idle' });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 0, state: 'idle',
+      });
 
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
 
@@ -2369,24 +2379,58 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.reason).to.equal('phantom_index_empty_disk');
     });
 
-    // What a wiped volume ACTUALLY holds. Every app volume is formatted ext4, so
-    // lost+found is there before the app is, the staging directory is permanent, and
-    // an ml: directory is created at volume construction. A walk that counts any of
-    // them finds every volume occupied and the guard never fires on a real node -
-    // which is what the fixtures above, none of which carries lost+found, could not
-    // show.
+    // Everything a wiped volume ACTUALLY holds. lost+found is there before the app is
+    // (ext4), the staging directory is permanent, an ml: directory is built with the
+    // volume - and the primary mount and every m: directory survive the wipe itself,
+    // which preserves the mount structure. A walk that counts any of them finds every
+    // volume occupied, and a fixture without them describes a volume that cannot exist.
     it('still flags a phantom over the scaffolding a real volume is built with', async () => {
       fsMock.promises.readdir.resolves([]);
       fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
         dirent('.stignore'), dirent('.stfolder', false), dirent('lost+found', false),
         dirent('.flux-op', false), dirent('backup', false), dirent('cache', false),
+        dirent('appdata', false), dirent('logs', false),
       ]);
-      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 500000, inSyncBytes: 0, state: 'idle' });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 0, state: 'idle',
+      });
 
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', ['cache']);
 
       expect(result.isSafe).to.be.false;
       expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
+    // The mount structure is not the answer to "is the owner's data here", but it IS
+    // the answer to "is this a folder of empty directories". The claim decides which
+    // question is being asked, so the same tree reads both ways.
+    it('reads the same mount structure as content when the index claims no files', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 256, globalFiles: 0, inSyncBytes: 256, state: 'idle',
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe).to.be.true;
+    });
+
+    it('is safe when the index claims files and the disk holds one', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/appdata').resolves([dirent('world.db')]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, state: 'idle',
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe).to.be.true;
     });
 
     // The spec decides which directories are unsynced, not the name. A directory the

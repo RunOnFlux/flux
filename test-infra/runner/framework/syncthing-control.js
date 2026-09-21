@@ -64,9 +64,15 @@ export async function getPauseWrites(ip) {
 // a zero-length file on the volume: real syncthing counts that file, the stub reported 0
 // because nobody had said otherwise, and the deadlock the suite is named for could not
 // occur in it. Stating the number is cheap; being handed one is not.
+//
+// globalFiles says WHICH KIND of claim globalBytes is, and the mount-safety check reads
+// the disk on those terms: claiming files is answered by files, claiming bytes and no
+// files is a folder whose payload is directories. It defaults to 0 - the directories
+// reading - because that is what the count on a real volume's mount structure answers,
+// and a suite whose premise is a claim over FILES states the number.
 export async function setSyncState({
-  ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles,
-  localChanged = null,
+  ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles = 0, inSyncBytes = 0,
+  receiveOnlyChangedFiles, localChanged = null,
 }) {
   if (receiveOnlyChangedFiles === undefined && !Array.isArray(localChanged)) {
     throw new Error(
@@ -77,7 +83,7 @@ export async function setSyncState({
     );
   }
   return post('/sync-state', {
-    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, localChanged,
+    ip, folder, state, globalBytes, globalFiles, inSyncBytes, receiveOnlyChangedFiles, localChanged,
   });
 }
 
