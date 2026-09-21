@@ -10,6 +10,8 @@ import {
   isDaemonUp, getDeviceId, getConnectedDevices, getFolders, getFolderStatus, scanFolder,
 } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { nodeKey } from '../framework/keys.js';
+import { signBtcMessage } from '../auth.js';
 
 // The mount forms that put something on the volume the owner did not write, and
 // what replication does with each.
@@ -39,10 +41,27 @@ async function sh(client, command) {
 
 // What this node tells a peer about to seed. `holding` is recorded once per monitor
 // pass, only for folders still receiveonly, so a promoted folder answers with nothing.
-async function holdingFor(client, folderId) {
-  const body = await client.get('/apps/promotedfolders');
-  if (body?.data?.ready !== true) return null;
-  return body.data.holding?.[folderId] ?? null;
+/**
+ * What a node says it holds, asked the way a node asks.
+ *
+ * `holding` is a size and a last-write time per app, so it is the tenant's and the
+ * open endpoint does not carry it. A caller signs as a node on the deterministic
+ * list, naming the node it is asking and the moment it asked - which is what this
+ * builds, with the KEY OF ANOTHER NODE, because a peer asking is the only caller
+ * the product ever has.
+ *
+ * Signed here rather than stubbed: the signature is verified against the real
+ * deterministic list, and `target` is compared against what the asked node believes
+ * its own address to be. Those are two different sources for one address, and a unit
+ * test stubs whichever side it is not exercising - so this is the only place the two
+ * spellings ever have to agree.
+ */
+async function holdingFor(client, folderId, asNode) {
+  const body = { target: `${client.ip}:16127`, timestamp: Date.now(), pubKey: asNode.pubkey };
+  const signature = await signBtcMessage(JSON.stringify(body), asNode.privkey);
+  const answer = await client.post('/apps/promotedfolders', { ...body, signature });
+  if (answer?.data?.ready !== true) return null;
+  return answer.data.holding?.[folderId] ?? null;
 }
 
 async function pathKind(client, path) {
@@ -197,9 +216,13 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
       return (status?.localBytes ?? 0) > 0;
     }, { timeout: 180000, interval: 5000, label: 'the daemon accounts for the bytes written into the volume' });
 
+    // Asked by the OTHER node of the pair, which is the only caller the product has.
+    const peer = env.clients[nodes[emptyIndex === nodes[0] ? 1 : 0]];
+    const asPeer = nodeKey(peer.num);
+
     let held = null;
     await waitFor(async () => {
-      held = await holdingFor(client, folderId);
+      held = await holdingFor(client, folderId, asPeer);
       return (held?.bytes ?? 0) > 0;
     }, { timeout: 180000, interval: 5000, label: 'the node claims the owner\'s data it now holds' });
 
@@ -219,6 +242,28 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     // scaffolding had stopped being a local change at all.
     expect(held.bytes, `the claim must be the owner's ${ownerBytes} bytes and nothing else on the volume`).to.equal(ownerBytes);
     expect(held.newestModified, 'a claim carrying bytes must carry when they were written').to.be.greaterThan(0);
+
+    // WHO MAY READ IT. The claim above is a size and a last-write time for a
+    // customer's data, and the endpoint carrying it answers any peer that asks. Each
+    // case below is a caller the product never has, against a node that has just been
+    // shown to hold something - so an empty answer here is the refusal and not an
+    // empty volume.
+    const open = await client.get('/apps/promotedfolders');
+    expect(open?.data?.ready, 'the open answer must still be the one every peer relies on').to.equal(true);
+    expect(open?.data?.folders, 'folder ids are app names and stay open').to.be.an('array');
+    expect(open?.data?.holding, 'the open endpoint published a customer\'s data volumes').to.equal(undefined);
+
+    // A real signature by a real node, for a DIFFERENT node. This is a body captured
+    // in flight and replayed at the rest of the fleet, and it is the one thing
+    // signing alone does not stop.
+    const elsewhere = { target: `${peer.ip}:16127`, timestamp: Date.now(), pubKey: asPeer.pubkey };
+    const replayed = {
+      ...elsewhere,
+      signature: await signBtcMessage(JSON.stringify(elsewhere), asPeer.privkey),
+    };
+    const answer = await client.post('/apps/promotedfolders', replayed);
+    expect(answer?.data?.ready, 'a request for another node must still be answered, just not with holdings').to.equal(true);
+    expect(answer?.data?.holding, 'a signature naming another node was honoured here').to.equal(undefined);
   });
 
   it('binds every declared mount to the volume, not to the container layer', async function () {
