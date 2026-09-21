@@ -137,6 +137,32 @@ function syncthingIgnoreLines(unsyncedSubdirs = []) {
   return [...SYNCTHING_IGNORE_LINES, ...declared.filter((line) => !SYNCTHING_IGNORE_LINES.includes(line))];
 }
 
+/**
+ * The characters syncthing reads as pattern syntax inside an ignore line.
+ *
+ * `*` and `?` are wildcards, `[a]` is a character class, `{x,y}` is an alternation and
+ * `\` escapes what follows.
+ */
+const SYNCTHING_PATTERN_CHARS = /[*?[\]{}\\]/;
+
+/**
+ * Whether a volume-root name written into .stignore means itself.
+ *
+ * An ignore line is a pattern, not a name, so a name carrying pattern syntax describes
+ * some OTHER set of entries. `/[a]ppdata` excludes appdata - the component's synced
+ * storage - and leaves the directory literally named `[a]ppdata` replicating, so the
+ * line asserts the reverse of the spec, on every node at once and without an error
+ * anywhere. Escaping is the alternative and it takes a dependency on syncthing's escape
+ * syntax; a name is refused instead, because the form that needs this is new and no
+ * spec has one.
+ *
+ * @param {string} name - a single path component, not a path
+ * @returns {boolean}
+ */
+function isLiteralIgnoreName(name) {
+  return typeof name === 'string' && !SYNCTHING_PATTERN_CHARS.test(name);
+}
+
 const FOREIGN_NAMES = new Set([SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, 'lost+found']);
 
 /**
@@ -160,6 +186,7 @@ module.exports = {
   SYNCTHING_IGNORE_FILE,
   SYNCTHING_IGNORE_LINES,
   syncthingIgnoreLines,
+  isLiteralIgnoreName,
   isStagingName,
   isReservedName,
 };

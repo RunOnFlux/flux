@@ -344,6 +344,31 @@ describe('mountParser tests', () => {
       expect(() => mountParser.parseContainerData('/data|ml:lost+found:/a')).to.throw(/reserved name/);
     });
 
+    // The name is asserted as a syncthing ignore pattern, so one carrying pattern
+    // syntax stands for some other set of entries: `/[a]ppdata` excludes the
+    // component's synced storage and leaves the directory actually named
+    // `[a]ppdata` replicating - the reverse of the spec, on every node, silently.
+    ['[a]ppdata', '{appdata,cache}', 'back\\slash'].forEach((name) => {
+      it(`refuses a name syncthing would read as a pattern: ${name}`, () => {
+        expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+          .to.throw(/may not contain/);
+      });
+    });
+
+    // Refused before the rule above sees them, by the character set every mount name
+    // is held to. Named here because the ignore line is the reason they must stay out.
+    ['star*', 'quer?y'].forEach((name) => {
+      it(`refuses a wildcard in a name: ${name}`, () => {
+        expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+          .to.throw(/invalid characters/);
+      });
+    });
+
+    it('still accepts the ordinary names an ignore line can carry', () => {
+      expect(mountParser.getUnsyncedSubdirs('/data|ml:steam-content.v2:/a|ml:build_cache:/b'))
+        .to.deep.equal(['steam-content.v2', 'build_cache']);
+    });
+
     it('is not a primary mount - the primary carries the sync mode', () => {
       expect(() => mountParser.parseContainerData('ml:game:/home/steam/game'))
         .to.throw(/Invalid primary mount syntax/);
