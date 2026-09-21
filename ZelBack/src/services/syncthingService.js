@@ -22,6 +22,16 @@ const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 // it asked for. syncthing's own default is this value; a default is not a contract.
 const LOCAL_CHANGED_PAGE_SIZE = 65536;
 
+// The most pages one folder is read across in a single pass - a bound of our own,
+// because the entry count belongs to the app that writes the files and these requests
+// are paid again every monitor pass.
+//
+// Sixteen pages is 1,048,576 entries, sixteen times the largest folder the network
+// carries: across 456 syncthing folders the biggest holds 63,999 entries, the 99th
+// percentile 40,771. So no app that resembles one reaches the bound, and one that
+// does is reported truncated rather than walked for as long as it takes.
+const LOCAL_CHANGED_MAX_PAGES = 16;
+
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // Whether this process is the one that installs, spawns and owns the syncthing
@@ -1170,17 +1180,23 @@ async function getDbLocalChanged(folder, page = 1, perpage = LOCAL_CHANGED_PAGE_
 }
 
 /**
- * Every entry of a folder's local changes, across as many pages as it takes.
+ * A folder's local changes, handed to a caller one page at a time.
  *
  * The paging is syncthing's, so it is answered here rather than by each caller: a
- * caller that totals one page totals a PREFIX of any folder larger than it, and two
+ * caller that reads one page reads a PREFIX of any folder larger than it, and two
  * nodes each totalling their own prefix produce figures that no longer order by how
  * much each holds.
  *
- * Unbounded by intent. The work is bounded by what the node itself stores, and the
- * page size is large enough that the loop makes one request for any folder the
- * network currently carries - the largest measured across the fleet holds about half
- * a page.
+ * A PAGE AT A TIME, never accumulated. How many entries exist is the app's to decide
+ * - it writes the files into its own volume - so a list of them all is a list this
+ * process does not get to size. A caller that folds each page costs the same whatever
+ * the folder holds; one that collects them does not.
+ *
+ * Bounded for the same reason: these requests are paid every monitor pass, so an app
+ * carrying enough files could make the pass itself the expense. A folder that reaches
+ * the bound is reported truncated, and what the caller totalled is then a floor -
+ * which is all the ranking needs, because a folder that large outranks a normal one
+ * on any page of it.
  *
  * A short page ends it. A full page does not: the next request decides, and a folder
  * whose entry count is an exact multiple of the page size answers that one with no
@@ -1188,22 +1204,20 @@ async function getDbLocalChanged(folder, page = 1, perpage = LOCAL_CHANGED_PAGE_
  * the folder is unreadable.
  *
  * @param {string} folder Folder ID.
- * @returns {Promise<object>} { files: [...] }, files null when the folder cannot be read
+ * @param {Function} onBatch Receives each page's entries.
+ * @returns {Promise<{read: boolean, pages: number, truncated: boolean}>} read false
+ *   when the folder could not be read at all - which is not "holds nothing"
  */
-async function getAllDbLocalChanged(folder) {
-  const files = [];
+async function eachDbLocalChanged(folder, onBatch) {
   for (let page = 1; ; page += 1) {
     // eslint-disable-next-line no-await-in-loop
     const answer = await getDbLocalChanged(folder, page, LOCAL_CHANGED_PAGE_SIZE);
     const batch = answer?.files;
-    if (!Array.isArray(batch)) {
-      if (page === 1) return { files: batch ?? null };
-      break;
-    }
-    files.push(...batch);
-    if (batch.length < LOCAL_CHANGED_PAGE_SIZE) break;
+    if (!Array.isArray(batch)) return { read: page > 1, pages: page - 1, truncated: false };
+    onBatch(batch);
+    if (batch.length < LOCAL_CHANGED_PAGE_SIZE) return { read: true, pages: page, truncated: false };
+    if (page >= LOCAL_CHANGED_MAX_PAGES) return { read: true, pages: page, truncated: true };
   }
-  return { files };
 }
 
 /**
@@ -2809,7 +2823,7 @@ module.exports = {
   setFolderIgnores,
   getDbStatus,
   getDbLocalChanged,
-  getAllDbLocalChanged,
+  eachDbLocalChanged,
   postDbIgnores,
   postDbOverride,
   postDbPrio,

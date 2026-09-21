@@ -9,7 +9,7 @@ const proxyquire = require('proxyquire').noCallThru();
 // Create mocks for dependencies
 const syncthingServiceMock = {
   getDbStatus: sinon.stub(),
-  getAllDbLocalChanged: sinon.stub(),
+  eachDbLocalChanged: sinon.stub(),
   systemRestart: sinon.stub(),
   getConfig: sinon.stub(),
   getDbCompletion: sinon.stub(),
@@ -98,6 +98,16 @@ const localDir = (name) => ({
   name, type: 'FILE_INFO_TYPE_DIRECTORY', size: 128, deleted: false, modified: '2026-09-16T10:00:00Z',
 });
 
+// eachDbLocalChanged hands its caller one page at a time and reports how the walk
+// ended. A missing file list is the folder failing to answer, which is not the same
+// as a folder holding nothing - so it reports read:false rather than an empty page.
+const feed = (answer) => async (folderId, onBatch) => {
+  const files = answer?.files;
+  if (!Array.isArray(files)) return { read: false, pages: 0, truncated: false };
+  onBatch(files);
+  return { read: true, pages: 1, truncated: false };
+};
+
 // a directory entry as fs.readdir({ withFileTypes: true }) returns it
 const dirent = (name, isFile = true) => ({
   name,
@@ -141,7 +151,7 @@ describe('syncthingFolderStateMachine tests', () => {
     // Reset only this file's own stubs (NOT a global sinon.reset(), which would
     // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
-    syncthingServiceMock.getAllDbLocalChanged.reset();
+    syncthingServiceMock.eachDbLocalChanged.reset();
     syncthingServiceMock.systemRestart.reset();
     syncthingServiceMock.systemRestart.resolves();
     syncthingServiceMock.getConfig.reset();
@@ -193,7 +203,7 @@ describe('syncthingFolderStateMachine tests', () => {
     // Default: syncthing reports no local changes of the owner's. Tests that mean
     // "this node holds data" say so with localEntry, because a count of items is
     // exactly what cannot tell the owner's data from FluxOS scaffolding.
-    syncthingServiceMock.getAllDbLocalChanged.resolves({ files: [] });
+    syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [] }));
   });
 
   describe('isDesignatedLeader', () => {
@@ -420,7 +430,7 @@ describe('syncthingFolderStateMachine tests', () => {
   // holds the customer's world" and "this node holds what FluxOS put on the volume when
   // it built it". Every mount form a spec can declare leaves something in this list.
   describe('localHoldings', () => {
-    const answer = (files) => { syncthingServiceMock.getAllDbLocalChanged.resolves({ files }); };
+    const answer = (files) => { syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files })); };
 
     it('sums the owner\'s files and carries the newest of their timestamps', async () => {
       answer([
@@ -501,12 +511,12 @@ describe('syncthingFolderStateMachine tests', () => {
     // where folderIsEmpty was false on every node at 0/0 bytes and nobody was ever
     // elected: two holders each waiting for the other, with the app down throughout.
     it('answers null when the read fails, rather than nothing-held', async () => {
-      syncthingServiceMock.getAllDbLocalChanged.rejects(new Error('connect ECONNREFUSED'));
+      syncthingServiceMock.eachDbLocalChanged.rejects(new Error('connect ECONNREFUSED'));
       expect(await stateMachine.localHoldings('test-app', [])).to.equal(null);
     });
 
     it('answers null when the reply carries no file list at all', async () => {
-      syncthingServiceMock.getAllDbLocalChanged.resolves({ total: 0 });
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ total: 0 }));
       expect(await stateMachine.localHoldings('test-app', [])).to.equal(null);
     });
   });
@@ -1502,9 +1512,9 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.1:16127', runningSince: 2000, broadcastedAt: 1000 },
         { ip: '10.0.0.2', runningSince: 2000, broadcastedAt: 1000 },
       ]);
-      syncthingServiceMock.getAllDbLocalChanged.resolves({
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({
         files: [localEntry('world.dat', 5821604997, '2026-09-16T10:00:00Z')],
-      });
+      }));
       axiosMock.get.resolves({
         data: { data: { ready: true, folders: [], holding: { 'test-app': { bytes: 900, newestModified: 100 } } } },
       });
@@ -1524,9 +1534,9 @@ describe('syncthingFolderStateMachine tests', () => {
       // Directories carry the legacy synthetic size of 128 and a mtime of their own.
       // Counted, they would make this node look both non-empty and more recently
       // written than the peer actually holding the world.
-      syncthingServiceMock.getAllDbLocalChanged.resolves({
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({
         files: [localDir('appdata'), localDir('lost+found'), localEntry('server.json', 0, '2026-09-16T23:00:00Z')],
-      });
+      }));
       peerHoldsOlderData();
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
@@ -1537,9 +1547,9 @@ describe('syncthingFolderStateMachine tests', () => {
     it('does not let a full ml: directory outrank a peer holding the owner data', async () => {
       // The game files are excluded from replication, so they are not the cluster's to
       // hold and must not buy this node the seed over the node with the world.
-      syncthingServiceMock.getAllDbLocalChanged.resolves({
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({
         files: [localEntry('cache/enshrouded_server_000.dat', 257000000, '2026-09-16T23:00:00Z')],
-      });
+      }));
       mockParams.unsyncedSubdirs = ['cache'];
       peerHoldsOlderData();
 
@@ -1554,7 +1564,7 @@ describe('syncthingFolderStateMachine tests', () => {
       // and this node sorts first, so it would publish an unknown folder over a known
       // world. Two peers, because with every peer answering the ranking already sinks
       // an empty node and the distinction between "empty" and "unknown" never shows.
-      syncthingServiceMock.getAllDbLocalChanged.rejects(new Error('syncthing unreachable'));
+      syncthingServiceMock.eachDbLocalChanged.rejects(new Error('syncthing unreachable'));
       axiosMock.get.withArgs(sinon.match(/10\.0\.0\.2/)).resolves({
         data: { data: { ready: true, folders: [], holding: { 'test-app': { bytes: 900, newestModified: 100 } } } },
       });
@@ -1582,7 +1592,7 @@ describe('syncthingFolderStateMachine tests', () => {
     // customer's world. It holds the data, so it must win.
     it('the node holding the data wins the election though its address sorts last', async () => {
       mockParams.localSocketAddr = '9.0.0.1:16127';
-      syncthingServiceMock.getAllDbLocalChanged.resolves({ files: [localEntry('world.sav', 5821604997, '2026-09-16T09:00:00Z')] });
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [localEntry('world.sav', 5821604997, '2026-09-16T09:00:00Z')] }));
       // the peer answers, is ready, and claims nothing for this folder
       axiosMock.get.resolves({
         data: { data: { ready: true, folders: [], holding: { 'test-app': { bytes: 0, newestModified: 0 } } } },
@@ -1613,9 +1623,9 @@ describe('syncthingFolderStateMachine tests', () => {
     // Directories carry syncthing's legacy synthetic size of 128, so the filter keys on
     // TYPE - a size test would read them as content and reinstate the standoff.
     it('seeds a cold start whose only local changes are FluxOS scaffolding', async () => {
-      syncthingServiceMock.getAllDbLocalChanged.resolves({
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({
         files: [localDir('appdata'), localDir('lost+found'), localEntry('server.json', 0)],
-      });
+      }));
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
       });
@@ -1638,9 +1648,9 @@ describe('syncthingFolderStateMachine tests', () => {
     // holder - otherwise the standoff returns the first time a game finishes
     // downloading into it.
     it('seeds a cold start though an ml: directory is full', async () => {
-      syncthingServiceMock.getAllDbLocalChanged.resolves({
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({
         files: [localDir('appdata'), localEntry('cache/enshrouded_server_000.dat', 257000000)],
-      });
+      }));
       mockParams.unsyncedSubdirs = ['cache'];
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
@@ -1662,7 +1672,7 @@ describe('syncthingFolderStateMachine tests', () => {
     // from it rather than publish its own copy over the top. That half of the original
     // B1 guard is unchanged and is what keeps a node from broadcasting unverified data.
     it('defers to a peer that demonstrably holds the data, rather than publishing its own', async () => {
-      syncthingServiceMock.getAllDbLocalChanged.resolves({ files: [localEntry('world.sav', 4096)] });
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [localEntry('world.sav', 4096)] }));
       peerHoldsTheData();
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
@@ -1688,7 +1698,7 @@ describe('syncthingFolderStateMachine tests', () => {
     // The wait was unbounded and the data unreachable. Seen live on an app with 5.8 GB
     // of a customer's world on one node and both instances down.
     it('publishes the only copy when no peer holds the data', async () => {
-      syncthingServiceMock.getAllDbLocalChanged.resolves({ files: [localEntry('world.sav', 5821604997)] });
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [localEntry('world.sav', 5821604997)] }));
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
       });

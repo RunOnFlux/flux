@@ -198,40 +198,49 @@ async function checkDirectoryHasSyncScopedContent(dirPath) {
  *   to treat unreadable as empty and seed over data nobody could see.
  */
 async function localHoldings(folderId, skipNames = []) {
-  let answer;
+  let bytes = 0;
+  let newestModified = 0;
+  // Folded as each page arrives, so what this costs does not follow how many files
+  // the app chose to write.
+  const fold = (entries) => {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of entries) {
+      const name = typeof entry?.name === 'string' ? entry.name : '';
+      const topLevel = name.split('/')[0];
+      const owned = entry?.type === 'FILE_INFO_TYPE_FILE'
+        && entry.deleted !== true
+        && !isReservedName(topLevel)
+        && topLevel !== 'backup'
+        && !skipNames.includes(topLevel);
+      // An entry with no bytes contributes no timestamp either. The f: mount leaves a
+      // zero-length file that FluxOS touches at volume creation, so its mtime is the
+      // moment the volume was built - which would make a node holding nothing look more
+      // recently written than one holding the owner's world.
+      const size = owned ? Number(entry.size) || 0 : 0;
+      if (size > 0) {
+        bytes += size;
+        const modified = Date.parse(entry.modified);
+        if (Number.isFinite(modified) && modified > newestModified) newestModified = modified;
+      }
+    }
+  };
+
+  let outcome;
   try {
-    answer = await syncthingService.getAllDbLocalChanged(folderId);
+    outcome = await syncthingService.eachDbLocalChanged(folderId, fold);
   } catch (error) {
     log.warn(`localHoldings - ${folderId}: could not read local changes (${error.message}); treating as holding data`);
     return null;
   }
-  const entries = answer?.files;
-  if (!Array.isArray(entries)) {
+  if (!outcome?.read) {
     log.warn(`localHoldings - ${folderId}: db/localchanged returned no file list; treating as holding data`);
     return null;
   }
-
-  let bytes = 0;
-  let newestModified = 0;
-  // eslint-disable-next-line no-restricted-syntax
-  for (const entry of entries) {
-    const name = typeof entry?.name === 'string' ? entry.name : '';
-    const topLevel = name.split('/')[0];
-    const owned = entry?.type === 'FILE_INFO_TYPE_FILE'
-      && entry.deleted !== true
-      && !isReservedName(topLevel)
-      && topLevel !== 'backup'
-      && !skipNames.includes(topLevel);
-    // An entry with no bytes contributes no timestamp either. The f: mount leaves a
-    // zero-length file that FluxOS touches at volume creation, so its mtime is the
-    // moment the volume was built - which would make a node holding nothing look more
-    // recently written than one holding the owner's world.
-    const size = owned ? Number(entry.size) || 0 : 0;
-    if (size > 0) {
-      bytes += size;
-      const modified = Date.parse(entry.modified);
-      if (Number.isFinite(modified) && modified > newestModified) newestModified = modified;
-    }
+  if (outcome.truncated) {
+    // A floor rather than a total, and it is enough: a folder this large outranks a
+    // normal one on the pages already counted, and the ranking only has to stop a
+    // near-empty volume seeding over a full one.
+    log.warn(`localHoldings - ${folderId}: local changes span more than ${outcome.pages} pages; ${bytes} bytes is a floor, not the total`);
   }
   return { bytes, newestModified };
 }
