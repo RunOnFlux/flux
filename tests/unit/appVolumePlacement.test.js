@@ -296,6 +296,30 @@ describe('app volume placement', () => {
       expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
     });
 
+    // A write to a path goes through the mount stacked on top of it, so the
+    // row underneath describes a filesystem the path no longer reaches. Both
+    // of its answers are wrong there: whether the write succeeds, and how much
+    // room it would find.
+    it('refuses a disk another mount is stacked over, and offers the one on top', async () => {
+      const volumes = await placements([
+        row('/dev/sda2', '/', 'ext4', 50),
+        row('/dev/sdb1', '/mnt/data', 'ext4', 900),
+        row('/dev/sdc1', '/mnt/data', 'ext4', 20),
+      ]);
+      // by free space alone the shadowed 900 GiB row would have come first
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/', '/mnt/data']);
+      expect(volumes.find((v) => v.mount === '/mnt/data').filesystem).to.equal('/dev/sdc1');
+    });
+
+    it('refuses a disk shadowed by a read-only mount, whatever its own flag says', async () => {
+      const volumes = await placements([
+        row('/dev/sda2', '/', 'ext4', 50),
+        row('/dev/sdb1', '/mnt/data', 'ext4', 900),
+        row('/dev/sdc1', '/mnt/data', 'ext4', 800, { options: 'ro,relatime' }),
+      ]);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
     it("refuses a container runtime's own storage, whatever the filesystem says", async () => {
       const volumes = await placements(ZFS_DOCKER_GRAPH);
       // The container datasets are refused; the disk the operator gave docker

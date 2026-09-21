@@ -185,10 +185,23 @@ async function hostFilesystems() {
  * The image is a file written into the mount point, so the mount point has to
  * be a directory and has to be writable. A device cannot answer either.
  *
+ * A row with another mount stacked over it answers for a filesystem the path
+ * no longer reaches - neither its `ro` flag nor its free space describes what
+ * a write there would do - so only the mount a path resolves through, the last
+ * one listed at that target, is a candidate.
+ *
  * @param {object} mount One mount row from deviceHelper.
+ * @param {Array<object>} mounts The whole mount table the row came from.
  * @returns {Promise<boolean>} True when an image can be written there.
  */
-async function canHoldAppVolume(mount) {
+function visibleMountAt(target, mounts) {
+  const at = String(target).replace(/\/+$/, '');
+  const stack = mounts.filter((mount) => String(mount.target).replace(/\/+$/, '') === at);
+  return stack.length ? stack[stack.length - 1] : null;
+}
+
+async function canHoldAppVolume(mount, mounts) {
+  if (visibleMountAt(mount.target, mounts) !== mount) return false;
   if (mount.readOnly) return false;
   const stats = await fs.stat(mount.target).catch(() => null);
   return Boolean(stats && stats.isDirectory());
@@ -209,11 +222,15 @@ async function canHoldAppVolume(mount) {
  *   used: number, available: number}>>}
  */
 async function placementVolumesInGib() {
-  const hosts = await hostFilesystems();
+  // The unfiltered table, because what shadows a candidate decides where a
+  // write lands whether or not the node would place an image on the thing
+  // doing the shadowing.
+  const mounts = await deviceHelper.listMountedFilesystems();
+  const hosts = mounts.filter(isHostFilesystem);
   const writable = [];
   for (const mount of hosts) {
     // eslint-disable-next-line no-await-in-loop
-    if (await canHoldAppVolume(mount)) writable.push(mount);
+    if (await canHoldAppVolume(mount, mounts)) writable.push(mount);
   }
   return oneRowPerDevice(writable)
     .sort((a, b) => b.availableBytes - a.availableBytes)
