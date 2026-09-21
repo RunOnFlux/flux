@@ -109,7 +109,11 @@ const VOLUME_MOUNT_RETRY_MS = 30 * 1000;
 
 // identifiers whose missing backing image was already recorded as a tampering
 // event, so the paced retries don't re-record it every cycle
-const volumeMissingNoted = new Set();
+// The volume fault already recorded for a component, so a retry every few
+// seconds does not re-record one a minute. Keyed by fault as well as
+// component: an image that goes missing and an image that is replaced are
+// different events, and noting one must not swallow the other.
+const volumeFaultNoted = new Map();
 
 // A running container attached to NO network (a stale libnetwork endpoint left
 // by an earlier failed start) is healed by recreating it (force-remove + fresh
@@ -801,14 +805,22 @@ async function reconcile(rawIdentifier) {
     }
     log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
-    if (volumeMount.reason === 'volume_file_missing' && !volumeMissingNoted.has(identifier)) {
-      volumeMissingNoted.add(identifier);
-      await appTamperingDetectionService.recordEvent(mainAppName, 'volume_missing', `Backing volume image for ${identifier} not found on disk`);
+    // The image is gone, or the image is not the one this node made. Both are
+    // about the volume rather than the host, and a host fault carries its own
+    // reason and is recorded by the boot sweep at no weight.
+    const VOLUME_FAULT_EVENTS = {
+      volume_file_missing: ['volume_missing', `Backing volume image for ${identifier} not found on disk`],
+      volume_image_unrecognised: ['volume_image_unrecognised', `Volume image for ${identifier} is not the one this node created`],
+    };
+    const faultEvent = VOLUME_FAULT_EVENTS[volumeMount.reason];
+    if (faultEvent && volumeFaultNoted.get(identifier) !== volumeMount.reason) {
+      volumeFaultNoted.set(identifier, volumeMount.reason);
+      await appTamperingDetectionService.recordEvent(mainAppName, faultEvent[0], faultEvent[1]);
     }
     scheduleRetry(identifier, VOLUME_MOUNT_RETRY_MS);
     return;
   }
-  volumeMissingNoted.delete(identifier);
+  volumeFaultNoted.delete(identifier);
   if (!volumeMount.alreadyMounted) {
     log.info(`appReconciler - mounted data volume for ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeMounted' });

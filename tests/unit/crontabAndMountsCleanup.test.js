@@ -302,7 +302,11 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_image_unrecognised' }]);
-      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
+      // named for what it is, and under the same name the reconciler uses
+      // mid-run, so one app's fault reads the same whichever found it
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.false;
     });
 
     it('records a missing loop device as a host fault', async () => {

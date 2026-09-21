@@ -202,6 +202,37 @@ describe('appTamperingDetectionService tests', () => {
       expect(update.$inc).to.deep.equal({ count: 1 });
     });
 
+    // The boot sweep walks docker component identifiers and the reconciler
+    // works in app names. Stored as given, the same fault on the same app
+    // lands in two rows, and getEvents - which matches the name exactly -
+    // finds one of them.
+    it('stores one app under one name however the caller addressed it', async () => {
+      await service.recordEvent('fluxwp_wordpress123', 'mount_vanished', 'from the boot sweep');
+      await service.recordEvent('wordpress123', 'mount_vanished', 'from the reconciler');
+
+      const names = eventUpserts().map((c) => c.query.appName);
+      expect(names).to.deep.equal(['wordpress123', 'wordpress123']);
+      expect(eventUpserts()[0].update.$setOnInsert.appName).to.equal('wordpress123');
+    });
+
+    // An event type absent from the table records at weight zero without
+    // saying so, so the weight is pinned where the event is: a substituted
+    // image counts for what a missing one counts for, and neither reaches the
+    // threshold on its own.
+    it('weighs a substituted image the same as a missing one', async () => {
+      await service.recordEvent('myapp', 'volume_image_unrecognised', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(1);
+      expect(service.EVENT_SEVERITY.volume_image_unrecognised)
+        .to.equal(service.EVENT_SEVERITY.volume_missing);
+    });
+
+    it('leaves a name that is already the app its own', async () => {
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      expect(eventUpserts()[0].query.appName).to.equal('myapp');
+    });
+
     it('stamps node and operator identity from the daemon status', async () => {
       await service.recordEvent('myapp', 'container_vanished', 'x');
 

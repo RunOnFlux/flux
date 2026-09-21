@@ -138,14 +138,20 @@ async function ensureInstalledAppVolumesMounted() {
       // mount volumes is worth seeing and counting even though it is nobody's
       // fault, and nothing else on the node reports it.
       //
-      // What is left scores: an image that is gone, and an image the kernel
-      // will no longer mount as a filesystem, which is what an overwritten one
-      // looks like, the file still being there.
-      const hostFault = HOST_FAULT_MOUNT_REASONS.has(String(mountResult.reason).split(':')[0]);
+      // What is left scores: an image that is gone, an image the kernel will no
+      // longer mount as a filesystem, which is what an overwritten one looks
+      // like with the file still there, and an image that mounts but is not
+      // the one this node made. The last of those is named for what it is -
+      // the reconciler records it under the same name mid-run, so one app's
+      // fault reads the same whether a boot or a retry found it.
+      const reason = String(mountResult.reason).split(':')[0];
+      let eventType = 'mount_vanished';
+      if (HOST_FAULT_MOUNT_REASONS.has(reason)) eventType = 'volume_host_fault';
+      else if (reason === 'volume_image_unrecognised') eventType = 'volume_image_unrecognised';
       // eslint-disable-next-line no-await-in-loop
       await appTamperingDetectionService.recordEvent(
         appId,
-        hostFault ? 'volume_host_fault' : 'mount_vanished',
+        eventType,
         `Volume not mountable at startup: ${mountResult.reason}`,
       );
     } else if (mountResult.alreadyMounted) {

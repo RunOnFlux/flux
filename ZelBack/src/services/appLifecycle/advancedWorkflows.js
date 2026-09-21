@@ -3371,8 +3371,6 @@ async function testAppMount() {
   } catch (error) {
     log.error('Mount Test: Error...');
     log.error(error);
-    // node marked OK
-    // run removal
     removeTestAppMount();
   }
 }

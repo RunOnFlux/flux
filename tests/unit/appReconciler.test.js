@@ -536,6 +536,32 @@ describe('appReconciler tests', () => {
       expect(volumeEvents[0].args[0]).to.equal('App');
     });
 
+    // The stamp exists to catch exactly this, and a substitution found while
+    // the volume is unmounted otherwise scored nothing until the node next
+    // booted - the boot sweep being the only thing that recorded it.
+    it('records a tampering event when the image is not the one this node made', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_image_unrecognised' });
+      await appReconciler.reconcile('www_App');
+      await appReconciler.reconcile('www_App');
+      const volumeEvents = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_image_unrecognised');
+      expect(volumeEvents).to.have.lengthOf(1);
+      expect(volumeEvents[0].args[0]).to.equal('App');
+    });
+
+    // Noting one fault must not swallow the other: they are different events
+    // about the same component, and the second is the one that says an image
+    // was replaced.
+    it('records both volume faults when one follows the other', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      await appReconciler.reconcile('www_App');
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_image_unrecognised' });
+      await appReconciler.reconcile('www_App');
+      const types = stubs.appTamperingDetectionService.recordEvent.getCalls().map((c) => c.args[1]);
+      expect(types).to.include('volume_missing');
+      expect(types).to.include('volume_image_unrecognised');
+    });
+
     it('ensures the volume is mounted before actuating a pending data wipe', async () => {
       appReconciler.requestStopAndClearData('www_App', 'test wipe');
       // requestStopAndClearData enqueues its own reconcile; wait for it to land
