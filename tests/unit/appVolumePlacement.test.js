@@ -244,6 +244,16 @@ describe('app volume placement', () => {
       expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
     });
 
+    it('refuses a FAT filesystem, which can hold neither the image nor its permissions', async () => {
+      const volumes = await placements([
+        row('/dev/sda2', '/', 'ext4', 50),
+        // An ESP outside /boot - systemd-boot's usual mount point. It has by
+        // far the most room, so ranking alone would have taken it.
+        row('/dev/sda1', '/efi', 'vfat', 900),
+      ]);
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
     it('refuses the boot filesystem', async () => {
       const volumes = await placements(ARCANE_NODE);
       expect(volumes.map((v) => v.mount)).to.not.include('/boot/efi');

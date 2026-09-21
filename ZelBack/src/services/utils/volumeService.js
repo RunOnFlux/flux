@@ -109,6 +109,9 @@ function isHostFilesystem(mount) {
   // `fuse.s3fs`, `fuse.gcsfuse`. A local fuse pool loses nothing by being
   // refused here - the disks it pools are mounted in their own right.
   if (REMOTE_FSTYPES.has(fstype) || fstype.startsWith('fuse.')) return false;
+  // FAT caps a file at 4 GiB and carries no ownership or permissions, so an
+  // app's image cannot live on one whatever its free space says. The ESP is
+  // the usual one, but a removable stick is mounted anywhere.
   if (fstype === 'vfat') return false;
   if (mount.target === '/boot' || mount.target.startsWith('/boot/')) return false;
   const device = String(mount.source).split('[')[0];
