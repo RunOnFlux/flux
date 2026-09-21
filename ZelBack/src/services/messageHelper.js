@@ -3,8 +3,8 @@
 // A request that REACHED a handler is answered in the body, at HTTP 200, in the
 // shapes below - including when the answer is a failure. A refusal that happens
 // BEFORE a handler runs is answered with a wire status: the middlewares
-// (requireHttps 403, routeGuards 503/400), a request too large to accept
-// (a body too large to accept 413), a resource that does not exist to be addressed
+// (requireHttps 403, routeGuards 503/400), a body over express.json's default
+// 100kb limit (express 413), a resource that does not exist to be addressed
 // (fluxEventBus 404).
 //
 // This is the rule to write NEW code to, not a description of what is already
