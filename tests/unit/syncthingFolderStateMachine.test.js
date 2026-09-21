@@ -528,13 +528,27 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(stateMachine.bestHolder(peers(low, high), claims)).to.equal(high);
     });
 
-    it('prefers the most recently written copy when both hold data', () => {
+    // Identical byte counts are the one case a timestamp can be read as the same
+    // content written at different moments, so it decides only there.
+    it('prefers the most recently written copy when both hold the same bytes', () => {
       const claims = { [low]: { bytes: 900, newestModified: 100 }, [high]: { bytes: 900, newestModified: 200 } };
       expect(stateMachine.bestHolder(peers(low, high), claims)).to.equal(high);
     });
 
     it('prefers the larger copy when both were written at the same moment', () => {
       const claims = { [low]: { bytes: 100, newestModified: 100 }, [high]: { bytes: 900, newestModified: 100 } };
+      expect(stateMachine.bestHolder(peers(low, high), claims)).to.equal(high);
+    });
+
+    // The direction this ordering is chosen to fail in. A volume holding one recent
+    // scrap must never publish over the owner's world: the holder's files would
+    // become local changes in a folder that is now synced, and the revert deletes
+    // them. Losing the scrap's own writes is the lesser loss, and the recoverable one.
+    it('prefers the larger copy over a near-empty one written more recently', () => {
+      const claims = {
+        [low]: { bytes: 200, newestModified: 999 },
+        [high]: { bytes: 5821604997, newestModified: 100 },
+      };
       expect(stateMachine.bestHolder(peers(low, high), claims)).to.equal(high);
     });
 

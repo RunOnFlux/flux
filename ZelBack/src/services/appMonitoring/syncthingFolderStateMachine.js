@@ -483,8 +483,16 @@ function lowestIpHolder(allPeersList) {
  * where every candidate holds nothing and any of them is as good a seed as another. The
  * moment one holds the owner's data, an address comparison can publish an empty folder
  * over a full one, and the full one's files then become local changes that a later
- * revert deletes. So when anyone claims data, the claim decides: most recently written
- * first, larger second, address only to break a tie between equals.
+ * revert deletes. So when anyone claims data, the claim decides: the largest copy
+ * first, most recently written to separate equal sizes, address only to break a tie
+ * between equals.
+ *
+ * A size and a timestamp cannot express containment, so no ordering of them is right in
+ * every case: when a smaller copy holds writes the largest one never saw, seeding the
+ * largest loses them. The order is chosen for the direction it fails in - size first
+ * means a near-empty volume never publishes over a full one, which is the loss that
+ * cannot be recovered from. Recency decides only where the byte counts are identical,
+ * which is the one case it can be read as the same content written at different times.
  *
  * Every candidate must have answered for the ranking to be used. A peer too old for the
  * endpoint, or unreachable this pass, cannot be ranked - and ranking the ones that did
@@ -504,8 +512,8 @@ function bestHolder(allPeersList, claims) {
   const ranked = [...allPeersList].sort((a, b) => {
     const left = claims[a.ip];
     const right = claims[b.ip];
-    if (right.newestModified !== left.newestModified) return right.newestModified - left.newestModified;
     if (right.bytes !== left.bytes) return right.bytes - left.bytes;
+    if (right.newestModified !== left.newestModified) return right.newestModified - left.newestModified;
     if (a.ip < b.ip) return -1;
     if (a.ip > b.ip) return 1;
     return 0;
