@@ -352,12 +352,28 @@ async function fixAppdataPermissions(appId) {
     //
     // Root owns that directory and the executor runs in the container as root, so
     // it needs nothing from this.
-    const stagingPath = `${appPath}/${STAGING_ROOT}`;
-    const chmod = await serviceHelper.runCommand('find', {
-      runAsRoot: true,
-      params: [appPath, '-path', stagingPath, '-prune', '-o', '-exec', 'chmod', '777', '{}', '+'],
-    });
-    if (chmod.error) throw chmod.error;
+    //
+    // ONE RECURSIVE chmod PER TOP-LEVEL ENTRY, never a path walk that execs chmod
+    // over what it lists. A link on the volume is content: the app has its own
+    // directories mounted and can create one at any time, pointing anywhere on the
+    // host. chmod follows a link given as an ARGUMENT and ignores one met inside a
+    // traversal, so handing it a walk's output widens the link's TARGET - as root,
+    // at a path the app chose. These entries are the only arguments it is given,
+    // and the app can create none of them: the volume root is not mounted into any
+    // container, only the directories beneath it.
+    const entries = await fs.promises.readdir(appPath);
+    const widen = entries
+      .filter((entry) => entry !== STAGING_ROOT)
+      .map((entry) => path.join(appPath, entry));
+
+    // The root carries no -R of its own: recursing from there walks into the
+    // staging directory the filter exists to keep out.
+    const root = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', appPath] });
+    if (root.error) throw root.error;
+    if (widen.length) {
+      const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', ...widen] });
+      if (chmod.error) throw chmod.error;
+    }
     log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
   } catch (error) {
     log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);

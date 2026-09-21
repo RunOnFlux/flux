@@ -659,7 +659,12 @@ describe('syncthingFolderStateMachine tests', () => {
     // where it is open, and does not reach what is INSIDE it - a live operation's
     // staging entry, already widened by the same recursive pass.
     it('widens the app\'s own tree and skips the staging directory entirely', async () => {
+      // The volume root lists what is widened; the seed guard walks the folder
+      // below it and needs an empty disk to call a cold start safe.
       fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir
+        .withArgs(sinon.match((p) => typeof p === 'string' && p.endsWith('test-app')))
+        .resolves(['appdata', 'cache', '.flux-op']);
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
       });
@@ -671,16 +676,62 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.manageFolderSyncState(mockParams);
       expect(result.syncthingFolder.type, 'the fixture must reach a promotion, or nothing is chmodded').to.equal('sendreceive');
 
-      const widen = serviceHelperMock.runCommand.getCalls().find((call) => call.args[0] === 'find');
-      expect(widen, 'the app tree must still be widened').to.exist;
-      const { params } = widen.args[1];
-      const [appPath] = params;
+      const chmods = serviceHelperMock.runCommand.getCalls().filter((call) => call.args[0] === 'chmod');
+      expect(chmods, 'the app tree must still be widened').to.have.length(2);
 
-      // The subtree is pruned, and it is the staging directory that is pruned.
-      expect(params).to.include('-prune');
-      expect(params[params.indexOf('-path') + 1]).to.equal(`${appPath}/.flux-op`);
-      // And what survives the prune is still made writable by any UID.
-      expect(params.slice(params.indexOf('-exec'))).to.deep.equal(['-exec', 'chmod', '777', '{}', '+']);
+      // The root is widened on its own terms - a -R here walks into the staging
+      // directory whatever the argument list says.
+      const [rootCall, treeCall] = chmods;
+      expect(rootCall.args[1].params).to.have.length(2);
+      expect(rootCall.args[1].params[0]).to.equal('777');
+      expect(rootCall.args[1].runAsRoot).to.equal(true);
+      const appPath = rootCall.args[1].params[1];
+
+      // Every entry the app owns, and only those, are named as arguments.
+      expect(treeCall.args[1].params).to.deep.equal([
+        '-R', '777', `${appPath}/appdata`, `${appPath}/cache`,
+      ]);
+    });
+
+    // A link on the volume is content the app can write at any time. chmod follows
+    // one given as an ARGUMENT and ignores one met inside a traversal, so the whole
+    // property rests on nothing beneath the volume root reaching the argument list.
+    // That is the argument list itself, asserted here - the depth of every path
+    // chmod is handed, rather than the mode of any particular file.
+    it('never names anything the app could have made a link', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir
+        .withArgs(sinon.match((p) => typeof p === 'string' && p.endsWith('test-app')))
+        .resolves(['appdata', 'escape', '.flux-op']);
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+
+      await stateMachine.manageFolderSyncState(mockParams);
+
+      const commands = serviceHelperMock.runCommand.getCalls();
+      // Nothing walks the volume and hands chmod what it finds.
+      const walkers = commands.filter((call) => ['find', 'ls'].includes(call.args[0]));
+      expect(walkers, 'a path walk feeding chmod re-opens the link-following hole').to.have.length(0);
+
+      const chmods = commands.filter((call) => call.args[0] === 'chmod');
+      const appPath = chmods[0].args[1].params[1];
+      const named = chmods
+        .flatMap((call) => call.args[1].params)
+        .filter((param) => String(param).startsWith(appPath));
+
+      // Every argument is the volume root or one top-level entry of it. A path with
+      // more components below the root is one the app could have interposed a link on.
+      expect(named.length, 'no path was checked, so this asserts nothing').to.be.greaterThan(1);
+      named.forEach((target) => {
+        const rest = target.slice(appPath.length).replace(/^\//, '');
+        expect(rest.includes('/'), `${target} reaches below the volume root`).to.equal(false);
+        expect(rest, 'the staging directory is not the app\'s to widen').to.not.equal('.flux-op');
+      });
     });
 
     it('should elect leader and start immediately', async () => {
