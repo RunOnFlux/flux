@@ -371,7 +371,9 @@ async function isPathMounted(dirPath) {
  * is the owner's signed specification and holds nothing this node observed.
  *
  * @param {string} identifier Component identifier or docker app id.
- * @returns {Promise<{path: string, fsUuid: string|null}|null>}
+ * @returns {Promise<{path: string, fsUuid: string|null}|null>} Null when this
+ *   node recorded no image.
+ * @throws When the record cannot be read.
  */
 async function recordedVolumeImage(identifier) {
   return appsRuntimeState.getVolumeImage(identifier);
@@ -527,11 +529,30 @@ async function getVolumeFilePath(appId) {
   // Where this node put it, if it wrote that down. A lookup cannot be answered
   // by a file somebody else named, which is the whole weakness of the search
   // below.
-  const recorded = await recordedVolumeImage(appId);
+  // Read once, and handed back below: a second read of the same record is a
+  // second chance to disagree with this one, and the caller decides what to
+  // mount from both.
+  let recorded = null;
+  try {
+    recorded = await recordedVolumeImage(appId);
+  } catch (error) {
+    // The search below is exactly what the record exists to replace - it
+    // trusts a filename, so a planted one outranks the genuine image. Running
+    // it because the record could not be read would reopen that on a database
+    // hiccup, so nothing is searched and nothing is concluded.
+    log.warn(`getVolumeFilePath - the image recorded for ${appId} could not be read (${error.message}), so no search is made`);
+    return {
+      path: null, conclusive: false, blocked: 'record_unreadable', recorded: null,
+    };
+  }
   let blocked = null;
   if (recorded) {
     const failure = await fs.access(recorded.path).then(() => null).catch((error) => error);
-    if (!failure) return { path: recorded.path, conclusive: true, blocked: null };
+    if (!failure) {
+      return {
+        path: recorded.path, conclusive: true, blocked: null, recorded,
+      };
+    }
     // The recorded path is where this node put the image. If it cannot be read
     // at all, the search below can still find one - but it cannot say the
     // image is GONE, because the one place it is known to have been is the
@@ -573,7 +594,11 @@ async function getVolumeFilePath(appId) {
     // eslint-disable-next-line no-await-in-loop
     const failure = await fs.access(candidate).then(() => null).catch((error) => error);
     // Finding it settles the question whatever the search could not reach.
-    if (!failure) return { path: candidate, conclusive: true, blocked: null };
+    if (!failure) {
+      return {
+        path: candidate, conclusive: true, blocked: null, recorded,
+      };
+    }
     // ENOENT and ENOTDIR both say an image is not here, and say it definitely:
     // nothing can exist beneath a path component that is not a directory, and
     // a mount can be a file - docker binds /etc/hostname and its siblings off
@@ -587,7 +612,9 @@ async function getVolumeFilePath(appId) {
     }
   }
 
-  return { path: null, conclusive: !blocked, blocked };
+  return {
+    path: null, conclusive: !blocked, blocked, recorded,
+  };
 }
 
 /**
@@ -674,9 +701,20 @@ async function ensureAppVolumeMounted(identifier) {
     // the component quietly keeps the behaviour this exists to replace. One
     // unreadable probe at learn time must not settle that for good, so the
     // stamp is taken again whenever it is missing.
-    const known = await recordedVolumeImage(appId);
-    if (!known || !known.fsUuid) {
-      const backing = known ? known.path : await mountedImagePath(mountPoint);
+    // A record that cannot be read is not a record that is absent: writing one
+    // here would describe the mount by a path nothing confirmed. The volume is
+    // already up, so the bookkeeping waits for a pass that can read it.
+    const known = await recordedVolumeImage(appId).catch((error) => {
+      log.warn(`ensureAppVolumeMounted - the image recorded for ${appId} could not be read (${error.message}), so nothing is recorded for it now`);
+      return undefined;
+    });
+    if (known !== undefined && (!known || !known.fsUuid)) {
+      // What the mount actually resolves through, whenever the kernel will say:
+      // a recorded path is where an image was put, and a volume re-created
+      // elsewhere leaves that path naming a file this mount does not use.
+      // Stamping that file would harden the record onto data the app is not
+      // running on.
+      const backing = await mountedImagePath(mountPoint) || (known && known.path);
       if (backing) {
         const stamp = await imageFsUuid(backing);
         if (!known || stamp) await recordVolumeImage(appId, backing, stamp);
@@ -747,7 +785,7 @@ async function ensureAppVolumeMounted(identifier) {
   // that basis would refuse the app's real data for good, with no way back
   // short of destroying it. So a record that does not describe where the image
   // actually is, is stale rather than damning: it is replaced below.
-  const stamped = await recordedVolumeImage(appId);
+  const stamped = discovered.recorded;
   const atRecordedPath = Boolean(stamped) && stamped.path === volumeFile;
   if (atRecordedPath && stamped.fsUuid) {
     const found = await imageFsUuid(volumeFile);
@@ -1040,7 +1078,6 @@ module.exports = {
   mountedImagePath,
   recordNewVolumeImage,
   recordVolumeImage,
-  recordedVolumeImage,
   getComponentAppIdsFromVolumeFiles,
   ensureAppVolumeMounted,
   clearAppVolumeData,

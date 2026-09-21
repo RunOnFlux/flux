@@ -1200,7 +1200,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
     // eslint-disable-next-line no-restricted-syntax
     for (const identifier of removedIdentifiers) {
       // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.remove(identifier);
+      await appsRuntimeState.removeControllerState(identifier);
       if (onComponentRemoved) onComponentRemoved(identifier);
     }
 

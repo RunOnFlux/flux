@@ -497,7 +497,7 @@ describe('appUninstaller tests', () => {
     let runtimeStateStub;
 
     function buildUninstaller(spec, constantOverrides = {}) {
-      runtimeStateStub = { remove: sinon.stub().resolves() };
+      runtimeStateStub = { remove: sinon.stub().resolves(), removeControllerState: sinon.stub().resolves() };
       // The REAL departing tracker, taken fresh per test rather than
       // reimplemented here: a fake that counts differently from the module
       // would pass this suite over the defect the counting exists to prevent.
@@ -662,7 +662,7 @@ describe('appUninstaller tests', () => {
       expect(runtimeStateStub.remove.args.map((a) => a[0])).to.deep.equal(onRemoved.args.map((a) => a[0]));
     });
 
-    it('clears runtime state and fires the seam on SOFT removal too (redeploy clears the lock)', async () => {
+    it('clears controller state and fires the seam on SOFT removal too (redeploy clears the lock)', async () => {
       // user decision: a redeploy of any kind is an explicit "make it run" - the
       // operator lock (and the stale controller verdict) must not survive it
       const uninstaller = buildUninstaller(composedSpec);
@@ -671,8 +671,20 @@ describe('appUninstaller tests', () => {
 
       await uninstaller.softRemoveAppLocally('testapp', null, { removalInProgress: false, installationInProgress: false }, sinon.stub());
 
-      expect(runtimeStateStub.remove.args.map((a) => a[0])).to.have.members(['comp1_testapp', 'comp2_testapp']);
+      expect(runtimeStateStub.removeControllerState.args.map((a) => a[0])).to.have.members(['comp1_testapp', 'comp2_testapp']);
       expect(onRemoved.args.map((a) => a[0])).to.have.members(['comp1_testapp', 'comp2_testapp']);
+    });
+
+    // A soft removal leaves the image on disk and the volume mounted, so the
+    // record naming that image still describes something that is there.
+    // Dropping the whole document sends the next boot back to the filename
+    // search, which stamps whatever it finds as this node's own.
+    it('does not drop the volume record a soft removal is leaving in place', async () => {
+      const uninstaller = buildUninstaller(composedSpec);
+
+      await uninstaller.softRemoveAppLocally('testapp', null, { removalInProgress: false, installationInProgress: false }, sinon.stub());
+
+      sinon.assert.notCalled(runtimeStateStub.remove);
     });
 
     it('completes removal when no seam callback is registered', async () => {

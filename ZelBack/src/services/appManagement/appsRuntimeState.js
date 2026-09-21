@@ -457,6 +457,42 @@ async function recordExit(identifier, exitCode) {
 }
 
 /**
+ * What survives a component being taken down without its volume.
+ *
+ * Named as what is KEPT rather than what is cleared, so a controller field
+ * added later is dropped by a soft removal without anyone remembering to name
+ * it here. Everything in this list is the node's account of its own storage,
+ * which the removal is not touching.
+ */
+const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid'];
+
+/**
+ * Drops the controller state for a component whose volume stays where it is.
+ *
+ * A soft removal leaves the image on disk and the volume mounted, so the
+ * record of which image that is describes something that still exists. Losing
+ * it sends the next boot back to searching the disks by filename, and stamps
+ * whatever that search turns up as this node's own.
+ *
+ * @param {string} identifier
+ */
+async function removeControllerState(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  try {
+    const state = await getState(identifier);
+    if (!state) return;
+    const kept = { identifier, updatedAt: Date.now() };
+    SURVIVES_SOFT_REMOVAL.forEach((field) => {
+      if (state[field] !== undefined) kept[field] = state[field];
+    });
+    const database = collection();
+    await dbHelper.replaceOneInDatabase(database, appsRuntimeState, { identifier }, kept);
+  } catch (err) {
+    log.error(`appsRuntimeState - failed to clear controller state for ${identifier}: ${err.message}`);
+  }
+}
+
+/**
  * Drops all runtime state for a component (on uninstall).
  *
  * @param {string} identifier
@@ -492,11 +528,25 @@ async function setVolumeImage(identifier, volumeImagePath, volumeFsUuid) {
  * The volume image this node recorded for a component, or null when it has
  * none - every component installed before the record existed.
  *
+ * THROWS when the record cannot be read. Null is "this node recorded no
+ * image", and a caller acts on that by searching the disks and trusting what
+ * it finds; a database that would not answer has not established that, and
+ * answering null for it hands an unverified image the standing of a recorded
+ * one. This does not go through getState for that reason.
+ *
  * @param {string} rawIdentifier Component identifier or docker app id.
  * @returns {Promise<{path: string, fsUuid: string|null}|null>}
+ * @throws When the state cannot be read.
  */
 async function getVolumeImage(rawIdentifier) {
-  const state = await getState(rawIdentifier);
+  const identifier = canonical(rawIdentifier);
+  const database = collection();
+  const state = await dbHelper.findOneInDatabase(
+    database,
+    appsRuntimeState,
+    { identifier },
+    { projection: { _id: 0 } },
+  );
   if (!state || !state.volumeImagePath) return null;
   return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null };
 }
@@ -534,8 +584,16 @@ async function prepareCollection() {
         // What follows overrides the ones whose correct value is not simply
         // "whichever was written last".
         const oldestFirst = [...twins].sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+        // The image record is one claim - that the file at this path carries
+        // this UUID - so it moves as a pair. Merged field-wise it could take
+        // the path from one twin and the stamp from another, and a record
+        // saying an image carries a UUID it never carried refuses that volume
+        // for good: the refusal returns before the line that would replace it.
+        const withImage = oldestFirst.filter((t) => t.volumeImagePath);
+        const image = withImage.length ? withImage[withImage.length - 1] : null;
         const merged = {
           ...Object.assign({}, ...oldestFirst),
+          ...(image ? { volumeImagePath: image.volumeImagePath, volumeFsUuid: image.volumeFsUuid || null } : {}),
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
@@ -594,6 +652,7 @@ module.exports = {
   recordExit,
   setVolumeImage,
   getVolumeImage,
+  removeControllerState,
   remove,
   BACKOFF_DELAYS_MS,
   STABLE_RUN_MS,

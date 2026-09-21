@@ -319,6 +319,20 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
 
+    it('records a record this node could not read as a host fault', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'record_unreadable' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'record_unreadable' }]);
+      // a database this node could not read is this node's problem, not the
+      // operator's - recorded so it is countable, weighing nothing
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
     it('records a host refusal over a mountable image as a host fault', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');

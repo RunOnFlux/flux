@@ -642,6 +642,27 @@ describe('appsRuntimeState tests', () => {
       expect(await appsRuntimeState.isNetworkHealRemoval('www_App')).to.be.false;
     });
 
+    it('a read failure throws rather than reporting "no image recorded"', async () => {
+      // null is "this node recorded no image", and a caller acts on that by
+      // searching the disks and trusting what it finds. A database that would
+      // not answer has established nothing of the sort.
+      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => { throw new Error('db unavailable'); },
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      let thrown = null;
+      await failing.getVolumeImage('www_App').catch((e) => { thrown = e; });
+
+      expect(thrown, 'must not silently answer "no image"').to.be.an('error');
+    });
+
     it('survives a process restart: a fresh module instance reads the persisted flag', async () => {
       // this is the whole point of the flag - an in-memory map would lose the fact
       // that the reconciler removed the container itself, and the next process would
@@ -722,28 +743,65 @@ describe('appsRuntimeState tests', () => {
       });
     });
 
-    // The merge names the fields whose correct value is not simply "the newest".
-    // Everything else has to survive by being carried, or every field added to
-    // this document after the merge was written is silently dropped by it -
-    // and the volume record is what that would cost today.
+    // The merge names every field this document carries today, so what this
+    // pins is what happens to the next one: a field added later and not named
+    // here survives only by being carried, from whichever twin holds it. The
+    // field names below are deliberately not real ones - a real one would be
+    // testing its own named rule instead.
     it('carries fields the merge does not name, from whichever twin has them', async () => {
       docs = [
-        // the older twin is the only one carrying the stamp, which is the
-        // scatter this merge exists to repair - taking fields from the newest
-        // document alone would drop it
         {
-          identifier: 'www_App', volumeFsUuid: 'u-scattered', updatedAt: 1000,
+          identifier: 'www_App', fieldAddedLater: 'older-twin', updatedAt: 1000,
         },
         {
-          identifier: 'www_App', volumeImagePath: '/mnt/new.img', updatedAt: 9000,
+          identifier: 'www_App', anotherFieldAddedLater: 'newer-twin', updatedAt: 9000,
         },
       ];
 
       await prepState.prepareCollection();
 
       const merged = upserts[0].set;
-      expect(merged.volumeFsUuid, 'a field only the older twin carried was dropped').to.equal('u-scattered');
-      expect(merged.volumeImagePath).to.equal('/mnt/new.img');
+      expect(merged.fieldAddedLater, 'a field only the older twin carried was dropped').to.equal('older-twin');
+      expect(merged.anotherFieldAddedLater).to.equal('newer-twin');
+    });
+
+    // The image record is the one pair that must not be merged field-wise: a
+    // path from one twin and a stamp from another describe an image that never
+    // existed, and ensureAppVolumeMounted refuses such a volume permanently.
+    it('takes the image path and its stamp from the same twin', async () => {
+      docs = [
+        {
+          identifier: 'www_App', volumeImagePath: '/mnt/old.img', volumeFsUuid: 'u-old', updatedAt: 1000,
+        },
+        // a stamp with no path beside it: merged field-wise this newer value
+        // lands on the older twin's path, describing an image that never was
+        {
+          identifier: 'www_App', volumeFsUuid: 'u-orphan', updatedAt: 9000,
+        },
+      ];
+
+      await prepState.prepareCollection();
+
+      const merged = upserts[0].set;
+      expect(merged.volumeImagePath).to.equal('/mnt/old.img');
+      expect(merged.volumeFsUuid, 'the stamp came from a twin that named another image').to.equal('u-old');
+    });
+
+    it('keeps a stamped image over a later twin that names none', async () => {
+      docs = [
+        {
+          identifier: 'www_App', volumeImagePath: '/mnt/only.img', volumeFsUuid: 'u-only', updatedAt: 1000,
+        },
+        {
+          identifier: 'www_App', operatorStopped: true, updatedAt: 9000,
+        },
+      ];
+
+      await prepState.prepareCollection();
+
+      const merged = upserts[0].set;
+      expect(merged.volumeImagePath).to.equal('/mnt/only.img');
+      expect(merged.volumeFsUuid).to.equal('u-only');
     });
 
     it('takes the newest value when both twins carry the same field', async () => {

@@ -400,13 +400,29 @@ describe('volumeService tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
     });
 
+    // The search trusts a filename, so a planted one outranks the genuine
+    // image - which is the weakness the record exists to remove. Running it
+    // because the record could not be READ would reopen that on a database
+    // hiccup, so nothing is searched and nothing is concluded.
+    it('searches nothing at all when the record cannot be read', async () => {
+      appsRuntimeStateStub.getVolumeImage.rejects(new Error('MongoNetworkError'));
+
+      const result = await volumeService.getVolumeFilePath('fluxapp1');
+
+      expect(result).to.deep.equal({
+        path: null, conclusive: false, blocked: 'record_unreadable', recorded: null,
+      });
+      sinon.assert.notCalled(deviceHelperStub.listMountedFilesystems);
+      sinon.assert.notCalled(fsStub.promises.access);
+    });
+
     it('is used without searching the disks at all', async () => {
       appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/data/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
       fsStub.promises.access.resolves();
 
       const result = await volumeService.getVolumeFilePath('fluxapp1');
 
-      expect(result).to.deep.equal({ path: '/mnt/data/fluxapp1FLUXFSVOL', conclusive: true, blocked: null });
+      expect(result).to.deep.include({ path: '/mnt/data/fluxapp1FLUXFSVOL', conclusive: true, blocked: null });
       // the mount table is never read, so nothing a search could be fooled by matters
       sinon.assert.notCalled(deviceHelperStub.listMountedFilesystems);
     });
@@ -614,6 +630,42 @@ describe('volumeService tests', () => {
 
       await volumeService.ensureAppVolumeMounted('app1');
 
+      sinon.assert.notCalled(appsRuntimeStateStub.setVolumeImage);
+    });
+
+    // A recorded path is where an image was PUT. A volume re-created elsewhere
+    // leaves that path naming a file this mount does not use, and stamping it
+    // hardens the record onto data the app is not running on.
+    it('takes the stamp from what the mount resolves through, not the recorded path', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/old/fluxapp1FLUXFSVOL', fsUuid: null });
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
+        .resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/backing_file', 'utf8')
+        .resolves('/mnt/live/fluxapp1FLUXFSVOL\n');
+      dispatchRunCommand({ blkid: async () => ({ error: null, stdout: 'u-live\n', stderr: '' }) });
+
+      await volumeService.ensureAppVolumeMounted('app1');
+
+      sinon.assert.calledWith(appsRuntimeStateStub.setVolumeImage, 'fluxapp1', '/mnt/live/fluxapp1FLUXFSVOL', 'u-live');
+    });
+
+    // A record that could not be read is not a record that is absent. Writing
+    // one here would describe the mount by a path nothing confirmed.
+    it('records nothing when the record could not be read', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      appsRuntimeStateStub.getVolumeImage.rejects(new Error('MongoNetworkError'));
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
+        .resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
+      // everything a relearn needs is available, so nothing else can be what
+      // stops one happening
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/backing_file', 'utf8')
+        .resolves('/mnt/data/fluxapp1FLUXFSVOL\n');
+      dispatchRunCommand({ blkid: async () => ({ error: null, stdout: 'u-1\n', stderr: '' }) });
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: true, alreadyMounted: true });
       sinon.assert.notCalled(appsRuntimeStateStub.setVolumeImage);
     });
   });
@@ -911,6 +963,37 @@ describe('volumeService tests', () => {
       const mkdir = callsFor('mkdir');
       expect(mkdir).to.have.lengthOf(1);
       expect(mkdir[0].args[1].params).to.deep.equal(['-p', `${APPS_FOLDER}fluxapp1`]);
+    });
+
+    // Two reads of the same record are two chances to disagree, and the mount
+    // is decided from both: the path to mount comes from one, the stamp it is
+    // held to from the other. A record that changed between them, or a second
+    // read that failed where the first did not, skips the check entirely.
+    it('decides the mount from a single read of the record', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/data/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
+      fsStub.promises.access.resolves();
+
+      await volumeService.ensureAppVolumeMounted('app1');
+
+      sinon.assert.calledOnce(appsRuntimeStateStub.getVolumeImage);
+    });
+
+    // A database that would not answer has not established that the image is
+    // missing, and the reason a mount did not happen is what other services
+    // act on: this one defers, and scores nothing against the operator.
+    it('defers rather than deciding when the record could not be read', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      appsRuntimeStateStub.getVolumeImage.rejects(new Error('MongoNetworkError'));
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: false, reason: 'record_unreadable' });
+      sinon.assert.notCalled(appsRuntimeStateStub.setVolumeImage);
     });
 
     // The reason a mount did not happen is what other services act on, so an
