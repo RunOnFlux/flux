@@ -96,6 +96,11 @@ const NETWORK_STORAGE = [
   row('nas:/export', '/mnt/nas', 'nfs4', 4000),
   row('//nas/media', '/mnt/media', 'cifs', 3000),
   row('hostshare', '/mnt/hostshare', 'virtiofs', 2000),
+  // The cluster filesystems are the same answer as NFS: the bytes are on
+  // somebody else's machine, however the mount is spelled.
+  row('mds@tcp:/lustrefs', '/mnt/lustre', 'lustre', 5000),
+  row('gpfsdev', '/mnt/gpfs', 'gpfs', 5000),
+  row('beegfs_nodev', '/mnt/beegfs', 'beegfs', 5000),
 ];
 
 // The same, mounted through fuse, which names the driver rather than the

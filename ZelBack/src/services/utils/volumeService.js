@@ -32,7 +32,8 @@ const EPHEMERAL_FSTYPES = new Set(['tmpfs', 'ramfs', 'devtmpfs', 'overlay', 'squ
  * arrive in the mount table looking like any local disk.
  */
 const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
-  'afs', 'ncpfs', 'ceph', 'glusterfs', 'virtiofs', '9p']);
+  'afs', 'ncpfs', 'ceph', 'glusterfs', 'lustre', 'gpfs', 'beegfs',
+  'virtiofs', '9p']);
 
 /**
  * Where a container runtime keeps the filesystems it owns.
