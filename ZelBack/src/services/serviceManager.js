@@ -309,6 +309,16 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
+    // Named literally because they are no longer part of the schema: the payment
+    // request and receipt collections outlived the endpoint that wrote them, and
+    // a node's word was never the payment record - the chain is. Dropping is
+    // idempotent, so this costs one 'ns not found' per boot once they are gone.
+    await Promise.all(['activepaymentrequests', 'completedpayments'].map((orphan) => dbHelper
+      .dropCollection(database, orphan).catch((error) => {
+        if (error.message !== 'ns not found') {
+          log.error(error);
+        }
+      })));
     await ensureIndexes(database.collection(config.database.local.collections.loggedUsers), [
       { key: { createdAt: 1 }, expireAfterSeconds: 14 * 24 * 60 * 60 },
     ]);
