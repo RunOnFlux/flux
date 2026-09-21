@@ -722,6 +722,29 @@ describe('appsRuntimeState tests', () => {
       });
     });
 
+    // The merge names the fields whose correct value is not simply "the newest".
+    // Everything else has to survive by being carried, or every field added to
+    // this document after the merge was written is silently dropped by it -
+    // and the volume record is what that would cost today.
+    it('carries fields the merge does not name, from the newest twin', async () => {
+      docs = [
+        {
+          _id: 'a', identifier: 'www_App', volumeImagePath: '/mnt/old.img', volumeFsUuid: 'u-old', updatedAt: 1000,
+        },
+        {
+          _id: 'b', identifier: 'www_App', volumeImagePath: '/mnt/new.img', volumeFsUuid: 'u-new', updatedAt: 9000,
+        },
+      ];
+
+      await prepState.prepareCollection();
+
+      const merged = upserts[0].set;
+      expect(merged.volumeImagePath, 'the volume record did not survive the merge').to.equal('/mnt/new.img');
+      expect(merged.volumeFsUuid).to.equal('u-new');
+      // the old identity must not travel into the fresh insert
+      expect(merged._id, 'the merged document carried an _id').to.equal(undefined);
+    });
+
     it('merges twins field-wise: lock is OR, histories union, newest exit wins', async () => {
       docs = [
         {

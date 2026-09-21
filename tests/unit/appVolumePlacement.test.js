@@ -371,6 +371,59 @@ describe('app volume placement', () => {
       expect(volumes).to.have.lengthOf(1);
     });
 
+    // Which of a disk's directories survives deduplication is not cosmetic:
+    // it is the directory the image is written into. The shortest target wins,
+    // so the image lands at the disk's own mount rather than inside a bind of
+    // it that an operator may unmount independently.
+    it('keeps the shortest directory of a disk bound twice, which is where the image goes', async () => {
+      const volumes = await placements([
+        row('/dev/sda2[/data]', '/mnt/appdata/inner/deeper', 'ext4', 1831),
+        row('/dev/sda2[/data]', '/mnt/appdata', 'ext4', 1831),
+      ]);
+      expect(volumes).to.have.lengthOf(1);
+      expect(volumes[0].mount).to.equal('/mnt/appdata');
+    });
+
+    // The second reading is a second findmnt, and it can fail on its own. It
+    // decides a refusal, so losing it must cost the shadowing check and not
+    // the install: development ran one findmnt and never failed for this.
+    it('still offers disks when the full mount table cannot be read at all', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        row('/dev/sda2', '/', 'ext4', 50), row('/dev/sdb1', '/mnt/data', 'ext4', 900),
+      ]);
+      deviceHelperStub.listAllMounts.rejects(new Error('findmnt --list failed'));
+
+      const volumes = await volumeService.placementVolumesInGib();
+
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/mnt/data', '/']);
+    });
+
+    // The abstain branch: a candidate the full table does not mention at all is
+    // left to the other rules rather than refused. The two readings are taken
+    // a moment apart and spell their sources themselves, so a disagreement
+    // that silently refused every disk would cost the node more than the
+    // shadowing it is guarding against.
+    it('offers a disk the full mount table does not mention', async () => {
+      const volumes = await placements(
+        [row('/dev/sda2', '/', 'ext4', 50), row('/dev/sdb1', '/mnt/data', 'ext4', 900)],
+        [{ source: '/dev/sda2', target: '/', fstype: 'ext4' }],
+      );
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/mnt/data', '/']);
+    });
+
+    // and the counterpart, so abstaining cannot quietly become "never refuse":
+    // a different source AT the target is something mounted over it
+    it('refuses a disk the full table shows something else mounted over', async () => {
+      const volumes = await placements(
+        [row('/dev/sda2', '/', 'ext4', 50), row('/dev/sdb1', '/mnt/data', 'ext4', 900)],
+        [
+          { source: '/dev/sda2', target: '/', fstype: 'ext4' },
+          { source: '/dev/sdc9', target: '/mnt/data', fstype: 'ext4' },
+        ],
+      );
+      expect(volumes.map((v) => v.mount)).to.deep.equal(['/']);
+    });
+
     it('does not multiply free space by the number of binds', async () => {
       const volumes = await placements(TWICE_BOUND_DISK);
       const total = volumes.reduce((sum, v) => sum + v.available, 0);

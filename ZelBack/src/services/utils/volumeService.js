@@ -18,8 +18,13 @@ const {
 const BYTES_PER_GIB = 1024 ** 3;
 
 /**
- * Filesystems whose contents do not survive a reboot. A volume image placed on
- * one would take the app's data with it, however much room it reports free.
+ * Filesystems no app volume belongs on, whatever room they report free.
+ *
+ * tmpfs, ramfs and devtmpfs hold their contents in memory and lose them at a
+ * reboot. overlay and squashfs are not that - an overlay's upper layer is on
+ * disk and squashfs is a read-only image - but both belong to something else:
+ * an overlay is a container's own writable layer, and a squashfs cannot be
+ * written to at all.
  */
 const EPHEMERAL_FSTYPES = new Set(['tmpfs', 'ramfs', 'devtmpfs', 'overlay', 'squashfs']);
 
@@ -29,8 +34,10 @@ const EPHEMERAL_FSTYPES = new Set(['tmpfs', 'ramfs', 'devtmpfs', 'overlay', 'squ
  * can the app's data is hostage to a share that can go away while the node
  * keeps running.
  *
- * `findmnt --real` excludes pseudo filesystems and nothing else, so these
- * arrive in the mount table looking like any local disk.
+ * `findmnt --real` excludes libmount's pseudo filesystems and nothing else, so
+ * most of these arrive in the mount table looking like any local disk. A few
+ * are on that list too and never arrive; they are named here anyway, because
+ * which entries libmount carries is its business and not a thing to depend on.
  */
 const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
   'afs', 'ncpfs', 'ceph', 'glusterfs', 'lustre', 'gpfs', 'beegfs',
@@ -248,7 +255,15 @@ async function placementVolumesInGib() {
   // Every mount, for the shadowing question alone: what a write to a candidate
   // actually lands on is whatever the kernel resolves that path through, which
   // need not be block-backed and so need not appear above.
-  const allMounts = await deviceHelper.listAllMounts();
+  // A reading that does not arrive leaves the shadowing question unanswered
+  // rather than failing the install: the block-backed table already in hand
+  // still shows a stacked real mount, and refusing every disk because a second
+  // findmnt did not return is worse than the answer this node gave before the
+  // question was asked at all.
+  const allMounts = await deviceHelper.listAllMounts().catch((error) => {
+    log.warn(`placementVolumesInGib - could not read the full mount table (${error.message}); shadowing is judged from the block-backed one`);
+    return mounts;
+  });
   const hosts = mounts.filter(isHostFilesystem);
   const writable = [];
   for (const mount of hosts) {
@@ -303,7 +318,11 @@ async function eligibleHostMounts() {
  * @returns {Promise<boolean>} True when that filesystem is mounted `ro`.
  */
 async function isOnReadOnlyFilesystem(target) {
-  const mounts = await deviceHelper.listMountedFilesystems().catch(() => []);
+  // Every mount, not the block-backed ones alone. This decides a REFUSAL, and
+  // what a path resolves through need not be block-backed - `--real` drops
+  // exactly the filesystems that answer differently from the disk beneath
+  // them, which is why placement asks the full table for the same question.
+  const mounts = await deviceHelper.listAllMounts().catch(() => []);
   const holders = mounts.filter((mount) => {
     const at = String(mount.target).replace(/\/+$/, '');
     return target === at || target.startsWith(`${at}/`);
@@ -364,10 +383,14 @@ async function recordedVolumeImage(identifier) {
 /**
  * Records where this node put a component's image and what it stamped it with.
  *
- * Best effort: a volume that exists and cannot be written down is still a
- * working volume, and the fallback search still finds it. Failing the mount
- * over the record would make the bookkeeping more load-bearing than the thing
- * it describes.
+ * Best effort where nothing is recorded yet: a volume that exists and cannot
+ * be written down is still a working volume, and the fallback search still
+ * finds it. Failing a mount over the bookkeeping would make the record more
+ * load-bearing than the thing it describes.
+ *
+ * It is NOT best effort where a record already exists and this one supersedes
+ * it - see recordNewVolumeImage. A stamp left describing an image that has
+ * been replaced refuses the volume that is actually there, for good.
  *
  * @param {string} identifier Component identifier or docker app id.
  * @param {string} volumeFile Absolute path of the image.
@@ -377,6 +400,26 @@ async function recordVolumeImage(identifier, volumeFile, fsUuid) {
   await appsRuntimeState.setVolumeImage(identifier, volumeFile, fsUuid).catch((error) => {
     log.warn(`recordVolumeImage - could not record ${volumeFile} for ${identifier}: ${error.message}`);
   });
+}
+
+/**
+ * Records the image a fresh volume was just created as, and throws when it
+ * cannot.
+ *
+ * Creating a volume reformats it under a new stamp, so any record naming the
+ * old one now describes an image that no longer exists. Left there it refuses
+ * the new volume at every mount, deferring the app for good and recording a
+ * tampering event against the operator on every boot - and nothing repairs it,
+ * because nothing else writes this. The install is failed instead, where it
+ * still rolls back.
+ *
+ * @param {string} identifier Component identifier or docker app id.
+ * @param {string} volumeFile Absolute path of the image.
+ * @param {string} fsUuid Filesystem UUID the image was created with.
+ * @throws when the record cannot be written.
+ */
+async function recordNewVolumeImage(identifier, volumeFile, fsUuid) {
+  await appsRuntimeState.setVolumeImage(identifier, volumeFile, fsUuid);
 }
 
 /**
@@ -400,6 +443,24 @@ async function imageFsUuid(volumeFile) {
 }
 
 /**
+ * The filesystem type inside a volume image, or null when it holds none that
+ * the kernel recognises.
+ *
+ * Probed with the cache disabled, for the same reason the UUID is.
+ *
+ * @param {string} volumeFile Absolute path of the image.
+ * @returns {Promise<string|null>}
+ */
+async function imageFsType(volumeFile) {
+  const res = await serviceHelper.runCommand('blkid', {
+    runAsRoot: true, params: ['-c', '/dev/null', '-o', 'value', '-s', 'TYPE', volumeFile], logError: false,
+  });
+  if (res.error) return null;
+  const kind = String(res.stdout || '').trim();
+  return kind || null;
+}
+
+/**
  * The image behind a volume that is already mounted, read from the kernel.
  *
  * The authority for a node upgrading with its apps up: the loop device names
@@ -414,18 +475,32 @@ async function mountedImagePath(dirPath) {
   if (mountinfo === null) return null;
   const target = path.resolve(dirPath);
   const unescapeMount = (value) => value.replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
-  const line = mountinfo.split('\n').find((entry) => {
+  // The LAST row at the target, not the first: mounts stack, and the one a
+  // path resolves through is the one added last. Reading the first learns the
+  // image a later mount has already hidden, and records it as the one to come
+  // back to - which is stale data, mounted silently on the next boot.
+  const at = mountinfo.split('\n').filter((entry) => {
     const fields = entry.split(' ');
     return fields.length > 4 && unescapeMount(fields[4]) === target;
   });
-  if (!line) return null;
+  if (!at.length) return null;
+  const line = at[at.length - 1];
   // Everything after the ` - ` separator is fstype, mount source, super options
   const afterSeparator = line.split(' - ')[1];
   const source = afterSeparator ? afterSeparator.split(' ')[1] : null;
   const loop = /^\/dev\/(loop\d+)$/.exec(source || '');
   if (!loop) return null;
   const backing = await fs.readFile(`/sys/block/${loop[1]}/loop/backing_file`, 'utf8').catch(() => null);
-  return backing ? unescapeMount(backing.trim()) : null;
+  if (!backing) return null;
+  const backingPath = unescapeMount(backing.trim());
+  // The kernel appends this for a backing file that has been unlinked. The
+  // mount is still live and still readable, but the path names nothing and
+  // never resolves again, so there is no image here to record a way back to.
+  if (backingPath.endsWith(' (deleted)')) {
+    log.warn(`mountedImagePath - ${dirPath} is backed by a deleted file (${backingPath}); there is no path to record`);
+    return null;
+  }
+  return backingPath;
 }
 
 /**
@@ -573,9 +648,18 @@ async function ensureAppVolumeMounted(identifier) {
     // images: the loop device names its own backing file, so the path this
     // node used is readable from the kernel. Taken once, when there is nothing
     // recorded yet.
-    if (!await recordedVolumeImage(appId)) {
-      const backing = await mountedImagePath(mountPoint);
-      if (backing) await recordVolumeImage(appId, backing, await imageFsUuid(backing));
+    // A record with a path but no stamp is not a finished record: the check
+    // before a mount is skipped for want of something to compare against, so
+    // the component quietly keeps the behaviour this exists to replace. One
+    // unreadable probe at learn time must not settle that for good, so the
+    // stamp is taken again whenever it is missing.
+    const known = await recordedVolumeImage(appId);
+    if (!known || !known.fsUuid) {
+      const backing = known ? known.path : await mountedImagePath(mountPoint);
+      if (backing) {
+        const stamp = await imageFsUuid(backing);
+        if (!known || stamp) await recordVolumeImage(appId, backing, stamp);
+      }
     }
     return { mounted: true, alreadyMounted: true };
   }
@@ -668,13 +752,26 @@ async function ensureAppVolumeMounted(identifier) {
     if (!loopMachinery) {
       return { mounted: false, reason: 'loop_unavailable' };
     }
+    // The machinery being offered is not the same as a device being free, and
+    // a mount can fail for the host's reasons long after that - every loop
+    // device taken, sudo refusing, the fork failing under memory pressure. So
+    // the image is asked directly: a filesystem the kernel recognises means
+    // the mount failed for a reason that is not the image, and only an image
+    // that no longer holds one is evidence about the volume itself.
+    const kind = await imageFsType(volumeFile);
+    if (kind) {
+      return { mounted: false, reason: `mount_host_refused: ${mountRes.error.message}` };
+    }
     return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };
   }
 
   log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);
   // An image found by the search is recorded now that it is known to mount, so
   // the search runs once for it and the lookup answers ever after.
-  if (!stamped) await recordVolumeImage(appId, volumeFile, await imageFsUuid(volumeFile));
+  if (!stamped || !stamped.fsUuid) {
+    const stamp = await imageFsUuid(volumeFile);
+    if (!stamped || stamp) await recordVolumeImage(appId, volumeFile, stamp);
+  }
   return { mounted: true, alreadyMounted: false };
 }
 
@@ -904,8 +1001,10 @@ module.exports = {
   ensureMountPathsExist,
   isPathMounted,
   getVolumeFilePath,
+  imageFsType,
   imageFsUuid,
   mountedImagePath,
+  recordNewVolumeImage,
   recordVolumeImage,
   recordedVolumeImage,
   getComponentAppIdsFromVolumeFiles,

@@ -288,6 +288,42 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
     });
 
+    // The reason that says an operator replaced the image is the one that must
+    // record, and the two that say the host could not mount are the ones that
+    // must not. All three are new, so all three are pinned.
+    it('records a tampering event when the image is not the one this node made', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_image_unrecognised' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_image_unrecognised' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
+    });
+
+    it('does not record a tampering event when no loop device can be had', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'loop_unavailable' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'loop_unavailable' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+    });
+
+    it('does not record a tampering event when the host refused a mountable image', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_host_refused: no free loop device' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_host_refused: no free loop device' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.called).to.be.false;
+    });
+
     it('does not record a tampering event when the mount table could not be read', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');

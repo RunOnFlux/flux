@@ -15,7 +15,7 @@ const crontabLoad = util.promisify(systemcrontab.load);
 // part before the colon, because two of the reasons carry the underlying error
 // after one.
 const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable',
-  'mount_table_unreadable', 'candidate_path_unreadable', 'loop_unavailable']);
+  'mount_table_unreadable', 'candidate_path_unreadable', 'loop_unavailable', 'mount_host_refused']);
 
 /**
  * Get all locally installed app IDs. Enterprise apps are stored locally with

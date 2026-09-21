@@ -637,7 +637,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     // tell this image from a file somebody else left under the same name.
     const volumeFsUuid = crypto.randomUUID();
     await execAsRoot('mke2fs', ['-t', 'ext4', '-U', volumeFsUuid, volumeFile]);
-    await volumeService.recordVolumeImage(appId, volumeFile, volumeFsUuid);
+    await volumeService.recordNewVolumeImage(appId, volumeFile, volumeFsUuid);
     const makeFilesystem2 = {
       status: 'Filesystem created',
     };

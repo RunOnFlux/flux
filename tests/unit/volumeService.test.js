@@ -262,12 +262,12 @@ describe('volumeService tests', () => {
     });
 
     it('is reported as what it is, not as a missing image', async () => {
-      deviceHelperStub.listMountedFilesystems.resolves([roMount]);
+      deviceHelperStub.listAllMounts.resolves([roMount]);
       expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(true);
     });
 
     it('does not claim a writable filesystem is read-only', async () => {
-      deviceHelperStub.listMountedFilesystems.resolves([{ ...roMount, readOnly: false }]);
+      deviceHelperStub.listAllMounts.resolves([{ ...roMount, readOnly: false }]);
       expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(false);
     });
 
@@ -275,7 +275,7 @@ describe('volumeService tests', () => {
     // the bytes are on. Keyed the other way, a read-only `/` would condemn
     // every volume on every other disk.
     it('asks the deepest mount, not the widest', async () => {
-      deviceHelperStub.listMountedFilesystems.resolves([
+      deviceHelperStub.listAllMounts.resolves([
         { ...roMount, target: '/', readOnly: true },
         { ...roMount, target: '/mnt/data', readOnly: false },
       ]);
@@ -286,7 +286,7 @@ describe('volumeService tests', () => {
     // is the one the kernel resolves through, so both directions are pinned:
     // reading the shadowed row answers about a filesystem nothing can reach.
     it('reads the mount stacked on top, not the one it shadows', async () => {
-      deviceHelperStub.listMountedFilesystems.resolves([
+      deviceHelperStub.listAllMounts.resolves([
         { ...roMount, target: '/mnt/data', readOnly: false },
         { ...roMount, target: '/mnt/data', source: '/dev/sdc1', readOnly: true },
       ]);
@@ -294,11 +294,29 @@ describe('volumeService tests', () => {
     });
 
     it('does not report a shadowed read-only mount when the top one is writable', async () => {
-      deviceHelperStub.listMountedFilesystems.resolves([
+      deviceHelperStub.listAllMounts.resolves([
         { ...roMount, target: '/mnt/data', readOnly: true },
         { ...roMount, target: '/mnt/data', source: '/dev/sdc1', readOnly: false },
       ]);
       expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(false);
+    });
+  });
+
+  // `--real` drops the pseudo filesystems, so the disk's own row is all it
+  // shows - and the disk is writable. What a write to that path actually
+  // lands on is the read-only thing mounted over it, which only the full
+  // table carries. This refusal decides whether an app runs.
+  describe('a read-only mount that is not block-backed', () => {
+    it('is what the answer is taken from', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sdb1', target: '/mnt/data', fstype: 'ext4', readOnly: false },
+      ]);
+      deviceHelperStub.listAllMounts.resolves([
+        { source: '/dev/sdb1', target: '/mnt/data', fstype: 'ext4', readOnly: false },
+        { source: 'overlay', target: '/mnt/data', fstype: 'overlay', readOnly: true },
+      ]);
+
+      expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(true);
     });
   });
 
@@ -516,6 +534,57 @@ describe('volumeService tests', () => {
       sinon.assert.calledWith(appsRuntimeStateStub.setVolumeImage, 'fluxapp1', '/dat/fluxapp1FLUXFSVOL', 'found-uuid');
     });
 
+    // Mounts stack, and the one a path resolves through is the one added last.
+    // Learning from the first row records the image a later mount has already
+    // hidden - which the next boot then mounts, as stale data, silently.
+    it('learns from the mount the path resolves through, not the one beneath it', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      appsRuntimeStateStub.getVolumeImage.resolves(null);
+      const dir = `${APPS_FOLDER}fluxapp1`;
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8').resolves(
+        `400 29 7:0 / ${dir} rw,relatime shared:0 - ext4 /dev/loop0 rw\n`
+        + `401 29 7:1 / ${dir} rw,relatime shared:1 - ext4 /dev/loop9 rw`,
+      );
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/backing_file', 'utf8').resolves('/mnt/data/shadowed.img\n');
+      fsStub.promises.readFile.withArgs('/sys/block/loop9/loop/backing_file', 'utf8').resolves('/mnt/data/visible.img\n');
+      dispatchRunCommand({ blkid: async () => ({ error: null, stdout: 'u-visible\n', stderr: '' }) });
+
+      await volumeService.ensureAppVolumeMounted('app1');
+
+      sinon.assert.calledWith(appsRuntimeStateStub.setVolumeImage, 'fluxapp1', '/mnt/data/visible.img', 'u-visible');
+    });
+
+    // The kernel marks an unlinked backing file, and that path never resolves
+    // again. Recording it stores a way back to nothing.
+    it('records nothing when the backing file has been deleted', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      appsRuntimeStateStub.getVolumeImage.resolves(null);
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
+        .resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/backing_file', 'utf8')
+        .resolves('/mnt/data/fluxapp1FLUXFSVOL (deleted)\n');
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: true, alreadyMounted: true });
+      sinon.assert.notCalled(appsRuntimeStateStub.setVolumeImage);
+    });
+
+    // A record carrying a path but no stamp skips the check before a mount, so
+    // the component keeps the behaviour the stamp exists to replace. One
+    // unreadable probe must not settle that for good.
+    it('takes the stamp again when the record has a path but none', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/data/fluxapp1FLUXFSVOL', fsUuid: null });
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
+        .resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
+      dispatchRunCommand({ blkid: async () => ({ error: null, stdout: 'late-uuid\n', stderr: '' }) });
+
+      await volumeService.ensureAppVolumeMounted('app1');
+
+      sinon.assert.calledWith(appsRuntimeStateStub.setVolumeImage, 'fluxapp1', '/mnt/data/fluxapp1FLUXFSVOL', 'late-uuid');
+    });
+
     it('does not overwrite a record it already has', async () => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
       appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/data/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
@@ -525,6 +594,27 @@ describe('volumeService tests', () => {
       await volumeService.ensureAppVolumeMounted('app1');
 
       sinon.assert.notCalled(appsRuntimeStateStub.setVolumeImage);
+    });
+  });
+
+  // Two recorders, two contracts. Writing down a volume that already works is
+  // bookkeeping and must never fail a mount; writing down one that has just
+  // been reformatted supersedes a record that now describes an image which no
+  // longer exists, and a silent failure there refuses the real volume for good.
+  describe('recording an image', () => {
+    it('does not fail over bookkeeping for a volume that already works', async () => {
+      appsRuntimeStateStub.setVolumeImage.rejects(new Error('mongo unavailable'));
+
+      await volumeService.recordVolumeImage('fluxapp1', '/mnt/data/img', 'u-1');
+
+      sinon.assert.called(logStub.warn);
+    });
+
+    it('fails when a newly created volume cannot be recorded', async () => {
+      appsRuntimeStateStub.setVolumeImage.rejects(new Error('mongo unavailable'));
+
+      await expect(volumeService.recordNewVolumeImage('fluxapp1', '/mnt/data/img', 'u-1'))
+        .to.be.rejectedWith('mongo unavailable');
     });
   });
 
@@ -716,6 +806,11 @@ describe('volumeService tests', () => {
       deviceHelperStub.listMountedFilesystems.resolves([
         { source: '/dev/sda1', target: '/dat', readOnly: true },
       ]);
+      // the refusal is taken from the full table, which is what a write
+      // actually resolves through
+      deviceHelperStub.listAllMounts.resolves([
+        { source: '/dev/sda1', target: '/dat', fstype: 'ext4', readOnly: true },
+      ]);
       fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
       fsStub.promises.readdir.resolves([]);
@@ -873,6 +968,27 @@ describe('volumeService tests', () => {
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
       expect(result.reason).to.include('mount_point_unavailable');
+    });
+
+    // The loop machinery being offered is not a device being free. A mount can
+    // still fail for the host's reasons, so the image is asked directly: a
+    // filesystem the kernel recognises means the failure was not the image,
+    // and the operator is not scored for it.
+    it('names the host when the mount fails over an image that still holds a filesystem', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mount: async () => ({ error: new Error('could not find any free loop device'), stdout: '', stderr: '' }),
+        blkid: async () => ({ error: null, stdout: 'ext4\n', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.mounted).to.be.false;
+      expect(result.reason).to.include('mount_host_refused');
     });
 
     it('should report mount_failed when the mount fails and the dir stays unmounted', async () => {

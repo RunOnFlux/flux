@@ -3023,7 +3023,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
       // eslint-disable-next-line global-require
       const volumeService = require('../../ZelBack/src/services/utils/volumeService');
-      const record = sinon.stub(volumeService, 'recordVolumeImage').resolves();
+      const record = sinon.stub(volumeService, 'recordNewVolumeImage').resolves();
       const svcHelper = require('../../ZelBack/src/services/serviceHelper');
       // let the filesystem be made, then stop before anything mounts it
       const runCommand = sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
@@ -3048,6 +3048,28 @@ describe('advancedWorkflows tests', () => {
       expect(uuid).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
       // the image path is the last argument to mke2fs, and it is what is recorded
       sinon.assert.calledWith(record, identifier, params[params.length - 1], uuid);
+    });
+
+    // The volume has been reformatted under a new stamp by this point, so a
+    // record that cannot be written now describes an image that no longer
+    // exists - and left there it refuses the real volume at every mount, for
+    // good. The install fails instead, where it still rolls back.
+    it('fails the install when the new volume cannot be recorded', async () => {
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volumeService, 'recordNewVolumeImage').rejects(new Error('mongo unavailable'));
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'a volume whose record could not be written was accepted').to.not.equal(null);
+      expect(thrown.message).to.equal('mongo unavailable');
     });
 
     it('drops a stale synced-mark at the point of no return', async () => {

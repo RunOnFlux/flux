@@ -472,17 +472,6 @@ async function remove(rawIdentifier) {
 }
 
 /**
- * Prepares the collection for use: merges any same-identifier twins, then
- * creates the unique index that makes twins impossible.
- *
- * Twins exist on nodes that wrote before the unique index did (concurrent
- * first upserts both insert without one). Because every later update matched
- * an ARBITRARY twin, fields scatter across them - the operator lock on one,
- * the backoff history on the other - so dedupe must merge field-wise rather
- * than keep one doc whole: dropping a doc could drop a real operator lock,
- * whose loss would auto-start a deliberately stopped app.
- */
-/**
  * Records where this node put a component's volume image and the filesystem
  * UUID it stamped that image with.
  *
@@ -512,6 +501,17 @@ async function getVolumeImage(rawIdentifier) {
   return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null };
 }
 
+/**
+ * Prepares the collection for use: merges any same-identifier twins, then
+ * creates the unique index that makes twins impossible.
+ *
+ * Twins exist on nodes that wrote before the unique index did (concurrent
+ * first upserts both insert without one). Because every later update matched
+ * an ARBITRARY twin, fields scatter across them - the operator lock on one,
+ * the backoff history on the other - so dedupe must merge field-wise rather
+ * than keep one doc whole: dropping a doc could drop a real operator lock,
+ * whose loss would auto-start a deliberately stopped app.
+ */
 async function prepareCollection() {
   try {
     const database = collection();
@@ -526,7 +526,12 @@ async function prepareCollection() {
     // eslint-disable-next-line no-restricted-syntax
     for (const [identifier, twins] of byIdentifier) {
       if (twins.length > 1) {
+        // Start from the newest twin so a field added to this document later
+        // survives a merge without being named here; what follows overrides
+        // the ones whose correct value is not "whichever was written last".
+        const newest = [...twins].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
         const merged = {
+          ...newest,
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
@@ -545,6 +550,9 @@ async function prepareCollection() {
           autoRestartWindow: [...new Set(twins.flatMap((t) => t.autoRestartWindow || []))].sort((a, b) => a - b).slice(-RESTART_BURST_COUNT),
           updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
         };
+        // the merged doc is written by $set into a fresh insert, so the old
+        // identity must not travel with it
+        delete merged._id;
         const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
         if (newestExit) {
           merged.lastExitCode = newestExit.lastExitCode;

@@ -110,12 +110,13 @@ async function hasQuotaOptionForMountTarget(target) {
  * Throws on findmnt failure, so a caller cannot read "nothing is mounted
  * there" out of a table it never got.
  *
- * @returns {Promise<Array<{source: string, target: string, fstype: string}>>}
+ * @returns {Promise<Array<{source: string, target: string, fstype: string,
+ *   options: string, readOnly: boolean}>>}
  */
 async function listAllMounts() {
   const res = await serviceHelper.runCommand('findmnt', {
     logError: false,
-    params: ['--list', '--json', '--output', 'SOURCE,TARGET,FSTYPE'],
+    params: ['--list', '--json', '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS'],
   });
   if (res.error) {
     throw new Error(`findmnt --list failed: ${res.error.message || res.error}`);
@@ -125,6 +126,8 @@ async function listAllMounts() {
     source: entry.source,
     target: entry.target,
     fstype: entry.fstype,
+    options: String(entry.options || ''),
+    readOnly: String(entry.options || '').split(',').includes('ro'),
   }));
 }
 
