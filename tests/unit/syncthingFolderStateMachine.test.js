@@ -1488,6 +1488,38 @@ describe('syncthingFolderStateMachine tests', () => {
       });
     };
 
+    // Every claim is filed under the address the election list carries, because an
+    // object key matches exactly where addresses compare tolerantly. Keyed from
+    // anywhere else, this node stops finding its OWN claim as soon as the two
+    // spellings differ - and a missing claim is not a tie, it drops the whole field
+    // back to the address order with nothing said about it.
+    it('finds its own claim when the election list spells its address differently', async () => {
+      // This node holds the world; the peer holds almost nothing. The address order
+      // gives the seed to the peer, so only the ranking can promote this node - and
+      // the ranking runs only if this node's own claim is found.
+      mockParams.localSocketAddr = '10.0.0.2:16127';
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: 2000, broadcastedAt: 1000 },
+        { ip: '10.0.0.2', runningSince: 2000, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbLocalChanged.resolves({
+        files: [localEntry('world.dat', 5821604997, '2026-09-16T10:00:00Z')],
+      });
+      axiosMock.get.resolves({
+        data: { data: { ready: true, folders: [], holding: { 'test-app': { bytes: 900, newestModified: 100 } } } },
+      });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 2,
+      });
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type, 'the ranking never ran, so the address order seeded the near-empty peer').to.equal('sendreceive');
+    });
+
     it('does not let FluxOS scaffolding outrank a peer holding the owner data', async () => {
       // Directories carry the legacy synthetic size of 128 and a mtime of their own.
       // Counted, they would make this node look both non-empty and more recently

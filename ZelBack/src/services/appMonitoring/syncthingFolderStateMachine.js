@@ -1043,22 +1043,30 @@ async function handleReceiveOnlyTransition(params) {
   const electionList = await holderListExcludingDead(appId, runningAppList, localSocketAddr, liveness);
   // What each candidate says it holds for THIS folder, from the probe the pass has
   // already paid for. This node answers for itself rather than asking itself.
+  //
+  // Every claim is filed under the candidate's own address as the election list
+  // carries it, because that is the string bestHolder looks it up by, and an object
+  // key matches exactly where the addresses compare tolerantly. Being this node
+  // decides where the answer comes from and nothing else - keyed from anywhere but
+  // the list, a node stops finding its own claim the moment the two spellings of
+  // its address differ, and the ranking degrades to the address order silently.
   const claims = {};
-  if (holdings) claims[localSocketAddr] = holdings;
-  await Promise.all(electionList
-    .filter((peer) => !socketAddressesMatch(peer.ip, localSocketAddr))
-    .map(async (peer) => {
-      const answer = await liveness.read(peer.ip);
-      // Only a READY peer's claim counts - before its first monitor pass a node cannot
-      // tell "I hold nothing" from "I have not looked". Defence in depth rather than
-      // the thing that enforces it: a peer that has not determined its folder state
-      // already blocks promotion outright further down, so no unready claim can reach
-      // an outcome. Deliberately untested for that reason - a test would pass whether
-      // this condition were here or not.
-      if (answer?.ready && answer.holding && answer.holding[appId]) {
-        claims[peer.ip] = answer.holding[appId];
-      }
-    }));
+  await Promise.all(electionList.map(async (peer) => {
+    if (socketAddressesMatch(peer.ip, localSocketAddr)) {
+      if (holdings) claims[peer.ip] = holdings;
+      return;
+    }
+    const answer = await liveness.read(peer.ip);
+    // Only a READY peer's claim counts - before its first monitor pass a node cannot
+    // tell "I hold nothing" from "I have not looked". Defence in depth rather than
+    // the thing that enforces it: a peer that has not determined its folder state
+    // already blocks promotion outright further down, so no unready claim can reach
+    // an outcome. Deliberately untested for that reason - a test would pass whether
+    // this condition were here or not.
+    if (answer?.ready && answer.holding && answer.holding[appId]) {
+      claims[peer.ip] = answer.holding[appId];
+    }
+  }));
   // A node that cannot read its OWN holdings must not outrank a peer that can show it
   // holds the owner's data. Without this it falls through to the address order and can
   // publish an unknown folder over a known world - the one direction this must never
