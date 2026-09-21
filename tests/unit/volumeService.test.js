@@ -423,6 +423,28 @@ describe('volumeService tests', () => {
       expect(chattr[0].calledBefore(mount[0])).to.be.true;
     });
 
+    // The reason exists so a failing disk is not reported as a missing image,
+    // and refusing is a choice: mount would have fallen back to a read-only
+    // loop mount. Both halves are pinned - the reason, and that nothing is
+    // mounted or made immutable on a filesystem that cannot take the write.
+    it('refuses a volume on a read-only host filesystem, naming the disk', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat', readOnly: true },
+      ]);
+      fsStub.promises.access.rejects(new Error('ENOENT'));
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: false, reason: 'host_filesystem_readonly' });
+      expect(callsFor('mount')).to.have.lengthOf(0);
+      expect(callsFor('chattr')).to.have.lengthOf(0);
+    });
+
     it('should not set the immutable flag over leaked content, but still mount (shadowing it)', async () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
