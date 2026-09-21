@@ -26,6 +26,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const appId = (name) => `flux${name}_${name}`;
 const appDir = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
 const volFile = (name) => `/mnt/appdata/${appId(name)}FLUXFSVOL`;
+// Beside the image, so moving it there is a rename and not a copy, and its
+// name matches no FLUXFSVOL pattern so nothing searches it up.
+const ASIDE = '/mnt/appdata/genuine-under-test.img';
 
 async function isMountpoint(container, dir) {
   const r = await execInContainer(container, `mountpoint -q ${dir}`);
@@ -109,18 +112,22 @@ describe('an app volume is the image this node made, not the one under its name'
   it('refuses a foreign filesystem left at the image path, rather than mounting it', async function () {
     this.timeout(180000);
 
-    // keep the genuine image, so the canary below can put it back
-    await execInContainer(container, `cp -a ${volFile(name)} /tmp/genuine.img`);
-
     // One command, because the reconciler is running: a volume that is
     // unmounted while its image is still genuine gets re-mounted by the
     // self-heal, and the substitution would then be testing nothing. The
     // broken state has to exist in full before the next pass looks.
+    //
+    // The genuine image is MOVED aside on the same filesystem rather than
+    // copied: a rename cannot half-succeed, and the canary below has to put
+    // back the same bytes that were taken, not a copy that may not have fitted.
     const afterId = env.clients[0].getLastEventId();
     const r = await execInContainer(container,
-      `umount -l ${appDir(name)} && rm -f ${volFile(name)} && fallocate -l 1G ${volFile(name)}`
+      `umount -l ${appDir(name)} && mv ${volFile(name)} ${ASIDE} && fallocate -l 1G ${volFile(name)}`
       + ` && mke2fs -t ext4 ${volFile(name)} >/dev/null 2>&1 && docker stop ${appId(name)} >/dev/null 2>&1`);
     expect(r.exitCode, `substitution failed: ${r.output}`).to.equal(0);
+    // the aside copy is what the canary depends on, so it is checked here
+    // rather than discovered to be wrong two assertions later
+    expect(await fsUuidOf(container, ASIDE), 'the genuine image was not the file moved aside').to.equal(stamp);
 
     const substitute = await fsUuidOf(container, volFile(name));
     expect(substitute, 'the substitute carries the same stamp, so this proves nothing').to.not.equal(stamp);
@@ -140,7 +147,7 @@ describe('an app volume is the image this node made, not the one under its name'
 
     // the canary: without this, a node that mounts nothing at all would pass
     // the test above
-    const r = await execInContainer(container, `rm -f ${volFile(name)} && cp -a /tmp/genuine.img ${volFile(name)}`);
+    const r = await execInContainer(container, `rm -f ${volFile(name)} && mv ${ASIDE} ${volFile(name)}`);
     expect(r.exitCode, `restore failed: ${r.output}`).to.equal(0);
     expect(await fsUuidOf(container, volFile(name)), 'the restored image is not the one that was taken').to.equal(stamp);
 
