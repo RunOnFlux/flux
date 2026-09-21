@@ -404,6 +404,14 @@ module.exports = (app) => {
   app.get('/apps/promotedfolders', rejectQueryParameters, asyncRoute((req, res) => {
     return appQueryService.promotedFolders(req, res);
   }));
+  // The same answer with what each receive-only folder HOLDS, which is a size and a
+  // last-write time per app and therefore the tenant's. A caller signs as a node on the
+  // deterministic list, or holds Flux team privilege; one that does neither is answered
+  // without it rather than refused, because a peer too old to sign is not doing anything
+  // wrong. POST because a signature needs a body to be over.
+  app.post('/apps/promotedfolders', asyncRoute((req, res) => {
+    return appQueryService.promotedFolderHoldings(req, res);
+  }));
   app.get('/apps/listallapps', cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.listAllAppsApi(req, res);
   }));

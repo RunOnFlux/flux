@@ -4,6 +4,9 @@ const proxyquire = require('proxyquire').noCallThru();
 
 describe('appQueryService tests', () => {
   let appQueryService;
+  let verificationHelperStub;
+  let fluxNetworkHelperStub;
+  let fluxCommunicationUtilsStub;
   let dbHelperStub;
   let messageHelperStub;
   let dockerServiceStub;
@@ -106,6 +109,12 @@ describe('appQueryService tests', () => {
     };
 
     // Proxy require
+    verificationHelperStub = { verifyPrivilege: sinon.stub().resolves(false) };
+    fluxNetworkHelperStub = {
+      getLocalSocketAddress: sinon.stub().resolves('10.0.0.9:16127'),
+      verifySignedFluxnodeMessage: sinon.stub().resolves(false),
+    };
+    fluxCommunicationUtilsStub = { verifyTimestampInFluxBroadcast: sinon.stub().returns(true) };
     appQueryService = proxyquire('../../ZelBack/src/services/appQuery/appQueryService', {
       config: configStub,
       '../dbHelper': dbHelperStub,
@@ -116,6 +125,9 @@ describe('appQueryService tests', () => {
       '../utils/appSpecHelpers': appSpecHelpersStub,
       '../utils/cacheManager': cacheManagerStub,
       '../../lib/log': logStub,
+      '../verificationHelper': verificationHelperStub,
+      '../fluxNetworkHelper': fluxNetworkHelperStub,
+      '../fluxCommunicationUtils': fluxCommunicationUtilsStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -647,7 +659,7 @@ describe('appQueryService tests', () => {
 
       const result = await appQueryService.promotedFolders();
 
-      expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a', 'fluxb_b'], holding: {} });
+      expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a', 'fluxb_b'] });
     });
 
     it('answers not-ready before the monitor has ever read the folder config', async () => {
@@ -659,7 +671,7 @@ describe('appQueryService tests', () => {
 
       const result = await appQueryService.promotedFolders();
 
-      expect(result).to.deep.equal({ ready: false, folders: [], holding: {} });
+      expect(result).to.deep.equal({ ready: false, folders: [] });
     });
 
     it('distinguishes holding nothing from not having looked', async () => {
@@ -681,6 +693,92 @@ describe('appQueryService tests', () => {
       await appQueryService.promotedFolders();
 
       expect(dockerServiceStub.dockerListContainers.called).to.be.false;
+    });
+
+    // `holding` is a size and a last-write time per app, so it is the tenant's and not
+    // the open answer's. A caller proves itself as a node on the deterministic list, or
+    // as the Flux team; anything else is answered WITHOUT it rather than refused, since
+    // a peer too old to sign is not a peer doing something wrong.
+    describe('holdings', () => {
+      const signed = (over = {}) => ({
+        target: '10.0.0.9:16127', timestamp: Date.now(), pubKey: 'PUB', signature: 'SIG', ...over,
+      });
+
+      beforeEach(() => {
+        globalState.promotedFolderIds = new Set(['fluxa_a']);
+        globalState.folderHoldings = new Map([['fluxa_a', { bytes: 5821604997, newestModified: 200 }]]);
+        messageHelperStub.createDataMessage.returnsArg(0);
+      });
+
+      afterEach(() => {
+        globalState.folderHoldings = null;
+      });
+
+      it('serves the holdings to a node on the deterministic list', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding).to.deep.equal({ fluxa_a: { bytes: 5821604997, newestModified: 200 } });
+      });
+
+      it('serves the holdings to the flux team', async () => {
+        verificationHelperStub.verifyPrivilege.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: {}, headers: { zelidauth: 'x' } });
+
+        expect(result.holding).to.deep.equal({ fluxa_a: { bytes: 5821604997, newestModified: 200 } });
+      });
+
+      // Each of these is a caller that is not entitled. The answer still carries the
+      // open half, so nothing a peer already relied on regresses.
+      [
+        ['nothing is signed', {}],
+        ['the signature does not verify', signed()],
+      ].forEach(([what, body]) => {
+        it(`withholds the holdings when ${what}`, async () => {
+          const result = await appQueryService.promotedFolderHoldings({ body });
+
+          expect(result.holding, 'holdings went to a caller that proved nothing').to.equal(undefined);
+          expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
+        });
+      });
+
+      // The signature VERIFIES here, so the address is the only thing that can refuse
+      // it - which is the whole of what binding to a recipient buys: a body captured in
+      // flight is a valid signature by a real node, and must still not work elsewhere.
+      it('withholds the holdings when the request is addressed to another node', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed({ target: '10.0.0.8:16127' }) });
+
+        expect(result.holding, 'a signature captured in flight worked on another node').to.equal(undefined);
+        expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
+      });
+
+      it('withholds the holdings when this node does not know its own address', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        fluxNetworkHelperStub.getLocalSocketAddress.resolves(null);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding, 'a node that cannot say who it is accepted a request naming anyone').to.equal(undefined);
+      });
+
+      it('withholds the holdings when the request is too old to be fresh', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        fluxCommunicationUtilsStub.verifyTimestampInFluxBroadcast.returns(false);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding, 'a captured request stayed usable').to.equal(undefined);
+      });
+
+      it('does not ask whether a caller with no signature is a node', async () => {
+        await appQueryService.promotedFolderHoldings({ body: { target: '10.0.0.9:16127' } });
+
+        expect(fluxNetworkHelperStub.verifySignedFluxnodeMessage.called).to.equal(false);
+      });
     });
 
     it('drops a folder that is no longer promoted', async () => {

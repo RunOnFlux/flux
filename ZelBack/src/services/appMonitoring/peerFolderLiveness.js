@@ -20,6 +20,7 @@ const fluxCommunication = require('../fluxCommunication');
 const syncthingService = require('../syncthingService');
 const globalState = require('../utils/globalState');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
+const { nodeSigner } = require('../utils/nodeSigner');
 
 // Bounded because this runs on the pass a node is about to promote, and a slow
 // peer must not hold the promotion open.
@@ -58,18 +59,54 @@ const MIN_RESPONDING_PEER_FRACTION = 0.5;
  * @param {string} socketAddr Peer socket address
  * @returns {Promise<{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object}>}
  */
+/**
+ * The signed body that asks a peer for what it holds, or null when this node cannot
+ * sign as itself.
+ *
+ * Signed for ONE recipient and one moment: `target` is the peer being asked, so a body
+ * captured in flight cannot be turned on the rest of the fleet, and the timestamp is
+ * read against the bound every signed Flux broadcast is held to. Built per peer because
+ * of the first of those, which is affordable: nothing is probed at all unless a folder
+ * is awaiting promotion, so this is a cold start's cost and not a steady state's.
+ *
+ * @param {string} socketAddr - the peer being asked
+ * @returns {Promise<object|null>}
+ */
+async function holdingsRequest(socketAddr) {
+  const signer = await nodeSigner();
+  if (!signer) return null;
+  const body = { target: socketAddr, timestamp: Date.now(), pubKey: signer.pubKey };
+  const signature = signer.sign(JSON.stringify(body));
+  if (!signature) return null;
+  return { ...body, signature };
+}
+
 async function probePeer(socketAddr) {
   const ip = extractIp(socketAddr);
   const port = extractPort(socketAddr);
   try {
-    const response = await axios.get(`http://${ip}:${port}/apps/promotedfolders`, { timeout: PROBE_TIMEOUT_MS });
+    // Signed, because `holding` is the tenant's data and the peer serves it to a node
+    // or to the Flux team and to nobody else. A peer that has not upgraded has no POST
+    // route and answers 404, and a node that cannot sign as itself sends nothing to
+    // sign - both fall back to the open GET, which is what this asked for before the
+    // holdings existed. Either way the answer carries no `holding`, the peer reads as
+    // claiming nothing, and the election falls back to the address order.
+    const request = await holdingsRequest(socketAddr);
+    const url = `http://${ip}:${port}/apps/promotedfolders`;
+    const response = request
+      ? await axios.post(url, request, { timeout: PROBE_TIMEOUT_MS }).catch((error) => {
+        if (!error.response) throw error;
+        return axios.get(url, { timeout: PROBE_TIMEOUT_MS });
+      })
+      : await axios.get(url, { timeout: PROBE_TIMEOUT_MS });
     const answer = response.data?.data;
     // A peer that has not completed its first monitor pass cannot tell "I hold
     // nothing" from "I have not looked", so its empty list is not a clearance.
     const ready = answer?.ready === true;
     const folders = Array.isArray(answer?.folders) ? answer.folders : [];
-    // Absent on a peer too old to publish it, which reads as "claims nothing" - the
-    // same answer that node's behaviour has always amounted to.
+    // Absent on a peer too old to publish it, and on one that would not serve it to
+    // this caller. Both read as "claims nothing" - the answer that node's behaviour has
+    // always amounted to.
     const holding = (answer && typeof answer.holding === 'object' && answer.holding) || {};
     return { reachable: true, answerable: true, ready, folders, holding };
   } catch (error) {

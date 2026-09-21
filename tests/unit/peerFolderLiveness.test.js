@@ -4,22 +4,106 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
-const axiosMock = { get: sinon.stub() };
+const axiosMock = { get: sinon.stub(), post: sinon.stub() };
 const fluxCommunicationMock = { peerResponsiveness: sinon.stub() };
+const nodeSignerMock = { nodeSigner: sinon.stub() };
 
 const { createPeerFolderLiveness } = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
   axios: axiosMock,
   '../fluxCommunication': fluxCommunicationMock,
+  '../utils/nodeSigner': nodeSignerMock,
 });
 
 const holding = (folders) => ({ data: { data: { ready: true, folders } } });
 
+// A probe is ONE request to a peer, whichever transport carried it: a node that can
+// sign asks over the signed POST, and falls back to the open GET for a peer whose
+// release has no such route. Counted together so these assertions stay about how many
+// times a peer is asked, which is what they are for.
+const probes = () => axiosMock.get.callCount + axiosMock.post.callCount;
+// Both transports answer the same way, so a case about what a peer SAID does not also
+// have to say how it was asked.
+const answers = (value) => { axiosMock.get.resolves(value); axiosMock.post.resolves(value); };
+const refuses = (error) => { axiosMock.get.rejects(error); axiosMock.post.rejects(error); };
+
 describe('peerFolderLiveness', () => {
   beforeEach(() => {
     axiosMock.get.reset();
-    axiosMock.get.resolves(holding([]));
+    answers(holding([]));
+    axiosMock.post.reset();
+    axiosMock.post.resolves(holding([]));
+    nodeSignerMock.nodeSigner.reset();
+    nodeSignerMock.nodeSigner.resolves({ pubKey: 'PUB', sign: () => 'SIG' });
     fluxCommunicationMock.peerResponsiveness.reset();
     fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+  });
+
+  // `holding` is the tenant's - a size and a last-write time per app - so a peer serves
+  // it to a node that signs for it and to nobody else. Everything about how that is
+  // asked has to degrade to the answer this endpoint gave before holdings existed,
+  // because the release carrying the POST reaches the fleet one node at a time.
+  describe('asking for what a peer holds', () => {
+    const notFound = Object.assign(new Error('Request failed with status code 404'), { response: { status: 404 } });
+
+    it('signs the request for the one peer it is sent to, and for now', async () => {
+      const liveness = createPeerFolderLiveness();
+      const before = Date.now();
+
+      await liveness.read('10.0.0.2:16127');
+
+      sinon.assert.calledOnce(axiosMock.post);
+      const [url, body] = axiosMock.post.firstCall.args;
+      expect(url).to.equal('http://10.0.0.2:16127/apps/promotedfolders');
+      expect(body.target, 'a body that names no recipient works on every node').to.equal('10.0.0.2:16127');
+      expect(body.pubKey).to.equal('PUB');
+      expect(body.signature).to.equal('SIG');
+      expect(body.timestamp, 'a body that names no moment never expires').to.be.at.least(before);
+    });
+
+    it('asks a peer whose release has no such route over the open endpoint', async () => {
+      axiosMock.post.rejects(notFound);
+      axiosMock.get.resolves(holding(['flux_app_one']));
+
+      const liveness = createPeerFolderLiveness();
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(probes(), 'the fallback costs one extra request, against old peers only').to.equal(2);
+      expect(answer.answerable, 'a peer that answered the open endpoint is not unanswerable').to.equal(true);
+      expect(answer.folders).to.deep.equal(['flux_app_one']);
+      expect(answer.holding, 'an old peer claims nothing, which the address order expects').to.deep.equal({});
+    });
+
+    it('asks over the open endpoint when this node cannot sign as itself', async () => {
+      nodeSignerMock.nodeSigner.resolves(null);
+
+      const liveness = createPeerFolderLiveness();
+      await liveness.read('10.0.0.2:16127');
+
+      sinon.assert.notCalled(axiosMock.post);
+      sinon.assert.calledOnce(axiosMock.get);
+    });
+
+    it('asks over the open endpoint when the signature cannot be produced', async () => {
+      nodeSignerMock.nodeSigner.resolves({ pubKey: 'PUB', sign: () => null });
+
+      const liveness = createPeerFolderLiveness();
+      await liveness.read('10.0.0.2:16127');
+
+      sinon.assert.notCalled(axiosMock.post);
+      sinon.assert.calledOnce(axiosMock.get);
+    });
+
+    it('does not retry a peer that never answered at all', async () => {
+      // No reply is a peer that may be gone, and asking twice charges its timeout
+      // twice for an answer that was not withheld but absent.
+      axiosMock.post.rejects(new Error('connect ECONNREFUSED'));
+
+      const liveness = createPeerFolderLiveness();
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(probes()).to.equal(1);
+      expect(answer.reachable).to.equal(false);
+    });
   });
 
   describe('one question per peer', () => {
@@ -32,12 +116,12 @@ describe('peerFolderLiveness', () => {
       await liveness.read('10.0.0.2:16127');
       await liveness.read('10.0.0.2:16127');
 
-      sinon.assert.calledOnce(axiosMock.get);
+      expect(probes()).to.equal(1);
     });
 
     it('gives every caller the same answer', async () => {
       const liveness = createPeerFolderLiveness();
-      axiosMock.get.resolves(holding(['flux_app_one']));
+      answers(holding(['flux_app_one']));
 
       const first = await liveness.read('10.0.0.2:16127');
       const second = await liveness.read('10.0.0.2:16127');
@@ -56,7 +140,7 @@ describe('peerFolderLiveness', () => {
         liveness.read('10.0.0.2:16127'),
       ]);
 
-      sinon.assert.calledOnce(axiosMock.get);
+      expect(probes()).to.equal(1);
     });
 
     it('asks each distinct peer', async () => {
@@ -65,7 +149,7 @@ describe('peerFolderLiveness', () => {
       await liveness.read('10.0.0.2:16127');
       await liveness.read('10.0.0.3:16127');
 
-      sinon.assert.calledTwice(axiosMock.get);
+      expect(probes()).to.equal(2);
     });
 
     it('holds no answer across two views', async () => {
@@ -74,7 +158,7 @@ describe('peerFolderLiveness', () => {
       await createPeerFolderLiveness().read('10.0.0.2:16127');
       await createPeerFolderLiveness().read('10.0.0.2:16127');
 
-      sinon.assert.calledTwice(axiosMock.get);
+      expect(probes()).to.equal(2);
     });
   });
 
@@ -84,7 +168,7 @@ describe('peerFolderLiveness', () => {
 
       await liveness.prewarm(['10.0.0.2:16127', '10.0.0.3:16127', '10.0.0.4:16127']);
 
-      sinon.assert.calledThrice(axiosMock.get);
+      expect(probes()).to.equal(3);
     });
 
     it('collapses a peer named more than once', async () => {
@@ -93,7 +177,7 @@ describe('peerFolderLiveness', () => {
 
       await liveness.prewarm(['10.0.0.2:16127', '10.0.0.2:16127']);
 
-      sinon.assert.calledOnce(axiosMock.get);
+      expect(probes()).to.equal(1);
     });
 
     it('leaves nothing for a later read to ask again', async () => {
@@ -102,7 +186,7 @@ describe('peerFolderLiveness', () => {
       await liveness.prewarm(['10.0.0.2:16127']);
       await liveness.read('10.0.0.2:16127');
 
-      sinon.assert.calledOnce(axiosMock.get);
+      expect(probes()).to.equal(1);
     });
 
     it('still answers a peer it was never given', async () => {
@@ -114,13 +198,13 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.9:16127');
 
       expect(answer.reachable).to.be.true;
-      sinon.assert.calledTwice(axiosMock.get);
+      expect(probes()).to.equal(2);
     });
   });
 
   describe('what a peer answers', () => {
     it('reports a peer that does not answer as unreachable', async () => {
-      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      refuses(new Error('connect ECONNREFUSED'));
       const liveness = createPeerFolderLiveness();
 
       const answer = await liveness.read('10.0.0.2:16127');
@@ -136,7 +220,7 @@ describe('peerFolderLiveness', () => {
       // out of the election.
       const notFound = new Error('Request failed with status code 404');
       notFound.response = { status: 404 };
-      axiosMock.get.rejects(notFound);
+      refuses(notFound);
       const liveness = createPeerFolderLiveness();
 
       const answer = await liveness.read('10.0.0.2:16127');
@@ -149,7 +233,7 @@ describe('peerFolderLiveness', () => {
     it('reports a server error the same way - it answered, so it is alive', async () => {
       const serverError = new Error('Request failed with status code 500');
       serverError.response = { status: 500 };
-      axiosMock.get.rejects(serverError);
+      refuses(serverError);
       const liveness = createPeerFolderLiveness();
 
       const answer = await liveness.read('10.0.0.2:16127');
@@ -159,7 +243,7 @@ describe('peerFolderLiveness', () => {
     });
 
     it('passes through the folders a peer holds', async () => {
-      axiosMock.get.resolves(holding(['flux_app_one', 'flux_app_two']));
+      answers(holding(['flux_app_one', 'flux_app_two']));
       const liveness = createPeerFolderLiveness();
 
       const answer = await liveness.read('10.0.0.2:16127');
@@ -170,7 +254,7 @@ describe('peerFolderLiveness', () => {
     it('does not take an unready peer\'s empty list as a clearance', async () => {
       // A peer that has not finished its first pass cannot tell "I hold nothing"
       // from "I have not looked".
-      axiosMock.get.resolves({ data: { data: { ready: false, folders: [] } } });
+      answers({ data: { data: { ready: false, folders: [] } } });
       const liveness = createPeerFolderLiveness();
 
       const answer = await liveness.read('10.0.0.2:16127');
@@ -180,7 +264,7 @@ describe('peerFolderLiveness', () => {
     });
 
     it('treats a malformed body as reachable but not ready', async () => {
-      axiosMock.get.resolves({ data: {} });
+      answers({ data: {} });
       const liveness = createPeerFolderLiveness();
 
       const answer = await liveness.read('10.0.0.2:16127');
@@ -191,7 +275,7 @@ describe('peerFolderLiveness', () => {
     });
 
     it('treats a non-array folder list as no folders', async () => {
-      axiosMock.get.resolves({ data: { data: { ready: true, folders: 'flux_app_one' } } });
+      answers({ data: { data: { ready: true, folders: 'flux_app_one' } } });
       const liveness = createPeerFolderLiveness();
 
       const answer = await liveness.read('10.0.0.2:16127');
