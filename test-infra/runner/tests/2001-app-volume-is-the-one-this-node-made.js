@@ -1,10 +1,10 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, getAppContainerStatus, restartFluxos } from '../framework/container.js';
+import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
-import { waitFor } from '../framework/wait.js';
+import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -15,12 +15,13 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // stamped the filesystem with a UUID of its own, and it keeps both.
 //
 // The unit suite can only show the flag was passed and the pair was stored.
-// These run it against a real mke2fs, a real loop mount and a real restart:
+// These run it against a real mke2fs, a real loop mount and the reconciler
+// that is running on every node:
 //  - the filesystem carries the stamp, on the image actually written to disk
 //  - a foreign filesystem left at that exact path is REFUSED, not mounted as
 //    root over the app's directory
-//  - and the genuine image still mounts across the same restart, so the
-//    refusal above is a refusal and not a node that mounts nothing
+//  - and the genuine image still mounts once it is put back, so the refusal
+//    above is a refusal and not a node that mounts nothing
 
 const appId = (name) => `flux${name}_${name}`;
 const appDir = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
@@ -41,17 +42,6 @@ async function isUp(client, appName) {
   return !!(status && status.status.startsWith('Up'));
 }
 
-// A complete ext4 image that is NOT this node's: made the same way, so what
-// distinguishes it is the stamp and nothing else.
-async function makeForeignImage(container, at, marker) {
-  await execInContainer(container, `fallocate -l 1G ${at}`);
-  await execInContainer(container, `mke2fs -t ext4 ${at}`);
-  await execInContainer(container, 'mkdir -p /tmp/foreignmnt');
-  await execInContainer(container, `mount -o loop ${at} /tmp/foreignmnt`);
-  await execInContainer(container, `sh -c 'echo ${marker} > /tmp/foreignmnt/${marker}'`);
-  await execInContainer(container, 'umount /tmp/foreignmnt');
-}
-
 describe('an app volume is the image this node made, not the one under its name', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -59,7 +49,7 @@ describe('an app volume is the image this node made, not the one under its name'
   const ts = Date.now();
   const name = `e2evolstamp${ts}`;
   const MARKER = 'ours.txt';
-  const FOREIGN = 'theirs.txt';
+  const identifier = `${name}_${name}`;
 
   let container;
   let stamp;
@@ -119,27 +109,24 @@ describe('an app volume is the image this node made, not the one under its name'
   it('refuses a foreign filesystem left at the image path, rather than mounting it', async function () {
     this.timeout(180000);
 
-    // keep the genuine image so the control below can put it back
+    // keep the genuine image, so the canary below can put it back
     await execInContainer(container, `cp -a ${volFile(name)} /tmp/genuine.img`);
-    // the running container holds the mount, so it goes first - a busy target
-    // refuses the umount and the substitution below would then be testing
-    // nothing
-    await execInContainer(container, `docker stop ${appId(name)} >/dev/null 2>&1; umount -l ${appDir(name)} || true`);
-    expect(await isMountpoint(container, appDir(name)), 'the volume did not unmount').to.equal(false);
 
-    await execInContainer(container, `rm -f ${volFile(name)}`);
-    await makeForeignImage(container, volFile(name), FOREIGN);
-    const foreignStamp = await fsUuidOf(container, volFile(name));
-    expect(foreignStamp, 'the substitute carries the same stamp, so this proves nothing').to.not.equal(stamp);
+    // One command, because the reconciler is running: a volume that is
+    // unmounted while its image is still genuine gets re-mounted by the
+    // self-heal, and the substitution would then be testing nothing. The
+    // broken state has to exist in full before the next pass looks.
+    const afterId = env.clients[0].getLastEventId();
+    const r = await execInContainer(container,
+      `umount -l ${appDir(name)} && rm -f ${volFile(name)} && fallocate -l 1G ${volFile(name)}`
+      + ` && mke2fs -t ext4 ${volFile(name)} >/dev/null 2>&1 && docker stop ${appId(name)} >/dev/null 2>&1`);
+    expect(r.exitCode, `substitution failed: ${r.output}`).to.equal(0);
 
-    await restartFluxos(env.clients[0]);
+    const substitute = await fsUuidOf(container, volFile(name));
+    expect(substitute, 'the substitute carries the same stamp, so this proves nothing').to.not.equal(stamp);
 
-    // the boot pass reaches every installed component, so give it time to have
-    // tried and then assert it did not take it
-    await waitFor(async () => {
-      const r = await execInContainer(container, `test -e ${appDir(name)}/${FOREIGN}`);
-      return r.exitCode !== 0;
-    }, 60000, 'the foreign filesystem became the app directory');
+    // the reconciler must report the volume unavailable and never start it
+    await waitForReconcileActuated(env.clients[0], identifier, 'volumeUnavailable', 90000, { afterId });
 
     expect(
       await isMountpoint(container, appDir(name)),
@@ -148,23 +135,22 @@ describe('an app volume is the image this node made, not the one under its name'
     expect(await isUp(env.clients[0], name), 'the app ran on a volume that is not its own').to.equal(false);
   });
 
-  it('still mounts the genuine image across the same restart', async function () {
+  it('still mounts the genuine image, so the refusal above is a refusal', async function () {
     this.timeout(180000);
 
-    // the canary for the refusal above: without this, a node that mounts
-    // nothing at all would pass that test
-    await execInContainer(container, `rm -f ${volFile(name)}`);
-    await execInContainer(container, `cp -a /tmp/genuine.img ${volFile(name)}`);
+    // the canary: without this, a node that mounts nothing at all would pass
+    // the test above
+    const r = await execInContainer(container, `rm -f ${volFile(name)} && cp -a /tmp/genuine.img ${volFile(name)}`);
+    expect(r.exitCode, `restore failed: ${r.output}`).to.equal(0);
     expect(await fsUuidOf(container, volFile(name)), 'the restored image is not the one that was taken').to.equal(stamp);
 
-    await restartFluxos(env.clients[0]);
-
+    // the reconciler retries the mount on its own timer
     await waitFor(
       async () => isMountpoint(container, appDir(name)),
       120000,
       'the genuine image was never remounted',
     );
-    const r = await execInContainer(container, `test -e ${appDir(name)}/${MARKER}`);
-    expect(r.exitCode, "the app's own data did not come back with it").to.equal(0);
+    const marker = await execInContainer(container, `test -e ${appDir(name)}/${MARKER}`);
+    expect(marker.exitCode, "the app's own data did not come back with it").to.equal(0);
   });
 });
