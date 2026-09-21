@@ -543,21 +543,19 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   if (appSpecifications.hdd >= availableSpaceForApps) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
-  // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
+  // Used adds up across the volumes: each row's used is its own, and the rows
+  // that would share one - a bind mount, a btrfs subvolume - are already
+  // collapsed into a single row. Free space does not add up the same way, so
+  // no total of it is taken: ZFS datasets in one pool each report the whole
+  // pool's, and the per-volume check below needs no total anyway.
   let usedSpace = 0;
-  let availableSpace = 0;
   okVolumes.forEach((volume) => {
     usedSpace += serviceHelper.ensureNumber(volume.used);
-    availableSpace += serviceHelper.ensureNumber(volume.available);
   });
-  // space that is further reserved for flux os and that will be later substracted from available space. Max 60 + 20.
+  // Held back for FluxOS on top of whatever the app asks for, and no less than
+  // extrahdd once the disks already account for the rest. Max 60 + 20.
   const fluxSystemReserve = config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace > 0 ? config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace : 0;
   const minSystemReserve = Math.max(config.lockedSystemResources.extrahdd, fluxSystemReserve);
-  const totalAvailableSpaceLeft = availableSpace - minSystemReserve;
-  if (appSpecifications.hdd >= totalAvailableSpaceLeft) {
-    // sadly user free space is not enough for this application
-    throw new Error('Insufficient space on Flux Node. Space is already assigned to system files');
-  }
 
   // Emptiest first, so the first that fits is the disk with the most room left
   // rather than whichever the mount table happened to name first.

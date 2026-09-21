@@ -57,18 +57,24 @@ function inGib(volume) {
 }
 
 /**
- * One row per filesystem.
+ * One row per device.
  *
- * `findmnt` names a bind mount `<device>[<subpath>]`, so a single disk is
- * reported once per bind - in a containerised FluxOS that is `/etc/hostname`,
- * `/etc/hosts` and `/etc/resolv.conf` beside the data volume, four views of one
- * disk whose free space would otherwise be added up four times. The shortest
- * target is kept, which is the mount the others are subpaths of.
+ * `findmnt` names a bind mount and a btrfs subvolume `<device>[<subpath>]`, so
+ * a single disk is reported once per bind - in a containerised FluxOS that is
+ * `/etc/hostname`, `/etc/hosts` and `/etc/resolv.conf` beside the data volume,
+ * four views of one disk. The shortest target is kept, which is the mount the
+ * others are subpaths of.
+ *
+ * Device identity is not filesystem identity. ZFS names each dataset in a pool
+ * separately while every one of them reports the pool's free space, so a pool
+ * arrives here as one row per dataset and leaves that way. What each row has
+ * USED is its own and adds up across rows; what it has FREE may belong to
+ * another row too, and does not.
  *
  * @param {Array<object>} rows Mount rows from deviceHelper.
  * @returns {Array<object>} One row per distinct device.
  */
-function oneRowPerFilesystem(rows) {
+function oneRowPerDevice(rows) {
   const byDevice = new Map();
   rows.forEach((row) => {
     const device = String(row.source).split('[')[0];
@@ -167,7 +173,7 @@ async function placementVolumesInGib() {
     // eslint-disable-next-line no-await-in-loop
     if (await canHoldAppVolume(mount)) writable.push(mount);
   }
-  return oneRowPerFilesystem(writable)
+  return oneRowPerDevice(writable)
     .sort((a, b) => b.availableBytes - a.availableBytes)
     .map(inGib);
 }
