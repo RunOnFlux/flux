@@ -14,7 +14,8 @@ const crontabLoad = util.promisify(systemcrontab.load);
 // Mount failures that describe the host rather than the volume. Matched on the
 // part before the colon, because two of the reasons carry the underlying error
 // after one.
-const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable', 'mount_table_unreadable', 'loop_unavailable']);
+const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable',
+  'mount_table_unreadable', 'candidate_path_unreadable', 'loop_unavailable']);
 
 /**
  * Get all locally installed app IDs. Enterprise apps are stored locally with
@@ -63,8 +64,15 @@ async function getInstalledAppIds() {
       }
       if (!compose || compose.length === 0) {
         // eslint-disable-next-line no-await-in-loop
-        const diskAppIds = await volumeService.getComponentAppIdsFromVolumeFiles(app.name);
-        diskAppIds.forEach((appId) => installedAppIds.add(appId));
+        const discovered = await volumeService.getComponentAppIdsFromVolumeFiles(app.name);
+        // Mount what was found either way: one unreadable directory must not
+        // cost every other app on the node its boot. The shortfall is said out
+        // loud instead, because a component missing from this list is one
+        // nothing downstream will ever ask about.
+        if (!discovered.conclusive) {
+          log.error(`getInstalledAppIds - ${app.name} components could not be enumerated in full; proceeding with the ${discovered.appIds.length} found on disk`);
+        }
+        discovered.appIds.forEach((appId) => installedAppIds.add(appId));
         // eslint-disable-next-line no-continue
         continue;
       }

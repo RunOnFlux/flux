@@ -217,8 +217,11 @@ async function canHoldAppVolume(mount, allMounts) {
   const visible = visibleMountAt(mount.target, allMounts);
   // Only ever used to REFUSE: a candidate reaches here from the block-backed
   // table, so nothing this list contains can promote one. When no row at the
-  // target names this mount's source the comparison has nothing to say, and
-  // saying nothing costs a disk rather than filling the wrong one.
+  // target names this mount's source the comparison has nothing to say and
+  // the candidate is left to the rules below. Abstaining that way keeps the
+  // disk; abstaining the other way would refuse EVERY disk the moment the two
+  // readings disagreed about how to spell a source, and a node that can place
+  // nothing is a worse answer than one that placed where it always has.
   if (visible && visible.source !== mount.source) return false;
   if (mount.readOnly) return false;
   const stats = await fs.stat(mount.target).catch(() => null);
@@ -250,6 +253,14 @@ async function placementVolumesInGib() {
   for (const mount of hosts) {
     // eslint-disable-next-line no-await-in-loop
     if (await canHoldAppVolume(mount, allMounts)) writable.push(mount);
+  }
+  // A filesystem the node may use and cannot write to is worth a line: the
+  // caller's only other output is "No useable volume found", which names
+  // nothing, and a disk lost to a traversal denied or a path answering EIO
+  // otherwise looks exactly like a disk the node never had.
+  if (writable.length !== hosts.length) {
+    const refused = hosts.filter((mount) => !writable.includes(mount)).map((mount) => mount.target);
+    log.info(`placementVolumesInGib - not writable, so not offered: ${refused.join(', ')}`);
   }
   return oneRowPerDevice(writable)
     .sort((a, b) => b.availableBytes - a.availableBytes)
@@ -342,13 +353,17 @@ async function isPathMounted(dirPath) {
  * of them may treat it as one that is not there.
  *
  * @param {string} appId Docker app identifier (e.g. fluxcomp_app).
- * @returns {Promise<{path: string|null, conclusive: boolean}>} Absolute path of
- *   the image or null, and whether every location was searched.
+ * @returns {Promise<{path: string|null, conclusive: boolean, blocked: string|null}>}
+ *   Absolute path of the image or null, whether every location was searched,
+ *   and which fault stopped it if one did.
  */
 async function getVolumeFilePath(appId) {
   const volumeFileName = `${appId}FLUXFSVOL`;
   const candidates = [];
-  let conclusive = true;
+  // Which fault stopped the search covering everywhere, or null. A caller
+  // reports the fault it actually met: naming the mount table for a disk that
+  // answered EIO sends whoever reads it to the wrong thing.
+  let blocked = null;
 
   try {
     const mounts = await eligibleHostMounts();
@@ -356,7 +371,7 @@ async function getVolumeFilePath(appId) {
       candidates.push(path.join(mount.target, volumeFileName));
     });
   } catch (error) {
-    conclusive = false;
+    blocked = 'mount_table_unreadable';
     log.warn(`getVolumeFilePath - findmnt failed (${error.message}), searching the appvolumes locations only`);
   }
 
@@ -368,18 +383,18 @@ async function getVolumeFilePath(appId) {
     // eslint-disable-next-line no-await-in-loop
     const failure = await fs.access(candidate).then(() => null).catch((error) => error);
     // Finding it settles the question whatever the search could not reach.
-    if (!failure) return { path: candidate, conclusive: true };
+    if (!failure) return { path: candidate, conclusive: true, blocked: null };
     // Only ENOENT says an image is not here. A path that could not be read -
     // the disk answering EIO, a directory that denies the lookup - has ruled
     // nothing out, and reporting it absent is how a failing disk becomes a
     // tampering event against the operator.
     if (failure.code !== 'ENOENT') {
-      conclusive = false;
+      blocked = blocked || 'candidate_path_unreadable';
       log.warn(`getVolumeFilePath - ${candidate} could not be read (${failure.code || failure.message}), so the image is not ruled out`);
     }
   }
 
-  return { path: null, conclusive };
+  return { path: null, conclusive: !blocked, blocked };
 }
 
 /**
@@ -389,21 +404,31 @@ async function getVolumeFilePath(appId) {
  * flux<app>FLUXFSVOL). Ground truth for apps whose local spec cannot
  * enumerate components: enterprise specs are stored with compose emptied and
  * decryption needs fluxbenchd, while the images need nothing.
+ * This list IS the component set for an app whose specification cannot be
+ * read, so a short one is indistinguishable from an app with fewer
+ * components. It therefore says whether every place was searched, the same
+ * way getVolumeFilePath does, rather than answering short and looking
+ * complete. A caller that cannot use a partial answer still gets what was
+ * found, which is what keeps one unreadable directory from costing a node
+ * every other app's boot.
+ *
  * @param {string} appName Application name.
- * @returns {Promise<string[]>} Docker app identifiers whose images exist on disk.
- * @throws when the mount table cannot be read, because a short list here is
- *   indistinguishable from an app with fewer components.
+ * @returns {Promise<{appIds: string[], conclusive: boolean}>} Docker app
+ *   identifiers whose images exist on disk, and whether every location was
+ *   searched.
  */
 async function getComponentAppIdsFromVolumeFiles(appName) {
   const appIds = new Set();
   const searchDirs = new Set([appVolumesPath, legacyAppVolumesPath]);
+  let conclusive = true;
 
-  // Throws rather than answering from the appvolumes locations alone: this
-  // list IS the component set for an app whose specification cannot be read,
-  // so a partial one silently leaves components out of every decision made
-  // from it. "Could not enumerate" has to reach the caller as unknown.
-  const mounts = await eligibleHostMounts();
-  mounts.forEach((mount) => searchDirs.add(mount.target));
+  try {
+    const mounts = await eligibleHostMounts();
+    mounts.forEach((mount) => searchDirs.add(mount.target));
+  } catch (error) {
+    conclusive = false;
+    log.warn(`getComponentAppIdsFromVolumeFiles - findmnt failed (${error.message}), so ${appName}'s component list is not complete`);
+  }
 
   const escapedName = appName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const componentImage = new RegExp(`^flux\\w+_${escapedName}FLUXFSVOL$`);
@@ -412,15 +437,24 @@ async function getComponentAppIdsFromVolumeFiles(appName) {
   // eslint-disable-next-line no-restricted-syntax
   for (const dir of searchDirs) {
     // eslint-disable-next-line no-await-in-loop
-    const entries = await fs.readdir(dir).catch(() => []);
-    entries.forEach((entry) => {
-      if (componentImage.test(entry) || entry === legacyImage) {
-        appIds.add(entry.slice(0, -'FLUXFSVOL'.length));
-      }
-    });
+    const failure = await fs.readdir(dir).then((entries) => {
+      entries.forEach((entry) => {
+        if (componentImage.test(entry) || entry === legacyImage) {
+          appIds.add(entry.slice(0, -'FLUXFSVOL'.length));
+        }
+      });
+      return null;
+    }).catch((error) => error);
+    // A directory that is not there held no images. One that could not be read
+    // may have held any of them, and the same argument applies as to the mount
+    // table: a list short by an unknown amount is not a component set.
+    if (failure && failure.code !== 'ENOENT') {
+      conclusive = false;
+      log.warn(`getComponentAppIdsFromVolumeFiles - ${dir} could not be read (${failure.code || failure.message}), so ${appName}'s component list is not complete`);
+    }
   }
 
-  return [...appIds];
+  return { appIds: [...appIds], conclusive };
 }
 
 /**
@@ -442,7 +476,7 @@ async function ensureAppVolumeMounted(identifier) {
 
   const discovered = await getVolumeFilePath(appId);
   if (!discovered.path) {
-    return { mounted: false, reason: discovered.conclusive ? 'volume_file_missing' : 'mount_table_unreadable' };
+    return { mounted: false, reason: discovered.conclusive ? 'volume_file_missing' : discovered.blocked };
   }
   const volumeFile = discovered.path;
 
@@ -463,6 +497,14 @@ async function ensureAppVolumeMounted(identifier) {
   } catch (error) {
     const mkdir = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', mountPoint] });
     if (mkdir.error) {
+      // mkdir -p fails both when the parent denies it and when the path is
+      // already there as something other than a directory, and only the
+      // second says an app's directory has been replaced. Asked of the path
+      // rather than read out of the error, so the two do not share a string.
+      const stats = await fs.lstat(mountPoint).catch(() => null);
+      if (stats && !stats.isDirectory()) {
+        return { mounted: false, reason: 'mount_point_not_a_directory' };
+      }
       return { mounted: false, reason: `mount_point_unavailable: ${mkdir.error.message}` };
     }
     mountPointEntries = [];
@@ -495,14 +537,14 @@ async function ensureAppVolumeMounted(identifier) {
     }
     log.error(`ensureAppVolumeMounted - failed to mount ${volumeFile} at ${mountPoint}: ${mountRes.error.message}`);
     // A failed mount is evidence about the image only once the host is known
-    // to be able to mount anything at all. `losetup -f` names the next free
-    // loop device and fails when the machinery is missing - no
-    // /dev/loop-control, the module unloaded, every device taken - which is
-    // the host's condition and not something an operator did to the volume.
-    // Asked here rather than read out of the mount error, because one message
-    // covers both and the deciding state is answerable directly.
-    const loop = await serviceHelper.runCommand('losetup', { runAsRoot: true, params: ['-f'], logError: false });
-    if (loop.error) {
+    // to be able to loop-mount anything at all, and /dev/loop-control is that
+    // condition itself - present exactly when the kernel offers the machinery.
+    // Read directly rather than inferred from a command's exit status, which
+    // cannot tell "no free device" from "not permitted to ask": a host fault
+    // suppresses the only record an overwritten image ever gets, so the
+    // narrow, positively-established case is the only one that may claim it.
+    const loopMachinery = await fs.access('/dev/loop-control').then(() => true).catch(() => false);
+    if (!loopMachinery) {
       return { mounted: false, reason: 'loop_unavailable' };
     }
     return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };

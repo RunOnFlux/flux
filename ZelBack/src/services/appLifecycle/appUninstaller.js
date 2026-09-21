@@ -214,6 +214,11 @@ async function cleanupCrontab(appId, res) {
  * @param {string} volumepath - Volume path to clean
  * @param {string} entityName - Entity name for logging
  * @param {object} res - Response object for streaming
+ * @param {boolean} [conclusive=true] - Whether the search that produced
+ *   `volumepath` covered everywhere it should have. False with no path means
+ *   an image may be on disk that nothing will account for again, which is
+ *   said rather than passed over; the default suits a caller that did not
+ *   search.
  * @returns {Promise<void>}
  */
 async function cleanupVolumePath(volumepath, entityName, res, conclusive = true) {

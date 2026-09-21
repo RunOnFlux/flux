@@ -13,7 +13,7 @@ const { expect } = chai;
 const shareRoot = path.join(appsFolder, 'ZelShare');
 
 function responseRecorder() {
-  return { json: sinon.stub(), download: sinon.stub(), setHeader: sinon.stub() };
+  return { json: sinon.stub(), attachment: sinon.stub(), setHeader: sinon.stub() };
 }
 
 const bodyOf = (res) => res.json.firstCall.args[0];
@@ -55,7 +55,7 @@ describe('fluxshareService tests', () => {
       expect(bodyOf(res).data.message).to.match(/[Uu]nauthorized/);
       sinon.assert.notCalled(readdir);
       sinon.assert.notCalled(lstat);
-      sinon.assert.notCalled(res.download);
+      sinon.assert.notCalled(res.attachment);
     });
   });
 
@@ -136,7 +136,7 @@ describe('fluxshareService tests', () => {
       await fluxshareService.fluxShareDownloadFile({ params: { file: 'link' }, query: {} }, res);
 
       expect(bodyOf(res).status).to.equal('error');
-      sinon.assert.notCalled(res.download);
+      sinon.assert.notCalled(res.attachment);
     });
   });
 });

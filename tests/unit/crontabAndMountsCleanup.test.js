@@ -162,7 +162,7 @@ describe('crontabAndMountsCleanup tests', () => {
         name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
       }]);
       enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
-      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: true });
 
       const result = await crontabAndMountsCleanup.getInstalledAppIds();
 
@@ -175,11 +175,32 @@ describe('crontabAndMountsCleanup tests', () => {
         name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
       }]);
       enterpriseHelperMock.checkAndDecryptAppSpecs.resolvesArg(0);
-      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: true });
 
       const result = await crontabAndMountsCleanup.getInstalledAppIds();
 
       expect(result.has('fluxhermes_hermesagent123')).to.be.true;
+    });
+
+    // The boot pass is the only thing that mounts volumes before the
+    // reconciler reaches them, so one app whose components cannot be fully
+    // enumerated must not cost every other app on the node its mount.
+    it('keeps the other apps when one app\'s components cannot be fully enumerated', async () => {
+      stubInstalledApps([
+        { name: 'wordpress123', version: 4, compose: [{ name: 'wp' }] },
+        { name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob' },
+      ]);
+      dockerServiceMock.getAppIdentifier.withArgs('wp_wordpress123').returns('fluxwp_wordpress123');
+      enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123')
+        .resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: false });
+
+      const result = await crontabAndMountsCleanup.getInstalledAppIds();
+
+      expect(result.has('fluxwp_wordpress123')).to.be.true;
+      expect(result.has('fluxhermes_hermesagent123')).to.be.true;
+      // and it is not passed over in silence
+      expect(logMock.error.called).to.be.true;
     });
 
     it('should not attempt decryption for apps with plaintext compose', async () => {
@@ -434,7 +455,7 @@ describe('crontabAndMountsCleanup tests', () => {
         name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
       }]);
       enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
-      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: true });
       volumeServiceMock.ensureAppVolumeMounted.withArgs('fluxhermes_hermesagent123').resolves({ mounted: true, alreadyMounted: false });
 
       const result = await crontabAndMountsCleanup.cleanupCrontabAndMounts();

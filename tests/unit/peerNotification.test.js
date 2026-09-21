@@ -12,10 +12,9 @@ describe('peerNotification tests', () => {
   let broadcastMessageToAllStub;
   let nodeSignerStub;
   let installedAppsStub;
-  // Stubbed rather than shared: globalState is a singleton another suite drops
-  // from the require cache, so a reference taken here and the one the module
-  // under test resolves are two different objects, and a mark set on one is
-  // invisible to the other.
+  // A fresh copy of globalState per test, handed to the module under test as
+  // its own stub, so a mark set here and the one the module resolves are the
+  // same object.
   let departingApps;
   let testInstallingApps;
   let announceCycle;

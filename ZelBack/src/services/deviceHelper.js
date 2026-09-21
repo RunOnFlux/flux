@@ -100,10 +100,12 @@ async function hasQuotaOptionForMountTarget(target) {
  * Every mount the kernel holds, pseudo filesystems included.
  *
  * `listMountedFilesystems` answers the df question, and `--real` drops
- * anything not block-backed. This answers a different one - what a path
+ * libmount's pseudo filesystems - tmpfs, overlay, proc and their kind. It
+ * keeps everything else including the network ones, so it is not a
+ * block-backed filter. This answers a different question - what a path
  * resolves through - and a tmpfs or an overlay laid over a disk is exactly
- * what decides that, which is what `--real` hides. No byte counts: a caller
- * asking this is asking about visibility, not about room.
+ * what decides that, which is precisely what `--real` removes. No byte
+ * counts: a caller asking this is asking about visibility, not about room.
  *
  * Throws on findmnt failure, so a caller cannot read "nothing is mounted
  * there" out of a table it never got.

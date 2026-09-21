@@ -50,6 +50,8 @@ describe('volumeService tests', () => {
         // A mount point is a directory unless a test says otherwise: that is
         // what makes it somewhere a volume image can be written.
         stat: sinon.stub().resolves({ isDirectory: () => true }),
+        // Not followed, because what matters is what is AT the app's path.
+        lstat: sinon.stub().resolves({ isDirectory: () => true }),
       },
     };
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]), listAllMounts: sinon.stub().resolves([]) };
@@ -371,10 +373,26 @@ describe('volumeService tests', () => {
     // This list IS the component set for an app whose specification cannot be
     // decrypted, so a short one is indistinguishable from an app with fewer
     // components and every decision made from it is silently wrong.
-    it('refuses to answer from a partial search when the mount table cannot be read', async () => {
+    it('says the list is short when the mount table cannot be read, and still answers', async () => {
       deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
+      fsStub.promises.readdir.resolves([]);
+      fsStub.promises.readdir.withArgs(APP_VOLUMES).resolves(['fluxweb_myappFLUXFSVOL']);
 
-      await expect(volumeService.getComponentAppIdsFromVolumeFiles('myapp')).to.be.rejectedWith('findmnt failed');
+      const result = await volumeService.getComponentAppIdsFromVolumeFiles('myapp');
+
+      // what it did find is still usable - the caller mounts these
+      expect(result.appIds).to.deep.equal(['fluxweb_myapp']);
+      expect(result.conclusive).to.be.false;
+    });
+
+    it('says the list is short when a searched directory cannot be read', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      fsStub.promises.readdir.resolves([]);
+      fsStub.promises.readdir.withArgs('/dat').rejects(Object.assign(new Error('EIO'), { code: 'EIO' }));
+
+      const result = await volumeService.getComponentAppIdsFromVolumeFiles('myapp');
+
+      expect(result.conclusive).to.be.false;
     });
 
     it('answers from every eligible mount when the table reads', async () => {
@@ -382,9 +400,11 @@ describe('volumeService tests', () => {
       fsStub.promises.readdir.resolves([]);
       fsStub.promises.readdir.withArgs('/dat').resolves(['fluxweb_myappFLUXFSVOL', 'unrelated']);
 
-      const ids = await volumeService.getComponentAppIdsFromVolumeFiles('myapp');
+      const result = await volumeService.getComponentAppIdsFromVolumeFiles('myapp');
 
-      expect(ids).to.deep.equal(['fluxweb_myapp']);
+      expect(result.appIds).to.deep.equal(['fluxweb_myapp']);
+      // a directory that is simply absent is not a short search
+      expect(result.conclusive).to.be.true;
     });
   });
 
@@ -484,6 +504,9 @@ describe('volumeService tests', () => {
     beforeEach(() => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
       deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      // the ordinary host: the kernel offers loop devices. A test about a host
+      // that does not is the one that says so.
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
     });
 
     it('should be a no-op when the app dir is already a mountpoint', async () => {
@@ -591,6 +614,22 @@ describe('volumeService tests', () => {
       expect(result).to.deep.equal({ mounted: false, reason: 'mount_table_unreadable' });
     });
 
+    // The two ways a search can come up short are different faults, and the
+    // reason is what an operator reads: naming the mount table for a disk
+    // answering EIO sends whoever reads it to the wrong thing.
+    it('names the unreadable path, not the mount table, when a candidate fails', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').rejects(Object.assign(new Error('EIO'), { code: 'EIO' }));
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: false, reason: 'candidate_path_unreadable' });
+    });
+
     it('should report volume_file_missing when no image exists anywhere', async () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
@@ -631,15 +670,50 @@ describe('volumeService tests', () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
         mount: async () => ({ error: new Error('failed to set up loop device'), stdout: '', stderr: '' }),
-        losetup: async () => ({ error: new Error('could not find any free loop device'), stdout: '', stderr: '' }),
       });
       fsStub.promises.access.rejects(enoent());
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.access.withArgs('/dev/loop-control').rejects(enoent());
       fsStub.promises.readdir.resolves([]);
 
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
       expect(result).to.deep.equal({ mounted: false, reason: 'loop_unavailable' });
+    });
+
+    // mkdir -p fails both when the parent denies it and when the path is
+    // already something else. Only the second says an app's directory was
+    // replaced, and that one is not the host's doing.
+    it('names a replaced app directory rather than an unavailable mountpoint', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mkdir: async () => ({ error: new Error('File exists'), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.readdir.rejects(Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' }));
+      fsStub.promises.lstat.resolves({ isDirectory: () => false });
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: false, reason: 'mount_point_not_a_directory' });
+    });
+
+    it('reports the mountpoint as unavailable when it is the parent that refuses', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mkdir: async () => ({ error: new Error('Permission denied'), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.readdir.rejects(enoent());
+      fsStub.promises.lstat.rejects(enoent());
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.reason).to.include('mount_point_unavailable');
     });
 
     it('should report mount_failed when the mount fails and the dir stays unmounted', async () => {
