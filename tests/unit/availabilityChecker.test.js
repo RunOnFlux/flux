@@ -26,7 +26,6 @@ describe('availabilityChecker tests', () => {
     mockInstalledAppsFn = sinon.stub();
     mockDosState = {
       dosMessage: null,
-      dosDuplicateAppMessage: null,
       dosStateValue: 0,
       testingPort: null,
       nextTestingPort: null,
@@ -48,21 +47,6 @@ describe('availabilityChecker tests', () => {
   });
 
   describe('checkMyAppsAvailability tests', () => {
-    it('should delay and retry if DOS duplicate app message present', async () => {
-      mockDosState.dosDuplicateAppMessage = 'Duplicate app detected';
-
-      await availabilityChecker.checkMyAppsAvailability(
-        mockInstalledAppsFn,
-        mockDosState,
-        mockPortsNotWorking,
-        mockFailedNodesCache,
-        isArcane,
-      );
-
-      expect(mockDosState.dosMessage).to.equal('Duplicate app detected');
-      expect(mockDosState.dosStateValue).to.equal(100);
-    });
-
     it('should return early if daemon not synced', async () => {
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
         data: { synced: false },

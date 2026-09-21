@@ -87,7 +87,6 @@ const {
 // State objects for monitoring services
 const dosState = {
   dosMessage: null,
-  dosDuplicateAppMessage: null,
   get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
   set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
   testingPort: null,
