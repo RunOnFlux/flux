@@ -1,6 +1,5 @@
 const util = require('util');
 const path = require('path');
-const nodecmd = require('node-cmd');
 const systemcrontab = require('crontab');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -29,7 +28,6 @@ const { Privilege, authOf } = require('../utils/privileges');
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
-const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 
 // Fired once per component identifier after a successful local removal, beside
@@ -84,22 +82,27 @@ async function unmountVolume(appId, entityName, res) {
     if (res.flush) res.flush();
   }
 
-  const execUnmount = `sudo umount ${appsFolder + appId}`;
-  const execSuccess = await cmdAsync(execUnmount).catch((e) => {
-    log.error(e);
+  // The unmount carries on either way - a volume that will not unmount is not
+  // a reason to hold an uninstall open - but only one of these two lines is
+  // true, and the stream is the only account an operator gets of what is still
+  // mounted.
+  const unmount = await serviceHelper.runCommand('umount', {
+    runAsRoot: true, params: [appsFolder + appId], logError: false,
+  });
+  if (unmount.error) {
+    log.error(unmount.error);
     log.info(`An error occurred while unmounting ${entityName} storage. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while unmounting ${entityName} storage. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+    return;
+  }
 
-  if (execSuccess) {
-    log.info(`Volume of ${entityName} unmounted`);
-    if (res) {
-      res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} unmounted` }));
-      if (res.flush) res.flush();
-    }
+  log.info(`Volume of ${entityName} unmounted`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} unmounted` }));
+    if (res.flush) res.flush();
   }
 }
 
@@ -121,20 +124,21 @@ async function cleanupAppData(appId, entityName, res) {
   // creation); clear the flag or the removal below fails
   await serviceHelper.runCommand('chattr', { runAsRoot: true, params: ['-i', appsFolder + appId], logError: false });
 
-  const execDelete = `sudo rm -rf ${appsFolder + appId}`;
   // The removal carries on either way - data left behind is not a reason to
   // hold an uninstall open - but only one of these two lines is true, and the
   // stream is the only account an operator gets of what is still on the disk.
-  const failed = await cmdAsync(execDelete).then(() => false).catch((e) => {
-    log.error(e);
+  const removal = await serviceHelper.runCommand('rm', {
+    runAsRoot: true, params: ['-rf', appsFolder + appId], logError: false,
+  });
+  if (removal.error) {
+    log.error(removal.error);
     log.info(`An error occured while cleaning ${entityName} data. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} data. Continuing...` }));
       if (res.flush) res.flush();
     }
-    return true;
-  });
-  if (failed) return;
+    return;
+  }
 
   log.info(`Data of ${entityName} cleaned`);
   if (res) {
