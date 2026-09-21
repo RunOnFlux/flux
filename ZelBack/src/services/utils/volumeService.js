@@ -4,6 +4,7 @@ const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const mountParser = require('./mountParser');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const log = require('../../lib/log');
 const {
   appsFolder, appVolumesPath, legacyAppVolumesPath, APP_VOLUME_MOUNT_OPTIONS,
@@ -340,6 +341,94 @@ async function isPathMounted(dirPath) {
 }
 
 /**
+ * The image path this node recorded when it created the volume, and the
+ * filesystem UUID it gave it.
+ *
+ * FluxOS chooses where an image goes, so it is the authority on where one is.
+ * A search of the filesystem is not: it matches on a filename anything on the
+ * node can write, which is why every place something else might write has to
+ * be excluded by hand. A recorded path is looked up, and a recorded UUID says
+ * the file found there is the one this node made.
+ *
+ * Lives on the component's runtime-state document, which is node-local and
+ * already keyed per component - the grain a volume has. The installed-apps row
+ * is the owner's signed specification and holds nothing this node observed.
+ *
+ * @param {string} identifier Component identifier or docker app id.
+ * @returns {Promise<{path: string, fsUuid: string|null}|null>}
+ */
+async function recordedVolumeImage(identifier) {
+  const state = await appsRuntimeState.getState(identifier);
+  if (!state || !state.volumeImagePath) return null;
+  return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null };
+}
+
+/**
+ * Records where this node put a component's image and what it stamped it with.
+ *
+ * Best effort: a volume that exists and cannot be written down is still a
+ * working volume, and the fallback search still finds it. Failing the mount
+ * over the record would make the bookkeeping more load-bearing than the thing
+ * it describes.
+ *
+ * @param {string} identifier Component identifier or docker app id.
+ * @param {string} volumeFile Absolute path of the image.
+ * @param {string|null} fsUuid Filesystem UUID inside the image.
+ */
+async function recordVolumeImage(identifier, volumeFile, fsUuid) {
+  await appsRuntimeState.setFields(identifier, {
+    volumeImagePath: volumeFile,
+    volumeFsUuid: fsUuid || null,
+  }).catch((error) => {
+    log.warn(`recordVolumeImage - could not record ${volumeFile} for ${identifier}: ${error.message}`);
+  });
+}
+
+/**
+ * The filesystem UUID inside a volume image, or null when it cannot be read.
+ *
+ * @param {string} volumeFile Absolute path of the image.
+ * @returns {Promise<string|null>}
+ */
+async function imageFsUuid(volumeFile) {
+  const res = await serviceHelper.runCommand('blkid', {
+    runAsRoot: true, params: ['-o', 'value', '-s', 'UUID', volumeFile], logError: false,
+  });
+  if (res.error) return null;
+  const uuid = String(res.stdout || '').trim();
+  return uuid || null;
+}
+
+/**
+ * The image behind a volume that is already mounted, read from the kernel.
+ *
+ * The authority for a node upgrading with its apps up: the loop device names
+ * its own backing file, so the path this node used is readable without
+ * searching for it and without trusting a filename.
+ *
+ * @param {string} dirPath The mount point.
+ * @returns {Promise<string|null>} Absolute path of the backing image, or null.
+ */
+async function mountedImagePath(dirPath) {
+  const mountinfo = await fs.readFile('/proc/self/mountinfo', 'utf8').catch(() => null);
+  if (mountinfo === null) return null;
+  const target = path.resolve(dirPath);
+  const unescapeMount = (value) => value.replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
+  const line = mountinfo.split('\n').find((entry) => {
+    const fields = entry.split(' ');
+    return fields.length > 4 && unescapeMount(fields[4]) === target;
+  });
+  if (!line) return null;
+  // Everything after the ` - ` separator is fstype, mount source, super options
+  const afterSeparator = line.split(' - ')[1];
+  const source = afterSeparator ? afterSeparator.split(' ')[1] : null;
+  const loop = /^\/dev\/(loop\d+)$/.exec(source || '');
+  if (!loop) return null;
+  const backing = await fs.readFile(`/sys/block/${loop[1]}/loop/backing_file`, 'utf8').catch(() => null);
+  return backing ? unescapeMount(backing.trim()) : null;
+}
+
+/**
  * Locates the backing FLUXFSVOL image for an app component deterministically,
  * without consulting the crontab (whose entries can silently vanish - relying
  * on them once orphaned images on removal and left volumes unmounted after
@@ -358,6 +447,15 @@ async function isPathMounted(dirPath) {
  *   and which fault stopped it if one did.
  */
 async function getVolumeFilePath(appId) {
+  // Where this node put it, if it wrote that down. A lookup cannot be answered
+  // by a file somebody else named, which is the whole weakness of the search
+  // below.
+  const recorded = await recordedVolumeImage(appId);
+  if (recorded) {
+    const present = await fs.access(recorded.path).then(() => true).catch(() => false);
+    if (present) return { path: recorded.path, conclusive: true, blocked: null };
+  }
+
   const volumeFileName = `${appId}FLUXFSVOL`;
   const candidates = [];
   // Which fault stopped the search covering everywhere, or null. A caller
@@ -471,6 +569,14 @@ async function ensureAppVolumeMounted(identifier) {
   const mountPoint = path.join(appsFolder, appId);
 
   if (await isPathMounted(mountPoint)) {
+    // A node that upgrades with its apps running never has to search for their
+    // images: the loop device names its own backing file, so the path this
+    // node used is readable from the kernel. Taken once, when there is nothing
+    // recorded yet.
+    if (!await recordedVolumeImage(appId)) {
+      const backing = await mountedImagePath(mountPoint);
+      if (backing) await recordVolumeImage(appId, backing, await imageFsUuid(backing));
+    }
     return { mounted: true, alreadyMounted: true };
   }
 
@@ -526,6 +632,21 @@ async function ensureAppVolumeMounted(identifier) {
     log.warn(`ensureAppVolumeMounted - ${mountPoint} is not mounted but holds ${mountPointEntries.length} entries; they were written while unmounted and will be shadowed by the volume`);
   }
 
+  // An image this node stamped identifies itself. A file that is not it -
+  // whatever it is called and wherever it was found - is not mounted as root
+  // over an app's data.
+  const stamped = await recordedVolumeImage(appId);
+  if (stamped && stamped.fsUuid) {
+    const found = await imageFsUuid(volumeFile);
+    // A UUID that cannot be read says nothing either way, and the mount itself
+    // refuses anything that is not a filesystem. Only a positive mismatch is a
+    // refusal here.
+    if (found && found !== stamped.fsUuid) {
+      log.error(`ensureAppVolumeMounted - ${volumeFile} carries ${found}, not the ${stamped.fsUuid} this node created for ${appId}`);
+      return { mounted: false, reason: 'volume_image_unrecognised' };
+    }
+  }
+
   const mountRes = await serviceHelper.runCommand('mount', {
     runAsRoot: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, mountPoint], logError: false,
   });
@@ -551,6 +672,9 @@ async function ensureAppVolumeMounted(identifier) {
   }
 
   log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);
+  // An image found by the search is recorded now that it is known to mount, so
+  // the search runs once for it and the lookup answers ever after.
+  if (!stamped) await recordVolumeImage(appId, volumeFile, await imageFsUuid(volumeFile));
   return { mounted: true, alreadyMounted: false };
 }
 
@@ -780,6 +904,10 @@ module.exports = {
   ensureMountPathsExist,
   isPathMounted,
   getVolumeFilePath,
+  imageFsUuid,
+  mountedImagePath,
+  recordVolumeImage,
+  recordedVolumeImage,
   getComponentAppIdsFromVolumeFiles,
   ensureAppVolumeMounted,
   clearAppVolumeData,

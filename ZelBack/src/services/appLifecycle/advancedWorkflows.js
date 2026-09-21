@@ -1,6 +1,7 @@
 const config = require('config');
 const util = require('util');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const {
   SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, SYNCTHING_IGNORE_LINES,
@@ -630,7 +631,13 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(makeFilesystem));
       if (res.flush) res.flush();
     }
-    await execAsRoot('mke2fs', ['-t', 'ext4', volumeFile]);
+    // The filesystem is stamped with a UUID this node chooses, and the pair is
+    // recorded against the component. That is what lets a later boot look the
+    // image up instead of searching the disks for a filename, and what lets it
+    // tell this image from a file somebody else left under the same name.
+    const volumeFsUuid = crypto.randomUUID();
+    await execAsRoot('mke2fs', ['-t', 'ext4', '-U', volumeFsUuid, volumeFile]);
+    await volumeService.recordVolumeImage(appId, volumeFile, volumeFsUuid);
     const makeFilesystem2 = {
       status: 'Filesystem created',
     };

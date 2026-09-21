@@ -3016,6 +3016,40 @@ describe('advancedWorkflows tests', () => {
       ).to.equal(true);
     });
 
+    // The node decides the UUID rather than reading one back, so the pair it
+    // records is known before anything can be substituted for the image.
+    it('stamps the filesystem and records the pair against the component', async () => {
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      const record = sinon.stub(volumeService, 'recordVolumeImage').resolves();
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      // let the filesystem be made, then stop before anything mounts it
+      const runCommand = sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'mkdir' ? { error: new Error('stopped after the filesystem') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      // as above: on a low-disk host the pre-flight throws first, and that
+      // reads as "never reached the filesystem", not as a regression
+      expect(thrown, 'the flow never reached the filesystem creation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the filesystem').to.equal('stopped after the filesystem');
+
+      const mke2fs = runCommand.getCalls().find((call) => call.args[0] === 'mke2fs');
+      expect(mke2fs, 'no filesystem was created').to.not.equal(undefined);
+      const { params } = mke2fs.args[1];
+      const stampAt = params.indexOf('-U');
+      expect(stampAt, 'the filesystem was created without a stamp').to.be.greaterThan(-1);
+      const uuid = params[stampAt + 1];
+      expect(uuid).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      // the image path is the last argument to mke2fs, and it is what is recorded
+      sinon.assert.calledWith(record, identifier, params[params.length - 1], uuid);
+    });
+
     it('drops a stale synced-mark at the point of no return', async () => {
       // once the allocation runs the old volume state is gone: a cache entry
       // surviving from the previous incarnation would let this fresh install

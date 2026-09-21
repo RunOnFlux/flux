@@ -156,6 +156,7 @@ describe('app volume placement', () => {
         info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
       },
       '../deviceHelper': deviceHelperStub,
+      '../appManagement/appsRuntimeState': { getState: sinon.stub().resolves(null), setFields: sinon.stub().resolves() },
       fs: { promises: { stat: statStub } },
     });
   });
