@@ -1,6 +1,12 @@
 const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+
+// registered here rather than relied on from whichever suite ran first: a
+// rejection assertion that silently degrades to a passing one when the plugin
+// is absent is worth less than no assertion at all
+chai.use(chaiAsPromised);
 
 const { expect } = chai;
 
