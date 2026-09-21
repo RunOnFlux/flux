@@ -383,8 +383,10 @@ module.exports = {
     // Flux storage is the only host a storage link may address. The node
     // dereferences F_S_ENV and F_S_CMD with its own signed identity before it
     // starts a container, so the target is not the specification author's to
-    // choose. Overridden by the unit and harness configs to reach a local
-    // stand-in.
+    // choose. The harness reaches a stand-in under this same name - the stub
+    // carries it as a docker network alias and its certificate as a SAN - so
+    // the value is not overridden anywhere and a config that changed it would
+    // fail TLS against that certificate.
     storageHost: 'storage.runonflux.io',
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',

@@ -31,8 +31,8 @@ function monotonicMs() {
 
 // These number the PEER sockets. The browser routes on the same server carry
 // their own meanings for the same numbers - the payment relay answers a
-// browser with 4012 when a transaction id arrives and 4016 when none does -
-// so a code read off a socket means what that socket's route says it means.
+// browser with 4012 when a transaction id arrives - so a code read off a
+// socket means what that socket's route says it means.
 const CLOSE_CODES = Object.freeze({
   // Inbound validation (FluxPeerManager.validateAndAddInbound)
   MAX_CONNECTIONS: 4000,

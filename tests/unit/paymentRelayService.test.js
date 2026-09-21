@@ -139,7 +139,7 @@ describe('paymentRelayService tests', () => {
     // answer is written, the connection is held open, and the browser on the
     // socket waits out the full timeout for a transaction id that was
     // delivered to the node and dropped.
-    it('answers a callback whose body a parser already took', () => {
+    it('answers a callback whose body a parser already took', async () => {
       const paymentId = issueId();
       const res = generateResponse();
       const req = new PassThrough();
@@ -147,14 +147,16 @@ describe('paymentRelayService tests', () => {
       req.body = { txid: 'parsed-by-express' };
       req.push(null);
       req.resume();
+      // awaited, not left in a listener: an assertion that runs after the test
+      // has returned is an assertion the test never made
+      await new Promise((resolve) => { req.on('end', resolve); });
+      expect(req.readableEnded, 'the stream was not spent, so this is not the case under test').to.equal(true);
 
-      req.on('end', () => {
-        paymentRelayService.receivePaymentCallback(req, res);
+      paymentRelayService.receivePaymentCallback(req, res);
 
-        sinon.assert.calledOnce(res.json);
-        expect(res.json.firstCall.args[0].status).to.equal('success');
-        expect(pending.get(paymentId)).to.deep.equal({ txid: 'parsed-by-express' });
-      });
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(pending.get(paymentId)).to.deep.equal({ txid: 'parsed-by-express' });
     });
 
     it('refuses an id nothing is waiting on, and leaves nothing behind', async () => {
@@ -292,18 +294,25 @@ describe('paymentRelayService tests', () => {
       }
     });
 
-    it('stops waiting once no wallet could still answer', () => {
+    // The id's own lifetime is the wait. Nothing here keeps a second clock, so
+    // this is what a listener meets when the wallet never answers: the entry
+    // is gone and it is told so.
+    it('stops waiting once the id it is waiting on has gone', () => {
       const clock = sinon.useFakeTimers();
       try {
         const paymentId = issueId();
         const ws = fakeSocket();
 
         paymentRelayService.wsRespondPayment(ws, paymentId);
-        clock.tick(65 * 60 * 1000 + 500);
+        clock.tick(2000);
+        sinon.assert.notCalled(ws.send);
+
+        pending.delete(paymentId);
+        clock.tick(500);
 
         const sent = qs.parse(ws.send.firstCall.args[0]);
         expect(sent.status).to.equal('error');
-        sinon.assert.calledWith(ws.close, 4016);
+        expect(sent.data.message).to.include('no longer valid');
       } finally {
         clock.restore();
       }

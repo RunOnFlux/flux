@@ -36,12 +36,6 @@ const MAX_BODY_SIZE = 10000;
 const TXID_MAX_LENGTH = 500;
 const WS_POLL_INTERVAL = 500;
 
-/**
- * Outlasts `paymentRelayCache`'s ttl, so a listener that waits the whole time
- * is told its id expired rather than that the wait did.
- */
-const WS_MAX_WAIT = 65 * 60 * 1000;
-
 const pending = cacheManager.paymentRelayCache;
 
 /**
@@ -162,7 +156,6 @@ function receivePaymentCallback(req, res) {
  */
 function wsRespondPayment(ws, paymentid) {
   let closed = false;
-  const startTime = Date.now();
 
   /* eslint-disable no-param-reassign */
   ws.onclose = (evt) => {
@@ -190,14 +183,11 @@ function wsRespondPayment(ws, paymentid) {
   function waitForCallback() {
     if (closed) return;
 
-    if (Date.now() - startTime > WS_MAX_WAIT) {
-      log.warn(`WebSocket payment polling timeout reached for ${paymentid}`);
-      send(messageHelper.createErrorMessage('Payment polling timeout reached. Please request a new payment.'), 4016);
-      return;
-    }
-
     const held = pending.get(paymentid);
 
+    // The id's own lifetime is the wait. A second clock here could only be
+    // shorter - giving up on a wallet the id would still have accepted - or
+    // longer, and therefore unreachable, because the entry is gone first.
     if (!held) {
       send(messageHelper.createErrorMessage('Payment request is no longer valid. Please request a new one.'));
       return;
