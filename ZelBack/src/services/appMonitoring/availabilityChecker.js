@@ -69,9 +69,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     portsLowEdge: 80,
   };
 
-  if (dosState.dosMountMessage || dosState.dosDuplicateAppMessage) {
+  if (dosState.dosDuplicateAppMessage) {
     // eslint-disable-next-line no-param-reassign
-    dosState.dosMessage = dosState.dosMountMessage || dosState.dosDuplicateAppMessage;
+    dosState.dosMessage = dosState.dosDuplicateAppMessage;
     // eslint-disable-next-line no-param-reassign
     dosState.dosStateValue = thresholds.dos;
 
@@ -381,7 +381,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       // eslint-disable-next-line no-param-reassign
       dosState.originalPortFailed = null;
       // eslint-disable-next-line no-param-reassign
-      dosState.dosMessage = dosState.dosMountMessage || dosState.dosDuplicateAppMessage || null;
+      dosState.dosMessage = dosState.dosDuplicateAppMessage || null;
       // eslint-disable-next-line no-param-reassign
       dosState.dosStateValue = dosState.dosMessage ? thresholds.dos : 0;
       waitMs = timeouts.default;
@@ -400,9 +400,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     await serviceHelper.delay(waitMs);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
-    if (!dosState.dosMessage && (dosState.dosMountMessage || dosState.dosDuplicateAppMessage)) {
+    if (!dosState.dosMessage && dosState.dosDuplicateAppMessage) {
       // eslint-disable-next-line no-param-reassign
-      dosState.dosMessage = dosState.dosMountMessage || dosState.dosDuplicateAppMessage;
+      dosState.dosMessage = dosState.dosDuplicateAppMessage;
     }
     await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, { skipUpnp: !isUpnp });
     log.error(`checkMyAppsAvailability - Error: ${error}`);

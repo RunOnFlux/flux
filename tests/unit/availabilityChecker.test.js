@@ -26,7 +26,6 @@ describe('availabilityChecker tests', () => {
     mockInstalledAppsFn = sinon.stub();
     mockDosState = {
       dosMessage: null,
-      dosMountMessage: null,
       dosDuplicateAppMessage: null,
       dosStateValue: 0,
       testingPort: null,
@@ -49,23 +48,6 @@ describe('availabilityChecker tests', () => {
   });
 
   describe('checkMyAppsAvailability tests', () => {
-    it('should delay and retry if DOS mount message present', async () => {
-      mockDosState.dosMountMessage = 'Mount error detected';
-
-      await availabilityChecker.checkMyAppsAvailability(
-        mockInstalledAppsFn,
-        mockDosState,
-        mockPortsNotWorking,
-        mockFailedNodesCache,
-        isArcane,
-      );
-
-      expect(mockDosState.dosMessage).to.equal('Mount error detected');
-      expect(mockDosState.dosStateValue).to.equal(100);
-      sinon.assert.calledOnce(delayStub);
-      sinon.assert.calledWith(delayStub, 240_000);
-    });
-
     it('should delay and retry if DOS duplicate app message present', async () => {
       mockDosState.dosDuplicateAppMessage = 'Duplicate app detected';
 

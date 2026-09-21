@@ -500,8 +500,6 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
 
 // Global state management - using globalState module instead of local variables
 // These are now managed through the globalState module
-// eslint-disable-next-line no-unused-vars
-let dosMountMessage = '';
 
 /**
  * Create app volume with space checking
@@ -3340,7 +3338,6 @@ async function testAppMount() {
       // no useable volume has such a big space for the app
       log.warn('Mount Test: Insufficient space on Flux Node. No useable volume found.');
       // node marked OK
-      dosMountMessage = ''; // No Space Found actually
       return;
     }
 
@@ -3369,14 +3366,12 @@ async function testAppMount() {
 
     await execAsRoot('mount', ['-o', APP_VOLUME_MOUNT_OPTIONS, volumePath, path.join(appsFolder, appId)]);
     log.info('Mount Test: Volume mounted. Test completed.');
-    dosMountMessage = '';
     // run removal
     removeTestAppMount(volumePath);
   } catch (error) {
     log.error('Mount Test: Error...');
     log.error(error);
     // node marked OK
-    dosMountMessage = 'Unavailability to mount applications volumes. Impossible to run applications.';
     // run removal
     removeTestAppMount();
   }
