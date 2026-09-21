@@ -502,10 +502,11 @@ async function openNoFollow(filePath) {
     // container, so following a link could hand back a file outside the volume.
     // Answer the app owner with what to do instead of an opaque errno: a link
     // an app legitimately keeps (latest.log -> dated.log) is served by naming
-    // its target, or by compressing the folder - which stores the link AND the
-    // real file - and downloading that archive.
+    // its target. The advice names only that, because this serves callers on
+    // both the app volume browser and the FluxShare routes, and compressing a
+    // folder is a route only the first of them has.
     if (error.code === 'ELOOP') {
-      throw new Error('A symbolic link cannot be downloaded directly; download the file it points to, or compress the folder and download the archive');
+      throw new Error('A symbolic link cannot be downloaded directly; name the file it points to instead');
     }
     throw error;
   }

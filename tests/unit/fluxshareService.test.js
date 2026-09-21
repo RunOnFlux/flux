@@ -18,6 +18,8 @@ function responseRecorder() {
 
 const bodyOf = (res) => res.json.firstCall.args[0];
 
+const enoentError = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+
 describe('fluxshareService tests', () => {
   const req = { params: {}, query: {} };
 
@@ -117,6 +119,33 @@ describe('fluxshareService tests', () => {
       sinon.stub(fs.promises, 'lstat').resolves({ isSymbolicLink: () => false });
       sinon.stub(fs.promises, 'realpath').callsFake(async (p) => (p === target ? landsAt : p));
     };
+
+    // Absent and empty are the same thing for a share root nothing ever
+    // created. They are not the same thing for a folder the operator named:
+    // reading a mistyped or deleted directory as "empty" tells them their
+    // files are gone.
+    it('reports a named folder that is not there, rather than answering empty', async () => {
+      sinon.stub(fs.promises, 'lstat').resolves({ isSymbolicLink: () => false });
+      sinon.stub(fs.promises, 'realpath').callsFake(async (p2) => p2);
+      sinon.stub(fs.promises, 'readdir').rejects(enoentError());
+      const res = responseRecorder();
+
+      await fluxshareService.fluxShareGetFolder({ params: { folder: 'typo' }, query: {} }, res);
+
+      expect(bodyOf(res).status).to.equal('error');
+    });
+
+    it('answers empty for a share root that was never created', async () => {
+      sinon.stub(fs.promises, 'lstat').resolves({ isSymbolicLink: () => false });
+      sinon.stub(fs.promises, 'realpath').callsFake(async (p2) => p2);
+      sinon.stub(fs.promises, 'readdir').rejects(enoentError());
+      const res = responseRecorder();
+
+      await fluxshareService.fluxShareGetFolder({ params: {}, query: {} }, res);
+
+      expect(bodyOf(res).status).to.equal('success');
+      expect(bodyOf(res).data).to.deep.equal([]);
+    });
 
     // The one error that means "your files are still there but this node
     // cannot reach them" must not read as "your path is invalid" - these

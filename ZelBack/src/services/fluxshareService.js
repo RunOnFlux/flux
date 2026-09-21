@@ -59,7 +59,10 @@ async function resolveInShare(relative) {
  *
  * A node that never had a share directory answers with an empty list rather
  * than an error: absent and empty are the same thing to a caller collecting
- * files, and nothing in FluxOS has ever created that directory.
+ * files, and nothing in FluxOS has ever created that directory. That holds for
+ * the share root alone. A named folder that is not there is not an empty
+ * folder - an operator checking whether their files survived reads one as the
+ * other - so it is reported missing, the way a named file is.
  *
  * Directory entries carry a null size. Reporting one would mean walking the
  * operator's data to add it up, and the number is not worth the walk.
@@ -84,7 +87,7 @@ async function fluxShareGetFolder(req, res) {
     }
 
     const names = await fs.readdir(target).catch((error) => {
-      if (error.code === 'ENOENT') return null;
+      if (error.code === 'ENOENT' && !folder) return null;
       throw error;
     });
     if (names === null) {

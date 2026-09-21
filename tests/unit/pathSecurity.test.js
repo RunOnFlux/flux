@@ -474,12 +474,13 @@ describe('pathSecurity', () => {
     it('refuses a symlink with an actionable message, not an opaque errno', async () => {
       // O_NOFOLLOW fails ELOOP on a symlink at the final component; the download
       // reads on the host, so following it could serve a file outside the
-      // volume. The owner is told how to get the data instead of just "ELOOP".
+      // volume. The owner is told how to get the data instead of just "ELOOP",
+      // and only by a route every caller of this has.
       const linkPath = path.join(tempDir, 'latest.txt');
       try {
         await fs.symlink(path.join(tempDir, 'real.txt'), linkPath);
         await expect(openNoFollow(linkPath))
-          .to.be.rejectedWith(/symbolic link cannot be downloaded directly.*compress the folder/);
+          .to.be.rejectedWith(/symbolic link cannot be downloaded directly.*name the file it points to/);
       } catch (err) {
         if (err.code !== 'EPERM' && err.code !== 'EACCES') {
           throw err;
