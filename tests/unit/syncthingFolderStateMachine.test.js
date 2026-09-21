@@ -744,6 +744,50 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(targets[0].endsWith('test-app'), `${targets[0]} is not the volume root`).to.equal(true);
     });
 
+    // The figure peers rank this node by. It is published where it is computed, and
+    // it has to mean the same thing as the node's own use of it.
+    it('publishes what it holds for the peers that rank it', async () => {
+      fsMock.promises.readdir.resolves([]);
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({
+        files: [localEntry('appdata/world.db', 5821604997, '2026-09-16T23:00:00Z')],
+      }));
+
+      await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(globalStateMock.folderHoldings.get('test-app').bytes).to.equal(5821604997);
+    });
+
+    // A read it cannot make is not a smaller claim, it is no claim - and the node
+    // stands down on exactly that. Left up, the last good figure makes every peer
+    // defer to a node that is refusing to lead, and nobody seeds.
+    it('withdraws the published claim when it can no longer read what it holds', async () => {
+      globalStateMock.folderHoldings = new Map([
+        ['test-app', { bytes: 5821604997, newestModified: 200 }],
+        ['other-app', { bytes: 900, newestModified: 100 }],
+      ]);
+      fsMock.promises.readdir.resolves([]);
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+      syncthingServiceMock.eachDbLocalChanged.rejects(new Error('connect ECONNREFUSED'));
+
+      await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(globalStateMock.folderHoldings.has('test-app'), 'an unreadable folder still claims its last good figure').to.equal(false);
+      expect(globalStateMock.folderHoldings.has('other-app'), 'another folder\'s claim is not this folder\'s to withdraw').to.equal(true);
+    });
+
     it('should elect leader and start immediately', async () => {
       // A cold start holds nothing, so the volume is empty too - the seed guard reads
       // the disk, and the suite default puts files there for verifyFolderMountSafety.

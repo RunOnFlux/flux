@@ -1091,9 +1091,19 @@ async function handleReceiveOnlyTransition(params) {
   // Published for the peers that ask before promoting one of their own. Recorded where
   // it is already computed rather than read again on demand: /apps/promotedfolders is
   // unauthenticated, so an on-demand read would be an amplifier into syncthing.
+  //
+  // WITHDRAWN BY THE SAME CONDITION THIS NODE STANDS DOWN ON. A read it cannot make is
+  // not a smaller claim, it is no claim - and standDownOnUnknown below refuses to lead
+  // on exactly that. Left up, the last good figure says 5.8 GB to every peer while this
+  // node refuses to act on it: they rank it first and defer, it defers to its own
+  // unknown, and nobody seeds for as long as the read keeps failing. Removed, a peer
+  // reads it as not having answered, which drops the field to the address order - the
+  // case that already exists for a peer too old to answer at all.
   if (holdings) {
     if (!globalState.folderHoldings) globalState.folderHoldings = new Map();
     globalState.folderHoldings.set(appId, holdings);
+  } else {
+    globalState.folderHoldings?.delete(appId);
   }
   const folderIsEmpty = !!syncStatus && syncStatus.globalBytes === 0
     && syncStatus.inSyncBytes === 0
