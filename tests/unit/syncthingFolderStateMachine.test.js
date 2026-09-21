@@ -61,7 +61,14 @@ const appReconcilerMock = {
 };
 const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
 // the pre-promotion peer probe (/apps/promotedfolders)
-const axiosMock = { get: sinon.stub() };
+const axiosMock = { get: sinon.stub(), post: sinon.stub() };
+// This node signs its holdings probe, so WHETHER IT CAN SIGN decides which request the
+// peer is asked with. Left to the real signer it is decided by whether the machine
+// running the suite happens to hold a derivable node key - the signed path on a node,
+// the open one on a laptop - and the suite silently covers a different path on each.
+// Pinned here, and `post` is answered by whatever a test told `get`, so every case
+// below still drives the outcome through the stub it configures.
+const nodeSignerMock = { nodeSigner: sinon.stub() };
 // this node's own connectivity - how it tells a dead peer from its own isolation
 const fluxCommunicationMock = { peerResponsiveness: sinon.stub() };
 
@@ -127,6 +134,7 @@ const peerFolderLivenessMock = proxyquire('../../ZelBack/src/services/appMonitor
   '../syncthingService': syncthingServiceMock,
   '../utils/globalState': globalStateMock,
   axios: axiosMock,
+  '../utils/nodeSigner': nodeSignerMock,
 });
 
 // A fresh liveness object per call is the contract: it holds one pass's view.
@@ -182,6 +190,10 @@ describe('syncthingFolderStateMachine tests', () => {
     appTamperingDetectionServiceMock.recordEvent.resolves();
     appUninstallerMock.removeAppLocally.reset();
     axiosMock.get.reset();
+    axiosMock.post.reset();
+    axiosMock.post.callsFake((url, body, config) => axiosMock.get(url, config));
+    nodeSignerMock.nodeSigner.reset();
+    nodeSignerMock.nodeSigner.resolves({ pubKey: 'PUB', sign: () => 'SIG' });
     // default: no peer holds a writable copy, so the promotion path is unchanged
     // for every test that is not about this probe
     axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
