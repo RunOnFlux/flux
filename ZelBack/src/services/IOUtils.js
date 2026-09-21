@@ -576,10 +576,9 @@ async function createTarGz(sourceDirectory, outputFileName) {
  */
 async function removeDirectory(rpath, directory = false) {
   try {
-    // argv, not a command string. fluxshareService passes a path built from a
-    // caller-supplied folder name straight into this, so a name containing
-    // $( ) or a backtick was arbitrary root execution the moment the character
-    // rule that happened to exclude them was relaxed.
+    // argv, not a command string. Callers build this path from names they did
+    // not choose, so a component containing $( ) or a backtick must reach find
+    // as a literal argument and never as shell input - this runs as root.
     const result = directory
       ? await serviceHelper.runCommand('find', {
         runAsRoot: true,

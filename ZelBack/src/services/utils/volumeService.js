@@ -35,7 +35,13 @@ const REMOTE_FSTYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb3', 'smbfs',
   'afs', 'ncpfs', 'ceph', 'glusterfs', 'virtiofs', '9p']);
 
 /**
- * A mount row in the unit node capacity is spent in.
+ * A mount row in the unit an app's storage is spent in.
+ *
+ * Whole GiB, because `createAppVolume` allocates with `fallocate -l <hdd>G`
+ * and util-linux reads a bare `G` as 1024^3. Room worth exactly twenty of
+ * those has to read as 20, and twenty decimal GB has to read as less, or a
+ * node admits an app it is 7.4% short for and finds out at ENOSPC.
+ *
  * @param {object} volume One mount row from deviceHelper.
  * @returns {{filesystem: string, mount: string, size: number, used: number,
  *   available: number}} The same mount, in whole GiB.
@@ -187,27 +193,6 @@ async function eligibleHostMounts() {
     if (await canHoldAppVolume(mount)) eligible.push(mount);
   }
   return eligible;
-}
-
-/**
- * The host volumes that count towards this node's advertised capacity, sized in
- * whole GiB.
- *
- * A wider set than eligibleHostMounts: a loop-mounted ROOT is included, because
- * on some images that is the host disk rather than an app volume. Callers that
- * place a FLUXFSVOL want the narrower set; callers that total up node capacity
- * want this one.
- *
- * GiB, because that is the unit an app's `hdd` is spent in: `createAppVolume`
- * allocates with `fallocate -l <hdd>G`, and util-linux reads a bare `G` as
- * 1024^3. nodeSpecs.ssdStorage is GiB for the same reason - fluxbench reports
- * the disk that way - so every side of a capacity check speaks one unit.
- *
- * @returns {Promise<Array<{filesystem: string, mount: string, size: number,
- *   used: number, available: number}>>}
- */
-async function capacityVolumesInGib() {
-  return oneRowPerFilesystem(await hostFilesystems()).map(inGib);
 }
 
 /**
@@ -598,7 +583,6 @@ module.exports = {
   verifyAppVolumeMount,
   placementVolumesInGib,
   ensureMountPathsExist,
-  capacityVolumesInGib,
   isPathMounted,
   getVolumeFilePath,
   getComponentAppIdsFromVolumeFiles,

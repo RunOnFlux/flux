@@ -45,7 +45,6 @@ const monitoringOrchestrator = require('./services/appMonitoring/monitoringOrche
 const systemIntegration = require('./services/appSystem/systemIntegration');
 
 const explorerService = require('./services/explorerService');
-const fluxshareService = require('./services/fluxshareService');
 const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
@@ -1410,46 +1409,6 @@ module.exports = (app) => {
     return syncthingService.postDbScan(req, res);
   }));
 
-  // FluxShare
-  app.get('/apps/fluxshare/getfile/:file?/:token?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareDownloadFile(req, res);
-  }));
-  app.get('/apps/fluxshare/getfolder/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareGetFolder(req, res);
-  }));
-  app.get('/apps/fluxshare/createfolder/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareCreateFolder(req, res);
-  }));
-  app.post('/apps/fluxshare/uploadfile/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareUpload(req, res);
-  }));
-  app.get('/apps/fluxshare/removefile/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareRemoveFile(req, res);
-  }));
-  app.get('/apps/fluxshare/removefolder/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareRemoveFolder(req, res);
-  }));
-  app.get('/apps/fluxshare/fileexists/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareFileExists(req, res);
-  }));
-  app.get('/apps/fluxshare/stats', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareStorageStats(req, res);
-  }));
-  app.get('/apps/fluxshare/sharefile/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareShareFile(req, res);
-  }));
-  app.get('/apps/fluxshare/unsharefile/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareUnshareFile(req, res);
-  }));
-  app.get('/apps/fluxshare/sharedfiles', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareGetSharedFiles(req, res);
-  }));
-  app.get('/apps/fluxshare/rename/:oldpath?/:newname?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareRename(req, res);
-  }));
-  app.get('/apps/fluxshare/downloadfolder/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareDownloadFolder(req, res);
-  }));
   // Handing the file operation image to a node that cannot reach the registry.
   // Open to other Flux nodes rather than to an owner: it carries no app data,
   // and a node needing it has nobody to authenticate as.

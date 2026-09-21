@@ -2986,7 +2986,6 @@ describe('advancedWorkflows tests', () => {
           filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: 900,
         },
       ];
-      sinon.stub(volumeService, 'capacityVolumesInGib').resolves(oneDisk);
       sinon.stub(volumeService, 'placementVolumesInGib').resolves(oneDisk);
     });
 

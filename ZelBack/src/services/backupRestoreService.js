@@ -298,6 +298,9 @@ async function cleanLocalBackup() {
     const folders = await fs.readdir(appsFolder);
     // eslint-disable-next-line no-restricted-syntax
     for (const folder of folders) {
+      // A node may still carry a ZelShare directory of operator files beside
+      // the app volumes. It is not an app, so nothing under it is a backup to
+      // reap.
       if (folder.toLowerCase() === 'zelshare') {
         // eslint-disable-next-line no-continue
         continue;

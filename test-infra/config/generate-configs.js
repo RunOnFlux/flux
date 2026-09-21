@@ -60,12 +60,6 @@ function databaseConfig(prefix) {
         chainMessages: 'chainmessages',
       },
     },
-    fluxshare: {
-      database: `${prefix}zelshare`,
-      collections: {
-        shared: 'shared',
-      },
-    },
   };
 }
 

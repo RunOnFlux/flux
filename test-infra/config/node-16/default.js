@@ -55,12 +55,6 @@ module.exports = {
         "collections": {
             "chainMessages": "chainmessages"
         }
-    },
-    "fluxshare": {
-        "database": "node16_zelshare",
-        "collections": {
-            "shared": "shared"
-        }
     }
 },
 };
