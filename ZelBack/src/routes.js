@@ -14,6 +14,7 @@ const idService = require('./services/idService');
 const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
+const fluxshareService = require('./services/fluxshareService');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const {
   asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
@@ -1407,6 +1408,16 @@ module.exports = (app) => {
   }));
   app.post('/syncthing/db/scan', asyncRoute((req, res) => {
     return syncthingService.postDbScan(req, res);
+  }));
+
+  // What is left of FluxShare: an operator collects the files a previous
+  // release let them put on the node. Read only, and the node's operator only -
+  // the token that served a file to whoever held the link is gone with the rest.
+  app.get('/apps/fluxshare/getfolder/:folder?', asyncRoute((req, res) => {
+    return fluxshareService.fluxShareGetFolder(req, res);
+  }));
+  app.get('/apps/fluxshare/getfile/:file?', asyncRoute((req, res) => {
+    return fluxshareService.fluxShareDownloadFile(req, res);
   }));
 
   // Handing the file operation image to a node that cannot reach the registry.
