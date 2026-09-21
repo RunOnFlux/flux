@@ -122,14 +122,19 @@ async function cleanupAppData(appId, entityName, res) {
   await serviceHelper.runCommand('chattr', { runAsRoot: true, params: ['-i', appsFolder + appId], logError: false });
 
   const execDelete = `sudo rm -rf ${appsFolder + appId}`;
-  await cmdAsync(execDelete).catch((e) => {
+  // The removal carries on either way - data left behind is not a reason to
+  // hold an uninstall open - but only one of these two lines is true, and the
+  // stream is the only account an operator gets of what is still on the disk.
+  const failed = await cmdAsync(execDelete).then(() => false).catch((e) => {
     log.error(e);
     log.info(`An error occured while cleaning ${entityName} data. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} data. Continuing...` }));
       if (res.flush) res.flush();
     }
+    return true;
   });
+  if (failed) return;
 
   log.info(`Data of ${entityName} cleaned`);
   if (res) {
@@ -249,6 +254,9 @@ async function cleanupVolumePath(volumepath, entityName, res, conclusive = true)
   // turn one removal into several, and `rm -rf` is not a thing to be wrong
   // about.
   const removal = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumepath], logError: false });
+  // The removal carries on either way - an image left behind is not a reason
+  // to hold an uninstall open - but only one of these two is true, and the
+  // stream is the only account an operator gets of what is still on the disk.
   if (removal.error) {
     log.error(removal.error);
     log.info(`An error occured while cleaning ${entityName} volume. Continuing...`);
@@ -256,6 +264,7 @@ async function cleanupVolumePath(volumepath, entityName, res, conclusive = true)
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} volume. Continuing...` }));
       if (res.flush) res.flush();
     }
+    return;
   }
 
   log.info(`Volume of ${entityName} cleaned`);

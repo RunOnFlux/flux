@@ -14,6 +14,8 @@ describe('appUninstaller tests', () => {
   let globalStateStub;
   let announceCycle;
   let getLocalSocketAddressStub;
+  let runCommandStub;
+  let nodecmdRunStub;
 
   beforeEach(() => {
     configStub = {
@@ -69,14 +71,20 @@ describe('appUninstaller tests', () => {
       isPathMounted: sinon.stub().resolves(false),
     };
 
+    runCommandStub = sinon.stub().resolves({ error: null, stdout: '', stderr: '' });
+    // Stubbed, so the suite does not shell out: the module promisifies this at
+    // load time, so the reference proxyquire supplies is the one it calls.
+    nodecmdRunStub = sinon.stub().callsFake((cmd, cb) => cb(null, ''));
+
     appUninstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+      'node-cmd': { run: nodecmdRunStub },
       config: configStub,
       '../verificationHelper': verificationHelperStub,
       '../messageHelper': messageHelperStub,
       '../utils/volumeService': volumeServiceStub,
       '../serviceHelper': {
         ensureString: sinon.stub().returnsArg(0),
-        runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
+        runCommand: runCommandStub,
         ensureBoolean: sinon.stub().returnsArg(0),
       },
       '../dbHelper': dbHelperStub,
@@ -256,6 +264,34 @@ describe('appUninstaller tests', () => {
       const said = (call) => String(call.args[0] && (call.args[0].status || call.args[0])).includes('could not be located');
       expect(logStub.warn.getCalls().some(said)).to.be.false;
       expect(res.write.getCalls().some(said)).to.be.false;
+    });
+
+    // The removal carries on either way, but only one of the two lines is
+    // true, and the stream is the operator's only account of what is still on
+    // the disk.
+    it('does not report a volume cleaned when the removal failed', async () => {
+      volumeServiceStub.getVolumeFilePath.resolves({ path: '/mnt/data/fluxtestappFLUXFSVOL', conclusive: true });
+      runCommandStub.withArgs('rm').resolves({ error: new Error('Read-only file system'), stdout: '', stderr: '' });
+      const res = { write: sinon.stub(), end: sinon.stub() };
+
+      await appUninstaller.hardUninstallApplication('testapp', 5555, { name: 'testapp', repotag: '/flux' }, res);
+
+      const said = (text) => (call) => String(call.args[0] && (call.args[0].status || call.args[0])).includes(text);
+      // the canary: the failure really was reported, so the absence below is
+      // an absence and not a path that never ran
+      expect(res.write.getCalls().some(said('An error occured while cleaning'))).to.be.true;
+      expect(res.write.getCalls().some(said('Volume of')), 'told the operator the volume was cleaned').to.be.false;
+    });
+
+    it('does not report data cleaned when the removal failed', async () => {
+      nodecmdRunStub.callsFake((cmd, cb) => cb(new Error('Read-only file system')));
+      const res = { write: sinon.stub(), end: sinon.stub() };
+
+      await appUninstaller.hardUninstallApplication('testapp', 6666, { name: 'testapp', repotag: '/flux' }, res);
+
+      const said = (text) => (call) => String(call.args[0] && (call.args[0].status || call.args[0])).includes(text);
+      expect(res.write.getCalls().some(said('An error occured while cleaning'))).to.be.true;
+      expect(res.write.getCalls().some(said('Data of')), 'told the operator the data was cleaned').to.be.false;
     });
 
     it('should hard uninstall app, ports passed', async () => {

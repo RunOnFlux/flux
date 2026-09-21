@@ -266,6 +266,16 @@ describe('volumeService tests', () => {
       expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(true);
     });
 
+    // "No row says read-only" is a fact only once every row has been seen. A
+    // table that did not arrive has not established that the disk is writable,
+    // and this gates whether the volume is mounted at all.
+    it('does not answer at all when the mount table cannot be read', async () => {
+      deviceHelperStub.listAllMounts.rejects(new Error('findmnt failed'));
+
+      await expect(volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL'))
+        .to.be.rejectedWith(/findmnt failed/);
+    });
+
     it('does not claim a writable filesystem is read-only', async () => {
       deviceHelperStub.listAllMounts.resolves([{ ...roMount, readOnly: false }]);
       expect(await volumeService.isOnReadOnlyFilesystem('/mnt/data/fluxcomp_appFLUXFSVOL')).to.equal(false);
@@ -981,6 +991,26 @@ describe('volumeService tests', () => {
       sinon.assert.calledOnce(appsRuntimeStateStub.getVolumeImage);
     });
 
+    // The read-only check gates the mount, so a table that did not arrive
+    // must not read as "nothing says read-only" and start a container over a
+    // volume it cannot write to.
+    it('does not mount when the table the read-only check needs did not arrive', async () => {
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/mnt/data/fluxapp1FLUXFSVOL', fsUuid: 'u-1' });
+      fsStub.promises.access.resolves();
+      deviceHelperStub.listAllMounts.rejects(new Error('findmnt failed'));
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: false, reason: 'mount_table_unreadable' });
+      expect(
+        serviceHelperStub.runCommand.getCalls().some((c) => c.args[0] === 'mount'),
+        'mounted the volume without establishing the disk is writable',
+      ).to.equal(false);
+    });
+
     // A database that would not answer has not established that the image is
     // missing, and the reason a mount did not happen is what other services
     // act on: this one defers, and scores nothing against the operator.
@@ -1374,8 +1404,9 @@ describe('volumeService tests', () => {
         stdout: '',
         stderr: "find: '/test/apps/folder/fluxdb_MyApp/appdata': Aucun fichier ou dossier de ce type",
       });
-      // the directory does not exist - there was nothing to clear
-      serviceHelperStub.runCommand.onSecondCall().resolves({ error: new Error('exit 1'), stdout: '', stderr: '' });
+      // the directory does not exist - there was nothing to clear. execFile
+      // rejects with the exit STATUS on `code`, and `test` says nothing at all
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: '' });
 
       await volumeService.clearAppVolumeData('db_MyApp');
 
@@ -1388,6 +1419,40 @@ describe('volumeService tests', () => {
       expect(cmd).to.equal('test');
       expect(opts.runAsRoot).to.equal(true);
       expect(opts.params).to.deep.equal(['-d', `${APPS_FOLDER}fluxdb_MyApp/appdata`]);
+    });
+
+    // `test` answers with its exit status and nothing else. sudo refusing, or a
+    // spawn that never reached `test`, is not the probe answering - and reading
+    // either as "nothing to delete" reports a wipe that did not happen, which
+    // the caller acts on by starting the component over the data it asked to
+    // be rid of.
+    it('does not read a refused probe as an empty directory', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: 'find: cannot read',
+      });
+      serviceHelperStub.runCommand.onSecondCall().resolves({
+        error: Object.assign(new Error('exit 1'), { code: 1 }),
+        stdout: '',
+        stderr: 'sudo: a password is required',
+      });
+
+      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith(/Failed to delete data/);
+      expect(
+        logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
+        'reported nothing to delete when the probe was refused',
+      ).to.equal(false);
+    });
+
+    it('does not read a probe that never ran as an empty directory', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
+        error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '', stderr: 'find: cannot read',
+      });
+      // a spawn failure carries a string code, never an exit status
+      serviceHelperStub.runCommand.onSecondCall().resolves({
+        error: Object.assign(new Error('spawn sudo ENOENT'), { code: 'ENOENT' }), stdout: '', stderr: '',
+      });
+
+      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith(/Failed to delete data/);
     });
 
     it('reports what the wipe actually said, so a failure can be diagnosed', async () => {

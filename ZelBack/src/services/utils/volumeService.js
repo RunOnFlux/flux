@@ -308,18 +308,21 @@ async function eligibleHostMounts() {
  * path can be under several, and only the deepest describes the filesystem the
  * bytes are actually on.
  *
- * An unreadable mount table answers false. This decides which reason a caller
- * reports, never whether a volume is safe to touch, so a failure here should
- * not turn into a diagnosis of its own.
+ * THROWS when the mount table cannot be read. This gates whether a volume is
+ * mounted at all, and "no row says read-only" is a fact only once every row
+ * has been seen - a table that did not arrive has not established that the
+ * disk is writable, and answering false would start a container over a volume
+ * it cannot write to.
  * @param {string} target Absolute path.
  * @returns {Promise<boolean>} True when that filesystem is mounted `ro`.
+ * @throws When the mount table cannot be read.
  */
 async function isOnReadOnlyFilesystem(target) {
   // Every mount, not the block-backed ones alone. This decides a REFUSAL, and
   // what a path resolves through need not be block-backed - `--real` drops
   // exactly the filesystems that answer differently from the disk beneath
   // them, which is why placement asks the full table for the same question.
-  const mounts = await deviceHelper.listAllMounts().catch(() => []);
+  const mounts = await deviceHelper.listAllMounts();
   const holders = mounts.filter((mount) => {
     const at = String(mount.target).replace(/\/+$/, '');
     return target === at || target.startsWith(`${at}/`);
@@ -736,7 +739,14 @@ async function ensureAppVolumeMounted(identifier) {
   // An app whose volume cannot be written to is down regardless, so the
   // volume is refused here by choice, under the reason that names the disk:
   // calling the image missing blames an operator for a hardware fault.
-  if (await isOnReadOnlyFilesystem(volumeFile)) {
+  let readOnlyHost;
+  try {
+    readOnlyHost = await isOnReadOnlyFilesystem(volumeFile);
+  } catch (error) {
+    log.warn(`ensureAppVolumeMounted - the mount table could not be read (${error.message}), so ${volumeFile} is not mounted`);
+    return { mounted: false, reason: 'mount_table_unreadable' };
+  }
+  if (readOnlyHost) {
     return { mounted: false, reason: 'host_filesystem_readonly' };
   }
 
@@ -1055,7 +1065,15 @@ async function clearAppVolumeData(identifier) {
       logError: false,
       params: ['-d', appDataPath],
     });
-    if (probe.error) {
+    // Exit status 1 with nothing on stderr is `test` answering "not a
+    // directory". sudo refusing, or a spawn that never reached `test`, also
+    // arrives as an error - and reading either as "nothing to delete" reports
+    // a wipe that did not happen, which the caller acts on by starting the
+    // component over the data it asked to be rid of. A spawn failure carries
+    // a string code rather than an exit status, and sudo says why on stderr;
+    // neither is the probe answering.
+    const answered = probe.error && typeof probe.error.code === 'number' && !probe.stderr;
+    if (answered) {
       log.info(`No data to delete for app ${appId}`);
       return;
     }
