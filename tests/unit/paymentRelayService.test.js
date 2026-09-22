@@ -45,9 +45,14 @@ const callWithBody = (body, query) => new Promise((resolve) => {
   paymentRelayService.receivePaymentCallback(generateRequest(body, query), res);
 });
 
+// Each helper call comes from a distinct peer, so issuing ids for setup never
+// meets the per-IP issuance cap the rate-limit tests exercise deliberately.
+let peerCounter = 0;
+const fromNewPeer = () => ({ socket: { remoteAddress: `10.0.${Math.floor(peerCounter / 250)}.${(peerCounter += 1) % 250}` } });
+
 const issueId = () => {
   const res = generateResponse();
-  paymentRelayService.paymentRequest({}, res);
+  paymentRelayService.paymentRequest(fromNewPeer(), res);
   return res.json.firstCall.args[0].data.paymentId;
 };
 
@@ -70,7 +75,7 @@ describe('paymentRelayService tests', () => {
     it('issues an id and holds it with nothing delivered against it', () => {
       const res = generateResponse();
 
-      paymentRelayService.paymentRequest({}, res);
+      paymentRelayService.paymentRequest(fromNewPeer(), res);
 
       const response = res.json.firstCall.args[0];
       expect(response.status).to.equal('success');
@@ -89,21 +94,53 @@ describe('paymentRelayService tests', () => {
       expect(first.split('_')[1]).to.match(/^[0-9a-f]{32}$/);
     });
 
-    // The cache's own bound is what stops a flood costing memory, and it spends
-    // the oldest id to stay inside it. A guard that refused at that size
-    // instead would keep the cache below its maximum, so nothing would ever be
-    // evicted - and every wallet, legitimate ones included, would be turned
-    // away for as long as the flood's ids lived.
+    // At the bound the cache spends its oldest id rather than refusing: a guard
+    // that refused at the maximum instead would keep the cache below it, so
+    // nothing evicted, and every wallet - legitimate ones included - turned
+    // away for as long as the ids ahead of it lived. The rate limit, not this
+    // guard, is what a flood meets.
     it('still issues an id when the cache is at its bound', () => {
-      Object.defineProperty(pending, 'size', { get: () => 20000, configurable: true });
+      Object.defineProperty(pending, 'size', { get: () => 500, configurable: true });
       const res = generateResponse();
 
-      paymentRelayService.paymentRequest({}, res);
+      paymentRelayService.paymentRequest(fromNewPeer(), res);
 
       delete pending.size;
       const response = res.json.firstCall.args[0];
       expect(response.status).to.equal('success');
       expect(response.data.paymentId).to.be.a('string');
+    });
+
+    // The small cache is safe only because one address cannot fill it fast:
+    // issuance is capped per IP, and the cap answers 429 once it bites.
+    it('refuses issuance and answers 429 once one address floods', () => {
+      const peer = { socket: { remoteAddress: '203.0.113.7' } };
+      let refused;
+      for (let i = 0; i < 30 && !refused; i += 1) {
+        const res = generateResponse();
+        paymentRelayService.paymentRequest(peer, res);
+        if (res.json.firstCall.args[0].status === 'error') refused = res;
+      }
+      expect(refused, 'a burst from one address was never refused').to.not.equal(undefined);
+      sinon.assert.calledWith(refused.status, 429);
+    });
+
+    // The cap is per address, so a flood from one does not turn away everyone
+    // else - each distinct peer still issues.
+    it('lets many distinct addresses each issue', () => {
+      for (let i = 0; i < 30; i += 1) {
+        const res = generateResponse();
+        paymentRelayService.paymentRequest({ socket: { remoteAddress: `198.51.100.${i}` } }, res);
+        expect(res.json.firstCall.args[0].status, `peer ${i} was refused`).to.equal('success');
+      }
+    });
+
+    // The cache lives in RAM on every node for a path three sites use, so its
+    // bound is kept small: a node brokers a handful of these at once, not
+    // thousands. A regression that grew it back would be a fleet-wide memory
+    // cost for nothing.
+    it('bounds the in-memory cache to a small size', () => {
+      expect(pending.max).to.be.at.most(1000);
     });
   });
 

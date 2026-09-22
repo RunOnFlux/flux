@@ -4,6 +4,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const cacheManager = require('./utils/cacheManager').default;
+const { lruRateLimit } = require('./utils/rateLimit');
 
 /**
  * The meeting point between a browser and a wallet that cannot reach it.
@@ -35,6 +36,10 @@ const cacheManager = require('./utils/cacheManager').default;
 const MAX_BODY_SIZE = 10000;
 const TXID_MAX_LENGTH = 500;
 const WS_POLL_INTERVAL = 500;
+// A payment button is pressed by a person, so a handful a second from one
+// address is generous; above it, issuance is refused. This is what stops a
+// flood, not the cache size - the cache is small on purpose.
+const PAYMENT_REQUEST_RATE_PER_SEC = 5;
 
 const pending = cacheManager.paymentRelayCache;
 
@@ -47,6 +52,15 @@ const pending = cacheManager.paymentRelayCache;
  */
 function paymentRequest(req, res) {
   try {
+    // The real peer address, never x-forwarded-for: a per-IP limit keyed on a
+    // header the caller sets is none. Capping issuance is what keeps a flood
+    // from minting ids fast enough to evict the entries a wallet has still to
+    // answer - the small cache alone would evict them sooner, not later.
+    const ip = ((req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/i, '');
+    if (!lruRateLimit(ip, PAYMENT_REQUEST_RATE_PER_SEC)) {
+      res.status(429).json(messageHelper.createErrorMessage('Too many payment requests'));
+      return;
+    }
     // Unguessable, because the id is the only thing the wallet's callback is
     // held to: whoever holds a live one can leave a transaction id for the
     // browser waiting on it.
