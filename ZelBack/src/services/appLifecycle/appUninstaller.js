@@ -27,6 +27,21 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 
+/**
+ * The node does not hold this application.
+ *
+ * WHAT MARKS IT IS THE TYPE, NOT THE WORDS. A caller that has to tell "it is not here"
+ * from "the removal did not complete" reads the mark; the message is the body these
+ * endpoints answer with, and belongs to whoever reads the response stream.
+ *
+ * `name` is left as Error's, because it is serialised into that same body.
+ */
+class AppNotFoundError extends Error {
+  constructor() {
+    super('Flux App not found');
+  }
+}
+
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
@@ -864,7 +879,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
       if (!force) {
-        throw new Error('Flux App not found');
+        throw new AppNotFoundError();
       }
       // get it from global Specifications
       appSpecifications = await dbHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
@@ -895,7 +910,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     }
 
     if (!appSpecifications) {
-      throw new Error('Flux App not found');
+      throw new AppNotFoundError();
     }
 
     let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
@@ -1096,7 +1111,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     // this app, which answers a caller asking for it to be gone. Every other error
     // leaves it possibly here, whole or in part, and only the caller can decide what
     // that costs it.
-    return error.message === 'Flux App not found'
+    return error instanceof AppNotFoundError
       ? RemovalOutcome.NOT_INSTALLED
       : RemovalOutcome.FAILED;
   } finally {
@@ -1146,7 +1161,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
     const appsProjection = {};
     let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
-      throw new Error('Flux App not found');
+      throw new AppNotFoundError();
     }
 
     let appId = dockerService.getAppIdentifier(app);
