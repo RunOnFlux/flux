@@ -2,6 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // What a node answers about its holdings before it knows who anybody is.
@@ -63,23 +64,27 @@ describe('holdings on a node that has not finished starting', function () {
     await env?.teardown();
   });
 
-  it('refuses instead of parking the request', async function () {
-    this.timeout(60000);
-    const { status, elapsedMs } = await askForHoldings(STARTING);
+  // Both nodes are read at the same moment, because the difference under test is
+  // their state and not how long the suite has been running. The wait is for the
+  // control node to finish starting - networkStateService.start() sits well down
+  // serviceManager's chain, past the daemon poll the fleet boot waits on, so a node
+  // seconds old has legitimately not got there yet and refusing then is correct.
+  it('refuses while it cannot say who anybody is, and answers once it can', async function () {
+    this.timeout(180000);
+    await waitFor(async () => (await askForHoldings(READY)).status === 200, {
+      timeout: 150000, interval: 5000, label: 'the control node finishes starting and answers the holdings call',
+    });
 
-    expect(status, 'a node that cannot say who anybody is must refuse, not answer').to.equal(503);
+    const control = await askForHoldings(READY);
+    const starting = await askForHoldings(STARTING);
+
+    // The control is what stops the refusal reading as a broken route, a missing
+    // handler, or a fleet where nothing answers: same call, same moment, one of each.
+    expect(control.status, 'a node that knows the network must answer').to.equal(200);
+    expect(starting.status, 'a node that cannot say who anybody is must refuse, not answer').to.equal(503);
     // The probe that asks this in production gives up after 10s and files the node as
-    // unreachable. Answering at all is the fix; answering promptly is what the fix is
-    // FOR, so the bound is asserted rather than left to the status alone.
-    expect(elapsedMs, `answered in ${elapsedMs}ms, which is not sooner than the probe gives up`).to.be.lessThan(10000);
-  });
-
-  // Without this the test above passes on a fleet where the route is broken, missing,
-  // or refusing everywhere - none of which is the state it claims to be describing.
-  it('answers the same call normally once the node knows the network', async function () {
-    this.timeout(60000);
-    const { status } = await askForHoldings(READY);
-
-    expect(status, 'the control node refuses too, so 503 is not about readiness here').to.equal(200);
+    // unreachable. Answering at all is the fix; answering PROMPTLY is what the fix is
+    // for, so the bound is asserted rather than left to the status alone.
+    expect(starting.elapsedMs, `refused after ${starting.elapsedMs}ms, no sooner than the probe gives up`).to.be.lessThan(10000);
   });
 });
