@@ -719,12 +719,12 @@ function createComplianceSweeper({
       const subjects = scope
         ? installedAppsRes.data.filter((app) => scope.has(app.name))
         : installedAppsRes.data;
-      // An application named in a scope that the node no longer holds has nothing left
-      // to answer for, and owing it would arm a timer for an application that is gone.
-      if (scope) {
-        const present = new Set(subjects.map((app) => app.name));
-        scope.forEach((name) => { if (!present.has(name)) owed.delete(name); });
-      }
+      // AN APPLICATION THE NODE NO LONGER HOLDS HAS NOTHING LEFT TO ANSWER FOR, whether
+      // this pass is about it or not: owing it buys a wakeup and a pass for something
+      // that is gone. Asked of the whole table, which every pass reads, rather than of
+      // the few names a scoped one narrows to.
+      const installed = new Set(installedAppsRes.data.map((app) => app.name));
+      [...owed.keys()].forEach((name) => { if (!installed.has(name)) owed.delete(name); });
 
       const toRemove = new Map();
 

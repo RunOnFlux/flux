@@ -1673,6 +1673,26 @@ describe('imageManager tests', () => {
 
     // An application named in a scope the node no longer holds has nothing left to
     // answer for, and owing it would arm a timer for an application that is gone.
+    // WHETHER THE PASS WAS ABOUT IT OR NOT. A full pass walks what the node holds, so an
+    // owed application that has left by another path is never visited - and is owed
+    // still, which buys a wakeup and a pass for an application that is gone.
+    it('forgets an application that is gone on a full pass, not only a scoped one', async () => {
+      let rows = [blockedApp('GoneApp')];
+      const t = build({ rows: () => rows });
+      t.removeAppLocally.resolves(RemovalOutcome.BUSY);
+
+      await t.sweeper.request();
+      expect(t.timers.count(), 'the refused removal was not owed').to.equal(1);
+
+      // It leaves the node by another path - its owner uninstalls it.
+      rows = [];
+      await t.sweeper.request();
+
+      const passes = t.installedApps.callCount;
+      await t.timers.fire();
+      expect(t.installedApps.callCount, 'a pass ran for an application the node no longer holds').to.equal(passes);
+    });
+
     it('drops a scoped application that is gone rather than holding it', async () => {
       const t = build({ rows: () => [blockedApp('StillHere')] });
 
