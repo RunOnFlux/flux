@@ -11,7 +11,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import {
   APP_UID, APP_GID, volumeRoot, resetVolume, seedVolumeTree, seedLargeFile,
-  ownerOf, treeOf, contentOf, exists,
+  ownerOf, treeOf, contentOf, exists, stagingEntries,
 } from '../framework/volume-fixture.js';
 
 // The contract of the four long file operations, over HTTP, against a real
@@ -239,7 +239,7 @@ describe('app volume file operations - the contract', function () {
       expect(res.status).to.not.equal(202);
       expect(JSON.stringify(res.data)).to.match(/inside the source/i);
       const leftovers = await treeOf(node.container, root);
-      expect(leftovers.filter((p) => p.includes('.flux-op-'))).to.deep.equal([]);
+      expect(stagingEntries(leftovers)).to.deep.equal([]);
     });
   });
 
@@ -305,7 +305,7 @@ describe('app volume file operations - the contract', function () {
 
       expect(await contentOf(node.container, `${root}/older.txt`)).to.equal('new');
       const leftovers = await treeOf(node.container, root);
-      expect(leftovers.filter((p) => p.includes('.flux-op-')), 'the displaced copy was not reclaimed').to.deep.equal([]);
+      expect(stagingEntries(leftovers), 'the displaced copy was not reclaimed').to.deep.equal([]);
     });
 
     it('merges a directory rather than replacing it, keeping what the source did not name', async function () {
@@ -348,7 +348,7 @@ describe('app volume file operations - the contract', function () {
       expect(await contentOf(node.container, `${root}/adir/inside.txt`), 'the tree under the destination was disturbed').to.equal('a whole tree');
       expect(await exists(node.container, `${root}/afile`)).to.equal(true);
       const leftovers = await treeOf(node.container, root);
-      expect(leftovers.filter((p) => p.includes('.flux-op-'))).to.deep.equal([]);
+      expect(stagingEntries(leftovers)).to.deep.equal([]);
     });
 
     it('refuses a taken name without consent, as a name simply being taken', async function () {

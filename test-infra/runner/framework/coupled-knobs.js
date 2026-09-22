@@ -209,7 +209,29 @@ export const DEPARTURE_ANNOUNCE_MS = 1500;
 
 export function derivedQueueStepMs(fluxapps) {
   const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
-  return Math.ceil((pass * productionQueueRatio()) / 1000) * 1000;
+  // A FLOOR THE RATIO DOES NOT CARRY, because what separates two departures is
+  // not the difference between two tickets. A ticket that matures waits for its
+  // node's next pass, and the two nodes' passes are on unaligned grids, so up to
+  // one pass of the gap is lost to rounding. ONE MISSED PASS is tolerated on top
+  // of that - six fleets booting at once makes a late one ordinary - and no more,
+  // because each further pass tolerated costs every departure a step and this
+  // suite makes about six of them against the runner's wall clock. What is left
+  // has to outlast DEPARTURE_ANNOUNCE_MS, because the holder behind only stands
+  // down once it can SEE the one ahead go, and until then the clock is the whole
+  // of the property.
+  //
+  // So the floor is exactly rounding plus one miss plus the announce, and the
+  // slack above it is the rounding to a whole second and nothing more. A fleet
+  // that misses two passes in one departure window will collide again, and the
+  // answer to that is a longer pass, not a wider floor.
+  //
+  // Production's ratio carries none of those terms and does not need to: its
+  // announce is seconds against a pass of tens of minutes, so its backstop has
+  // always fired long before the next holder's turn. Compressed to an eight
+  // second pass the two are the same size, the backstop cannot fire in time, and
+  // the ratio alone leaves the gap shorter than the jitter it has to survive.
+  const floor = (2 * pass) + DEPARTURE_ANNOUNCE_MS;
+  return Math.ceil(Math.max(pass * productionQueueRatio(), floor) / 1000) * 1000;
 }
 
 /**

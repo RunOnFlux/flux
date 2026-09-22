@@ -61,6 +61,7 @@ const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPath, validateFilename } = require('../utils/pathSecurity');
+const { reachesReservedName } = require('./volumeReservedNames');
 const { openVolume, SPACE_HEADROOM } = require('./volumeSession');
 const { sendFile } = require('../utils/fileTransfer');
 const executor = require('./volumeExecutor');
@@ -323,7 +324,12 @@ async function downloadAppsFolder(req, res) {
         // Sanitize folder path to prevent directory traversal attacks
         folderpath = sanitizePath(folder, mounts[0].mount);
         // Verify real path after symlink resolution to prevent symlink escape attacks
-        await verifyRealPath(folderpath, mounts[0].mount);
+        const realPath = await verifyRealPath(folderpath, mounts[0].mount);
+        // Inside the volume is not the same as the owner's: an archive of an operation's
+        // scratch is FluxOS's working state, and building it walks the tree twice.
+        if (await reachesReservedName(realPath, mounts[0].mount)) {
+          throw new Error('Folder is not accessible');
+        }
       } else {
         throw new Error('Application volume not found');
       }
@@ -398,7 +404,11 @@ async function downloadAppsFile(req, res) {
         // Sanitize file path to prevent directory traversal attacks
         filepath = sanitizePath(file, mounts[0].mount);
         // Verify real path after symlink resolution to prevent symlink escape attacks
-        await verifyRealPath(filepath, mounts[0].mount);
+        const realPath = await verifyRealPath(filepath, mounts[0].mount);
+        // Inside the volume is not the same as the owner's - see getAppsFolder.
+        if (await reachesReservedName(realPath, mounts[0].mount)) {
+          throw new Error('File is not accessible');
+        }
       } else {
         throw new Error('Application volume not found');
       }

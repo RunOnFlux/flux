@@ -540,6 +540,27 @@ describe('fluxCommunicationUtils tests', () => {
 
       expect(isValid).to.equal(false);
     });
+
+    // The bound is arithmetic, and these are the types that make it something else.
+    // Each is a year old and would read as fresh from a concatenation, so they fail
+    // one way with the type checked and the opposite way without it.
+    it('refuses a timestamp that is not a number, whatever it would compare as', async () => {
+      const aYearAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
+
+      [String(aYearAgo), [aYearAgo], `${aYearAgo}`.split(''), {}, null, undefined, NaN, 0, -1].forEach((timestamp) => {
+        expect(fluxCommunicationUtils.verifyTimestampInFluxBroadcast({ timestamp })).to.equal(false);
+      });
+    });
+
+    // A signed broadcast's preimage is version + message + timestamp joined as text,
+    // so the number and its string are indistinguishable to the signature: without
+    // the type, re-typing the field is a captured message that never expires.
+    it('refuses a fresh timestamp sent as a string, which a signature cannot tell from the number', async () => {
+      const now = Date.now();
+
+      expect(fluxCommunicationUtils.verifyTimestampInFluxBroadcast({ timestamp: String(now) }, now)).to.equal(false);
+      expect(fluxCommunicationUtils.verifyTimestampInFluxBroadcast({ timestamp: now }, now)).to.equal(true);
+    });
   });
 
   describe('verifyFluxBroadcast fluxnodesigterm tests', () => {

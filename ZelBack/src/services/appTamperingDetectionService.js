@@ -54,6 +54,11 @@ const INCIDENT_BUCKET_MS = 60 * 60 * 1000;
 // weighted zero because none of it is the operator's doing. Nothing acts on
 // it today; whether a node that cannot mount volumes at all should be taken
 // out of service is a question this data is here to answer.
+//
+// volume_unreadable is that class too: it is recorded when no process on the
+// node, root included, could read a volume, which describes what this node can
+// SEE and not what anyone did to it. Weighted zero for the same reason, and
+// recorded for the same one - the population is worth counting.
 const EVENT_SEVERITY = {
   container_vanished: 3,
   network_pruned: 1,
@@ -62,6 +67,7 @@ const EVENT_SEVERITY = {
   volume_missing: 1,
   volume_image_unrecognised: 1,
   volume_image_moved: 0,
+  volume_unreadable: 0,
   recreation_failed: 0,
   volume_host_fault: 0,
 };

@@ -2971,9 +2971,19 @@ describe('advancedWorkflows tests', () => {
       });
     };
 
+    // What this node publishes about the volume being replaced. Peers rank a seed
+    // on it, so it describes one incarnation and must not outlive it.
+    const armHolding = () => {
+      volGlobalState.folderHoldings = new Map([
+        [identifier, { bytes: 5821604997, newestModified: 200 }],
+        ['fluxother_TestApp', { bytes: 4096, newestModified: 100 }],
+      ]);
+    };
+
     beforeEach(() => {
       volGlobalState = require('../../ZelBack/src/services/utils/globalState');
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
+      volGlobalState.folderHoldings = null;
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
@@ -2991,6 +3001,39 @@ describe('advancedWorkflows tests', () => {
 
     afterEach(() => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
+    });
+
+    it('seeds .stignore from the spec, at volume creation', async () => {
+      // The seed is what closes the window the converge pass cannot: syncthing indexes
+      // whatever it finds on its first scan, so an ml: directory populated before the
+      // first converge would replicate once and need a db/revert to unwind. A fleet
+      // test cannot pin this - the converge repairs .stignore within a monitor pass, so
+      // by the time any assertion runs the two are indistinguishable.
+      const syncComponent = { name: 'frontend', hdd: 1, containerData: 'g:/appdata|ml:cache:/var/cache' };
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').resolves({});
+      // The new volume is recorded against the component before the folder is seeded,
+      // and that is a database write this case has no opinion about.
+      // eslint-disable-next-line global-require
+      const volSvc = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volSvc, 'recordNewVolumeImage').resolves();
+      const writes = [];
+      // eslint-disable-next-line global-require
+      const nodeFs = require('node:fs');
+      sinon.stub(nodeFs.promises, 'writeFile').callsFake(async (target, body) => {
+        writes.push({ target: String(target), body: String(body) });
+      });
+
+      await advancedWorkflows.createAppVolume(syncComponent, 'TestApp', true, null).catch(() => {});
+
+      const stignore = writes.find((write) => write.target.endsWith('.stignore'));
+      expect(stignore, 'volume creation wrote no .stignore').to.not.equal(undefined);
+      expect(
+        stignore.body.split('\n').filter(Boolean),
+        'the seeded ignores must already carry the spec-declared directory',
+      ).to.deep.equal(['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/cache']);
     });
 
     it('preserves the synced-mark when the pre-flight aborts before any volume is touched', async () => {
@@ -3101,6 +3144,52 @@ describe('advancedWorkflows tests', () => {
         volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
         'the point of no return left a stale synced-mark in place',
       ).to.equal(false);
+    });
+
+    it('preserves the published holding when the pre-flight aborts', async () => {
+      // Same reasoning as the synced-mark above: the existing volume and its data
+      // are untouched, so what this node says it holds is still true.
+      armHolding();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'error' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
+      expect(
+        volGlobalState.folderHoldings.has(identifier),
+        'an aborted pre-flight withdrew a claim whose data is intact',
+      ).to.equal(true);
+    });
+
+    it('drops the published holding at the point of no return', async () => {
+      // Once the allocation runs the volume is empty. A claim surviving from the
+      // previous incarnation describes data this node no longer has, and peers rank
+      // the seed on it - so it outranks a node that still holds the app and seeds
+      // an empty folder over the owner's world.
+      armHolding();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('fallocate blocked by test') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
+      expect(
+        volGlobalState.folderHoldings.has(identifier),
+        'the point of no return left a claim for a volume that is now empty',
+      ).to.equal(false);
+      // Scoped to the volume being replaced, not a clear of every answer the node holds.
+      expect(volGlobalState.folderHoldings.has('fluxother_TestApp')).to.equal(true);
     });
   });
 
@@ -4988,6 +5077,54 @@ describe('advancedWorkflows tests', () => {
         softUninstallComponent.calledOnce,
         'a second reinstall pass tore down a component the running pass owns',
       ).to.be.true;
+    });
+
+    // THE LOCAL ROW IS WHERE EVERY READER TAKES THE APP'S CURRENT SPECIFICATION FROM,
+    // and a legacy app's redeploy is the one path that reaches the installers directly
+    // rather than through softRegisterAppLocally, which is what writes it everywhere
+    // else. Left unwritten, the containers run the new specification while the row
+    // describes the old one for as long as the app is installed - so the monitor keeps
+    // deriving this app's syncthing ignores, and this node keeps reporting it, from a
+    // specification that is no longer what it runs.
+    it('writes the local row before a legacy app is redeployed', async () => {
+      const legacy = {
+        version: 3,
+        name: 'oldapp',
+        hash: 'oldhash',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        repotag: 'nginx:1.0',
+        ports: ['31000'],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: ['80'],
+        containerData: '/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      };
+      // Same hdd, so this is the soft branch; the repotag is what makes it a change.
+      const updated = { ...legacy, hash: 'newhash', repotag: 'nginx:2.0' };
+      dbHelper.findInDatabase.resolves([legacy]);
+      dbHelper.findOneInDatabase.resolves(updated);
+      const softUninstall = sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      const softInstall = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledWith(
+        dbHelper.updateOneInDatabase,
+        sinon.match.any,
+        sinon.match.any,
+        { name: 'oldapp' },
+        { $set: updated },
+        { upsert: true },
+      );
+      // Before the rebuild, so a pass reading it mid-redeploy is owed the specification
+      // the containers are being built from.
+      sinon.assert.callOrder(dbHelper.updateOneInDatabase, softUninstall, softInstall);
     });
 
     // A REDEPLOY DESTROYS BEFORE IT REBUILDS, and only the rebuild needs the policy:

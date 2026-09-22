@@ -150,6 +150,30 @@ describe('a surplus copy that is also the writer', function () {
     await waitFor(async () => (await env.clients[0].getAppLocations(appName)).data?.length >= 3,
       { timeout: 300000, interval: 2000, label: 'three holders announce the app' });
 
+    // THE SHAPE IS MADE BEFORE THE SURPLUS EXISTS, because making it is what
+    // puts the writer on the newest copy.
+    //
+    // The cold-start election seats the writer on whichever holder first wins
+    // it, and that is normally the first one PLACED: isDesignatedLeader returns
+    // true unconditionally for a single-entry election list, so a holder that is
+    // briefly the only one it knows of elects itself and starts. The seed is
+    // placed LAST precisely so it is the newest copy, which leaves it the one
+    // node that did not win. electMaster is what hands the writer over to it.
+    //
+    // Announce the fourth holder before that handover and the newest copy is not
+    // running the writer, so reasonToGiveUpApp takes its index===0 branch with
+    // runsWriter false and trims the one copy this suite exists to protect -
+    // correctly, on the rule as written. The suite then fails counting holders,
+    // which names neither the cause nor the moment.
+    //
+    // Measured both ways. Gate 3 on chud: the stub announced at 21:44:13, the
+    // pass trimmed the newest copy 1.6s later while masterSlaveApps still
+    // reported `no primary set`, and the fixture timed out on three holders. On
+    // cindy with the handover deferred, 198.18.0.11 logged `designated leader
+    // (elected from 2 peers, confirmed 2x), starting immediately` and held the
+    // writer for a full five minutes while the seed never started it at all.
+    await establishShape();
+
     // The stub becomes the fourth holder - four against an instance count of
     // three - and it is backdated a day, so it is the most SENIOR holder and can
     // never be the one the rule picks.
@@ -232,12 +256,14 @@ describe('a surplus copy that is also the writer', function () {
   // The shape both tests rest on: which node is the newest copy, which sits
   // behind it, and the writer actually running on the newest.
   //
-  // Established from a TEST rather than from before(), on purpose. A hook
-  // failure writes no per-container logs, and this is precisely the step whose
-  // failure needs them - it is where four earlier runs of this suite died, each
-  // time on the fixture rather than on the rule. Memoised, so the second test
-  // inherits the shape instead of re-deriving it and quietly disagreeing with
-  // the first about which node it is talking about.
+  // Established from before(), and memoised so both tests inherit it instead of
+  // re-deriving it and quietly disagreeing about which node they mean.
+  //
+  // It used to run from the first test, on the reasoning that a hook failure
+  // writes no per-container logs. That reasoning is false - dumpLogsOnFailure
+  // covers the hook, and two runs that died in this very before() each wrote a
+  // full set - and the ordering it bought was fatal, because electMaster below
+  // is not an observation of the shape. It is what creates it.
   let shape = null;
   const establishShape = async () => {
     if (shape) return shape;

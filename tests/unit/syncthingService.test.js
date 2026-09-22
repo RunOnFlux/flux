@@ -3,14 +3,11 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
-const EventEmitter = require('node:events');
 
 // 3rd Party Stubbed
 const axios = require('axios');
 const log = require('../../ZelBack/src/lib/log');
-const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
 // Testing imports
 const chai = require('chai');
@@ -50,42 +47,6 @@ function advanceMonotonic(ms) {
 describe('syncthingService tests', () => {
   // The gui config carries syncthing's apikey - the credential that authenticates
   // every syncthing call on this node - so these ask for fluxteam where their
-  describe('postDbIgnores privilege tests', () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    // .stignore decides what LEAVES the node for an app the node operator does
-    // not own, so this route asks for fluxteam where its siblings take
-    // adminandfluxteam. Pinned because the difference is a single string.
-    const answerFor = (req) => new Promise((resolve) => {
-      syncthingService.postDbIgnores(req, { json: resolve });
-      req.emit('data', JSON.stringify({ folder: 'fluxcomp_app', config: { ignore: ['!/backup'] } }));
-      req.emit('end');
-    });
-
-    it('should ask for fluxteam, not the node operator', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const req = new EventEmitter();
-
-      const answer = await answerFor(req);
-
-      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
-      expect(answer.data.code).to.equal(401);
-      expect(answer.data.name).to.equal('Unauthorized');
-    });
-
-    it('should refuse a session the privilege check rejects, without reaching syncthing', async () => {
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const requested = sinon.stub(axios, 'create');
-
-      const answer = await answerFor(new EventEmitter());
-
-      sinon.assert.notCalled(requested);
-      expect(answer.status).to.equal('error');
-    });
-  });
-
   describe('getConfigFile tests', () => {
     let runCmdStub;
     beforeEach(async () => {
@@ -153,6 +114,136 @@ describe('syncthingService tests', () => {
 
       const res = await syncthingService.getConfigFile();
       expect(res).to.be.equal(null);
+    });
+  });
+
+  describe('eachDbLocalChanged tests', () => {
+    // syncthing serves local changes a page at a time. The total is what decides
+    // which copy of an owner's data survives an election, so a caller reading one
+    // page reads a prefix of any larger folder - and two nodes each totalling their
+    // own prefix produce figures that no longer order by how much each holds.
+    const PAGE = 65536;
+    const MAX_PAGES = 16;
+    const entry = (i) => ({ name: `f${i}`, type: 'FILE_INFO_TYPE_FILE', size: 1, deleted: false, modified: '2026-09-16T10:00:00Z' });
+    const pageOf = (n) => Array.from({ length: n }, (_, i) => entry(i));
+
+    let pagesServed;
+    let pathsRequested;
+
+    // A page generator rather than an array of pages, so a case can describe a folder
+    // far larger than a test could hold.
+    const serve = (pageAt) => {
+      pagesServed = [];
+      pathsRequested = [];
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      sinon.stub(axios, 'create').returns({
+        get: sinon.fake(async (reqPath) => {
+          pathsRequested.push(reqPath);
+          const page = Number(new URLSearchParams(reqPath.split('?')[1]).get('page'));
+          pagesServed.push(page);
+          return { data: { files: pageAt(page) } };
+        }),
+      });
+    };
+
+    const collect = async (folder = 'fluxapp_x') => {
+      let seen = 0;
+      const outcome = await syncthingService.eachDbLocalChanged(folder, (batch) => { seen += batch.length; });
+      return { seen, outcome };
+    };
+
+    afterEach(async () => {
+      syncthingService.getAxiosCache().reset();
+      await syncthingService.syncthingController().abort();
+      sinon.restore();
+    });
+
+    it('asks for one page and stops when it comes back short', async () => {
+      serve((p) => (p === 1 ? pageOf(3) : null));
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(3);
+      expect(outcome).to.deep.equal({ read: true, pages: 1, truncated: false });
+      expect(pagesServed).to.deep.equal([1]);
+    });
+
+    it('reads on while a page comes back full, and hands over every entry', async () => {
+      serve((p) => (p <= 2 ? pageOf(PAGE) : pageOf(7)));
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(PAGE * 2 + 7);
+      expect(outcome.pages).to.equal(3);
+      expect(outcome.truncated).to.equal(false);
+      expect(pagesServed).to.deep.equal([1, 2, 3]);
+    });
+
+    it('stops on a page with no list at all, which is how an exact multiple ends', async () => {
+      // A folder holding exactly one page answers the second request with no list
+      // rather than an empty one. That is the end, not a failure.
+      serve((p) => (p === 1 ? pageOf(PAGE) : null));
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(PAGE);
+      expect(outcome.read).to.equal(true);
+      expect(outcome.pages).to.equal(1);
+      expect(pagesServed).to.deep.equal([1, 2]);
+    });
+
+    it('reports an unreadable folder rather than an empty one', async () => {
+      // Only the FIRST page can say the folder cannot be read. The caller must tell
+      // that from "holds nothing", because it treats unknown as holding data.
+      serve(() => null);
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(0);
+      expect(outcome.read).to.equal(false);
+      expect(pagesServed).to.deep.equal([1]);
+    });
+
+    it('never accumulates the entries it walks', async () => {
+      // How many entries exist is the app's to choose - it writes the files. The
+      // walk hands each page over and keeps none of it, so a folder of any size
+      // costs this process the same.
+      serve((p) => (p <= 3 ? pageOf(PAGE) : pageOf(1)));
+
+      const batchSizes = [];
+      await syncthingService.eachDbLocalChanged('fluxapp_x', (batch) => { batchSizes.push(batch.length); });
+
+      expect(batchSizes).to.deep.equal([PAGE, PAGE, PAGE, 1]);
+    });
+
+    it('stops at the page bound and says the total is a floor', async () => {
+      // Every one of these requests is paid again on the next monitor pass, so a
+      // folder large enough would make the pass itself the expense. The bound is
+      // ours rather than the app's, and what was counted is reported as partial.
+      serve(() => pageOf(PAGE));
+
+      const { seen, outcome } = await collect();
+
+      expect(outcome.truncated).to.equal(true);
+      expect(outcome.pages).to.equal(MAX_PAGES);
+      expect(seen).to.equal(PAGE * MAX_PAGES);
+      expect(pagesServed).to.have.length(MAX_PAGES);
+    });
+
+    it('sends the page size it counts against rather than inheriting a default', async () => {
+      // The walk ends on a page shorter than the size it asked for, so the size has
+      // to be the one sent - a default left to syncthing is not a contract, and a
+      // larger one there would make every full page read as short.
+      serve((p) => (p === 1 ? pageOf(1) : null));
+
+      await collect();
+
+      expect(pathsRequested).to.have.length(1);
+      const query = new URLSearchParams(pathsRequested[0].split('?')[1]);
+      expect(query.get('folder')).to.equal('fluxapp_x');
+      expect(query.get('page')).to.equal('1');
+      expect(query.get('perpage')).to.equal(String(PAGE));
     });
   });
 

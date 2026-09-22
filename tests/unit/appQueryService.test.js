@@ -4,6 +4,10 @@ const proxyquire = require('proxyquire').noCallThru();
 
 describe('appQueryService tests', () => {
   let appQueryService;
+  let verificationHelperStub;
+  let fluxNetworkHelperStub;
+  let fluxCommunicationUtilsStub;
+  let networkStateServiceStub;
   let dbHelperStub;
   let messageHelperStub;
   let dockerServiceStub;
@@ -106,6 +110,16 @@ describe('appQueryService tests', () => {
     };
 
     // Proxy require
+    verificationHelperStub = { verifyPrivilege: sinon.stub().resolves(false) };
+    fluxNetworkHelperStub = {
+      getLocalSocketAddress: sinon.stub().resolves('10.0.0.9:16127'),
+      verifySignedFluxnodeMessage: sinon.stub().resolves(false),
+    };
+    fluxCommunicationUtilsStub = {
+      verifyTimestampInFluxBroadcast: sinon.stub().returns(true),
+      BROADCAST_CLOCK_SKEW_MS: 120_000,
+    };
+    networkStateServiceStub = { isReady: sinon.stub().returns(true) };
     appQueryService = proxyquire('../../ZelBack/src/services/appQuery/appQueryService', {
       config: configStub,
       '../dbHelper': dbHelperStub,
@@ -116,6 +130,10 @@ describe('appQueryService tests', () => {
       '../utils/appSpecHelpers': appSpecHelpersStub,
       '../utils/cacheManager': cacheManagerStub,
       '../../lib/log': logStub,
+      '../verificationHelper': verificationHelperStub,
+      '../fluxNetworkHelper': fluxNetworkHelperStub,
+      '../fluxCommunicationUtils': fluxCommunicationUtilsStub,
+      '../networkStateService': networkStateServiceStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -681,6 +699,155 @@ describe('appQueryService tests', () => {
       await appQueryService.promotedFolders();
 
       expect(dockerServiceStub.dockerListContainers.called).to.be.false;
+    });
+
+    // `holding` is a size and a last-write time per app, so it is the tenant's and not
+    // the open answer's. A caller proves itself as a node on the deterministic list, or
+    // as the Flux team; anything else is answered WITHOUT it rather than refused, since
+    // a peer too old to sign is not a peer doing something wrong.
+    describe('holdings', () => {
+      const signed = (over = {}) => ({
+        target: '10.0.0.9:16127', timestamp: Date.now(), pubKey: 'PUB', signature: 'SIG', ...over,
+      });
+
+      beforeEach(() => {
+        globalState.promotedFolderIds = new Set(['fluxa_a']);
+        globalState.folderHoldings = new Map([['fluxa_a', { bytes: 5821604997, newestModified: 200 }]]);
+        messageHelperStub.createDataMessage.returnsArg(0);
+      });
+
+      afterEach(() => {
+        globalState.folderHoldings = null;
+      });
+
+      it('serves the holdings to a node on the deterministic list', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding).to.deep.equal({ fluxa_a: { bytes: 5821604997, newestModified: 200 } });
+      });
+
+      it('serves the holdings to the flux team', async () => {
+        verificationHelperStub.verifyPrivilege.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: {}, headers: { zelidauth: 'x' } });
+
+        expect(result.holding).to.deep.equal({ fluxa_a: { bytes: 5821604997, newestModified: 200 } });
+      });
+
+      // Each of these is a caller that is not entitled. The answer still carries the
+      // open half, so nothing a peer already relied on regresses.
+      [
+        ['nothing is signed', {}],
+        ['the signature does not verify', signed()],
+      ].forEach(([what, body]) => {
+        it(`withholds the holdings when ${what}`, async () => {
+          const result = await appQueryService.promotedFolderHoldings({ body });
+
+          expect(result.holding, 'holdings went to a caller that proved nothing').to.equal(undefined);
+          expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
+        });
+      });
+
+      // A request stamped for next year is not stale, so the freshness check passes it
+      // forever. That is the one a node can mint on purpose: signed once against a
+      // chosen target, the body itself authorises whoever holds it, so publishing it
+      // hands out what this endpoint exists to keep to nodes. Skew is bounded; choosing
+      // when your own request expires is not skew.
+      it('withholds the holdings from a request stamped beyond the clock-skew bound', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({
+          body: signed({ timestamp: Date.now() + (365 * 24 * 60 * 60 * 1000) }),
+        });
+
+        expect(result.holding, 'a body dated in the future served as a credential').to.equal(undefined);
+        expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
+      });
+
+      // The bound is the fleet's clocks disagreeing, which is honest and must still work.
+      it('serves a request from a node whose clock runs a little ahead', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({
+          body: signed({ timestamp: Date.now() + 60_000 }),
+        });
+
+        expect(result.holding, 'a peer 60s ahead is skew, not a forged expiry').to.deep.equal({
+          fluxa_a: { bytes: 5821604997, newestModified: 200 },
+        });
+      });
+
+      // A node that cannot yet say who its peers are refuses, and says so at once. The
+      // open shape has no way to express it: `ready` there is syncthing's first pass,
+      // set by a different pass from this one, so this node can be syncthing-ready and
+      // still unable to identify anybody - and a peer would read that answer as this
+      // node holding nothing, which is a claim rather than a deferral.
+      it('refuses while the network state has not started, rather than waiting for it', async () => {
+        networkStateServiceStub.isReady.returns(false);
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        messageHelperStub.createErrorMessage.returnsArg(0);
+        const res = { status: sinon.stub().returnsThis(), json: sinon.stub().returnsArg(0) };
+
+        await appQueryService.promotedFolderHoldings({ body: signed() }, res);
+
+        sinon.assert.calledWith(res.status, 503);
+        // and it never reached the list read that would have parked the request
+        sinon.assert.notCalled(fluxNetworkHelperStub.verifySignedFluxnodeMessage);
+      });
+
+      // The route is open, so the ORDER the checks run in is part of its contract: a
+      // caller that has proved nothing gets nothing done on its behalf. Own-address is
+      // the first thing here that reaches outside the body, and the value behind it is
+      // cached with an expiry - so whoever is at the door when it lapses should be a
+      // caller that verified. Asserted on the call rather than the verdict, because the
+      // verdict is the same under either order and only this separates them.
+      it('looks nothing up about itself for a caller that did not verify', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(false);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding).to.equal(undefined);
+        sinon.assert.called(fluxNetworkHelperStub.verifySignedFluxnodeMessage);
+        sinon.assert.notCalled(fluxNetworkHelperStub.getLocalSocketAddress);
+      });
+
+      // The signature VERIFIES here, so the address is the only thing that can refuse
+      // it - which is the whole of what binding to a recipient buys: a body captured in
+      // flight is a valid signature by a real node, and must still not work elsewhere.
+      it('withholds the holdings when the request is addressed to another node', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed({ target: '10.0.0.8:16127' }) });
+
+        expect(result.holding, 'a signature captured in flight worked on another node').to.equal(undefined);
+        expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
+      });
+
+      it('withholds the holdings when this node does not know its own address', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        fluxNetworkHelperStub.getLocalSocketAddress.resolves(null);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding, 'a node that cannot say who it is accepted a request naming anyone').to.equal(undefined);
+      });
+
+      it('withholds the holdings when the request is too old to be fresh', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        fluxCommunicationUtilsStub.verifyTimestampInFluxBroadcast.returns(false);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding, 'a captured request stayed usable').to.equal(undefined);
+      });
+
+      it('does not ask whether a caller with no signature is a node', async () => {
+        await appQueryService.promotedFolderHoldings({ body: { target: '10.0.0.9:16127' } });
+
+        expect(fluxNetworkHelperStub.verifySignedFluxnodeMessage.called).to.equal(false);
+      });
     });
 
     it('drops a folder that is no longer promoted', async () => {

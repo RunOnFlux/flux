@@ -132,7 +132,13 @@ async function poll() {
       }
     }
 
-    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    // ASKED OF THE DAEMON, NOT OF THE CACHE. This is the only reader here that
+    // establishes whether this node can still be heard, and it does so through the
+    // benchmark answering at all - an address it cannot produce is what makes a node
+    // stop claiming it can broadcast. A value served from memory answers the address
+    // and not the question, so a daemon that died inside the cache window leaves this
+    // node believing it can still send, and readiness follows it back up.
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
     if (localSocketAddr && ourPubkey) {
       const node = await networkStateService.getFluxnodeBySocketAddress(localSocketAddr);
       if (node && node.pubkey === ourPubkey) {

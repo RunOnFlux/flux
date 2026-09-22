@@ -136,16 +136,50 @@ RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list \
 # recent. Emptied, the index is then both absent and apparently current, and every
 # install fails with `Unable to locate package` before reaching the network at all.
 
+# The account a node runs FluxOS under when it is not root.
+#
+# FluxOS is root on Arcane and the user the operator installed it as everywhere
+# else, and the difference decides what it can read: syncthing is spawned with
+# sudo either way, so on an unprivileged node the index describes files the node
+# process itself may be refused - a container owns its mount point and sets the
+# mode. sudo without a password is what that node does every privileged thing
+# with, and membership of docker is how it reaches the daemon; both are the
+# unprivileged install's own arrangement, not a harness convenience.
+#
+# The container stays root - it has loop devices to make, cgroups to delegate and
+# a dockerd to supervise, which is the host's work on a real node. Only the
+# FluxOS process drops, and only where a fleet asks for it.
+#
+# The image's own uid 1000 goes so this account can hold it: an app container's
+# uid is what has to differ from FluxOS's, and 1000 is the one an operator gets.
+RUN set -eu; \
+    if id -u ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || userdel ubuntu; fi; \
+    groupadd -g 1000 fluxuser; \
+    useradd -u 1000 -g 1000 -G docker -m -s /bin/bash fluxuser; \
+    ln -s /flux /home/fluxuser/zelflux; \
+    printf 'fluxuser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/fluxuser; \
+    chmod 0440 /etc/sudoers.d/fluxuser; \
+    sudo -n -u fluxuser sudo -n id -u | grep -qx 0
+
 WORKDIR /flux
 
 COPY package.json ./
 RUN npm install --production
 
-COPY . .
+# The install belongs to the account that runs it, which is what an operator's own
+# install looks like and what lets FluxOS write its logs, its config and the TLS
+# key it generates at first boot. Carried by the copy rather than a chown of its
+# own: on an overlay filesystem a recursive chown copies every file it touches up
+# into the container's writable layer, which on this tree is minutes of boot and
+# reads as a node that never came up. node_modules keeps root's ownership - it is
+# .dockerignore'd here and installed above, and FluxOS only reads it. Root ignores
+# all of it, so the image is unchanged for a node that stays root.
+COPY --chown=fluxuser:fluxuser . .
 
-COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
+COPY --chown=fluxuser:fluxuser test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
 
 RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
+    && chown fluxuser:fluxuser /flux /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
     && ln -s /flux /root/zelflux
 
 ENV NODE_CONFIG_DIR=/flux/ZelBack/config

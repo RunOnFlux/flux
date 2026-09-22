@@ -65,20 +65,25 @@ function setOnComponentRemoved(callback) {
  * @returns {Promise<void>}
  */
 async function stopSyncthingAndCleanup(monitoredName, appId, res) {
+  // Hard removal - the data is going, so what this node says about it goes first
+  // and unconditionally. Stopping syncthing can fail; the volume is deleted either
+  // way, and state describing it must not outlive it on the strength of that.
+  const { receiveOnlySyncthingAppsCache } = globalState;
+  if (receiveOnlySyncthingAppsCache && receiveOnlySyncthingAppsCache.has(appId)) {
+    receiveOnlySyncthingAppsCache.delete(appId);
+    log.info(`Deleted syncthing cache for ${appId} during hard removal`);
+  }
+  // The published claim goes with the data it describes. Peers rank a seed on it,
+  // and one kept past the removal offers a volume this node no longer has -
+  // outranking a node that still holds the app and seeding an empty folder in its
+  // place.
+  globalState.folderHoldings?.delete(appId);
+
   try {
     // Dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const advancedWorkflows = require('./advancedWorkflows');
     await advancedWorkflows.stopSyncthingApp(monitoredName, res);
-
-    // Hard removal - delete syncthing cache since data will be deleted
-    // eslint-disable-next-line no-shadow, global-require
-    const globalState = require('../utils/globalState');
-    const { receiveOnlySyncthingAppsCache } = globalState;
-    if (receiveOnlySyncthingAppsCache && receiveOnlySyncthingAppsCache.has(appId)) {
-      receiveOnlySyncthingAppsCache.delete(appId);
-      log.info(`Deleted syncthing cache for ${appId} during hard removal`);
-    }
   } catch (error) {
     log.error(`Error stopping Syncthing app: ${error.message}`);
   }

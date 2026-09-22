@@ -18,6 +18,20 @@ const { Privilege, authOf } = require('./utils/privileges');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
+// Sent rather than inherited, so the page size a caller totals against is the one
+// it asked for. syncthing's own default is this value; a default is not a contract.
+const LOCAL_CHANGED_PAGE_SIZE = 65536;
+
+// The most pages one folder is read across in a single pass - a bound of our own,
+// because the entry count belongs to the app that writes the files and these requests
+// are paid again every monitor pass.
+//
+// Sixteen pages is 1,048,576 entries, sixteen times the largest folder the network
+// carries: across 456 syncthing folders the biggest holds 63,999 entries, the 99th
+// percentile 40,771. So no app that resembles one reaches the bound, and one that
+// does is reported truncated rather than walked for as long as it takes.
+const LOCAL_CHANGED_MAX_PAGES = 16;
+
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // Whether this process is the one that installs, spawns and owns the syncthing
@@ -786,38 +800,6 @@ async function postConfigDefaultsDevice(req, res) {
 }
 
 /**
- * To replace the default ignore patterns from an object of the same format
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigDefaultsIgnores(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const method = 'put';
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, '/rest/config/defaults/ignores', newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
  * Returns the options object
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1135,46 +1117,75 @@ async function getDbStatus(folder) {
 }
 
 /**
- * Updates the content of the .stignore echoing it back as a response. Takes one parameter {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
+ * The files a receive-only folder holds that the cluster's index does not.
+ *
+ * db/status counts them (receiveOnlyChangedFiles) but will not say WHAT they are, and
+ * a count cannot tell a customer's world from the scaffolding FluxOS puts on every
+ * volume - the zero-length file an f: mount needs so docker does not create a
+ * directory in its place, and the directories m:/ml: mounts ask for. This returns the
+ * entries themselves, each with its name, size and modification time, so the caller
+ * can answer both "is any of this the owner's" and "how recently was it written"
+ * without walking the volume.
+ *
+ * Only ever populated for a receiveonly or receiveencrypted folder; syncthing reports
+ * nothing here for a sendreceive one whatever is on disk (folder_summary.go).
+ *
+ * PAGED, and the caller must read to the end of it. A page carries at most `perpage`
+ * entries, so a caller that totals one page totals a PREFIX of the folder on anything
+ * larger - and two nodes summing different prefixes of their own folders compare
+ * numbers that no longer order by how much each holds.
+ *
+ * @param {string} folder Folder ID.
+ * @param {number} [page] 1-based page number.
+ * @param {number} [perpage] entries per page; syncthing's own default is 65536.
+ * @returns {Promise<object>} { files: [{ name, size, modified, deleted, type }], page, perpage }
  */
-async function postDbIgnores(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/db/ignores';
-      if (folder) {
-        apiPath += `?folder=${folder}`;
-      }
-      // fluxteam, not adminandfluxteam like its siblings. .stignore decides what
-      // LEAVES this node for an app the node operator does not own, and a pattern
-      // dropped here replicates that app's backup and operation staging to every
-      // other node running it - so the blast radius of this one call is the fleet,
-      // not the box. Reading the volume is the operator's already; choosing what
-      // the network carries is not.
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
+async function getDbLocalChanged(folder, page = 1, perpage = LOCAL_CHANGED_PAGE_SIZE) {
+  if (!folder) {
+    throw new Error('folder parameter is mandatory');
+  }
+  return request('get', `/rest/db/localchanged?folder=${folder}&page=${page}&perpage=${perpage}`);
+}
+
+/**
+ * A folder's local changes, handed to a caller one page at a time.
+ *
+ * The paging is syncthing's, so it is answered here rather than by each caller: a
+ * caller that reads one page reads a PREFIX of any folder larger than it, and two
+ * nodes each totalling their own prefix produce figures that no longer order by how
+ * much each holds.
+ *
+ * A PAGE AT A TIME, never accumulated. How many entries exist is the app's to decide
+ * - it writes the files into its own volume - so a list of them all is a list this
+ * process does not get to size. A caller that folds each page costs the same whatever
+ * the folder holds; one that collects them does not.
+ *
+ * Bounded for the same reason: these requests are paid every monitor pass, so an app
+ * carrying enough files could make the pass itself the expense. A folder that reaches
+ * the bound is reported truncated, and what the caller totalled is then a floor -
+ * which is all the ranking needs, because a folder that large outranks a normal one
+ * on any page of it.
+ *
+ * A short page ends it. A full page does not: the next request decides, and a folder
+ * whose entry count is an exact multiple of the page size answers that one with no
+ * list at all, which is the end rather than a failure. Only the FIRST page can say
+ * the folder is unreadable.
+ *
+ * @param {string} folder Folder ID.
+ * @param {Function} onBatch Receives each page's entries.
+ * @returns {Promise<{read: boolean, pages: number, truncated: boolean}>} read false
+ *   when the folder could not be read at all - which is not "holds nothing"
+ */
+async function eachDbLocalChanged(folder, onBatch) {
+  for (let page = 1; ; page += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const answer = await getDbLocalChanged(folder, page, LOCAL_CHANGED_PAGE_SIZE);
+    const batch = answer?.files;
+    if (!Array.isArray(batch)) return { read: page > 1, pages: page - 1, truncated: false };
+    onBatch(batch);
+    if (batch.length < LOCAL_CHANGED_PAGE_SIZE) return { read: true, pages: page, truncated: false };
+    if (page >= LOCAL_CHANGED_MAX_PAGES) return { read: true, pages: page, truncated: true };
+  }
 }
 
 /**
@@ -2721,7 +2732,6 @@ module.exports = {
   postConfigDevices,
   postConfigDefaultsFolder,
   postConfigDefaultsDevice,
-  postConfigDefaultsIgnores,
   postConfigOptions,
   postConfigGui,
   postConfigLdap,
@@ -2736,7 +2746,8 @@ module.exports = {
   getFolderIgnores,
   setFolderIgnores,
   getDbStatus,
-  postDbIgnores,
+  getDbLocalChanged,
+  eachDbLocalChanged,
   postDbOverride,
   postDbPrio,
   postDbRevert,

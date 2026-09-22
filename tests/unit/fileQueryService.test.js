@@ -13,6 +13,54 @@ describe('fileQueryService tests', () => {
   });
 
   describe('getAppsFolder tests', () => {
+    // The volume root holds things that are not the owner's, and the listing filters
+    // them out of what it OFFERS. That says nothing about what an owner may ask for by
+    // name, and the two are different questions: an operation's scratch directory is
+    // FluxOS's working state, it carries a fixed name every owner can guess, and
+    // reading it walks or archives whatever a live operation happens to be holding.
+    // Every write path already refuses it; these make the reads agree.
+    describe('a path that names something other than the owner data', () => {
+      const MOUNT = '/mnt/appvolumes/TestApp_Component1';
+
+      const askFor = async (folder, { resolvesTo } = {}) => {
+        const res = { json: sinon.stub() };
+        sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+        sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount: MOUNT }] });
+        sinon.stub(messageHelper, 'createErrorMessage').returns({ status: 'error' });
+        // realpath answers for the base and for the target; the target's answer is what
+        // a symlink would make it, which is the case a name check alone cannot see.
+        const realpath = sinon.stub(fs, 'realpath');
+        realpath.withArgs(MOUNT).resolves(MOUNT);
+        realpath.resolves(resolvesTo || `${MOUNT}/${folder}`);
+        sinon.stub(fs, 'readdir').resolves(['should-not-be-listed']);
+        sinon.stub(fs, 'lstat').resolves({
+          isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 1, birthtime: new Date(), mtime: new Date(),
+        });
+        await fileQueryService.getAppsFolder({ params: { appname: 'TestApp', component: 'Component1' }, query: { folder } }, res);
+        return res.json.firstCall.args[0];
+      };
+
+      it('refuses the staging directory asked for by name', async () => {
+        const answer = await askFor('.flux-op');
+
+        expect(answer.status, 'the scratch directory was listed to its owner').to.equal('error');
+      });
+
+      it('refuses a name of the owner own that resolves into it', async () => {
+        const answer = await askFor('mine', { resolvesTo: `${MOUNT}/.flux-op/3f2504e0-4f89-11d3-9a0c-0305e82c3301` });
+
+        expect(answer.status, 'a link named nothing reserved arrived in the same place').to.equal('error');
+      });
+
+      // The canary: the same call shape, on a directory that IS the owner's, has to
+      // still work - otherwise the two above pass on a listing that refuses everything.
+      it('still lists a directory that belongs to the owner', async () => {
+        const answer = await askFor('appdata');
+
+        expect(answer.status, 'the guard refused the owner own data').to.not.equal('error');
+      });
+    });
+
     it('should return folder contents when authorized', async () => {
       const req = {
         params: { appname: 'TestApp', component: 'Component1' },
@@ -89,7 +137,7 @@ describe('fileQueryService tests', () => {
       sinon.stub(fs, 'readdir').resolves([
         'appdata', 'backup', '.flux-op-backups',
         '.stfolder', '.stignore', 'lost+found',
-        `.flux-op-${id}`,
+        '.flux-op', `.flux-op-${id}`,
       ]);
       sinon.stub(fs, 'lstat').resolves({
         isDirectory: () => false,
@@ -106,7 +154,9 @@ describe('fileQueryService tests', () => {
 
       const listed = res.json.firstCall.args[0].data.map((entry) => entry.name);
       // backup holds the owner's own archives, and a folder merely resembling
-      // an artefact is a name they are entitled to choose.
+      // an artefact is a name they are entitled to choose. The staging directory
+      // is hidden as one exact name; the `.flux-op-<id>` beside it is what an
+      // earlier release left and is hidden until the sweep takes it.
       expect(listed).to.deep.equal(['appdata', 'backup', '.flux-op-backups']);
     });
 

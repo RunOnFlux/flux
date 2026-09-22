@@ -5,7 +5,7 @@ const verificationHelper = require('../verificationHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
-const { isReservedName } = require('../appSystem/volumeReservedNames');
+const { isReservedName, reachesReservedName } = require('../appSystem/volumeReservedNames');
 const { Privilege, authOf } = require('../utils/privileges');
 
 /**
@@ -33,7 +33,13 @@ async function getAppsFolder(req, res) {
         // Sanitize folder path to prevent directory traversal attacks
         filepath = sanitizePath(folder, mounts[0].mount);
         // Verify resolved path stays within the allowed base directory
-        await verifyRealPath(filepath, mounts[0].mount);
+        const realPath = await verifyRealPath(filepath, mounts[0].mount);
+        // Inside the volume is not the same as the owner's. The filter below hides
+        // these from the root listing; this is what makes asking for one by name get
+        // the same answer, which is the answer every write path already gives.
+        if (await reachesReservedName(realPath, mounts[0].mount)) {
+          throw new Error('Folder is not accessible');
+        }
       } else {
         throw new Error('Application volume not found');
       }

@@ -29,6 +29,8 @@ const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const mountParser = require('../utils/mountParser');
+const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
@@ -989,6 +991,23 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     if (res.flush) res.flush();
   }
 
+  // A DIRECTORY THE SPECIFICATION DECLARES LOCAL IS NOT CREATED BEFORE THE RULE THAT
+  // KEEPS IT OFF THE NETWORK. This path installs onto a volume that already exists, so
+  // nothing seeds .stignore - that is volume creation's, which only the hard path
+  // reaches. A name this specification adds would be covered by the monitor's next
+  // converge, while syncthing's watcher indexes a new directory within its own delay
+  // and the container is writing into it by then. What replicates in that window stays
+  // on every peer: an ignore stops a file syncing, it does not withdraw one already
+  // sent.
+  //
+  // Asked of the spec, so it costs nothing for a component that declares no such
+  // directory or whose volume is not replicated at all.
+  const unsyncedSubdirs = mountParser.getUnsyncedSubdirs(appSpecifications.containerData);
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  if (unsyncedSubdirs.length && mountParser.getComponentSyncMode(appSpecifications.containerData)) {
+    await ensureStignoreCovers(dockerService.getAppIdentifier(identifier), unsyncedSubdirs);
+  }
+
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
@@ -996,7 +1015,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   // Attach this component to the private network of every app it is linked with
   // so it can reach their components by docker DNS name.
-  const componentContainerName = dockerService.getAppIdentifier(isComponent ? `${appSpecifications.name}_${appName}` : appName);
+  const componentContainerName = dockerService.getAppIdentifier(identifier);
   await appNetworkLinker.connectComponentToLinkedApps(componentContainerName, fullAppSpecs);
 
   const startStatus = {

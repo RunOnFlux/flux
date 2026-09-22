@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const {
-  SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, SYNCTHING_IGNORE_LINES,
+  SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, syncthingIgnoreLines,
 } = require('../appSystem/volumeReservedNames');
 const nodecmd = require('node-cmd');
 const axios = require('axios');
@@ -610,6 +610,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     // second-encounter chain, which clears it. The allocation below is the
     // first act that cannot be undone.
     globalState.receiveOnlySyncthingAppsCache.delete(appId);
+    // Same dead incarnation, and this claim is published: peers rank a seed on what
+    // each node says it holds, so the old volume's figures describe the one being
+    // replaced and can win the election for a volume that is about to be empty.
+    globalState.folderHoldings?.delete(appId);
     await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
       status: 'Space allocated',
@@ -867,9 +871,16 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
 
       // Create .stignore with the FluxOS policy lines - what keeps backup and
-      // an operation's staging off the network (in parent directory; the app
-      // dir is 777 by now so no elevation is needed)
-      await fs.promises.writeFile(path.join(appDir, SYNCTHING_IGNORE_FILE), `${SYNCTHING_IGNORE_LINES.join('\n')}\n`);
+      // an operation's staging off the network - plus the directories this spec
+      // declared local with ml: (in parent directory; the app dir is 777 by now
+      // so no elevation is needed).
+      //
+      // Written HERE, before the folder is ever handed to syncthing, because the
+      // first scan indexes whatever it finds: an ml: directory populated between
+      // registration and the first converge pass would be replicated once before
+      // any later ignore could stop it, and unwinding that costs a db/revert.
+      const ignoreLines = syncthingIgnoreLines(mountParser.unsyncedSubdirsOf(parsedMounts));
+      await fs.promises.writeFile(path.join(appDir, SYNCTHING_IGNORE_FILE), `${ignoreLines.join('\n')}\n`);
       const stiFileCreation = {
         status: '.stignore created',
       };
@@ -4405,6 +4416,27 @@ async function reinstallOldApplications() {
             const appUninstaller = require('./appUninstaller');
             // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
+
+            // THE ROW IS THIS NODE'S COPY OF THE INSTALLED SPECIFICATION, and every
+            // reader takes the app's current one from it - what this node reports, what
+            // the reconciler rebuilds from, and which directories the syncthing monitor
+            // keeps off the network. Neither redeploy below writes it: the uninstalls
+            // here are the ones that KEEP the registration, and both installs are
+            // reached directly rather than through softRegisterAppLocally, which is
+            // what writes it on every other path.
+            //
+            // Ahead of the redeploy, like the composed path above: a pass that reads
+            // this mid-redeploy is owed the specification the containers are being
+            // built from, and a redeploy that does not complete is the reconciler's,
+            // which rebuilds what the row describes.
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.updateOneInDatabase(
+              dbHelper.databaseConnection().db(config.database.appslocal.database),
+              localAppsInformation,
+              { name: appSpecifications.name },
+              { $set: appSpecifications },
+              { upsert: true },
+            );
 
             if (appSpecifications.hdd === installedApp.hdd) {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);

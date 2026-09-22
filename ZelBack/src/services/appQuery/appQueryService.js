@@ -9,6 +9,11 @@ const appConstants = require('../utils/appConstants');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const fluxCaching = require('../utils/cacheManager');
+const serviceHelper = require('../serviceHelper');
+const verificationHelper = require('../verificationHelper');
+const { Privilege, authOf } = require('../utils/privileges');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+const networkStateService = require('../networkStateService');
 const log = require('../../lib/log');
 
 // Database collections
@@ -570,6 +575,135 @@ async function getAppsMessagesCount(req, res) {
   }
 }
 
+/**
+ * Whether a request was signed by a node on the deterministic list, for THIS node, now.
+ *
+ * Three questions, and all three have to hold. The signature says a Fluxnode sent it.
+ * `target` says it was sent to this node, so one captured in flight cannot be turned on
+ * the rest of the fleet. The timestamp says it was sent recently, on the bound the
+ * network already holds every signed broadcast to - which is what makes a captured
+ * request expire rather than become a credential.
+ *
+ * Required at all because this node cannot be told who is calling by the connection: a
+ * source address is not a proof, and several nodes share one behind UPnP.
+ *
+ * ASKED IN THE ORDER THEY COST. The route is open, so everything before the signature
+ * runs for whoever sends bytes at it: the shape and the timestamp answer from the body
+ * alone, and the signature is checked against the node list before this node looks
+ * anything up about itself. Own-address is served from a cached value that expires on a
+ * timer, so the read behind it is a status call to the local benchmark daemon rather
+ * than work - but which caller is holding the door when the timer expires is still a
+ * choice, and it should be one that has proved itself.
+ *
+ * `target` therefore comes last, and loses nothing by it: it exists to stop a request
+ * captured here being replayed at another node, which it does wherever it sits.
+ *
+ * @param {object} body - the request body, already an object
+ * @returns {Promise<boolean>}
+ */
+async function callerIsFluxnode(body) {
+  if (!body || !body.pubKey || !body.signature || !body.target) return false;
+
+  // Required here rather than at the top: fluxNetworkHelper reaches back into the
+  // application services, and this module is on that path.
+  // eslint-disable-next-line global-require
+  const fluxNetworkHelper = require('../fluxNetworkHelper');
+  // eslint-disable-next-line global-require
+  const fluxCommunicationUtils = require('../fluxCommunicationUtils');
+
+  // BOUNDED BOTH WAYS, because only one of them is a freshness question.
+  // verifyTimestampInFluxBroadcast asks whether a request is too OLD, which is what
+  // makes one captured off the wire stop working. It says nothing about a request
+  // stamped for next year, and that is the one a node can mint deliberately: signed
+  // once against a chosen target, it authorises whoever holds the body, for as long as
+  // they hold it - so what a node may serve only to a node becomes public the moment
+  // that body is. The forward bound is the network's own tolerance for clocks that do
+  // not agree, and beyond it a timestamp is a choice rather than skew.
+  //
+  // Freshness first: it establishes that the timestamp is a number, and the forward
+  // comparison below is arithmetic on it.
+  const now = Date.now();
+  if (!fluxCommunicationUtils.verifyTimestampInFluxBroadcast(body, now)) return false;
+  if (body.timestamp > now + fluxCommunicationUtils.BROADCAST_CLOCK_SKEW_MS) return false;
+
+  const verified = await fluxNetworkHelper.verifySignedFluxnodeMessage(body);
+  if (verified !== true) return false;
+
+  const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+  return Boolean(localSocketAddr) && socketAddressesMatch(body.target, localSocketAddr);
+}
+
+/**
+ * The same answer, plus what each receive-only folder here holds.
+ *
+ * `holding` is a size and a last-write time per app whose data this node is carrying,
+ * which is the tenant's, so it is not served to whoever asks. A caller proves itself
+ * the way every node-to-node call on this API does - a signature whose public key is
+ * on the deterministic node list - or holds Flux team privilege. The folder ids beside
+ * it stay on the open GET, because they are app names and the location table already
+ * publishes those.
+ *
+ * SIGNED FOR ONE RECIPIENT AND ONE MOMENT. `target` is the address of the node being
+ * asked, checked against this node's own, so a signature captured in flight cannot be
+ * turned on the rest of the fleet. `timestamp` is held to the bound every signed Flux
+ * broadcast is held to (verifyTimestampInFluxBroadcast, fluxCommunicationUtils.js) -
+ * the network's own figure rather than one chosen here, and wide enough for the clock
+ * skew the fleet actually carries.
+ *
+ * A caller that cannot show either gets the open answer, not an error: a peer too old
+ * to sign is not a peer doing something wrong, and it reads an absent `holding` as
+ * claiming nothing - which is what the address-order election already expects of it.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message carrying { ready, folders, holding }.
+ */
+async function promotedFolderHoldings(req, res) {
+  try {
+    // eslint-disable-next-line global-require
+    const globalState = require('../utils/globalState');
+    const ids = globalState.promotedFolderIds;
+    const body = serviceHelper.ensureObject(req?.body) || {};
+
+    // NOT READY IS AN ANSWER, AND IT IS OWED IMMEDIATELY. Establishing who the caller is
+    // reads the deterministic node list, and the accessors for that WAIT for it to
+    // arrive - deliberately, for the callers that cannot tell an unknown list from an
+    // empty one. This is on a peer's monitor pass, which is the case that comment names
+    // as the one that must not reach it: parked here, the request holds a handler open
+    // and the peer that sent it learns nothing until its own probe expires, which it
+    // then reads as this node being gone rather than starting.
+    //
+    // Refused rather than answered, because the open shape cannot say this. `ready`
+    // there is syncthing's first pass, set by a different pass from this one, so a
+    // node in this state can answer `ready: true` while being unable to say who
+    // anybody is - and a peer reads that as this node holding nothing.
+    if (!networkStateService.isReady()) {
+      log.info('promotedFolderHoldings - network state has not started; answering not-ready rather than waiting for it');
+      const notReady = messageHelper.createErrorMessage('Network state is not ready', 'ServiceUnavailable', 503);
+      return res ? res.status(503).json(notReady) : notReady;
+    }
+
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+    const entitled = authorized === true || await callerIsFluxnode(body);
+
+    const held = globalState.folderHoldings;
+    const response = messageHelper.createDataMessage({
+      ready: ids !== null,
+      folders: ids === null ? [] : [...ids],
+      ...(entitled ? { holding: held === null ? {} : Object.fromEntries(held) } : {}),
+    });
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 module.exports = {
   installedApps,
   decryptEnterpriseApps,
@@ -578,6 +712,7 @@ module.exports = {
   listRunningAppsApi,
   heldComponents,
   promotedFolders,
+  promotedFolderHoldings,
   listAllApps,
   listAllAppsApi,
   getlatestApplicationSpecificationAPI,
