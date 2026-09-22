@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 
 describe('appUninstaller tests', () => {
   let appUninstaller;
@@ -51,6 +52,9 @@ describe('appUninstaller tests', () => {
       createErrorMessage: sinon.stub(),
       errUnauthorizedMessage: sinon.stub(),
       createSuccessMessage: sinon.stub().returns({ status: 'success' }),
+      // noCallThru: a key absent here is undefined, and the guard that calls it
+      // throws into the catch rather than returning what it decided.
+      createWarningMessage: sinon.stub().returns({ status: 'warning' }),
     };
 
     logStub = {
@@ -806,6 +810,63 @@ describe('appUninstaller tests', () => {
           globalStateStub.removalInProgress,
           'freed the node while the removal holding it is still running, so an install can start into it',
         ).to.be.true;
+      });
+
+      // WHAT A REMOVAL ANSWERS IS A CONTRACT, and the sweep is the caller that acts on
+      // it: "refused" read as "removed" leaves a blocked application running, and "not
+      // here" read as "it failed" asks again forever about an application that is gone.
+      describe('what the removal answers', () => {
+        it('answers REMOVED when it removed the app', async () => {
+          const uninstaller = buildUninstaller(v2Spec);
+
+          const outcome = await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          expect(outcome).to.equal(RemovalOutcome.REMOVED);
+        });
+
+        it('answers BUSY while another removal holds the node', async () => {
+          const uninstaller = buildUninstaller(v2Spec);
+          globalStateStub.removalInProgress = true;
+
+          const outcome = await uninstaller.removeAppLocally('testapp', res, false, true, true);
+
+          expect(outcome).to.equal(RemovalOutcome.BUSY);
+        });
+
+        it('answers BUSY while an installation holds the node', async () => {
+          const uninstaller = buildUninstaller(v2Spec);
+          globalStateStub.installationInProgress = true;
+
+          const outcome = await uninstaller.removeAppLocally('testapp', res, false, true, true);
+
+          expect(outcome).to.equal(RemovalOutcome.BUSY);
+        });
+
+        it('answers NOT_INSTALLED when the node holds no specification for it', async () => {
+          const uninstaller = buildUninstaller(null);
+
+          const outcome = await uninstaller.removeAppLocally('testapp', res, false, true, true);
+
+          expect(outcome).to.equal(RemovalOutcome.NOT_INSTALLED);
+        });
+
+        it('answers NOT_INSTALLED when a forced removal can find it nowhere', async () => {
+          const uninstaller = buildUninstaller(null);
+
+          const outcome = await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          expect(outcome).to.equal(RemovalOutcome.NOT_INSTALLED);
+        });
+
+        // The other side of that branch: anything else the removal threw leaves the
+        // application possibly still here, whole or in part.
+        it('answers FAILED when the removal threw for any other reason', async () => {
+          const uninstaller = buildUninstaller(v2Spec);
+
+          const outcome = await uninstaller.removeAppLocally(undefined, res, true, true, true);
+
+          expect(outcome).to.equal(RemovalOutcome.FAILED);
+        });
       });
 
       // The announcement and a broadcast removal must not cross. A cycle that took

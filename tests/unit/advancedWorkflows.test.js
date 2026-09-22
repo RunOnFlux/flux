@@ -4877,6 +4877,7 @@ describe('advancedWorkflows tests', () => {
     let generalService;
     let serviceHelper;
     let globalState;
+    let imageManager;
     let policyBefore;
 
     beforeEach(() => {
@@ -4885,6 +4886,7 @@ describe('advancedWorkflows tests', () => {
       generalService = require('../../ZelBack/src/services/generalService');
       serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       globalState = require('../../ZelBack/src/services/utils/globalState');
+      imageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
       /* eslint-enable global-require */
       globalState.reinstallationOfOldAppsInProgress = false;
       // These are about the pass lock and the teardown arguments, so the node has
@@ -4926,6 +4928,41 @@ describe('advancedWorkflows tests', () => {
     // overlap is driven here, rather than by pre-setting a flag: a test that
     // sets the flag and calls once proves only that some guard reads it, and
     // would pass just as happily against the window that is actually open.
+    // AN OWNER TRANSFER CHANGES NOTHING THE SPEC COMPARISON LOOKS AT - owner is deleted
+    // from both sides of it - so it takes the branch that writes the record and
+    // redeploys nothing. Nothing on that branch judges what it wrote: the installer
+    // judges what it installs, and this installs nothing, so an owner the network
+    // refuses holds the application until something unrelated sweeps the node.
+    it('asks the sweep about an application whose record it rewrote without redeploying', async () => {
+      const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT',
+      });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(requestComplianceSweep);
+      expect([...requestComplianceSweep.firstCall.args[0]]).to.deep.equal(['myapp']);
+    });
+
+    // The canary for it: an application this pass redeploys is judged by the installer
+    // that rebuilds it, so asking for it again buys a walk of the whole app table.
+    it('does not ask the sweep about an application it redeployed', async () => {
+      const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.called,
+        'the fixture is wrong: this pass never reached the redeployment it is about',
+      ).to.be.true;
+      expect(
+        requestComplianceSweep.called,
+        'a redeployed application was swept for as though nothing had judged it',
+      ).to.be.false;
+    });
+
     it('declines a second pass that starts before the first has announced itself', async () => {
       const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
 

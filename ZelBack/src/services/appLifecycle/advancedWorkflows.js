@@ -4162,6 +4162,10 @@ async function reinstallOldApplications() {
   }
   reinstallPassLock.register();
 
+  // Applications whose local record this pass rewrote without redeploying them. Swept
+  // after the pass, never inside it - see the branch that fills this.
+  const rewrittenWithoutRedeploy = new Set();
+
   try {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
@@ -4273,6 +4277,17 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line no-await-in-loop
             await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
             log.info(`Application ${installedApp.name} Database updated`);
+            // OWNER IS DELETED FROM THE COMPARISON ABOVE, so an owner transfer reaches
+            // this branch: the same components under a different owner, written without
+            // a redeploy. Nothing else judges the record that leaves here - the
+            // installer judges what it installs, and this installs nothing - so an owner
+            // the network refuses holds this application until something unrelated
+            // sweeps the node.
+            //
+            // Every other field deleted from that comparison reaches it too - an expiry,
+            // a description, an instance count - and each of those rewrites a record
+            // nothing has judged either.
+            rewrittenWithoutRedeploy.add(appSpecifications.name);
             // eslint-disable-next-line no-continue
             continue;
           }
@@ -4616,6 +4631,22 @@ async function reinstallOldApplications() {
     // loop, on a path that can return or throw from several places, and a leaked
     // true would make every neighbour stand aside indefinitely.
     globalState.reinstallationOfOldAppsInProgress = false;
+    // ASKED ONCE THIS PASS IS OVER, because both of them uninstall and what holds them
+    // apart is the node's install and removal flags: a removal the sweep attempts while
+    // this pass holds those is refused, and goes onto the sweep's backoff rather than
+    // being taken.
+    //
+    // One request for the whole set: a scoped request coalesces into a full pass once
+    // another is in flight, so asking per application buys nothing.
+    //
+    // Not awaited: a pass spaces its removals over minutes and nothing here depends on
+    // it. A node that has no confirmed policy yet does not block on one either - the
+    // pass holds these applications and asks again.
+    if (rewrittenWithoutRedeploy.size) {
+      // eslint-disable-next-line global-require
+      const imageManager = require('../appSecurity/imageManager');
+      imageManager.requestComplianceSweep(rewrittenWithoutRedeploy);
+    }
   }
 }
 

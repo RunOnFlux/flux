@@ -525,7 +525,19 @@ module.exports = {
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,
-    imageComplianceIntervalMs: 3600000,
+    // How long a node waits, at most, before acting on a blocklist change. Adoption
+    // reaches the fleet within seconds of itself, so a pass taken on arrival would put
+    // every node's removals - and the broadcast of each one - into the same moment.
+    // Each node picks a point in this window instead.
+    complianceSweepStaggerMs: 120000,
+    // Between one removal and the next on a node. The stagger above spreads the fleet;
+    // this spreads one node's own.
+    complianceRemovalSpacingMs: 180000,
+    // An application the sweep could not finish with is asked again on this, doubling
+    // to the ceiling. It covers what has no event to wait on: an enterprise
+    // specification that did not decrypt, and a removal that threw.
+    complianceRetryBaseMs: 60000,
+    complianceRetryMaxMs: 3600000,
     forceRemovalIntervalMs: 7200000,
     installCollisionWaitMs: 90000,
     portTestBindDelayMs: 5000,
