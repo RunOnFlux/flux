@@ -799,4 +799,110 @@ describe('fileSystemManager tests', () => {
       });
     });
   });
+
+  // downloadAppsFolder streams one archive and names it through the response's
+  // own attachment(): a folder whose name carries a byte the header grammar
+  // forbids reaches res.writeHead as a raw interpolation and throws from a
+  // stream callback the handler's catch cannot see, which exits the process.
+  describe('downloadAppsFolder streams safely', () => {
+    const http = require('http');
+    const stream = require('stream');
+    const os = require('os');
+    const fs = require('fs');
+    const nodePath = require('path');
+
+    let tmpBase;
+    afterEach(() => {
+      if (tmpBase) fs.rmSync(tmpBase, { recursive: true, force: true });
+      tmpBase = undefined;
+    });
+
+    // A response that validates a header value the way Node does, so a name the
+    // grammar forbids is caught here rather than silently accepted, and records
+    // the attachment() call the fix routes the name through.
+    const validatingRes = () => {
+      const res = new stream.PassThrough();
+      res.headersSent = false;
+      res.statusCode = 200;
+      res.setHeader = (name, value) => { http.validateHeaderValue(name, String(value)); return res; };
+      res.writeHead = (code, hdrs) => {
+        res.statusCode = code;
+        if (hdrs) Object.entries(hdrs).forEach(([k, v]) => http.validateHeaderValue(k, String(v)));
+        res.headersSent = true;
+        return res;
+      };
+      res.attachment = sinon.stub();
+      res.status = (code) => { res.statusCode = code; return res; };
+      res.json = sinon.stub();
+      res.destroyedByHandler = false;
+      const realDestroy = res.destroy.bind(res);
+      res.destroy = (err) => { res.destroyedByHandler = true; return realDestroy(err); };
+      return res;
+    };
+
+    const subjectWith = (overrides) => proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+      '../messageHelper': messageHelperStub,
+      '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+      '../serviceHelper': serviceHelperStub,
+      '../IOUtils': { getVolumeInfo: sinon.stub().resolves({ error: null, mounts: [{ mount: MOUNT }] }) },
+      '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+      '../utils/pathSecurity': { sanitizePath: (f, base) => `${base}/${f}`, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+      './volumeSession': volumeSessionStub,
+      './volumeExecutor': executorStub,
+      '../utils/jobRegistry': jobRegistry,
+      ...overrides,
+    });
+
+    it('names a non-ascii folder through attachment, so no raw header is built and nothing throws', async () => {
+      // A real directory with a non-ascii name and the real archiver, so the
+      // whole stream runs: the header the buggy path builds from this name is
+      // exactly the one Node refuses.
+      tmpBase = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'flux-dl-'));
+      const realDir = nodePath.join(tmpBase, '文書');
+      fs.mkdirSync(realDir);
+      fs.writeFileSync(nodePath.join(realDir, 'a.txt'), 'hello');
+
+      const subject = subjectWith({
+        archiver: require('archiver'),
+        stream,
+        '../utils/pathSecurity': { sanitizePath: () => realDir, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+      });
+      const res = validatingRes();
+      const finished = new Promise((resolve) => { res.on('finish', resolve); res.on('close', resolve); });
+      const target = { params: {}, query: { appname: 'myapp', component: 'comp', folder: '文書' } };
+
+      await subject.downloadAppsFolder(target, res);
+      await finished;
+
+      expect(res.destroyedByHandler).to.equal(false);
+      sinon.assert.calledOnceWithExactly(res.attachment, '文書.zip');
+    });
+
+    it('handles an archiver error instead of letting it reach the process', async () => {
+      const EventEmitter = require('events');
+      const zip = new EventEmitter();
+      zip.pipe = sinon.stub();
+      zip.directory = sinon.stub();
+      zip.destroy = sinon.stub();
+      // The error a folder-that-is-a-file produces arrives after the handler has
+      // returned, so it is raised on a later tick, off the try/catch.
+      zip.finalize = sinon.stub().callsFake(() => {
+        setImmediate(() => zip.emit('error', Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' })));
+      });
+      const logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
+      const subject = subjectWith({ archiver: () => zip, stream, '../../lib/log': logStub });
+      const res = {
+        attachment: sinon.stub(), destroy: sinon.stub(), on: sinon.stub(), json: sinon.stub(), write: sinon.stub(), end: sinon.stub(),
+      };
+      const target = { params: {}, query: { appname: 'myapp', component: 'comp', folder: 'notadir' } };
+
+      await subject.downloadAppsFolder(target, res);
+      // The listener is what keeps the emit below from reaching the process.
+      expect(zip.listenerCount('error')).to.equal(1);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      sinon.assert.calledOnce(res.destroy);
+      sinon.assert.calledWith(logStub.error, sinon.match.instanceOf(Error));
+    });
+  });
 });

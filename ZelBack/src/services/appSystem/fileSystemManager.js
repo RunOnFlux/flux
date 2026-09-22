@@ -333,27 +333,29 @@ async function downloadAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
+      const folderName = path.basename(folderpath);
       const zip = archiver('zip');
-      const sizeStream = new PassThrough();
-      let compressedSize = 0;
-      sizeStream.on('data', (chunk) => {
-        compressedSize += chunk.length;
+      // The download name is set through content-disposition, which encodes it,
+      // so a name the application chose reaches the header as ASCII. Interpolated
+      // into the header directly it throws on any byte the header grammar
+      // forbids, from a stream callback this function's catch cannot reach.
+      res.attachment(`${folderName}.zip`);
+      // No Content-Length: the archive streams as it is built, so its size is
+      // not known ahead of time, and an app writing to its own volume during the
+      // download cannot make the body contradict an announced length.
+      zip.on('error', (error) => {
+        // An archiver error - the folder is a file, a member vanishes mid-read -
+        // arrives on the stream after this function has returned; unhandled it
+        // reaches the process. Headers are already sent, so a reset is what
+        // tells the client the archive is not whole.
+        log.error(error);
+        res.destroy();
       });
-      sizeStream.on('end', () => {
-        const folderNameArray = folderpath.split('/');
-        const folderName = folderNameArray[folderNameArray.length - 1];
-        res.writeHead(200, {
-          'Content-Type': 'application/zip',
-          'Content-disposition': `attachment; filename=${folderName}.zip`,
-          'Content-Length': compressedSize,
-        });
-        // Now, pipe the compressed data to the response stream
-        const zipFinal = archiver('zip');
-        zipFinal.pipe(res);
-        zipFinal.directory(folderpath, false);
-        zipFinal.finalize();
-      });
-      zip.pipe(sizeStream);
+      // pipe ends the destination but does not destroy the source when the
+      // destination dies, so a client that aborts would otherwise leave the
+      // archiver reading the volume.
+      res.on('close', () => zip.destroy());
+      zip.pipe(res);
       zip.directory(folderpath, false);
       zip.finalize();
     } else {
