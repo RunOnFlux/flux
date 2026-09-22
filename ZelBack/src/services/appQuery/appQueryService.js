@@ -586,6 +586,17 @@ async function getAppsMessagesCount(req, res) {
  * Required at all because this node cannot be told who is calling by the connection: a
  * source address is not a proof, and several nodes share one behind UPnP.
  *
+ * ASKED IN THE ORDER THEY COST. The route is open, so everything before the signature
+ * runs for whoever sends bytes at it: the shape and the timestamp answer from the body
+ * alone, and the signature is checked against the node list before this node looks
+ * anything up about itself. Own-address is served from a cached value that expires on a
+ * timer, so the read behind it is a status call to the local benchmark daemon rather
+ * than work - but which caller is holding the door when the timer expires is still a
+ * choice, and it should be one that has proved itself.
+ *
+ * `target` therefore comes last, and loses nothing by it: it exists to stop a request
+ * captured here being replayed at another node, which it does wherever it sits.
+ *
  * @param {object} body - the request body, already an object
  * @returns {Promise<boolean>}
  */
@@ -601,11 +612,11 @@ async function callerIsFluxnode(body) {
 
   if (!fluxCommunicationUtils.verifyTimestampInFluxBroadcast(body, Date.now())) return false;
 
-  const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
-  if (!localSocketAddr || !socketAddressesMatch(body.target, localSocketAddr)) return false;
-
   const verified = await fluxNetworkHelper.verifySignedFluxnodeMessage(body);
-  return verified === true;
+  if (verified !== true) return false;
+
+  const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+  return Boolean(localSocketAddr) && socketAddressesMatch(body.target, localSocketAddr);
 }
 
 /**

@@ -744,6 +744,22 @@ describe('appQueryService tests', () => {
         });
       });
 
+      // The route is open, so the ORDER the checks run in is part of its contract: a
+      // caller that has proved nothing gets nothing done on its behalf. Own-address is
+      // the first thing here that reaches outside the body, and the value behind it is
+      // cached with an expiry - so whoever is at the door when it lapses should be a
+      // caller that verified. Asserted on the call rather than the verdict, because the
+      // verdict is the same under either order and only this separates them.
+      it('looks nothing up about itself for a caller that did not verify', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(false);
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.holding).to.equal(undefined);
+        sinon.assert.called(fluxNetworkHelperStub.verifySignedFluxnodeMessage);
+        sinon.assert.notCalled(fluxNetworkHelperStub.getLocalSocketAddress);
+      });
+
       // The signature VERIFIES here, so the address is the only thing that can refuse
       // it - which is the whole of what binding to a recipient buys: a body captured in
       // flight is a valid signature by a real node, and must still not work elsewhere.
