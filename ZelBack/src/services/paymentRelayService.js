@@ -40,6 +40,12 @@ const WS_POLL_INTERVAL = 500;
 // address is generous; above it, issuance is refused. This is what stops a
 // flood, not the cache size - the cache is small on purpose.
 const PAYMENT_REQUEST_RATE_PER_SEC = 5;
+// The most pending ids one address may hold at once. The rate limit bounds how
+// fast ids are minted; this bounds how many one source holds, so a flood cannot
+// take the cache's slots and evict the ids other browsers are still waiting on -
+// the cache evicts oldest-first and a rate cap alone does not stop one source
+// filling it.
+const MAX_PENDING_PER_IP = 10;
 
 const pending = cacheManager.paymentRelayCache;
 
@@ -61,11 +67,22 @@ function paymentRequest(req, res) {
       res.status(429).json(messageHelper.createErrorMessage('Too many payment requests'));
       return;
     }
+    let heldByIp = 0;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of pending.values()) {
+      if (entry && entry.ip === ip) heldByIp += 1;
+    }
+    if (heldByIp >= MAX_PENDING_PER_IP) {
+      res.status(429).json(messageHelper.createErrorMessage('Too many pending payment requests'));
+      return;
+    }
     // Unguessable, because the id is the only thing the wallet's callback is
     // held to: whoever holds a live one can leave a transaction id for the
     // browser waiting on it.
     const paymentId = `${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
-    pending.set(paymentId, { txid: null });
+    // The address is kept so a later request can count what this source already
+    // holds; the callback overwrites the entry with just the txid on its way out.
+    pending.set(paymentId, { txid: null, ip });
     res.json(messageHelper.createDataMessage({ paymentId }));
   } catch (error) {
     log.error(error);

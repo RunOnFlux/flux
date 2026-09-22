@@ -213,8 +213,9 @@ class FluxCacheManager {
     // paymentRelayService - one entry per browser waiting on a wallet, holding
     // the transaction id that wallet leaves. An hour is how long a wallet has
     // to answer. A node brokers a handful of these at once for the sites that
-    // use it, so the bound is small; issuance is rate limited per IP, which is
-    // what keeps a flood from filling it rather than the size of this.
+    // use it, so the bound is small; the cache evicts oldest-first, so what
+    // keeps a flood from evicting live entries is the per-IP occupancy cap in
+    // paymentRelayService, not this size and not the rate limit alone.
     paymentRelayCache: {
       max: 500,
       ttl: FluxCacheManager.oneHour,

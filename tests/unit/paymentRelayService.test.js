@@ -82,7 +82,7 @@ describe('paymentRelayService tests', () => {
       const { paymentId } = response.data;
       expect(paymentId).to.be.a('string');
       expect(pending.has(paymentId)).to.equal(true);
-      expect(pending.get(paymentId)).to.deep.equal({ txid: null });
+      expect(pending.get(paymentId).txid).to.equal(null);
     });
 
     it('issues an id no caller could have guessed', () => {
@@ -133,6 +133,32 @@ describe('paymentRelayService tests', () => {
         paymentRelayService.paymentRequest({ socket: { remoteAddress: `198.51.100.${i}` } }, res);
         expect(res.json.firstCall.args[0].status, `peer ${i} was refused`).to.equal('success');
       }
+    });
+
+    // The rate limit caps how fast one address mints ids; this caps how many it
+    // holds at once. Without it a source issuing at the permitted rate fills the
+    // cache and evicts the ids other browsers are waiting on, since the cache
+    // evicts oldest-first and a get() does not protect an entry.
+    it('refuses a new id once one address already holds the cap', () => {
+      const ip = '203.0.113.9';
+      for (let i = 0; i < 10; i += 1) pending.set(`held${i}`, { txid: null, ip });
+      const res = generateResponse();
+
+      paymentRelayService.paymentRequest({ socket: { remoteAddress: ip } }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      sinon.assert.calledWith(res.status, 429);
+    });
+
+    // The cap is per address: an id others' entries fill the cache with does not
+    // stop a fresh address issuing, so a flood cannot deny everyone else.
+    it('lets an address issue even when other addresses hold the cap', () => {
+      for (let i = 0; i < 10; i += 1) pending.set(`other${i}`, { txid: null, ip: '198.51.100.200' });
+      const res = generateResponse();
+
+      paymentRelayService.paymentRequest({ socket: { remoteAddress: '203.0.113.10' } }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
     });
 
     // The cache lives in RAM on every node for a path three sites use, so its
@@ -213,7 +239,7 @@ describe('paymentRelayService tests', () => {
 
       expect(body.status).to.equal('error');
       expect(body.data.message).to.equal('No transaction ID is specified');
-      expect(pending.get(paymentId)).to.deep.equal({ txid: null });
+      expect(pending.get(paymentId).txid).to.equal(null);
     });
 
     it('refuses a transaction id longer than any chain produces', async () => {
@@ -223,7 +249,7 @@ describe('paymentRelayService tests', () => {
 
       expect(body.status).to.equal('error');
       expect(body.data.message).to.equal('Invalid transaction ID length');
-      expect(pending.get(paymentId)).to.deep.equal({ txid: null });
+      expect(pending.get(paymentId).txid).to.equal(null);
     });
 
     it('answers a body that overruns across several chunks exactly once', async () => {
@@ -240,7 +266,7 @@ describe('paymentRelayService tests', () => {
 
       sinon.assert.calledOnce(res.json);
       sinon.assert.calledOnceWithExactly(res.status, 413);
-      expect(pending.get(paymentId)).to.deep.equal({ txid: null });
+      expect(pending.get(paymentId).txid).to.equal(null);
     });
 
     // A write to a destroyed socket is discarded without complaint, so
@@ -270,7 +296,7 @@ describe('paymentRelayService tests', () => {
 
       sinon.assert.calledWith(res.status, 413);
       expect(body.status).to.equal('error');
-      expect(pending.get(paymentId)).to.deep.equal({ txid: null });
+      expect(pending.get(paymentId).txid).to.equal(null);
     });
   });
 
