@@ -170,6 +170,26 @@ describe('syncthingIgnorePolicy tests', () => {
       sinon.assert.calledOnce(logError);
     });
 
+    // The bound is a window, not a life sentence. What a folder stores is syncthing's
+    // to decide and a later version may decide differently, so a set is offered again
+    // once the window is out - which is also what drops the record of a folder nothing
+    // asks about any more, so an uninstalled app leaves nothing behind.
+    it('offers the set again once the window is out', async () => {
+      const clock = sandbox.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/elsewhere'] }));
+      const write = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
+      sandbox.stub(log, 'error');
+
+      await policy.ensureStignoreCovers(ID);
+      await policy.ensureStignoreCovers(ID);
+      sinon.assert.calledOnce(write);
+
+      clock.tick(30 * 60 * 1000);
+      await policy.ensureStignoreCovers(ID);
+
+      sinon.assert.calledTwice(write);
+    });
+
     // The bound is on the SET, not on the folder: a specification that asks for
     // different lines is a different question and gets its own attempt.
     it('posts again when the spec asks for a different set', async () => {

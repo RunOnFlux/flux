@@ -8,10 +8,27 @@ const sameLines = (left, right) => left.length === right.length
   && left.every((line, index) => line === right[index]);
 
 /**
+ * How long a posted set is held before it is offered again.
+ *
+ * A set that does not read back is not worth posting on every pass - each one rewrites
+ * the file and rescans the folder, and the monitor's pass is
+ * MONITOR_INTERVAL_MS (syncthingMonitorConstants.js, 30 s), so this window is one
+ * rewrite per folder per 60 passes rather than 60.
+ *
+ * Not never, either. What a folder stores is syncthing's to decide, and a version that
+ * stores a line differently may be replaced by one that does not; a bound that only a
+ * FluxOS restart lifts makes the policy depend on when this process last started.
+ */
+const IGNORE_RETRY_WINDOW_MS = 30 * 60 * 1000;
+
+/**
  * The last set posted to a folder, while the folder does not read back as that set.
  *
- * Per process, and a restart retries: this records that an attempt was made and did not
- * take, which is a fact about this process's attempt rather than about the folder.
+ * Entries EXPIRE, and are dropped on the way past, so this holds only folders touched
+ * inside the window: an app that is uninstalled leaves nothing behind, and the map
+ * cannot grow with the number of apps a node has ever run. Per process besides - it
+ * records that an attempt was made and did not take, which is a fact about the attempt
+ * rather than about the folder.
  */
 const attemptedIgnores = new Map();
 
@@ -87,11 +104,15 @@ async function ensureStignoreCovers(folderId, unsyncedSubdirs = []) {
     return;
   }
 
-  // ONE ATTEMPT PER SET. Reaching here having already posted this exact set means the
-  // folder does not read back the way it was written, and posting it again would do
-  // the same on every pass for the life of the app - each one rewriting the file and
-  // rescanning the folder. A set the specification has since changed is a different
-  // set and is tried on its own account.
+  // ONE ATTEMPT PER SET PER WINDOW. Reaching here having already posted this exact set
+  // means the folder does not read back the way it was written, and posting it again
+  // would do the same on every pass - each one rewriting the file and rescanning the
+  // folder. A set the specification has since changed is a different set and is tried
+  // on its own account, and so is this one once the window is out.
+  const now = Date.now();
+  attemptedIgnores.forEach((attempt, id) => {
+    if (now - attempt.at >= IGNORE_RETRY_WINDOW_MS) attemptedIgnores.delete(id);
+  });
   const attempted = attemptedIgnores.get(folderId);
   if (attempted && sameLines(attempted.lines, desired)) {
     if (!attempted.reported) {
@@ -106,7 +127,7 @@ async function ensureStignoreCovers(folderId, unsyncedSubdirs = []) {
     log.error(`ensureStignoreCovers - could not set ignores for ${folderId}: ${written.data?.message ?? 'unknown error'}`);
     return;
   }
-  attemptedIgnores.set(folderId, { lines: desired, reported: false });
+  attemptedIgnores.set(folderId, { lines: desired, at: now, reported: false });
   log.info(`ensureStignoreCovers - ${folderId} ignores set to ${desired.join(', ')}`);
 }
 
