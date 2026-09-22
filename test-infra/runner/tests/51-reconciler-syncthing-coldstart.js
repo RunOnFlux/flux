@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { getAppContainerStatus } from '../framework/container.js';
+import { getAppContainerStatus, blockPeerAccess, unblockPeerAccess } from '../framework/container.js';
 import {
   setSyncState, setNoPeerData, resetSyncState,
 } from '../framework/syncthing-control.js';
@@ -88,6 +88,7 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
   const rApp = `e2ecoldr${Date.now()}`;
   const gApp = `e2ecoldg${Date.now()}`;
   const claimApp = `e2ecoldclaim${Date.now()}`;
+  const splitApp = `e2ecoldsplit${Date.now()}`;
   const holders = [0, 1, 2];
   // Asked rather than assumed. `holders[0]` is the lowest address only while the
   // list happens to be written in order, and it silently names the wrong node
@@ -185,6 +186,55 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
       await isUp(env.clients[seedIndex], claimApp),
       'the lowest address seeded over a peer that holds the owner data',
     ).to.equal(false);
+  });
+
+  // THE ELECTION'S THIRD QUESTION, and the one the two above cannot ask: what happens
+  // when the field does not look the same from every node.
+  //
+  // The ranking is used only when every candidate's claim can be compared, and that is
+  // decided from the answers ONE node received. A candidate silent to one node and
+  // answering another puts the two on different rules over the same field - the address
+  // order on one, the ranking on the other - and two rules elect two winners, both of
+  // which flip the same folder to sendreceive. The address order does not have that
+  // property, which is why it is still the fallback.
+  //
+  // One directional block is the whole fixture: the holder stays visible to everyone, so
+  // the ranking still has a right answer, and only the address-order winner is missing a
+  // claim it needs to reach it.
+  it('r: elects one seed even when a candidate is silent to only one node', async function () {
+    this.timeout(300000);
+    const folder = `flux${splitApp}_${splitApp}`;
+    // The candidate to silence is neither the address-order winner nor the holder: it
+    // has to be a claim whose ABSENCE changes which rule the winner applies, without
+    // changing what the ranking would answer for anyone who can see the whole field.
+    const silenced = holders.find((i) => i !== seedIndex && i !== claimHolder);
+    expect(silenced, 'the fixture needs a third holder to silence').to.not.equal(undefined);
+
+    await pushImage(splitApp, 'v1');
+    const splitSpec = await buildSeedableSyncthingApp({ name: splitApp, mode: 'r' });
+    await pinColdStart(holders, folder);
+    await pinHolding(claimHolder, folder, claimBytes);
+
+    // Refused, not dropped: a refusal fails the probe at once, so the divergence is in
+    // place for the first election evaluation rather than a timeout later. Applied to
+    // the silenced node's INPUT from the seed only, so every other pair still talks and
+    // the seed keeps its own connectivity floor against the rest of the fleet.
+    await blockPeerAccess(env.clients[silenced].container, [subnet.nodeIp(seedIndex + 1)], 16127);
+    try {
+      await installOnNodes(env, splitSpec, holders);
+      await waitFor(
+        async () => (await countUp(env, holders, splitApp)) >= 1,
+        { timeout: 120000, interval: 3000, label: 'a holder seeds the split-view r: app' },
+      );
+      // Settle past LEADER_CONFIRM_COUNT so a second winner has confirmed too, then read
+      // the whole field at once. Two seeds on one folder is the split this election
+      // exists to prevent, and syncthing has no way to merge them.
+      await new Promise((r) => { setTimeout(r, 15000); });
+      const up = await countUp(env, holders, splitApp);
+      expect(up, 'more than one node seeded the same folder from one field').to.equal(1);
+    } finally {
+      await unblockPeerAccess(env.clients[silenced].container, [subnet.nodeIp(seedIndex + 1)], 16127);
+    }
   });
 
   it('g: the seed reaches sendreceive and starts once FDM-elected (no deadlock)', async function () {
