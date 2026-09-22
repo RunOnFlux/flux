@@ -1335,6 +1335,7 @@ describe('imageManager tests', () => {
       decryptApps = readsEverything,
       removeAppLocally = sinon.stub().resolves(RemovalOutcome.REMOVED),
       policyReady = true,
+      table = tableOf(rows),
     } = {}) {
       const timers = testTimers();
       let openGate;
@@ -1342,7 +1343,7 @@ describe('imageManager tests', () => {
       const policy = { policyReady, waitForPolicyReady: () => gate };
       let listener = null;
       const bundle = { onBundleChanged: (fn) => { listener = fn; return () => { listener = null; }; } };
-      const installedApps = sinon.spy(tableOf(rows));
+      const installedApps = sinon.spy(table);
       const sweeper = imageManager.createComplianceSweeper({
         installedApps,
         removeAppLocally,
@@ -1484,6 +1485,42 @@ describe('imageManager tests', () => {
 
       expect(t.removeAppLocally.callCount).to.equal(1);
       expect(t.timers.count(), 'an application the node does not hold was still owed a pass').to.equal(0);
+    });
+
+    // A RECORD THAT DID NOT ANSWER SAYS NOTHING ABOUT THE APPLICATION, and a pass that
+    // reads it as "gone" strikes a blocked application off with nothing coming back for
+    // it.
+    it('asks again when the record cannot be read before a removal', async () => {
+      const rows = [blockedApp('BannedApp')];
+      let answers = false;
+      const t = build({
+        table: async (name) => (name && !answers
+          ? { status: 'error', data: { message: 'connection lost' } }
+          : { status: 'success', data: name ? rows.filter((row) => row.name === name) : rows }),
+      });
+
+      await t.sweeper.request();
+      expect(t.removeAppLocally.called, 'a removal was attempted on a record nothing could read').to.equal(false);
+      expect(t.timers.count(), 'a blocked application was struck off on a failed read').to.equal(1);
+
+      answers = true;
+      await t.timers.fire();
+      expect(t.removeAppLocally.callCount, 'the application was never asked about again').to.equal(1);
+      expect(t.removeAppLocally.firstCall.args[0]).to.equal('BannedApp');
+    });
+
+    // The other half of the same question: a record that DOES answer, and says the node
+    // does not hold it, settles it. Owing it would arm a timer for an application that
+    // is gone.
+    it('stops asking when the record says the application is gone', async () => {
+      const rows = [blockedApp('VanishedApp')];
+      const t = build({
+        table: async (name) => ({ status: 'success', data: name ? [] : rows }),
+      });
+
+      await t.sweeper.request();
+      expect(t.removeAppLocally.called).to.equal(false);
+      expect(t.timers.count(), 'an application the node does not hold was owed a pass').to.equal(0);
     });
 
     // A NODE OWING NOTHING RUNS NO TIMER.

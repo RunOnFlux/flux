@@ -561,6 +561,8 @@ function createComplianceSweeper({
   //   busy        the node was installing or removing something else, so the removal
   //               was refused. It says nothing about the application.
   //   failed      the removal was attempted and did not complete.
+  //   unread      the stored record could not be read, so nothing was established
+  //               about the application either way.
   //   unexamined  a pass stopped before reaching it.
   //
   // None of these has an event to wait on. Everything else this acts on does: the
@@ -637,19 +639,29 @@ function createComplianceSweeper({
    * its hash moves - a redeployed application is judged on what can still be read of
    * it, and the next pass judges the rest.
    *
-   * @returns {Promise<object|null>} Null when the node no longer holds it
+   * TWO FACTS, TWO FIELDS. A record that could not be read and a record that says the
+   * node does not hold it are different answers, and the second one ends a blocked
+   * application's claim on this pass. One value for both leaves a caller to guess.
+   *
+   * @returns {Promise<{answered: boolean, subject: object|null}>} answered is false when
+   *   the record could not be read, which carries no claim about the application. A null
+   *   subject is the record answering that the node does not hold it.
    */
   async function subjectNow(appName, decided) {
     const res = await installedApps(appName).catch(() => null);
-    const row = res && res.status === 'success' && Array.isArray(res.data)
-      ? res.data.find((app) => app.name === appName)
-      : null;
-    if (!row) return null;
+    if (!res || res.status !== 'success' || !Array.isArray(res.data)) {
+      return { answered: false, subject: null };
+    }
+    const row = res.data.find((app) => app.name === appName);
+    if (!row) return { answered: true, subject: null };
     return {
-      name: row.name,
-      owner: row.owner,
-      hash: row.hash,
-      images: row.hash === decided.hash ? decided.images : imagesOf(row),
+      answered: true,
+      subject: {
+        name: row.name,
+        owner: row.owner,
+        hash: row.hash,
+        images: row.hash === decided.hash ? decided.images : imagesOf(row),
+      },
     };
   }
 
@@ -761,7 +773,16 @@ function createComplianceSweeper({
           return;
         }
         // eslint-disable-next-line no-await-in-loop
-        const subject = await subjectNow(appName, decided.subject);
+        const { answered, subject } = await subjectNow(appName, decided.subject);
+        if (!answered) {
+          // A RECORD THAT DID NOT ANSWER IS NOT A RECORD SAYING THE APPLICATION IS GONE.
+          // Taken as gone, a blocked application is struck off with nothing coming back
+          // for it.
+          log.warn(`Could not read the record for ${appName}; asking again`);
+          hold(appName, 'unread');
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         if (!subject) {
           // The node no longer holds it, so there is nothing left to refuse.
           owed.delete(appName);
