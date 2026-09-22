@@ -3014,6 +3014,11 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
       const svcHelper = require('../../ZelBack/src/services/serviceHelper');
       sinon.stub(svcHelper, 'runCommand').resolves({});
+      // The new volume is recorded against the component before the folder is seeded,
+      // and that is a database write this case has no opinion about.
+      // eslint-disable-next-line global-require
+      const volSvc = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volSvc, 'recordNewVolumeImage').resolves();
       const writes = [];
       // eslint-disable-next-line global-require
       const nodeFs = require('node:fs');
