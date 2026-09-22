@@ -379,7 +379,17 @@ async function restore() {
  * @returns {boolean} Whether it was adopted.
  */
 async function offerBundle(raw, peerKey, correlationId) {
-  const verdict = await consider(raw, 'peer');
+  let verdict = VERDICT.REJECTED;
+  try {
+    verdict = await consider(raw, 'peer');
+  } catch (error) {
+    // Nothing awaits this. The message handler calls it detached, so a failure
+    // leaving here is a rejected promise that reaches the process, whose answer
+    // to one is to exit - on a message a peer chose the contents of. A bundle
+    // that could not be considered did not verify, and the ask is settled on
+    // that below rather than left for its deadline to find.
+    log.error(`policyStore - bundle from ${peerKey} could not be considered: ${error.message}`);
+  }
   // A bundle that verifies leaves this node level with the peer that sent it, whether it
   // carried something newer or the sequence already held - so that peer is not ahead. One
   // that does not verify establishes nothing beyond the peer having answered.

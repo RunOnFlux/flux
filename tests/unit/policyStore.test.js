@@ -272,6 +272,24 @@ describe('policyStore', () => {
       module.stop();
     });
 
+    // The message handler calls this detached and awaits nothing, so a rejection
+    // leaving it reaches the process, whose answer to one is to exit - on a
+    // message a peer chose the contents of. Every other handler on that route
+    // holds its own failure the same way.
+    it('answers rather than rejecting when considering a bundle throws', async () => {
+      const { module, log, eventBus } = load();
+      // The bus publish carries no guard of its own, which is how a failure
+      // inside adoption reaches the top.
+      eventBus.publish.throws(new Error('a bundleChanged subscriber failed'));
+
+      let rejection = null;
+      const adopted = await module.offerBundle(bundle(3)).catch((error) => { rejection = error; });
+
+      expect(rejection, 'a peer message left as a rejected promise').to.equal(null);
+      expect(adopted, 'a bundle that could not be considered was called adopted').to.equal(false);
+      expect(log.error.called, 'the failure went unrecorded').to.equal(true);
+    });
+
     it('stays shut when there is no peer set to confirm with, and that is correct', async () => {
       // No fallback timer, deliberately. A node with no peer set is below
       // appSyncPeerThreshold, and the network already holds that such a node should not

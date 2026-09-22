@@ -61,7 +61,15 @@ function verifyBundle(raw, options = {}) {
   // value would leak whatever the caller's logger happens to answer with.
   const reject = (reason) => { onReject(reason); };
 
-  if (!raw || !raw.length) {
+  // This runs on input a peer chose, before anything is parsed. A value that is
+  // not text cannot be measured or verified, and Buffer.byteLength raises on one
+  // rather than answering - so it is refused as a bundle here, which is what it
+  // is, instead of leaving as a fault of this node.
+  if (typeof raw !== 'string' && !Buffer.isBuffer(raw)) {
+    reject(`bundle is ${typeof raw}, not text`);
+    return null;
+  }
+  if (!raw.length) {
     reject('empty bundle');
     return null;
   }
