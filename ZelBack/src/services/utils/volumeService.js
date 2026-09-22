@@ -5,6 +5,7 @@ const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const mountParser = require('./mountParser');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
+const appTamperingDetectionService = require('../appTamperingDetectionService');
 const log = require('../../lib/log');
 const {
   appsFolder, appVolumesPath, legacyAppVolumesPath, APP_VOLUME_MOUNT_OPTIONS,
@@ -968,6 +969,28 @@ async function createMountPath(fullPath, isFile) {
 }
 
 /**
+ * Records an image that mounted from somewhere other than where this node
+ * recorded it.
+ *
+ * The mount replaces the record, so the pass that mounted is the only one
+ * able to report the move - every later pass has the new location in the
+ * record and nothing left to compare it against.
+ *
+ * @param {string} appName Main app name, which the event is recorded against.
+ * @param {string} identifier Component identifier whose volume was mounted.
+ * @param {object} mountResult What ensureAppVolumeMounted answered.
+ * @returns {Promise<void>}
+ */
+async function recordImageMovedIfFound(appName, identifier, mountResult) {
+  if (!mountResult.imageMoved) return;
+  await appTamperingDetectionService.recordEvent(
+    appName,
+    'volume_image_moved',
+    `Volume image for ${identifier} was found somewhere other than where this node recorded it`,
+  );
+}
+
+/**
  * Ensures every host bind-mount path a component declares in its containerData
  * exists before its container is created or (re)started. Syncthing cleanup can
  * delete a mount source while a container is stopped, which would make the next
@@ -990,6 +1013,7 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   if (!volumeMount.mounted) {
     throw new Error(`Data volume for ${appId} is not mounted (${volumeMount.reason}); refusing to create mount paths on the bare directory`);
   }
+  await recordImageMovedIfFound(appName, identifier, volumeMount);
 
   let parsedMounts;
   try {
@@ -1055,6 +1079,8 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
       if (!refVolumeMount.mounted) {
         throw new Error(`Data volume for referenced component ${componentAppId} is not mounted (${refVolumeMount.reason})`);
       }
+      // eslint-disable-next-line no-await-in-loop
+      await recordImageMovedIfFound(appName, componentIdentifier, refVolumeMount);
 
       const fullPath = mount.subdir === 'appdata'
         ? `${appsFolder}${componentAppId}/appdata`

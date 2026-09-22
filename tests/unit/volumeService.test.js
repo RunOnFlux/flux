@@ -21,6 +21,7 @@ describe('volumeService tests', () => {
   let fsStub;
   let deviceHelperStub;
   let appsRuntimeStateStub;
+  let tamperStub;
   let logStub;
   let volumeService;
 
@@ -59,6 +60,7 @@ describe('volumeService tests', () => {
     // Nothing recorded unless a test says so: that is a node that has never
     // created a volume through this code, which is every legacy install.
     appsRuntimeStateStub = { getVolumeImage: sinon.stub().resolves(null), setVolumeImage: sinon.stub().resolves() };
+    tamperStub = { recordEvent: sinon.stub().resolves() };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
@@ -79,6 +81,7 @@ describe('volumeService tests', () => {
       '../../lib/log': logStub,
       '../deviceHelper': deviceHelperStub,
       '../appManagement/appsRuntimeState': appsRuntimeStateStub,
+      '../appTamperingDetectionService': tamperStub,
       fs: { promises: fsStub.promises },
     });
   });
@@ -1502,6 +1505,90 @@ describe('volumeService tests', () => {
       await expect(
         volumeService.ensureMountPathsExist({ name: 'backup', containerData: '/data|0:/database' }, 'testapp', true, null),
       ).to.be.rejectedWith('Component reference mount requires full app specifications');
+    });
+
+    // Mounting replaces the record with where the image actually is, so the
+    // pass that mounts is the only one that can report the move. This is one
+    // of the passes that mounts.
+    it('records an image it mounted from somewhere other than the record', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+      mountParserStub.parseContainerData.returns({ allMounts: [] });
+      mountParserStub.getRequiredLocalPaths.returns([]);
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/somewhere/else/fluxwebserver_testappFLUXFSVOL', fsUuid: 'u-old' });
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxwebserver_testappFLUXFSVOL`).resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data' }, 'testapp', true, null);
+
+      expect(callsFor('mount'), 'this pass did not mount, so it had nothing to report').to.have.lengthOf(1);
+      sinon.assert.calledWith(
+        tamperStub.recordEvent,
+        'testapp',
+        'volume_image_moved',
+        sinon.match(/webserver_testapp.*somewhere other than where this node recorded it/),
+      );
+    });
+
+    it('records nothing when the image mounted from where the record puts it', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+      mountParserStub.parseContainerData.returns({ allMounts: [] });
+      mountParserStub.getRequiredLocalPaths.returns([]);
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: `${APP_VOLUMES}/fluxwebserver_testappFLUXFSVOL`, fsUuid: 'u-same' });
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxwebserver_testappFLUXFSVOL`).resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data' }, 'testapp', true, null);
+
+      expect(callsFor('mount'), 'nothing was mounted, so recording nothing proves nothing').to.have.lengthOf(1);
+      sinon.assert.notCalled(tamperStub.recordEvent);
+    });
+
+    // The referenced component's volume is mounted by this pass too, and the
+    // move is as unrecoverable there.
+    it('records a moved image on a component-reference volume it mounted', async () => {
+      dockerServiceStub.getAppIdentifier.withArgs('backup_testapp').returns('fluxbackup_testapp');
+      dockerServiceStub.getAppIdentifier.withArgs('db_testapp').returns('fluxdb_testapp');
+      mountParserStub.parseContainerData.returns({
+        allMounts: [
+          {
+            type: 'component_primary', componentIndex: 0, subdir: 'appdata', isFile: false,
+          },
+        ],
+      });
+      mountParserStub.getRequiredLocalPaths.returns([]);
+      // This component's own image is where the record puts it; the one it
+      // mounts from the other component is not.
+      appsRuntimeStateStub.getVolumeImage.withArgs('fluxbackup_testapp')
+        .resolves({ path: `${APP_VOLUMES}/fluxbackup_testappFLUXFSVOL`, fsUuid: 'u-b' });
+      appsRuntimeStateStub.getVolumeImage.withArgs('fluxdb_testapp')
+        .resolves({ path: '/somewhere/else/fluxdb_testappFLUXFSVOL', fsUuid: 'u-d' });
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxbackup_testappFLUXFSVOL`).resolves();
+      fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxdb_testappFLUXFSVOL`).resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const fullAppSpecs = { version: 4, compose: [{ name: 'db' }, { name: 'backup' }] };
+      await volumeService.ensureMountPathsExist({ name: 'backup', containerData: '/data|0:/database' }, 'testapp', true, fullAppSpecs);
+
+      expect(callsFor('mount'), 'both volumes were expected to be mounted by this pass').to.have.lengthOf(2);
+      sinon.assert.calledOnce(tamperStub.recordEvent);
+      sinon.assert.calledWith(
+        tamperStub.recordEvent,
+        'testapp',
+        'volume_image_moved',
+        sinon.match(/db_testapp.*somewhere other than where this node recorded it/),
+      );
     });
   });
 
