@@ -1291,6 +1291,34 @@ describe('volumeService tests', () => {
       expect(result.reason).to.include('mount_failed');
     });
 
+    // blkid answers a file that is not there exactly as it answers one holding
+    // no filesystem: exit 2, nothing on stdout. Only the second is about the
+    // image, and the first is what an uninstall crossing a reconcile leaves.
+    it('names the host when the image is gone by the time the failure is explained', async () => {
+      let mountAttempted = false;
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mount: async () => {
+          mountAttempted = true;
+          return { error: new Error('No such file or directory'), stdout: '', stderr: '' };
+        },
+        blkid: async () => ({ error: Object.assign(new Error('exit 2'), { code: 2 }), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      // There when it is found, gone when the mount failure is being explained.
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').callsFake(async () => {
+        if (mountAttempted) throw enoent();
+      });
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.mounted).to.be.false;
+      expect(result.reason, 'a deleted image was scored as one written over').to.not.include('mount_failed');
+      expect(result.reason).to.include('mount_host_refused');
+    });
+
     it('should report mount_failed when the mount fails and the dir stays unmounted', async () => {
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),

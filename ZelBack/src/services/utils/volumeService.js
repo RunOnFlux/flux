@@ -450,10 +450,10 @@ async function imageFsUuid(volumeFile) {
  *
  * Probed with the cache disabled, for the same reason the UUID is.
  *
- * THROWS when the image could not be probed. Null is `blkid` saying it finds
- * no filesystem, which is evidence about the image; sudo refusing or a fork
- * that failed is evidence about the node, and the two reach the same caller
- * for opposite conclusions.
+ * THROWS when the image could not be probed - sudo refusing, a fork that
+ * failed, or the file no longer being there. Null is `blkid` saying it finds
+ * no filesystem, which is evidence about the image; the rest is evidence
+ * about the node, and the two reach the same caller for opposite conclusions.
  *
  * @param {string} volumeFile Absolute path of the image.
  * @returns {Promise<string|null>}
@@ -469,6 +469,14 @@ async function imageFsType(volumeFile) {
   // answer this asks for. Every other failure is this node unable to ask.
   if (res.error && res.error.code !== 2) {
     throw new Error(`imageFsType - could not probe ${volumeFile}: ${res.error.message}`);
+  }
+  // A file that is not there exits 2 with the same empty output, so "holds no
+  // filesystem" and "is not here" arrive identically - and only the first is
+  // evidence about the image. The file is asked for separately, because the
+  // caller scores the operator for an image that holds no filesystem, and an
+  // image removed under this node was never probed at all.
+  if (res.error && await fs.access(volumeFile).then(() => false).catch(() => true)) {
+    throw new Error(`imageFsType - ${volumeFile} was gone when it was probed`);
   }
   return null;
 }
