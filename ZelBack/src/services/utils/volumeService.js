@@ -620,20 +620,24 @@ async function getVolumeFilePath(appId) {
   }
 
 
+  // The first hit is the answer. Finding it settles where an image IS,
+  // whatever the search could not reach - it does not settle whether the one
+  // this node recorded is still where it was put, and a caller about to mount
+  // what turned up needs that second answer too.
+  let found = null;
+  // Images under the same name behind the one that answers. Nothing else in
+  // the system will ever mention them: the one that mounts is recorded, and
+  // every later lookup is answered from the record without searching. Which
+  // of them answers is decided by the candidate order alone, so the rest are
+  // named here or nowhere.
+  const behind = [];
   // eslint-disable-next-line no-restricted-syntax
   for (const candidate of candidates) {
     // eslint-disable-next-line no-await-in-loop
     const failure = await fs.access(candidate).then(() => null).catch((error) => error);
-    // Finding it settles the question whatever the search could not reach.
     if (!failure) {
-      // Finding it settles where an image IS, whatever the search could not
-      // reach. It does not settle whether the one this node recorded is still
-      // where it was put, and a caller about to mount what turned up needs
-      // that second answer too.
-      return {
-        path: candidate, conclusive: true, blocked, recorded, recordSettled,
-      };
-    }
+      if (found) behind.push(candidate);
+      else found = candidate;
     // ENOENT and ENOTDIR both say an image is not here, and say it definitely:
     // nothing can exist beneath a path component that is not a directory, and
     // a mount can be a file - docker binds /etc/hostname and its siblings off
@@ -641,10 +645,23 @@ async function getVolumeFilePath(appId) {
     // container. Everything else - the disk answering EIO, a directory that
     // denies the lookup - has ruled nothing out, and reporting THAT absent is
     // how a failing disk becomes a tampering event against the operator.
-    if (failure.code !== 'ENOENT' && failure.code !== 'ENOTDIR') {
+    // Only what the search met before the image turned up bears on the
+    // answer: a disk that would not read after it has nothing left to rule in
+    // or out.
+    } else if (!found && failure.code !== 'ENOENT' && failure.code !== 'ENOTDIR') {
       blocked = blocked || 'candidate_path_unreadable';
       log.warn(`getVolumeFilePath - ${candidate} could not be read (${failure.code || failure.message}), so the image is not ruled out`);
     }
+  }
+
+  if (behind.length) {
+    log.warn(`getVolumeFilePath - ${appId} has an image at ${[found, ...behind].join(' and ')}; ${found} is the one being used, and the others are left where they are`);
+  }
+
+  if (found) {
+    return {
+      path: found, conclusive: true, blocked, recorded, recordSettled,
+    };
   }
 
   return {

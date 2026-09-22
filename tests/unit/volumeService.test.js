@@ -823,6 +823,35 @@ describe('volumeService tests', () => {
       expect(result.path).to.equal(`${LEGACY_APP_VOLUMES}/fluxapp1FLUXFSVOL`);
     });
 
+    // Which of two images answers is decided by the candidate order alone, and
+    // the one that answers is recorded and never searched for again. The other
+    // is named here or nowhere.
+    it('names an image sitting behind the one it answers with', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+
+      const result = await volumeService.getVolumeFilePath('fluxapp1');
+
+      expect(result.path, 'a mount outranked a directory only this node can write into').to.equal(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`);
+      const warned = logStub.warn.getCalls().map((c) => c.args[0]).join('\n');
+      expect(warned, 'the image left behind went unnamed').to.include('/dat/fluxapp1FLUXFSVOL');
+      expect(warned).to.include(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`);
+    });
+
+    it('says nothing about a second image when there is only one', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+
+      const result = await volumeService.getVolumeFilePath('fluxapp1');
+
+      expect(result.path, 'no image was found, so saying nothing about a second proves nothing').to.equal('/dat/fluxapp1FLUXFSVOL');
+      const warned = logStub.warn.getCalls().map((c) => c.args[0]).join('\n');
+      expect(warned).to.not.include('is the one being used');
+    });
+
     it('should return null when the image exists nowhere', async () => {
       fsStub.promises.access.rejects(enoent());
 
