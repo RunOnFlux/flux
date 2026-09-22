@@ -90,12 +90,6 @@ module.exports = {
         // height, txid, message, version (version X_ determines the value of adjustment p_ specifies new price structure as per fluxapps.price array values)
       },
     },
-    fluxshare: {
-      database: `${dbPrefix}zelshare`,
-      collections: {
-        shared: 'shared',
-      },
-    },
   },
   logConsole: false,
   upnp: {

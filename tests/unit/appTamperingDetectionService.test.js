@@ -202,6 +202,48 @@ describe('appTamperingDetectionService tests', () => {
       expect(update.$inc).to.deep.equal({ count: 1 });
     });
 
+    // The boot sweep walks docker component identifiers and the reconciler
+    // works in app names. Stored as given, the same fault on the same app
+    // lands in two rows, and getEvents - which matches the name exactly -
+    // finds one of them.
+    it('stores one app under one name however the caller addressed it', async () => {
+      await service.recordEvent('fluxwp_wordpress123', 'mount_vanished', 'from the boot sweep');
+      await service.recordEvent('wordpress123', 'mount_vanished', 'from the reconciler');
+
+      const names = eventUpserts().map((c) => c.query.appName);
+      expect(names).to.deep.equal(['wordpress123', 'wordpress123']);
+      expect(eventUpserts()[0].update.$setOnInsert.appName).to.equal('wordpress123');
+    });
+
+    // An event type absent from the table records at weight zero without
+    // saying so, so the weight is pinned where the event is: a substituted
+    // image counts for what a missing one counts for, and neither reaches the
+    // threshold on its own.
+    it('weighs a substituted image the same as a missing one', async () => {
+      await service.recordEvent('myapp', 'volume_image_unrecognised', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(1);
+      expect(service.EVENT_SEVERITY.volume_image_unrecognised)
+        .to.equal(service.EVENT_SEVERITY.volume_missing);
+    });
+
+    // An operator moving an image to a bigger disk by hand produces exactly
+    // this, and nobody has ever counted how often that happens - so it is
+    // recorded to be countable and weighs nothing until the fleet data says
+    // what it should weigh.
+    it('weighs an image that moved at nothing', async () => {
+      await service.recordEvent('myapp', 'volume_image_moved', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
+      expect(service.EVENT_SEVERITY.volume_image_moved).to.equal(0);
+    });
+
+    it('leaves a name that is already the app its own', async () => {
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      expect(eventUpserts()[0].query.appName).to.equal('myapp');
+    });
+
     it('stamps node and operator identity from the daemon status', async () => {
       await service.recordEvent('myapp', 'container_vanished', 'x');
 
@@ -332,6 +374,18 @@ describe('appTamperingDetectionService tests', () => {
 
       expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
       expect(eventUpserts()[1].update.$setOnInsert.severity).to.equal(0);
+    });
+
+    // A volume that would not mount for the host's own reasons is recorded so
+    // the population can be counted, and weighs nothing because none of it is
+    // the operator's doing. Given any weight it would accumulate in every
+    // hourly bucket for as long as the disk stays broken and DOS an honest
+    // node - which is exactly why it is recorded rather than acted on.
+    it('weighs a host fault at nothing, so a broken disk cannot DOS its operator', async () => {
+      await service.recordEvent('myapp', 'volume_host_fault', 'no loop device');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
+      expect(service.EVENT_SEVERITY.volume_host_fault).to.equal(0);
     });
 
     it('retries once when concurrent upserts race on the unique index', async () => {

@@ -1,12 +1,16 @@
 const { expect } = require('chai');
+const proxyquire = require('proxyquire');
 
 describe('globalState tests', () => {
   let globalState;
 
   beforeEach(() => {
-    // Clear the module cache to get a fresh instance for each test
-    delete require.cache[require.resolve('../../ZelBack/src/services/utils/globalState')];
-    globalState = require('../../ZelBack/src/services/utils/globalState');
+    // A fresh instance per test, kept to this suite: proxyquire restores the
+    // require cache after loading, where evicting the entry would hand another
+    // object to every module loaded afterwards. globalState is a singleton
+    // whose flags decide whether an operation may start at all, so two live
+    // copies mean a guard reads one and the work sets the other.
+    globalState = proxyquire('../../ZelBack/src/services/utils/globalState', {});
   });
 
   describe('runningAppsCache tests', () => {

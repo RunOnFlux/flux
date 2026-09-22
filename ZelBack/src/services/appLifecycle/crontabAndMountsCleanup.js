@@ -11,6 +11,13 @@ const appTamperingDetectionService = require('../appTamperingDetectionService');
 
 const crontabLoad = util.promisify(systemcrontab.load);
 
+// Mount failures that describe the host rather than the volume. Matched on the
+// part before the colon, because two of the reasons carry the underlying error
+// after one.
+const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable',
+  'mount_table_unreadable', 'candidate_path_unreadable', 'record_unreadable', 'loop_unavailable',
+  'mount_host_refused']);
+
 /**
  * Get all locally installed app IDs. Enterprise apps are stored locally with
  * `compose` deliberately emptied (the components only exist inside the
@@ -58,8 +65,15 @@ async function getInstalledAppIds() {
       }
       if (!compose || compose.length === 0) {
         // eslint-disable-next-line no-await-in-loop
-        const diskAppIds = await volumeService.getComponentAppIdsFromVolumeFiles(app.name);
-        diskAppIds.forEach((appId) => installedAppIds.add(appId));
+        const discovered = await volumeService.getComponentAppIdsFromVolumeFiles(app.name);
+        // Mount what was found either way: one unreadable directory must not
+        // cost every other app on the node its boot. The shortfall is said out
+        // loud instead, because a component missing from this list is one
+        // nothing downstream will ever ask about.
+        if (!discovered.conclusive) {
+          log.error(`getInstalledAppIds - ${app.name} components could not be enumerated in full; proceeding with the ${discovered.appIds.length} found on disk`);
+        }
+        discovered.appIds.forEach((appId) => installedAppIds.add(appId));
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -118,13 +132,46 @@ async function ensureInstalledAppVolumesMounted() {
     if (!mountResult.mounted) {
       log.error(`ensureInstalledAppVolumesMounted - ${appId} volume could not be mounted: ${mountResult.reason}`);
       results.failed.push({ appId, reason: mountResult.reason });
+      // A node's tampering score is a plain sum over every incident recorded on
+      // it, so a fault of the host's own must not add to one. But it is still
+      // recorded - as the zero-weighted class - because a host that cannot
+      // mount volumes is worth seeing and counting even though it is nobody's
+      // fault, and nothing else on the node reports it.
+      //
+      // Named for the fact, not the moment that found it: the reconciler
+      // records the same facts under the same names mid-run, so one app's
+      // fault reads the same whichever of the two met it, and a fleet query
+      // for either name sees every node rather than half of them.
+      //
+      // `mount_vanished` keeps the meaning its other producer gives it - a
+      // directory that should be mounted is not - rather than standing in for
+      // a missing image as well.
+      const reason = String(mountResult.reason).split(':')[0];
+      let eventType = 'mount_vanished';
+      if (HOST_FAULT_MOUNT_REASONS.has(reason)) eventType = 'volume_host_fault';
+      else if (reason === 'volume_file_missing') eventType = 'volume_missing';
+      // An image that mounts but is not this node's, and an image that holds
+      // no filesystem at all, are both the image having been written over.
+      else if (reason === 'volume_image_unrecognised' || reason === 'mount_failed') eventType = 'volume_image_unrecognised';
       // eslint-disable-next-line no-await-in-loop
-      await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Volume not mountable at startup: ${mountResult.reason}`);
+      await appTamperingDetectionService.recordEvent(
+        appId,
+        eventType,
+        `Volume not mountable at startup: ${mountResult.reason}`,
+      );
     } else if (mountResult.alreadyMounted) {
       results.alreadyMounted.push(appId);
     } else {
       log.info(`ensureInstalledAppVolumesMounted - mounted volume of ${appId}`);
       results.mounted.push(appId);
+      if (mountResult.imageMoved) {
+        // eslint-disable-next-line no-await-in-loop
+        await appTamperingDetectionService.recordEvent(
+          appId,
+          'volume_image_moved',
+          'Volume image was found somewhere other than where this node recorded it',
+        );
+      }
     }
   }
 

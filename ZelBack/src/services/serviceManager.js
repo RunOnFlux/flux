@@ -87,8 +87,6 @@ const {
 // State objects for monitoring services
 const dosState = {
   dosMessage: null,
-  dosMountMessage: null,
-  dosDuplicateAppMessage: null,
   get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
   set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
   testingPort: null,
@@ -727,7 +725,6 @@ async function startFluxFunctions() {
       await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
-      advancedWorkflows.testAppMount(); // test if our node can mount a volume
     }, bootDelay(30 * 1000));
     setTimeout(() => {
       appController.stopAllNonFluxRunningApps();

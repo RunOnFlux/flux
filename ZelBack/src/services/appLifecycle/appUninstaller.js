@@ -1,6 +1,5 @@
 const util = require('util');
 const path = require('path');
-const nodecmd = require('node-cmd');
 const systemcrontab = require('crontab');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -29,7 +28,6 @@ const { Privilege, authOf } = require('../utils/privileges');
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
-const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 
 // Fired once per component identifier after a successful local removal, beside
@@ -84,22 +82,27 @@ async function unmountVolume(appId, entityName, res) {
     if (res.flush) res.flush();
   }
 
-  const execUnmount = `sudo umount ${appsFolder + appId}`;
-  const execSuccess = await cmdAsync(execUnmount).catch((e) => {
-    log.error(e);
+  // The unmount carries on either way - a volume that will not unmount is not
+  // a reason to hold an uninstall open - but only one of these two lines is
+  // true, and the stream is the only account an operator gets of what is still
+  // mounted.
+  const unmount = await serviceHelper.runCommand('umount', {
+    runAsRoot: true, params: [appsFolder + appId], logError: false,
+  });
+  if (unmount.error) {
+    log.error(unmount.error);
     log.info(`An error occurred while unmounting ${entityName} storage. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while unmounting ${entityName} storage. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+    return;
+  }
 
-  if (execSuccess) {
-    log.info(`Volume of ${entityName} unmounted`);
-    if (res) {
-      res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} unmounted` }));
-      if (res.flush) res.flush();
-    }
+  log.info(`Volume of ${entityName} unmounted`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} unmounted` }));
+    if (res.flush) res.flush();
   }
 }
 
@@ -121,15 +124,21 @@ async function cleanupAppData(appId, entityName, res) {
   // creation); clear the flag or the removal below fails
   await serviceHelper.runCommand('chattr', { runAsRoot: true, params: ['-i', appsFolder + appId], logError: false });
 
-  const execDelete = `sudo rm -rf ${appsFolder + appId}`;
-  await cmdAsync(execDelete).catch((e) => {
-    log.error(e);
+  // The removal carries on either way - data left behind is not a reason to
+  // hold an uninstall open - but only one of these two lines is true, and the
+  // stream is the only account an operator gets of what is still on the disk.
+  const removal = await serviceHelper.runCommand('rm', {
+    runAsRoot: true, params: ['-rf', appsFolder + appId], logError: false,
+  });
+  if (removal.error) {
+    log.error(removal.error);
     log.info(`An error occured while cleaning ${entityName} data. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} data. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+    return;
+  }
 
   log.info(`Data of ${entityName} cleaned`);
   if (res) {
@@ -214,10 +223,28 @@ async function cleanupCrontab(appId, res) {
  * @param {string} volumepath - Volume path to clean
  * @param {string} entityName - Entity name for logging
  * @param {object} res - Response object for streaming
+ * @param {boolean} [conclusive=true] - Whether the search that produced
+ *   `volumepath` covered everywhere it should have. False with no path means
+ *   an image may be on disk that nothing will account for again, which is
+ *   said rather than passed over; the default suits a caller that did not
+ *   search.
  * @returns {Promise<void>}
  */
-async function cleanupVolumePath(volumepath, entityName, res) {
-  if (!volumepath) return;
+async function cleanupVolumePath(volumepath, entityName, res, conclusive = true) {
+  if (!volumepath) {
+    // Nothing to delete and nowhere left to look are different answers, and
+    // only the first of them means the disk is clear. An image whose location
+    // could not be established outlives the app's last record of itself, so
+    // the one chance to say it is here.
+    if (!conclusive) {
+      log.warn(`Data volume of ${entityName} could not be located and is left on disk`);
+      if (res) {
+        res.write(serviceHelper.ensureString({ status: `Data volume of ${entityName} could not be located and is left on disk` }));
+        if (res.flush) res.flush();
+      }
+    }
+    return;
+  }
 
   log.info(`Cleaning up data volume of ${entityName}...`);
   if (res) {
@@ -225,15 +252,24 @@ async function cleanupVolumePath(volumepath, entityName, res) {
     if (res.flush) res.flush();
   }
 
-  const execVolumeDelete = `sudo rm -rf ${volumepath}`;
-  await cmdAsync(execVolumeDelete).catch((e) => {
-    log.error(e);
+  // Passed as an argument rather than interpolated into a command string. The
+  // path can come from the recorded image now, which reached this node as a
+  // kernel string and went through the database - so whitespace in it would
+  // turn one removal into several, and `rm -rf` is not a thing to be wrong
+  // about.
+  const removal = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumepath], logError: false });
+  // The removal carries on either way - an image left behind is not a reason
+  // to hold an uninstall open - but only one of these two is true, and the
+  // stream is the only account an operator gets of what is still on the disk.
+  if (removal.error) {
+    log.error(removal.error);
     log.info(`An error occured while cleaning ${entityName} volume. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} volume. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+    return;
+  }
 
   log.info(`Volume of ${entityName} cleaned`);
   if (res) {
@@ -356,11 +392,11 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
   // The backing image is discovered deterministically; the crontab (legacy
   // remount mechanism) is only cleaned up, never relied on - a missing entry
   // used to orphan the image on disk.
-  const discoveredVolume = await volumeService.getVolumeFilePath(appId);
+  const discovered = await volumeService.getVolumeFilePath(appId);
   const crontabVolume = await cleanupCrontab(appId, res);
 
   // Clean up volume path
-  await cleanupVolumePath(discoveredVolume ?? crontabVolume, `component ${componentName}`, res);
+  await cleanupVolumePath(discovered.path ?? crontabVolume, `component ${componentName}`, res, discovered.conclusive);
 
   // Remove image (only if container was successfully removed)
   if (containerRemoved) {
@@ -507,11 +543,11 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
   // The backing image is discovered deterministically; the crontab (legacy
   // remount mechanism) is only cleaned up, never relied on - a missing entry
   // used to orphan the image on disk.
-  const discoveredVolume = await volumeService.getVolumeFilePath(appId);
+  const discovered = await volumeService.getVolumeFilePath(appId);
   const crontabVolume = await cleanupCrontab(appId, res);
 
   // Clean up volume path
-  await cleanupVolumePath(discoveredVolume ?? crontabVolume, appName, res);
+  await cleanupVolumePath(discovered.path ?? crontabVolume, appName, res, discovered.conclusive);
 
   // Remove image (only if container was successfully removed)
   if (containerRemoved) {
@@ -1177,7 +1213,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
     // eslint-disable-next-line no-restricted-syntax
     for (const identifier of removedIdentifiers) {
       // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.remove(identifier);
+      await appsRuntimeState.removeControllerState(identifier);
       if (onComponentRemoved) onComponentRemoved(identifier);
     }
 

@@ -2981,11 +2981,12 @@ describe('advancedWorkflows tests', () => {
       // disks the machine running the suite happens to have.
       // eslint-disable-next-line global-require
       const volumeService = require('../../ZelBack/src/services/utils/volumeService');
-      sinon.stub(volumeService, 'capacityVolumesInGib').resolves([
+      const oneDisk = [
         {
           filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: 900,
         },
-      ]);
+      ];
+      sinon.stub(volumeService, 'placementVolumesInGib').resolves(oneDisk);
     });
 
     afterEach(() => {
@@ -3013,6 +3014,62 @@ describe('advancedWorkflows tests', () => {
         volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
         'an aborted pre-flight stripped the synced-mark of an app whose data is intact',
       ).to.equal(true);
+    });
+
+    // The node decides the UUID rather than reading one back, so the pair it
+    // records is known before anything can be substituted for the image.
+    it('stamps the filesystem and records the pair against the component', async () => {
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      const record = sinon.stub(volumeService, 'recordNewVolumeImage').resolves();
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      // let the filesystem be made, then stop before anything mounts it
+      const runCommand = sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'mkdir' ? { error: new Error('stopped after the filesystem') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      // as above: on a low-disk host the pre-flight throws first, and that
+      // reads as "never reached the filesystem", not as a regression
+      expect(thrown, 'the flow never reached the filesystem creation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the filesystem').to.equal('stopped after the filesystem');
+
+      const mke2fs = runCommand.getCalls().find((call) => call.args[0] === 'mke2fs');
+      expect(mke2fs, 'no filesystem was created').to.not.equal(undefined);
+      const { params } = mke2fs.args[1];
+      const stampAt = params.indexOf('-U');
+      expect(stampAt, 'the filesystem was created without a stamp').to.be.greaterThan(-1);
+      const uuid = params[stampAt + 1];
+      expect(uuid).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      // the image path is the last argument to mke2fs, and it is what is recorded
+      sinon.assert.calledWith(record, identifier, params[params.length - 1], uuid);
+    });
+
+    // The volume has been reformatted under a new stamp by this point, so a
+    // record that cannot be written now describes an image that no longer
+    // exists - and left there it refuses the real volume at every mount, for
+    // good. The install fails instead, where it still rolls back.
+    it('fails the install when the new volume cannot be recorded', async () => {
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volumeService, 'recordNewVolumeImage').rejects(new Error('mongo unavailable'));
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'a volume whose record could not be written was accepted').to.not.equal(null);
+      expect(thrown.message).to.equal('mongo unavailable');
     });
 
     it('drops a stale synced-mark at the point of no return', async () => {
@@ -3044,6 +3101,57 @@ describe('advancedWorkflows tests', () => {
         volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
         'the point of no return left a stale synced-mark in place',
       ).to.equal(false);
+    });
+  });
+
+  describe('createAppVolume space refusal tests', () => {
+    // The per-volume check is the only thing standing between an app and a
+    // disk too small for it. Every term: config.lockedSystemResources.hdd is
+    // 60 and extrahdd is 20, so with 100 GiB already used the reserve floors
+    // at extrahdd, 20. An app asking for 1 GiB is placed on a volume only
+    // where available > 1 + 20.
+    const component = { name: 'frontend', hdd: 1 };
+
+    const withVolume = (availableGib) => {
+      // eslint-disable-next-line global-require
+      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
+      // eslint-disable-next-line global-require
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volumeService, 'placementVolumesInGib').resolves([{
+        filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: availableGib,
+      }]);
+      // eslint-disable-next-line global-require
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('reached the allocation') } : {}));
+    };
+
+    const attempt = async () => {
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+      return thrown;
+    };
+
+    it('refuses an app the only volume has no room for', async () => {
+      withVolume(21);
+      const thrown = await attempt();
+      expect(thrown, 'a volume with too little room was accepted').to.not.equal(null);
+      expect(thrown.message).to.equal('Insufficient space on Flux Node. No useable volume found.');
+    });
+
+    it('places the app one GiB the other side of that bound', async () => {
+      withVolume(22);
+      const thrown = await attempt();
+      // Reaching the allocation is the proof it was placed - the volume is a
+      // stub, so the allocation itself has nowhere real to go.
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message).to.equal('reached the allocation');
     });
   });
 

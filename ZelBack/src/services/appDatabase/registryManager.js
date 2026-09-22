@@ -1304,27 +1304,6 @@ async function storeAppSpecificationInPermanentStorage(appSpec) {
 }
 
 /**
- * Remove app specification from storage
- * @param {string} appName - Application name
- * @returns {Promise<object>} Removal result
- */
-async function removeAppSpecificationFromStorage(appName) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = { name: new RegExp(`^${appName}$`, 'i') };
-    const result = await dbHelper.removeInDatabase(database, globalAppsInformation, query);
-
-    log.info(`App specification removed for ${appName}`);
-    return { status: 'success', deletedCount: result.deletedCount };
-  } catch (error) {
-    log.error(`Error removing app specification: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
  * Get app specification from database
  * @param {string} appName - Application name
  * @returns {Promise<object|null>} App specification
@@ -2275,7 +2254,6 @@ module.exports = {
   updateAppSpecifications,
   updateAppSpecsForRescanReindex,
   storeAppSpecificationInPermanentStorage,
-  removeAppSpecificationFromStorage,
   getAppSpecificationFromDb,
   getAllAppsInformation,
   getInstalledApps,

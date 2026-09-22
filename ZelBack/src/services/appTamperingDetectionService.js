@@ -47,13 +47,23 @@ const INCIDENT_BUCKET_MS = 60 * 60 * 1000;
 // host — fleet-wide they are dominated by persistent faults on broken nodes —
 // and a persistent fault re-records in every hourly bucket, so anything real
 // accumulates weight without needing a high per-incident severity.
+// volume_host_fault is the same class as recreation_failed: a volume that
+// could not be mounted for a reason that describes the HOST - no loop device,
+// a disk the kernel remounted read-only, a mount table that would not read.
+// Recorded so the population is visible and can be counted fleet-wide, and
+// weighted zero because none of it is the operator's doing. Nothing acts on
+// it today; whether a node that cannot mount volumes at all should be taken
+// out of service is a question this data is here to answer.
 const EVENT_SEVERITY = {
   container_vanished: 3,
   network_pruned: 1,
   network_detached: 1,
   mount_vanished: 1,
   volume_missing: 1,
+  volume_image_unrecognised: 1,
+  volume_image_moved: 0,
   recreation_failed: 0,
+  volume_host_fault: 0,
 };
 
 const EVENTS_DEFAULT_LIMIT = 500;
@@ -258,7 +268,7 @@ async function getAppAttribution(appName) {
  * @param {string} eventType - One of the EVENT_SEVERITY keys
  * @param {string} details - Free-text context (stored once per incident)
  */
-async function recordEvent(appName, eventType, details) {
+async function recordEvent(rawAppName, eventType, details) {
   try {
     const db = dbHelper.databaseConnection();
     if (!db) {
@@ -268,6 +278,13 @@ async function recordEvent(appName, eventType, details) {
     const database = db.db(config.database.local.database);
     const now = new Date();
     const incidentKey = `${currentBootId ?? 'unknown'}:${Math.floor(now.getTime() / INCIDENT_BUCKET_MS)}`;
+    // Stored under the app's own name whatever a caller addressed it by. The
+    // boot sweep walks docker component identifiers and the reconciler works
+    // in app names, so without this the same fault on the same app lands in
+    // two rows and getEvents, which matches the name exactly, finds one of
+    // them. Idempotent: an app name carries neither the prefix nor the
+    // component part this strips.
+    const appName = deriveMainAppName(rawAppName);
     const [identity, attribution] = await Promise.all([
       getNodeIdentity(),
       getAppAttribution(appName),

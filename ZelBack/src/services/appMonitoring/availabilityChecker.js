@@ -69,17 +69,6 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     portsLowEdge: 80,
   };
 
-  if (dosState.dosMountMessage || dosState.dosDuplicateAppMessage) {
-    // eslint-disable-next-line no-param-reassign
-    dosState.dosMessage = dosState.dosMountMessage || dosState.dosDuplicateAppMessage;
-    // eslint-disable-next-line no-param-reassign
-    dosState.dosStateValue = thresholds.dos;
-
-    await serviceHelper.delay(timeouts.appError);
-    setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
-    return;
-  }
-
   const isUpnp = upnpService.isUPNP();
   const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
 
@@ -381,9 +370,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       // eslint-disable-next-line no-param-reassign
       dosState.originalPortFailed = null;
       // eslint-disable-next-line no-param-reassign
-      dosState.dosMessage = dosState.dosMountMessage || dosState.dosDuplicateAppMessage || null;
+      dosState.dosMessage = null;
       // eslint-disable-next-line no-param-reassign
-      dosState.dosStateValue = dosState.dosMessage ? thresholds.dos : 0;
+      dosState.dosStateValue = 0;
       waitMs = timeouts.default;
     }
 
@@ -400,10 +389,6 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     await serviceHelper.delay(waitMs);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
-    if (!dosState.dosMessage && (dosState.dosMountMessage || dosState.dosDuplicateAppMessage)) {
-      // eslint-disable-next-line no-param-reassign
-      dosState.dosMessage = dosState.dosMountMessage || dosState.dosDuplicateAppMessage;
-    }
     await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, { skipUpnp: !isUpnp });
     log.error(`checkMyAppsAvailability - Error: ${error}`);
     await serviceHelper.delay(timeouts.appError);

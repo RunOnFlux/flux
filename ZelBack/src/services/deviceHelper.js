@@ -35,13 +35,13 @@ const serviceHelper = require('./serviceHelper');
  * "no disks" as "no space" and act on it.
  *
  * @returns {Promise<Array<{source: string, target: string, fstype: string,
- *   sizeBytes: number, usedBytes: number, availableBytes: number,
- *   usePercent: number}>>}
+ *   options: string, readOnly: boolean, sizeBytes: number, usedBytes: number,
+ *   availableBytes: number, usePercent: number}>>}
  */
 async function listMountedFilesystems() {
   const res = await serviceHelper.runCommand('findmnt', {
     logError: false,
-    params: ['--real', '--list', '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,SIZE,USED,AVAIL,USE%'],
+    params: ['--real', '--list', '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,SIZE,USED,AVAIL,USE%'],
   });
   if (res.error) {
     throw new Error(`findmnt --real --list failed: ${res.error.message || res.error}`);
@@ -51,6 +51,8 @@ async function listMountedFilesystems() {
     source: entry.source,
     target: entry.target,
     fstype: entry.fstype,
+    options: String(entry.options || ''),
+    readOnly: String(entry.options || '').split(',').includes('ro'),
     sizeBytes: Number(entry.size),
     usedBytes: Number(entry.used),
     availableBytes: Number(entry.avail),
@@ -94,6 +96,41 @@ async function hasQuotaOptionForMountTarget(target) {
   return Boolean(stdout);
 }
 
+/**
+ * Every mount the kernel holds, pseudo filesystems included.
+ *
+ * `listMountedFilesystems` answers the df question, and `--real` drops
+ * libmount's pseudo filesystems - tmpfs, overlay, proc and their kind. It
+ * keeps everything else including the network ones, so it is not a
+ * block-backed filter. This answers a different question - what a path
+ * resolves through - and a tmpfs or an overlay laid over a disk is exactly
+ * what decides that, which is precisely what `--real` removes. No byte
+ * counts: a caller asking this is asking about visibility, not about room.
+ *
+ * Throws on findmnt failure, so a caller cannot read "nothing is mounted
+ * there" out of a table it never got.
+ *
+ * @returns {Promise<Array<{source: string, target: string, fstype: string,
+ *   options: string, readOnly: boolean}>>}
+ */
+async function listAllMounts() {
+  const res = await serviceHelper.runCommand('findmnt', {
+    logError: false,
+    params: ['--list', '--json', '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS'],
+  });
+  if (res.error) {
+    throw new Error(`findmnt --list failed: ${res.error.message || res.error}`);
+  }
+  const filesystems = JSON.parse(res.stdout || '{}').filesystems || [];
+  return filesystems.map((entry) => ({
+    source: entry.source,
+    target: entry.target,
+    fstype: entry.fstype,
+    options: String(entry.options || ''),
+    readOnly: String(entry.options || '').split(',').includes('ro'),
+  }));
+}
+
 // For testing. Run: node <this file> /var/lib/docker (or another xfs target wth pquota)
 if (require.main === module) {
   hasQuotaOptionForMountTarget(process.argv[2]).then((res) => console.log('Has quota:', res));
@@ -101,5 +138,6 @@ if (require.main === module) {
 
 module.exports = {
   hasQuotaOptionForMountTarget,
+  listAllMounts,
   listMountedFilesystems,
 };

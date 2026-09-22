@@ -107,6 +107,8 @@ const peerFolderLivenessMock = {
 };
 
 // Load module with mocked dependencies
+const appTamperingDetectionServiceMock = { recordEvent: sinon.stub().resolves() };
+
 const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingMonitor', {
   './peerFolderLiveness': peerFolderLivenessMock,
   '../dbHelper': dbHelperMock,
@@ -116,6 +118,7 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   '../syncthingService': syncthingServiceMock,
   '../appQuery/appQueryService': appQueryServiceMock,
   '../utils/volumeService': volumeServiceMock,
+  '../appTamperingDetectionService': appTamperingDetectionServiceMock,
   './appReconciler': appReconcilerMock,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
@@ -416,6 +419,41 @@ describe('syncthingMonitor tests', () => {
 
       sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'testapp');
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
+    });
+
+    // This pass replaces the record when it mounts from somewhere other than
+    // where the record puts it, so no later pass can re-derive the fact: the
+    // one that mounted has to record it, or the population this data exists to
+    // make countable is undercounted for exactly the syncthing-flagged apps.
+    it('records an image found elsewhere when it is this pass that mounts it', async () => {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      // whichever of the two the folder's direction selects, the mount is what
+      // has to be repaired
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false, imageMoved: true });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', path: '/apps/testapp', type: 'sendreceive' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      // the canary: the repair path really ran, so the assertion below is about
+      // the recording and not about a path that was never reached
+      sinon.assert.called(volumeServiceMock.ensureAppVolumeMounted);
+      expect(
+        appTamperingDetectionServiceMock.recordEvent.getCalls().some((c) => c.args[1] === 'volume_image_moved'),
+        'the pass that mounted it recorded nothing',
+      ).to.equal(true);
     });
 
     it('judges a sendreceive folder on the phantom index, not the mount alone', async () => {

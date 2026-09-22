@@ -1,6 +1,7 @@
 const config = require('config');
 const util = require('util');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const {
   SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, SYNCTHING_IGNORE_LINES,
@@ -32,7 +33,6 @@ const {
   globalAppsLocations,
   appsFolder,
   appVolumesPath,
-  legacyAppVolumesPath,
   APP_VOLUME_MOUNT_OPTIONS,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -499,8 +499,6 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
 
 // Global state management - using globalState module instead of local variables
 // These are now managed through the globalState module
-// eslint-disable-next-line no-unused-vars
-let dosMountMessage = '';
 
 /**
  * Create app volume with space checking
@@ -523,7 +521,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res.flush) res.flush();
   }
 
-  const okVolumes = await volumeService.capacityVolumesInGib();
+  const okVolumes = await volumeService.placementVolumesInGib();
 
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
@@ -543,27 +541,25 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   if (appSpecifications.hdd >= availableSpaceForApps) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
-  // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
+  // Used adds up across the volumes: each row's used is its own, and the rows
+  // that would share one - a bind mount, a btrfs subvolume - are already
+  // collapsed into a single row. Free space does not add up the same way, so
+  // no total of it is taken: ZFS datasets in one pool each report the whole
+  // pool's, and the per-volume check below needs no total anyway.
   let usedSpace = 0;
-  let availableSpace = 0;
   okVolumes.forEach((volume) => {
     usedSpace += serviceHelper.ensureNumber(volume.used);
-    availableSpace += serviceHelper.ensureNumber(volume.available);
   });
-  // space that is further reserved for flux os and that will be later substracted from available space. Max 60 + 20.
+  // Held back for FluxOS on top of whatever the app asks for, and no less than
+  // extrahdd once the disks already account for the rest. Max 60 + 20.
   const fluxSystemReserve = config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace > 0 ? config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace : 0;
   const minSystemReserve = Math.max(config.lockedSystemResources.extrahdd, fluxSystemReserve);
-  const totalAvailableSpaceLeft = availableSpace - minSystemReserve;
-  if (appSpecifications.hdd >= totalAvailableSpaceLeft) {
-    // sadly user free space is not enough for this application
-    throw new Error('Insufficient space on Flux Node. Space is already assigned to system files');
-  }
 
-  // check if space is not sharded in some bad way. Always count the minSystemReserve
+  // Emptiest first, so the first that fits is the disk with the most room left
+  // rather than whichever the mount table happened to name first.
   let useThisVolume = null;
   const totalVolumes = okVolumes.length;
   for (let i = 0; i < totalVolumes; i += 1) {
-    // check available volumes one by one. If a sufficient is found. Use this one.
     if (okVolumes[i].available > appSpecifications.hdd + minSystemReserve) {
       useThisVolume = okVolumes[i];
       break;
@@ -632,7 +628,13 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(makeFilesystem));
       if (res.flush) res.flush();
     }
-    await execAsRoot('mke2fs', ['-t', 'ext4', volumeFile]);
+    // The filesystem is stamped with a UUID this node chooses, and the pair is
+    // recorded against the component. That is what lets a later boot look the
+    // image up instead of searching the disks for a filename, and what lets it
+    // tell this image from a file somebody else left under the same name.
+    const volumeFsUuid = crypto.randomUUID();
+    await execAsRoot('mke2fs', ['-t', 'ext4', '-U', volumeFsUuid, volumeFile]);
+    await volumeService.recordNewVolumeImage(appId, volumeFile, volumeFsUuid);
     const makeFilesystem2 = {
       status: 'Filesystem created',
     };
@@ -3267,117 +3269,6 @@ async function appendRestoreTask(req, res) {
 }
 
 /**
- * Remove test app mount
- * @param {string} specifiedVolume - Volume to remove
- * @returns {Promise<void>}
- */
-async function removeTestAppMount(specifiedVolume) {
-  try {
-    const appId = 'flux_fluxTestVol';
-    const appDir = path.join(appsFolder, appId);
-    log.info('Mount Test: Unmounting volume');
-    const unmount = await serviceHelper.runCommand('umount', { runAsRoot: true, params: [appDir], logError: false });
-    if (unmount.error) {
-      log.info('Mount Test: Volume not mounted. Continuing. Most likely false positive.');
-    } else {
-      log.info('Mount Test: Volume unmounted');
-    }
-
-    log.info('Mount Test: Cleaning up data');
-    await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', appDir] });
-    log.info('Mount Test: Data cleaned');
-    log.info('Mount Test: Cleaning up data volume');
-    const volumesToRemove = specifiedVolume
-      ? [specifiedVolume]
-      // no volume given: remove from both the current location and the legacy
-      // glued location a previous FluxOS version may have left an image at
-      : [path.join(appVolumesPath, `${appId}FLUXFSVOL`), path.join(legacyAppVolumesPath, `${appId}FLUXFSVOL`)];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const volumeToRemove of volumesToRemove) {
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumeToRemove] });
-    }
-    log.info('Mount Test: Volume cleaned');
-  } catch (error) {
-    log.error('Mount Test Removal: Error');
-    log.error(error);
-  }
-}
-
-/**
- * Test application mounting capability
- * @returns {Promise<void>}
- */
-async function testAppMount() {
-  try {
-    // before running, try to remove first
-    await removeTestAppMount();
-    const appSize = 1;
-    const overHeadRequired = 2;
-    const appId = 'flux_fluxTestVol';
-
-    log.info('Mount Test: started');
-    log.info('Mount Test: Searching available space...');
-
-    const okVolumes = await volumeService.capacityVolumesInGib();
-
-    // check if space is not sharded in some bad way. Always count the fluxSystemReserve
-    let useThisVolume = null;
-    const totalVolumes = okVolumes.length;
-    for (let i = 0; i < totalVolumes; i += 1) {
-      // check available volumes one by one. If a sufficient is found. Use this one.
-      if (okVolumes[i].available > appSize + overHeadRequired) {
-        useThisVolume = okVolumes[i];
-        break;
-      }
-    }
-    if (!useThisVolume) {
-      // no useable volume has such a big space for the app
-      log.warn('Mount Test: Insufficient space on Flux Node. No useable volume found.');
-      // node marked OK
-      dosMountMessage = ''; // No Space Found actually
-      return;
-    }
-
-    // now we know there is a space and we have a volume we can operate with. Let's do volume magic
-    log.info('Mount Test: Space found');
-    log.info('Mount Test: Allocating space...');
-
-    let volumePath = path.join(useThisVolume.mount, `${appId}FLUXFSVOL`); // eg /mnt/sthMounted
-    if (useThisVolume.mount === '/') {
-      await execAsRoot('mkdir', ['-p', appVolumesPath]);
-      volumePath = path.join(appVolumesPath, `${appId}FLUXFSVOL`); // if root mount then temp file is in flux folder/appvolumes
-    }
-
-    await execAsRoot('fallocate', ['-l', `${appSize}G`, volumePath]);
-
-    log.info('Mount Test: Space allocated');
-    log.info('Mount Test: Creating filesystem...');
-
-    await execAsRoot('mke2fs', ['-t', 'ext4', volumePath]);
-    log.info('Mount Test: Filesystem created');
-    log.info('Mount Test: Making directory...');
-
-    await execAsRoot('mkdir', ['-p', path.join(appsFolder, appId)]);
-    log.info('Mount Test: Directory made');
-    log.info('Mount Test: Mounting volume...');
-
-    await execAsRoot('mount', ['-o', APP_VOLUME_MOUNT_OPTIONS, volumePath, path.join(appsFolder, appId)]);
-    log.info('Mount Test: Volume mounted. Test completed.');
-    dosMountMessage = '';
-    // run removal
-    removeTestAppMount(volumePath);
-  } catch (error) {
-    log.error('Mount Test: Error...');
-    log.error(error);
-    // node marked OK
-    dosMountMessage = 'Unavailability to mount applications volumes. Impossible to run applications.';
-    // run removal
-    removeTestAppMount();
-  }
-}
-
-/**
  * Validates that an application update is compatible with the previous version.
  * Enforces structural consistency rules based on app specification version:
  * - v1-3: Repository tags (repotag) cannot be changed
@@ -5594,8 +5485,6 @@ module.exports = {
   stopSyncthingApp,
   appendBackupTask,
   appendRestoreTask,
-  removeTestAppMount,
-  testAppMount,
   validateApplicationUpdateCompatibility,
   setInstallationInProgress,
   setRemovalInProgress,

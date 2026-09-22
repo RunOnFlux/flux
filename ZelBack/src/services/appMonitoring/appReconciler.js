@@ -109,7 +109,11 @@ const VOLUME_MOUNT_RETRY_MS = 30 * 1000;
 
 // identifiers whose missing backing image was already recorded as a tampering
 // event, so the paced retries don't re-record it every cycle
-const volumeMissingNoted = new Set();
+// The volume fault already recorded for a component, so a retry every few
+// seconds does not re-record one a minute. Keyed by fault as well as
+// component: an image that goes missing and an image that is replaced are
+// different events, and noting one must not swallow the other.
+const volumeFaultNoted = new Map();
 
 // A running container attached to NO network (a stale libnetwork endpoint left
 // by an earlier failed start) is healed by recreating it (force-remove + fresh
@@ -801,14 +805,32 @@ async function reconcile(rawIdentifier) {
     }
     log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
-    if (volumeMount.reason === 'volume_file_missing' && !volumeMissingNoted.has(identifier)) {
-      volumeMissingNoted.add(identifier);
-      await appTamperingDetectionService.recordEvent(mainAppName, 'volume_missing', `Backing volume image for ${identifier} not found on disk`);
+    // The image is gone, or the image is not the one this node made. Both are
+    // about the volume rather than the host, and a host fault carries its own
+    // reason and is recorded by the boot sweep at no weight.
+    const VOLUME_FAULT_EVENTS = {
+      volume_file_missing: ['volume_missing', `Backing volume image for ${identifier} not found on disk`],
+      volume_image_unrecognised: ['volume_image_unrecognised', `Volume image for ${identifier} is not the one this node created`],
+      // The file is there and holds no filesystem the kernel knows, which is
+      // what an image overwritten with something else looks like. Recorded
+      // under the same name the boot sweep uses, so it does not go
+      // unattributed until the node next restarts.
+      mount_failed: ['volume_image_unrecognised', `Volume image for ${identifier} holds no filesystem`],
+      mount_point_not_a_directory: ['mount_vanished', `The directory ${identifier} mounts at is not a directory`],
+    };
+    const faultKey = String(volumeMount.reason).split(':')[0];
+    const faultEvent = VOLUME_FAULT_EVENTS[faultKey];
+    if (faultEvent && volumeFaultNoted.get(identifier) !== faultKey) {
+      volumeFaultNoted.set(identifier, faultKey);
+      await appTamperingDetectionService.recordEvent(mainAppName, faultEvent[0], faultEvent[1]);
     }
     scheduleRetry(identifier, VOLUME_MOUNT_RETRY_MS);
     return;
   }
-  volumeMissingNoted.delete(identifier);
+  volumeFaultNoted.delete(identifier);
+  if (volumeMount.imageMoved) {
+    await appTamperingDetectionService.recordEvent(mainAppName, 'volume_image_moved', `Volume image for ${identifier} was found somewhere other than where this node recorded it`);
+  }
   if (!volumeMount.alreadyMounted) {
     log.info(`appReconciler - mounted data volume for ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeMounted' });
@@ -1441,10 +1463,15 @@ function forgetDesiredState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   controllerDesired.delete(identifier);
   dataDesired.delete(identifier);
-  // A removed component keeps no failure history: the map is keyed by identifier
+  // A removed component keeps no failure history: these are keyed by identifier
   // and a reinstall under the same name would otherwise start part-way up the
-  // count and reach the sweep sooner than a first failure should.
+  // count and reach the sweep sooner than a first failure should - or, for the
+  // noted maps, have a new fault swallowed as one already recorded.
   unhandledFailures.delete(identifier);
+  volumeFaultNoted.delete(identifier);
+  networkDetachedNoted.delete(identifier);
+  networkPrunedNoted.delete(identifier);
+  detachedSince.delete(identifier);
 }
 
 /**
