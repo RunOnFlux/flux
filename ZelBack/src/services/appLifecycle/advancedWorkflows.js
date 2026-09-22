@@ -4417,6 +4417,27 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
 
+            // THE ROW IS THIS NODE'S COPY OF THE INSTALLED SPECIFICATION, and every
+            // reader takes the app's current one from it - what this node reports, what
+            // the reconciler rebuilds from, and which directories the syncthing monitor
+            // keeps off the network. Neither redeploy below writes it: the uninstalls
+            // here are the ones that KEEP the registration, and both installs are
+            // reached directly rather than through softRegisterAppLocally, which is
+            // what writes it on every other path.
+            //
+            // Ahead of the redeploy, like the composed path above: a pass that reads
+            // this mid-redeploy is owed the specification the containers are being
+            // built from, and a redeploy that does not complete is the reconciler's,
+            // which rebuilds what the row describes.
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.updateOneInDatabase(
+              dbHelper.databaseConnection().db(config.database.appslocal.database),
+              localAppsInformation,
+              { name: appSpecifications.name },
+              { $set: appSpecifications },
+              { upsert: true },
+            );
+
             if (appSpecifications.hdd === installedApp.hdd) {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment

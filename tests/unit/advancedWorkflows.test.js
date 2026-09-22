@@ -5074,6 +5074,54 @@ describe('advancedWorkflows tests', () => {
       ).to.be.true;
     });
 
+    // THE LOCAL ROW IS WHERE EVERY READER TAKES THE APP'S CURRENT SPECIFICATION FROM,
+    // and a legacy app's redeploy is the one path that reaches the installers directly
+    // rather than through softRegisterAppLocally, which is what writes it everywhere
+    // else. Left unwritten, the containers run the new specification while the row
+    // describes the old one for as long as the app is installed - so the monitor keeps
+    // deriving this app's syncthing ignores, and this node keeps reporting it, from a
+    // specification that is no longer what it runs.
+    it('writes the local row before a legacy app is redeployed', async () => {
+      const legacy = {
+        version: 3,
+        name: 'oldapp',
+        hash: 'oldhash',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        repotag: 'nginx:1.0',
+        ports: ['31000'],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: ['80'],
+        containerData: '/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      };
+      // Same hdd, so this is the soft branch; the repotag is what makes it a change.
+      const updated = { ...legacy, hash: 'newhash', repotag: 'nginx:2.0' };
+      dbHelper.findInDatabase.resolves([legacy]);
+      dbHelper.findOneInDatabase.resolves(updated);
+      const softUninstall = sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      const softInstall = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledWith(
+        dbHelper.updateOneInDatabase,
+        sinon.match.any,
+        sinon.match.any,
+        { name: 'oldapp' },
+        { $set: updated },
+        { upsert: true },
+      );
+      // Before the rebuild, so a pass reading it mid-redeploy is owed the specification
+      // the containers are being built from.
+      sinon.assert.callOrder(dbHelper.updateOneInDatabase, softUninstall, softInstall);
+    });
+
     // A REDEPLOY DESTROYS BEFORE IT REBUILDS, and only the rebuild needs the policy:
     // verifyAndPullImage reads the blocked-repository list to judge the image, and the
     // uninstall has already happened by the time it refuses. Only a successful install
