@@ -11,9 +11,6 @@ const appTamperingDetectionService = require('../appTamperingDetectionService');
 
 const crontabLoad = util.promisify(systemcrontab.load);
 
-// Mount failures that describe the host rather than the volume. Matched on the
-// part before the colon, because two of the reasons carry the underlying error
-// after one.
 /**
  * Get all locally installed app IDs. Enterprise apps are stored locally with
  * `compose` deliberately emptied (the components only exist inside the
