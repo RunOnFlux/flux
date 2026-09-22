@@ -904,5 +904,52 @@ describe('fileSystemManager tests', () => {
       sinon.assert.calledOnce(res.destroy);
       sinon.assert.calledWith(logStub.error, sinon.match.instanceOf(Error));
     });
+
+    // A fake archiver that records what directory() was asked to add, so the
+    // reserved-name filter can be inspected without unzipping.
+    const EventEmitter = require('events');
+    const capturingZip = () => {
+      const z = new EventEmitter();
+      z.calls = [];
+      z.pipe = sinon.stub();
+      z.destroy = sinon.stub();
+      z.finalize = sinon.stub();
+      z.directory = sinon.stub().callsFake((dir, dest, data) => { z.calls.push({ dir, dest, data }); });
+      return z;
+    };
+
+    // The volume root holds entries that are not the owner's data and that the
+    // browse endpoint hides; a root download excludes them too.
+    it('excludes reserved root entries from a root download', async () => {
+      const zip = capturingZip();
+      const subject = subjectWith({
+        archiver: () => zip,
+        stream,
+        '../utils/pathSecurity': { sanitizePath: () => MOUNT, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+      });
+
+      await subject.downloadAppsFolder({ params: {}, query: { appname: 'myapp', component: 'comp', folder: '.' } }, validatingRes());
+
+      const filter = zip.calls[0].data;
+      expect(filter, 'a root download passed no filter').to.be.a('function');
+      expect(filter({ name: '.stfolder' })).to.equal(false);
+      expect(filter({ name: '.stfolder/config.xml' })).to.equal(false);
+      expect(filter({ name: 'keep.txt' })).to.deep.equal({ name: 'keep.txt' });
+    });
+
+    // Reserved at the root only: a file with one of these names inside a
+    // subfolder is the owner's, so a subfolder download filters nothing.
+    it('does not filter a subfolder download', async () => {
+      const zip = capturingZip();
+      const subject = subjectWith({
+        archiver: () => zip,
+        stream,
+        '../utils/pathSecurity': { sanitizePath: () => `${MOUNT}/photos`, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+      });
+
+      await subject.downloadAppsFolder({ params: {}, query: { appname: 'myapp', component: 'comp', folder: 'photos' } }, validatingRes());
+
+      expect(zip.calls[0].data, 'a subfolder download must not filter').to.equal(undefined);
+    });
   });
 });

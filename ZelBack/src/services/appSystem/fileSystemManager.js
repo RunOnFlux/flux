@@ -63,6 +63,7 @@ const log = require('../../lib/log');
 const { sanitizePath, verifyRealPathOfExistingPath, validateFilename } = require('../utils/pathSecurity');
 const { reachesReservedName } = require('./volumeReservedNames');
 const { openVolume, SPACE_HEADROOM } = require('./volumeSession');
+const { isReservedName } = require('./volumeReservedNames');
 const { sendFile } = require('../utils/fileTransfer');
 const executor = require('./volumeExecutor');
 const jobRegistry = require('../utils/jobRegistry');
@@ -356,7 +357,17 @@ async function downloadAppsFolder(req, res) {
       // archiver reading the volume.
       res.on('close', () => zip.destroy());
       zip.pipe(res);
-      zip.directory(folderpath, false);
+      // The volume root carries entries that are not the owner's data - staging
+      // dirs, syncthing markers, filesystem recovery - which the browse endpoint
+      // hides. A root download excludes them too, so it matches what a root
+      // listing shows. Reserved at the root only: the same name inside a
+      // subfolder is the owner's, so the filter is applied only there.
+      const atRoot = path.resolve(folderpath) === path.resolve(mounts[0].mount);
+      if (atRoot) {
+        zip.directory(folderpath, false, (entry) => (isReservedName(String(entry.name).split('/')[0]) ? false : entry));
+      } else {
+        zip.directory(folderpath, false);
+      }
       zip.finalize();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
