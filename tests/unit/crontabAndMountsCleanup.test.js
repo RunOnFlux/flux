@@ -423,6 +423,20 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.true;
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
     });
+
+    // An install that died before formatting its volume is unfinished node work,
+    // not an image an owner overwrote: recorded at no weight, never scored.
+    it('records an incomplete install as a host fault, not as an overwritten image', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_incomplete_install: bad superblock' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_incomplete_install: bad superblock' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.false;
+    });
   });
 
   describe('removeLegacyMountCrontabEntries', () => {

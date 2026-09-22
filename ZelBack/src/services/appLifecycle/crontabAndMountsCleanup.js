@@ -149,6 +149,10 @@ async function ensureInstalledAppVolumesMounted() {
       const reason = String(mountResult.reason).split(':')[0];
       let eventType = 'mount_vanished';
       if (HOST_FAULT_MOUNT_REASONS.has(reason)) eventType = 'volume_host_fault';
+      // An install that died between allocating its volume file and formatting
+      // it is the node's own unfinished work, not the operator's - recorded at
+      // no weight like a host fault, not as an image someone overwrote.
+      else if (reason === 'volume_incomplete_install') eventType = 'volume_host_fault';
       else if (reason === 'volume_file_missing') eventType = 'volume_missing';
       // An image that mounts but is not this node's, and an image that holds
       // no filesystem at all, are both the image having been written over.

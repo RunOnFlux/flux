@@ -912,7 +912,16 @@ async function ensureAppVolumeMounted(identifier) {
     if (kind) {
       return { mounted: false, reason: `mount_host_refused: ${mountRes.error.message}` };
     }
-    return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };
+    // The image holds no filesystem. If this node recorded stamping one at this
+    // path it has been overwritten, which is evidence about the volume. If it
+    // never recorded one, the install died between allocating the file and
+    // formatting it - the node's own unfinished work, not the operator's, so it
+    // is not laid at the image. (A record that would not read returned above, so
+    // no record here means there is none, not that it could not be asked for.)
+    if (stamped) {
+      return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };
+    }
+    return { mounted: false, reason: `volume_incomplete_install: ${mountRes.error.message}` };
   }
 
   log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);
