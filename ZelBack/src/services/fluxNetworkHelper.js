@@ -1041,7 +1041,15 @@ function isPlacementHeld() {
  * Get this node's socket address (ip:port).
  * @returns {Promise<string|null>} Normalized socket address (always ip:port) or null.
  */
-async function getLocalSocketAddress() {
+async function getLocalSocketAddress(options = {}) {
+  // A CALLER THAT IS PROBING, NOT IDENTIFYING, ASKS FOR `fresh`. The cache answers
+  // "what is this node's address", and for the callers below that is all the
+  // question is. It is not all of it for a caller reading the ANSWER'S ABSENCE as a
+  // fact about the benchmark daemon: served from memory, a null that meant "the
+  // daemon did not answer" becomes the last address it ever gave, and the caller
+  // reads a dead daemon as a live one for as long as the window lasts.
+  const { fresh = false } = options;
+
   // Serve the cached own-IP without a benchmark RPC while it is still fresh. A batch
   // cancel/install issues this call once per app on a hot serialized path (the explorer
   // block loop) and the value is invariant across the batch, so this collapses N RPCs to
@@ -1049,7 +1057,7 @@ async function getLocalSocketAddress() {
   // (checkMyFluxAvailability) reads the module-scoped localSocketAddress + getPublicIp()
   // DIRECTLY, not through this function, so a <=TTL reflect-lag here after a (rate-limited)
   // IP change is harmless — the next benchmark resolve updates the value and the deadline.
-  if (localSocketAddress && process.hrtime.bigint() < localSocketAddressFreshUntil) {
+  if (!fresh && localSocketAddress && process.hrtime.bigint() < localSocketAddressFreshUntil) {
     return localSocketAddress;
   }
   const benchmarkResponse = await benchmarkService.getBenchmarks();
