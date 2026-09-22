@@ -1927,6 +1927,12 @@ async function removeStagingPath(hostPath) {
  * every use of this path is a root-privileged operation through a name this
  * process cannot account for.
  *
+ * ANYTHING THAT IS NOT A DIRECTORY GOES, A PLAIN FILE INCLUDED, and that deletes
+ * something the owner may have put there under a release where the name was
+ * theirs to use. It is the lesser cost either way round: the staging directory
+ * cannot be created over a file, so leaving one fails every file operation on
+ * that volume for as long as it sits there.
+ *
  * @param {string} mount the volume root
  */
 async function assertStagingRootIsADirectory(mount) {
