@@ -512,10 +512,10 @@ export async function waitForInstanceCount(env, appName, target, {
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
 export async function seedSyncthingApp(env, {
-  name, mode = 'r', forceNonLeader = false, index = 0,
+  name, mode = 'r', forceNonLeader = false, index = 0, extraMounts = [],
 }) {
   await pushImage(name, 'v1');
-  const app = await buildSeedableSyncthingApp({ name, mode });
+  const app = await buildSeedableSyncthingApp({ name, mode, extraMounts });
   const folder = `flux${name}_${name}`;
   const identifier = `${name}_${name}`;
 

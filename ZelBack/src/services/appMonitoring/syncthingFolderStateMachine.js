@@ -99,6 +99,12 @@ function noteSafetyObservation(appId, observation, logFn, message) {
 async function countFilesUpTo(dirPath, limit, {
   excludeNames = [], excludeDirs = [], excludeRoot = null, countDirs = false,
 } = {}) {
+  // A file that cannot be stat'd is not shown to hold anything. It counts as empty
+  // rather than as content, so a read this process is refused cannot be what keeps a
+  // wiped volume looking occupied; the unreadable list above is what carries that case.
+  const hasBytes = async (filePath) => fs.promises.stat(filePath)
+    .then((stats) => stats.size > 0)
+    .catch(() => false);
   let count = 0;
   const unreadable = [];
   const pending = [{ dir: dirPath, isRoot: true }];
@@ -135,6 +141,21 @@ async function countFilesUpTo(dirPath, limit, {
         }
         pending.push({ dir: path.join(current.dir, entry.name), isRoot: false });
       } else if (entry.isFile() && !excludeNames.includes(entry.name)) {
+        // AT THE ROOT, AN EMPTY FILE IS NOT EVIDENCE OF BYTES. An f: mount is a single
+        // file bound into the container, and docker creates a DIRECTORY where a bind
+        // source is missing - so FluxOS touches the file itself when it builds the
+        // volume, at the root, zero-length, and a wipe leaves it there. The question
+        // this walk answers is whether the disk holds the bytes the index claims, and
+        // a file with none of them answers no.
+        //
+        // Root only, like every other exclusion here. Deeper down the entry is inside
+        // the owner's own tree, where an empty file is theirs and a payload of them is
+        // a payload; skipping those would read a volume of empty files as a wiped one.
+        // eslint-disable-next-line no-await-in-loop
+        if (current.isRoot && !(await hasBytes(path.join(current.dir, entry.name)))) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         count += 1;
         if (count >= limit) break;
       }

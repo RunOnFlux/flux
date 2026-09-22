@@ -2466,16 +2466,20 @@ describe('syncthingFolderStateMachine tests', () => {
 
     // Everything a wiped volume ACTUALLY holds. lost+found is there before the app is
     // (ext4), the staging directory is permanent, an ml: directory is built with the
-    // volume - and the primary mount and every m: directory survive the wipe itself,
-    // which preserves the mount structure. A walk that counts any of them finds every
+    // volume - the primary mount and every m: directory survive the wipe itself, which
+    // preserves the mount structure, and an f: mount leaves a zero-length FILE at the
+    // root, because docker creates a directory where a bind source is missing and
+    // FluxOS touches the file instead. A walk that counts any of them finds every
     // volume occupied, and a fixture without them describes a volume that cannot exist.
     it('still flags a phantom over the scaffolding a real volume is built with', async () => {
       fsMock.promises.readdir.resolves([]);
       fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
         dirent('.stignore'), dirent('.stfolder', false), dirent('lost+found', false),
         dirent('.flux-op', false), dirent('backup', false), dirent('cache', false),
-        dirent('appdata', false), dirent('logs', false),
+        dirent('appdata', false), dirent('logs', false), dirent('server.json'),
       ]);
+      fsMock.promises.stat.withArgs('/apps/test-app/server.json')
+        .resolves({ isDirectory: () => false, size: 0 });
       syncthingServiceMock.getDbStatus.resolves({
         globalBytes: 500000, globalFiles: 12, inSyncBytes: 0, state: 'idle',
       });
@@ -2484,6 +2488,43 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.isSafe).to.be.false;
       expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
+    // The other half of the same rule, and the reason it is anchored at the root: below
+    // it, an empty file is the owner's. An app whose payload is lock files and sentinels
+    // holds exactly what its index claims, and a rule that skipped those everywhere
+    // would read its volume as wiped and stop it.
+    it('counts an empty file inside the owner tree, where it is theirs', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('appdata', false), dirent('server.json'),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/appdata').resolves([dirent('app.lock')]);
+      fsMock.promises.stat.resolves({ isDirectory: () => true, size: 0 });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, state: 'idle',
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe, 'a volume of the owner empty files read as wiped').to.be.true;
+    });
+
+    // An f: file the app has actually written to is data like any other.
+    it('counts a root file once the app has written bytes into it', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('appdata', false), dirent('server.json'),
+      ]);
+      fsMock.promises.stat.withArgs('/apps/test-app/server.json')
+        .resolves({ isDirectory: () => false, size: 2048 });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, state: 'idle',
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe).to.be.true;
     });
 
     // The mount structure is not the answer to "is the owner's data here", but it IS

@@ -86,7 +86,15 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     await setSynced({ ip: ip0, folder: leakFolder });
 
     const phantomInstallAfter = env.clients[1].getLastEventId();
-    await seedSyncthingApp(env, { name: phantomName, mode: 'r', index: 1 });
+    // The phantom app carries an f: mount, because that is the volume shape the guard
+    // has to be right about. FluxOS touches the named file at the volume root when it
+    // builds the volume - docker would create a directory where a bind source is
+    // missing - and a wipe leaves it there, zero-length. A bare r:/appdata app puts no
+    // regular file at the root at all, so it cannot tell a walk that counts any file
+    // from one that counts the owner's data, and the guard reads the same either way.
+    await seedSyncthingApp(env, {
+      name: phantomName, mode: 'r', index: 1, extraMounts: ['f:server.json:/etc/server.json'],
+    });
     await waitForReconcileActuated(env.clients[1], phantomIdentifier, 'dataCleared', 60000, { afterId: phantomInstallAfter });
     await seedSyncScopedData(env, phantomName, 1);
     await setSynced({ ip: ip1, folder: phantomFolder });
@@ -149,6 +157,14 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     this.timeout(120000);
     const client = env.clients[1];
     const afterId = client.getLastEventId();
+
+    // The premise, read off the volume rather than assumed: the f: mount really did
+    // leave a zero-length file at the root. Without it this is a bare r: app again and
+    // the demotion below proves only what it proved before the mount was declared.
+    const scaffolding = await execInContainer(client.container,
+      `sh -c 'test -f ${appDir(phantomName)}/server.json && wc -c < ${appDir(phantomName)}/server.json'`);
+    expect(scaffolding.exitCode, `the f: mount left no file at the volume root: ${scaffolding.output}`).to.equal(0);
+    expect(scaffolding.stdout.trim(), 'the f: file is not zero-length, so it is not the scaffolding case').to.equal('0');
 
     // the stale-index state: the index claims fully-synced data while the
     // mounted volume holds none - in sendreceive, syncthing would broadcast
