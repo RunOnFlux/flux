@@ -343,6 +343,14 @@ function folderNeedsUpdate(existingFolder, newFolder) {
  * Call only for a folder syncthing already knows (the caller checks); on an
  * unknown folder the API would answer with an error and nothing would converge.
  *
+ * WHAT AN UPGRADED VOLUME IS EXPOSED TO BEFORE THE FIRST PASS, AND WHY IT IS ONE PASS
+ * RATHER THAN ONE INTERVAL. A volume built by an earlier release carries that release's
+ * lines, so a name this one adds is unignored until the converge below runs - and the
+ * file API, which is what can put something under such a name, opens on
+ * bootContainerStateSettled. So does the monitor that calls this: serviceManager starts
+ * them from the same gate. The exposure is therefore however long the first pass takes
+ * to reach this folder, not the interval between passes, and it does not recur.
+ *
  * @param {string} folderId - the syncthing folder id (the app identifier)
  * @param {string[]} unsyncedSubdirs - volume-root names the component declared with ml:
  */

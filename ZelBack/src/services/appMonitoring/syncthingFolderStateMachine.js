@@ -1239,9 +1239,6 @@ async function handleReceiveOnlyTransition(params) {
   } else {
     globalState.folderHoldings?.delete(appId);
   }
-  const folderIsEmpty = !!syncStatus && syncStatus.globalBytes === 0
-    && syncStatus.inSyncBytes === 0
-    && !!holdings && holdings.bytes === 0;
   // Designated-leader election, debounced: require leadership to hold for
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader.
@@ -1359,7 +1356,7 @@ async function handleReceiveOnlyTransition(params) {
     // that is missing part of a KNOWN global, and only that still waits.
     const holdsPartialOfAKnownGlobal = !syncStatus
       || (syncStatus.globalBytes > 0 && !syncStatus.isSynced);
-    if (!folderIsEmpty && holdsPartialOfAKnownGlobal) {
+    if (holdsPartialOfAKnownGlobal) {
       log.info(`handleReceiveOnlyTransition - ${appId} is the confirmed designated leader but holds a partial copy (${syncStatus ? `${syncStatus.syncPercentage.toFixed(2)}% synced` : 'sync status unreadable'}); staying receiveonly until synced`);
       syncthingFolder.type = 'receiveonly';
       return { syncthingFolder, cache };
@@ -1436,7 +1433,7 @@ async function handleReceiveOnlyTransition(params) {
   const reason = `candidates=${electionList.length} self=${selfInElection} `
     + `elected=${electedLeader} connected=${connected} `
     + `streak=${cache.leaderStreak}/${LEADER_CONFIRM_COUNT} `
-    + `peerHasData=${aPeerHasData} folderEmpty=${folderIsEmpty}`;
+    + `peerHasData=${aPeerHasData}`;
   if (reason !== cache.lastNotPromotedReason) {
     log.info(`handleReceiveOnlyTransition - ${appId} not promoted: ${reason}`);
     cache.lastNotPromotedReason = reason;
