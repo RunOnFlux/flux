@@ -535,7 +535,17 @@ describe('the location table survives restarts and refuses bad publications', fu
     // has nothing to verify against does not go looking, so it makes NO request rather
     // than a request that 404s. That is the whole difference the digest buys here: the
     // bundle, not the server, is what says whether there is a table to fetch.
+    const beforePublish = lastEventId(REFRESH_NODE);
     await publish({ artifact: null });
+
+    // The running node must adopt the tableless bundle before it is restarted. adopt persists
+    // before it notifies, so once this node has said noStatement the tableless bundle is on
+    // disk - and the restart restores THAT, not the previous bundle it would otherwise
+    // refresh against on boot for one 404 the current bundle no longer names.
+    await waitFor(() => env.clients[REFRESH_NODE].getEventBuffer()
+      .some((e) => e.event === 'ipLocation:noStatement' && e.id > beforePublish), {
+      timeout: 180000, interval: 2000, label: 'the running node adopts the tableless bundle before restart',
+    });
 
     // Scoped past everything this node has already decided: it has declined before in this
     // suite, and an unscoped look would find that one and pass without the restart below
