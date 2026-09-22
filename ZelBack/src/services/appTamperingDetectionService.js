@@ -66,6 +66,12 @@ const EVENT_SEVERITY = {
   mount_vanished: 1,
   volume_missing: 1,
   volume_image_unrecognised: 1,
+  // Not an oversight beside volume_image_unrecognised's 1: an image found away
+  // from its record is adopted rather than refused (refusing strands real
+  // data), and a legitimately re-created volume cannot be told from a
+  // substitution here - both arrive with a fresh UUID. Counted, not scored: a
+  // weight would fall on the re-creation too, and adoption makes it fire once
+  // regardless, not accumulate.
   volume_image_moved: 0,
   volume_unreadable: 0,
   recreation_failed: 0,
