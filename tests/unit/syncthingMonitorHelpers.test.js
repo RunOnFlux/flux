@@ -383,9 +383,18 @@ describe('syncthingMonitorHelpers tests', () => {
   });
 
   describe('ensureStignoreCovers', () => {
-    const ID = 'fluxcomp_app';
+    // One folder per test. A set that has been posted and does not come back is not
+    // posted again, which is state about THAT folder - so tests sharing an id would be
+    // handing each other a folder that has already had its attempt.
+    let ID;
+    let folderCounter = 0;
     const ok = (data) => ({ status: 'success', data });
     const err = (message) => ({ status: 'error', data: { message } });
+
+    beforeEach(() => {
+      folderCounter += 1;
+      ID = `fluxcomp_app_${folderCounter}`;
+    });
 
     it('posts the set the spec derives, whatever the folder currently reads', async () => {
       // syncthing owns .stignore and writes it atomically; FluxOS sets the patterns
@@ -507,6 +516,37 @@ describe('syncthingMonitorHelpers tests', () => {
 
       sinon.assert.notCalled(set);
       sinon.assert.calledOnce(logError);
+    });
+
+    // syncthing stores each ignore line as it parses it, and a line it does not hand
+    // back verbatim is one no write can ever settle. Posted every pass, that rewrites
+    // the file and rescans the folder every 30 s for as long as the app exists.
+    it('posts a set that does not come back once, not on every pass', async () => {
+      // The folder answers with something other than what was written, for ever.
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/elsewhere'] }));
+      const write = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
+      const logError = sandbox.stub(log, 'error');
+
+      await helpers.ensureStignoreCovers(ID);
+      await helpers.ensureStignoreCovers(ID);
+      await helpers.ensureStignoreCovers(ID);
+
+      sinon.assert.calledOnce(write);
+      sinon.assert.calledOnce(logError);
+    });
+
+    // The bound is on the SET, not on the folder: a specification that asks for
+    // different lines is a different question and gets its own attempt.
+    it('posts again when the spec asks for a different set', async () => {
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/elsewhere'] }));
+      const write = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
+      sandbox.stub(log, 'error');
+
+      await helpers.ensureStignoreCovers(ID, ['cache']);
+      await helpers.ensureStignoreCovers(ID, ['cache']);
+      await helpers.ensureStignoreCovers(ID, ['cache', 'scratch']);
+
+      sinon.assert.calledTwice(write);
     });
 
     it('logs when the write fails, rather than failing the pass', async () => {

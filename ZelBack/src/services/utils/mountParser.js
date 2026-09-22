@@ -255,7 +255,7 @@ function parseMountDefinition(mountDef, index) {
     // This name is asserted as a syncthing ignore pattern, where the name has to stand
     // for itself - see isLiteralIgnoreName for what a pattern character does to it.
     if (!isLiteralIgnoreName(subdir)) {
-      throw new Error(`Invalid local directory mount: ${mountDef}. A local directory's name may not contain * ? [ ] { } or \\`);
+      throw new Error(`Invalid local directory mount: ${mountDef}. A local directory's name may not contain * ? [ ] { } or \\, or begin or end with whitespace`);
     }
     validateMountPath(containerPath);
 

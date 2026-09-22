@@ -368,6 +368,26 @@ describe('mountParser tests', () => {
         });
       });
 
+    // syncthing trims each line as it reads the file (lib/ignore, TrimSpace before the
+    // line is parsed and before it is reported), so a name with whitespace at either
+    // edge is a DIFFERENT name as a pattern: the directory the spec asked to keep local
+    // replicates, a directory named the trimmed way stops, and the converge never sees
+    // the file it wrote. The set is Unicode's, not ASCII's.
+    [['trailing space', 'cache '], ['leading space', ' cache'], ['no-break space', 'cache\u00a0'],
+      ['ideographic space', '\u3000cache'], ['thin space', 'cache\u2009']]
+      .forEach(([what, name]) => {
+        it(`refuses a name with a ${what} at its edge`, () => {
+          expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+            .to.throw(/may not contain/);
+        });
+      });
+
+    // The edges only: inside the name it survives the round trip and is the owner's.
+    it('accepts whitespace inside the name', () => {
+      expect(() => mountParser.parseContainerData('/data|ml:my cache:/a')).to.not.throw();
+      expect(mountParser.getUnsyncedSubdirs('/data|ml:my cache:/a')).to.deep.equal(['my cache']);
+    });
+
     // Refused before the rule above sees them, by the character set every mount name
     // is held to. Named here because the ignore line is the reason they must stay out.
     ['star*', 'quer?y'].forEach((name) => {

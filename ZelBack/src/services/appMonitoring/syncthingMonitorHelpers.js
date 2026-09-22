@@ -297,6 +297,19 @@ function folderNeedsUpdate(existingFolder, newFolder) {
   );
 }
 
+/** Whether two ignore sets are the same policy. Order is part of it: syncthing takes the
+ * FIRST pattern that matches, so the same lines in another order are not the same rule. */
+const sameLines = (left, right) => left.length === right.length
+  && left.every((line, index) => line === right[index]);
+
+/**
+ * The last set posted to a folder, while the folder does not read back as that set.
+ *
+ * Per process, and a restart retries: this records that an attempt was made and did not
+ * take, which is a fact about this process's attempt rather than about the folder.
+ */
+const attemptedIgnores = new Map();
+
 /**
  * Ensure a folder's syncthing ignores carry every FluxOS policy line.
  *
@@ -327,8 +340,10 @@ function folderNeedsUpdate(existingFolder, newFolder) {
  * The current set is read only to decide whether a write is needed: nothing is
  * posted when the folder already reads that way, so a converged folder is neither
  * rewritten nor rescanned, which is what makes this safe on every monitor pass.
- * Order is part of the comparison - syncthing takes the FIRST pattern that
- * matches, so the same lines in another order are not the same policy. Every
+ * That holds however the folder reads back, because a set is posted once and not
+ * again until the specification asks for a different one - syncthing stores each
+ * line as it parses it, and a line it does not return verbatim would otherwise be
+ * rewritten and rescanned every pass for as long as the app exists. Every
  * syncthing call returns its outcome in-band and never throws, so status is
  * checked rather than caught.
  *
@@ -362,14 +377,31 @@ async function ensureStignoreCovers(folderId, unsyncedSubdirs = []) {
   }
   const desired = syncthingIgnoreLines(unsyncedSubdirs);
   const current = Array.isArray(read.data?.ignore) ? read.data.ignore : [];
-  const converged = desired.length === current.length
-    && desired.every((line, index) => line === current[index]);
-  if (converged) return;
+  if (sameLines(desired, current)) {
+    attemptedIgnores.delete(folderId);
+    return;
+  }
+
+  // ONE ATTEMPT PER SET. Reaching here having already posted this exact set means the
+  // folder does not read back the way it was written, and posting it again would do
+  // the same on every pass for the life of the app - each one rewriting the file and
+  // rescanning the folder. A set the specification has since changed is a different
+  // set and is tried on its own account.
+  const attempted = attemptedIgnores.get(folderId);
+  if (attempted && sameLines(attempted.lines, desired)) {
+    if (!attempted.reported) {
+      attempted.reported = true;
+      log.error(`ensureStignoreCovers - ${folderId} was set to ${desired.join(', ')} and reads back as ${current.join(', ')}; leaving it as it stands`);
+    }
+    return;
+  }
+
   const written = await syncthingService.setFolderIgnores(folderId, desired);
   if (written.status !== 'success') {
     log.error(`ensureStignoreCovers - could not set ignores for ${folderId}: ${written.data?.message ?? 'unknown error'}`);
     return;
   }
+  attemptedIgnores.set(folderId, { lines: desired, reported: false });
   log.info(`ensureStignoreCovers - ${folderId} ignores set to ${desired.join(', ')}`);
 }
 

@@ -193,6 +193,25 @@ function isSyncedRootName(name, unsyncedSubdirs = []) {
 const UNSAFE_IGNORE_NAME = /[*?[\]{}\\\u0000-\u001F\u007F-\u009F]/;
 
 /**
+ * Whitespace where the line begins or ends, which syncthing reads off and FluxOS
+ * cannot write back on.
+ *
+ * Every line is trimmed as the file is read (lib/ignore, `strings.TrimSpace` on each
+ * line before it is parsed OR reported), so a name with whitespace at either edge
+ * becomes a DIFFERENT name as a pattern: the directory the specification asked to keep
+ * local replicates, and a directory whose name is the trimmed one stops. The trimmed
+ * line is also what the API hands back, so the converge never sees the file it wrote
+ * and rewrites and rescans the folder every pass for the life of the app.
+ *
+ * The edges only. Inside the name a space is the owner's and survives the round trip
+ * intact.
+ *
+ * `\s` is a superset of what Go trims - Unicode's White_Space plus U+FEFF - and the
+ * excess is a byte-order mark at the edge of a directory name.
+ */
+const EDGE_WHITESPACE_IGNORE_NAME = /^\s|\s$/;
+
+/**
  * Whether a volume-root name written into .stignore means itself.
  *
  * An ignore line is a pattern AND a line, and a name that is neither excludes something
@@ -203,13 +222,17 @@ const UNSAFE_IGNORE_NAME = /[*?[\]{}\\\u0000-\u001F\u007F-\u009F]/;
  * for as long as the app exists.
  *
  * Refused rather than escaped: escaping takes a dependency on syncthing's own escape
- * syntax, and answers nothing about how many lines the name becomes.
+ * syntax, and answers nothing about how many lines the name becomes. Whitespace at the
+ * name's edges is refused for a third reason - see EDGE_WHITESPACE_IGNORE_NAME, where
+ * the line that comes back is not the line that was written.
  *
  * @param {string} name - a single path component, not a path
  * @returns {boolean}
  */
 function isLiteralIgnoreName(name) {
-  return typeof name === 'string' && !UNSAFE_IGNORE_NAME.test(name);
+  return typeof name === 'string'
+    && !UNSAFE_IGNORE_NAME.test(name)
+    && !EDGE_WHITESPACE_IGNORE_NAME.test(name);
 }
 
 const FOREIGN_NAMES = new Set([SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, 'lost+found']);
