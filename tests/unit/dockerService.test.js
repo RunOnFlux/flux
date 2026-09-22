@@ -62,22 +62,13 @@ describe('dockerService tests', () => {
       expect(result).to.equal(appName);
     });
 
-    it('should add "zel" to app identifier if it is KadenaChainWebNode', async () => {
-      const appName = 'KadenaChainWebNode';
-      const expected = 'zelKadenaChainWebNode';
-
-      const result = dockerService.getAppIdentifier(appName);
-
-      expect(result).to.equal(expected);
-    });
-
-    it('should add "zel" to app identifier if it is FoldingAtHomeB', async () => {
-      const appName = 'FoldingAtHomeB';
-      const expected = 'zelFoldingAtHomeB';
-
-      const result = dockerService.getAppIdentifier(appName);
-
-      expect(result).to.equal(expected);
+    // KadenaChainWebNode and FoldingAtHomeB were once forced to a zel prefix;
+    // neither is registered anywhere and the volumes they named are long gone,
+    // so they take the flux prefix like every other name. This guards against
+    // the special-case being reintroduced.
+    it('gives the formerly zel-prefixed names the flux prefix like any other', async () => {
+      expect(dockerService.getAppIdentifier('KadenaChainWebNode')).to.equal('fluxKadenaChainWebNode');
+      expect(dockerService.getAppIdentifier('FoldingAtHomeB')).to.equal('fluxFoldingAtHomeB');
     });
 
     it('should add "flux" to app identifier with any other name', async () => {
@@ -112,7 +103,7 @@ describe('dockerService tests', () => {
       expect(dockerService.getBaseAppName('db_App')).to.equal('db_App');
     });
 
-    it('should round-trip getAppIdentifier for compose and zel-legacy names', async () => {
+    it('should round-trip getAppIdentifier for compose and plain names', async () => {
       ['db_App', 'testing1234', 'KadenaChainWebNode', 'FoldingAtHomeB'].forEach((bare) => {
         expect(dockerService.getBaseAppName(dockerService.getAppIdentifier(bare))).to.equal(bare);
       });

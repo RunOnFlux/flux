@@ -53,9 +53,6 @@ function getAppIdentifier(appName) {
   if (appName.startsWith('flux')) {
     return appName;
   }
-  if (appName === 'KadenaChainWebNode' || appName === 'FoldingAtHomeB') {
-    return `zel${appName}`;
-  }
   return `flux${appName}`;
 }
 

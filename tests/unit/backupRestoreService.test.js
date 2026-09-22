@@ -170,15 +170,6 @@ describe('backupRestoreService tests', () => {
       expect(messageOf(res)).to.equal('Path validation failed..');
     });
 
-    it('reaches the volume of a legacy zel-namespaced app', async () => {
-      const removeFile = sinon.stub(IOUtils, 'removeFile').resolves('removed');
-      const filepath = `${appsFolder}zelKadenaChainWebNode/backup/local/backup_comp.tar.gz`;
-      const req = { params: { appname: 'KadenaChainWebNode', filepath }, query: {} };
-
-      await backupRestoreService.removeBackupFile(req, responseRecorder());
-
-      sinon.assert.calledOnceWithExactly(removeFile, filepath);
-    });
   });
 
   // The query-string form read `number` for the app name, so every caller that
