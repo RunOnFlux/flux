@@ -619,9 +619,12 @@ async function callerIsFluxnode(body) {
   // they hold it - so what a node may serve only to a node becomes public the moment
   // that body is. The forward bound is the network's own tolerance for clocks that do
   // not agree, and beyond it a timestamp is a choice rather than skew.
+  //
+  // Freshness first: it establishes that the timestamp is a number, and the forward
+  // comparison below is arithmetic on it.
   const now = Date.now();
-  if (body.timestamp > now + fluxCommunicationUtils.BROADCAST_CLOCK_SKEW_MS) return false;
   if (!fluxCommunicationUtils.verifyTimestampInFluxBroadcast(body, now)) return false;
+  if (body.timestamp > now + fluxCommunicationUtils.BROADCAST_CLOCK_SKEW_MS) return false;
 
   const verified = await fluxNetworkHelper.verifySignedFluxnodeMessage(body);
   if (verified !== true) return false;

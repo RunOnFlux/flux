@@ -240,7 +240,14 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
 
-  if (!timestamp) return false;
+  // A NUMBER, because the bound below is arithmetic on it. `timestamp + maxOld`
+  // CONCATENATES for a string or an array, giving a figure orders of magnitude
+  // beyond now, and every message of every age then reads as fresh - the check
+  // inverted rather than loosened. The type is the sender's to choose and it
+  // survives the signature: a broadcast is signed over version + message +
+  // timestamp joined as text, where a number and its string are the same
+  // preimage, so a captured message can be replayed for as long as it is held.
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return false;
 
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
