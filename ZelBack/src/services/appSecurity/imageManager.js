@@ -579,19 +579,24 @@ function createComplianceSweeper({
   let staggerTimer = null;
   let retryTimer = null;
   let retryDelayMs = retryBaseMs;
+  // What was owed the last time a wait was set, to compare the next one against. The
+  // whole node is not a list of names and never compares equal to one.
+  const EVERYTHING = Symbol('every installed application');
+  let owedWhenLastArmed = null;
 
   /** Hold one application for a later pass. */
   function hold(appName, reason) {
-    // A newly held application is a change of subject, so the wait starts again rather
-    // than inheriting one earned by whatever was held before it.
-    if (!owed.has(appName)) retryDelayMs = retryBaseMs;
     owed.set(appName, reason);
   }
 
   /** Hold the whole node, for a pass that stopped before it could name anything. */
   function holdEverything() {
-    if (!owedWholeNode) retryDelayMs = retryBaseMs;
     owedWholeNode = true;
+  }
+
+  /** What is owed, in a form two passes can be compared by. */
+  function owedNow() {
+    return owedWholeNode ? EVERYTHING : [...owed.keys()].sort().join(' ');
   }
 
   /**
@@ -604,17 +609,26 @@ function createComplianceSweeper({
    */
   function armRetry() {
     if (retryTimer || (!owed.size && !owedWholeNode)) return;
-    const delayMs = Math.min(retryDelayMs, retryMaxMs);
+    // THE WAIT IS DECIDED HERE AND NOWHERE ELSE, from what is owed at the moment of
+    // arming. It doubles for as long as the same thing is owed, and starts again the
+    // moment that changes: a node that resolved something has shown it can, and what is
+    // left of a debt that is moving is worth asking about sooner than one that is not.
+    //
+    // Asked of the debt rather than of the act that recorded it, because the retry path
+    // clears what it is about to re-ask before the pass runs - a rule written at the
+    // point of holding reads that as a debt this node has never carried.
+    const owing = owedNow();
+    retryDelayMs = owing === owedWhenLastArmed
+      ? Math.min(retryDelayMs * 2, retryMaxMs)
+      : retryBaseMs;
+    owedWhenLastArmed = owing;
+    const delayMs = retryDelayMs;
     retryTimer = timers.set(() => {
       retryTimer = null;
       const wholeNode = owedWholeNode;
       owedWholeNode = false;
       const scope = wholeNode ? null : new Set(owed.keys());
       if (!wholeNode && !scope.size) return;
-      // Grown before the pass, not after: a pass that resolves everything leaves nothing
-      // owed and is never armed again, and one that resolves nothing has already earned
-      // the longer wait.
-      retryDelayMs = Math.min(delayMs * 2, retryMaxMs);
       log.info(`Asking again about ${wholeNode ? 'every installed application' : [...owed].map(([name, why]) => `${name} (${why})`).join(', ')}`);
       // Returned, not discarded: setTimeout ignores it, and a scheduler that drives this
       // deliberately - a test owning the clock - can wait for the pass it just started
@@ -909,6 +923,7 @@ function createComplianceSweeper({
     staggerTimer = null;
     retryTimer = null;
     retryDelayMs = retryBaseMs;
+    owedWhenLastArmed = null;
     owedWholeNode = false;
     inFlight = null;
     again = false;

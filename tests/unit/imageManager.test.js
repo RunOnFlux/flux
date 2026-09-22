@@ -1295,11 +1295,13 @@ describe('imageManager tests', () => {
     function testTimers() {
       let nextId = 0;
       const armed = new Map();
+      const delays = [];
       return {
         api: {
-          set: (fn) => { nextId += 1; armed.set(nextId, fn); return nextId; },
+          set: (fn, ms) => { nextId += 1; delays.push(ms); armed.set(nextId, fn); return nextId; },
           clear: (id) => armed.delete(id),
         },
+        delays,
         count: () => armed.size,
         async fire() {
           const due = [...armed.values()];
@@ -1594,6 +1596,21 @@ describe('imageManager tests', () => {
       await timers.fire();
 
       expect(delays.slice(0, 4), 'the wait did not grow, or grew past its ceiling')
+        .to.deep.equal([10, 20, 40, 80]);
+    });
+
+    // THE SAME RULE FOR THE WHOLE NODE AS FOR ONE APPLICATION. A node that cannot read
+    // the list at all owes every application it holds, and a debt it never discharges
+    // must not be re-asked at the base rate for as long as it lasts.
+    it('doubles the wait between whole-node retries that resolve nothing', async () => {
+      const t = build({ rows: () => [blockedApp('SomeApp')], blocklist: () => null });
+
+      await t.sweeper.request();
+      await t.timers.fire();
+      await t.timers.fire();
+      await t.timers.fire();
+
+      expect(t.timers.delays, 'the wait for the whole node did not grow, or grew past its ceiling')
         .to.deep.equal([10, 20, 40, 80]);
     });
 
