@@ -1,7 +1,9 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { getAppContainerStatus, blockPeerAccess, unblockPeerAccess } from '../framework/container.js';
+import {
+  getAppContainerStatus, blockPeerAccess, unblockPeerAccess, execInContainer,
+} from '../framework/container.js';
 import {
   setSyncState, setNoPeerData, resetSyncState,
 } from '../framework/syncthing-control.js';
@@ -221,6 +223,19 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
     // the seed keeps its own connectivity floor against the rest of the fleet.
     await blockPeerAccess(env.clients[silenced].container, [subnet.nodeIp(seedIndex + 1)], 16127);
     try {
+      // THE DIVERGENCE ITSELF, ASSERTED. One seed is also what a run where the rule
+      // never took effect produces, and that run would pass this test while proving
+      // nothing. Both directions are checked, because a block that stopped everyone
+      // would be a partition rather than the split view under test.
+      const askSilenced = async (from) => execInContainer(
+        env.clients[from].container,
+        `curl -s -o /dev/null -w '%{http_code}' -m 4 http://${subnet.nodeIp(silenced + 1)}:16127/apps/promotedfolders`,
+      );
+      const fromSeed = await askSilenced(seedIndex);
+      const fromHolder = await askSilenced(claimHolder);
+      expect(fromSeed.stdout.trim(), 'the seed can still reach the silenced candidate').to.not.equal('200');
+      expect(fromHolder.stdout.trim(), 'the holder cannot reach the silenced candidate either, so this is a partition').to.equal('200');
+
       await installOnNodes(env, splitSpec, holders);
       await waitFor(
         async () => (await countUp(env, holders, splitApp)) >= 1,
