@@ -30,11 +30,11 @@ const {
   buildDeviceConfiguration,
   createSyncthingFolderConfig,
   ensureStfolderExists,
-  ensureStignoreCovers,
   getContainerDataFlags,
   requiresSyncing,
   folderNeedsUpdate,
 } = require('./syncthingMonitorHelpers');
+const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const volumeService = require('../utils/volumeService');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const appReconciler = require('./appReconciler');

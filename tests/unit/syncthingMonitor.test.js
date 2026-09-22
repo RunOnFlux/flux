@@ -66,11 +66,14 @@ const syncthingMonitorHelpersMock = {
     type: type || 'sendreceive',
   })),
   ensureStfolderExists: sinon.stub().resolves(true),
-  ensureStignoreCovers: sinon.stub().resolves(),
   getContainerFolderPath: sinon.stub().returns(''),
   getContainerDataFlags: sinon.stub().returns(''),
   requiresSyncing: sinon.stub().returns(false),
   folderNeedsUpdate: sinon.stub().returns(false),
+};
+
+const syncthingIgnorePolicyMock = {
+  ensureStignoreCovers: sinon.stub().resolves(),
 };
 
 const syncthingHealthMonitorMock = {
@@ -122,6 +125,7 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   './appReconciler': appReconcilerMock,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
+  '../appSystem/syncthingIgnorePolicy': syncthingIgnorePolicyMock,
   './syncthingHealthMonitor': syncthingHealthMonitorMock,
   './syncthingEventsConsumer': syncthingEventsConsumerMock,
 });
@@ -195,8 +199,8 @@ describe('syncthingMonitor tests', () => {
     syncthingMonitorHelpersMock.getContainerDataFlags.returns('');
     syncthingMonitorHelpersMock.ensureStfolderExists.reset();
     syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
-    syncthingMonitorHelpersMock.ensureStignoreCovers.reset();
-    syncthingMonitorHelpersMock.ensureStignoreCovers.resolves();
+    syncthingIgnorePolicyMock.ensureStignoreCovers.reset();
+    syncthingIgnorePolicyMock.ensureStignoreCovers.resolves();
 
     appQueryServiceMock.decryptEnterpriseApps.reset();
     appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps }));
@@ -1220,7 +1224,7 @@ describe('syncthingMonitor tests', () => {
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
-      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, 'testapp', []);
+      sinon.assert.calledWithExactly(syncthingIgnorePolicyMock.ensureStignoreCovers, 'testapp', []);
     });
 
     it('carries the ml: directories of the spec it is converging', async () => {
@@ -1239,7 +1243,7 @@ describe('syncthingMonitor tests', () => {
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
-      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, 'testapp', ['game']);
+      sinon.assert.calledWithExactly(syncthingIgnorePolicyMock.ensureStignoreCovers, 'testapp', ['game']);
     });
 
     it('does not converge a folder syncthing does not yet know, so the API is never asked for an unknown folder', async () => {
@@ -1257,7 +1261,7 @@ describe('syncthingMonitor tests', () => {
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
-      sinon.assert.notCalled(syncthingMonitorHelpersMock.ensureStignoreCovers);
+      sinon.assert.notCalled(syncthingIgnorePolicyMock.ensureStignoreCovers);
     });
 
     it('does not touch the ignore file of a folder whose volume is not mounted', async () => {
@@ -1275,7 +1279,7 @@ describe('syncthingMonitor tests', () => {
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
-      sinon.assert.notCalled(syncthingMonitorHelpersMock.ensureStignoreCovers);
+      sinon.assert.notCalled(syncthingIgnorePolicyMock.ensureStignoreCovers);
     });
   });
 

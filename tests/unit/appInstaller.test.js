@@ -258,7 +258,7 @@ describe('appInstaller tests', () => {
         // component-qualified one that syncthing knows this volume by.
         '../dockerService': { ...baseStubs['../dockerService'], getAppIdentifier: (name) => `flux${name}` },
         '../utils/volumeService': volumeService,
-        '../appMonitoring/syncthingMonitorHelpers': ignorePolicy,
+        '../appSystem/syncthingIgnorePolicy': ignorePolicy,
         './appNetworkLinker': {
           checkAppNetworkRequirements: sinon.stub().resolves(),
           connectComponentToLinkedApps: sinon.stub().resolves(),

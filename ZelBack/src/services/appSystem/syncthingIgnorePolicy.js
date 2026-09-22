@@ -1,0 +1,115 @@
+const log = require('../../lib/log');
+const syncthingService = require('../syncthingService');
+const { syncthingIgnoreLines } = require('./volumeReservedNames');
+
+/** Whether two ignore sets are the same policy. Order is part of it: syncthing takes the
+ * FIRST pattern that matches, so the same lines in another order are not the same rule. */
+const sameLines = (left, right) => left.length === right.length
+  && left.every((line, index) => line === right[index]);
+
+/**
+ * The last set posted to a folder, while the folder does not read back as that set.
+ *
+ * Per process, and a restart retries: this records that an attempt was made and did not
+ * take, which is a fact about this process's attempt rather than about the folder.
+ */
+const attemptedIgnores = new Map();
+
+/**
+ * Ensure a folder's syncthing ignores carry every FluxOS policy line.
+ *
+ * .stignore is syncthing's own control file - it writes it atomically, runs as
+ * root so it lands on any legacy root-owned file, and never replicates it or
+ * its temp. So FluxOS sets the patterns through syncthing's API rather than
+ * writing the file: there is no temp, no ownership dance, and nothing on the
+ * volume to orphan on a powercut. Volume creation still seeds the file directly
+ * for a brand-new folder syncthing does not yet know; this converges every
+ * EXISTING folder whose ignores predate a policy line.
+ *
+ * THE SPEC IS THE WHOLE FILE. What may leave this node is decided by the
+ * specification and by nothing found on the volume, so the ignores are set to the
+ * derived lines exactly rather than merged into whatever is already there.
+ *
+ * Every node must compute the same set from the same spec, and a file on one
+ * node's disk is not an input the others have - merged in, the answer depends on
+ * which node is asked. syncthing also takes the FIRST pattern that matches, so a
+ * line ahead of a derived one answers in its place; the derived set leads because
+ * it is the whole list, not because it was sorted there.
+ *
+ * It also makes the set exact in the other direction. A spec that drops an ml:
+ * mount has its exclusion removed with it, because the desired set is derived
+ * afresh every pass and never accumulates - where a merge could not tell a line
+ * it wrote last week from anything else in the file, and had to leave a directory
+ * unreplicated that the spec now asks to replicate.
+ *
+ * The current set is read only to decide whether a write is needed: nothing is
+ * posted when the folder already reads that way, so a converged folder is neither
+ * rewritten nor rescanned, which is what makes this safe on every monitor pass.
+ * That holds however the folder reads back, because a set is posted once and not
+ * again until the specification asks for a different one - syncthing stores each
+ * line as it parses it, and a line it does not return verbatim would otherwise be
+ * rewritten and rescanned every pass for as long as the app exists. Every
+ * syncthing call returns its outcome in-band and never throws, so status is
+ * checked rather than caught.
+ *
+ * .stignore is syncthing's own control file - it writes it atomically, runs as
+ * root so it lands on any legacy root-owned file, and never replicates it or
+ * its temp. So FluxOS sets the patterns through syncthing's API rather than
+ * writing the file: there is no temp, no ownership dance, and nothing on the
+ * volume to orphan on a powercut. Volume creation still seeds the file directly
+ * for a brand-new folder syncthing does not yet know; this converges every
+ * EXISTING folder.
+ *
+ * Call only for a folder syncthing already knows (the caller checks); on an
+ * unknown folder the API would answer with an error and nothing would converge.
+ *
+ * WHAT AN UPGRADED VOLUME IS EXPOSED TO BEFORE THE FIRST PASS, AND WHY IT IS ONE PASS
+ * RATHER THAN ONE INTERVAL. A volume built by an earlier release carries that release's
+ * lines, so a name this one adds is unignored until the converge below runs - and the
+ * file API, which is what can put something under such a name, opens on
+ * bootContainerStateSettled. So does the monitor that calls this: serviceManager starts
+ * them from the same gate. The exposure is therefore however long the first pass takes
+ * to reach this folder, not the interval between passes, and it does not recur.
+ *
+ * @param {string} folderId - the syncthing folder id (the app identifier)
+ * @param {string[]} unsyncedSubdirs - volume-root names the component declared with ml:
+ */
+async function ensureStignoreCovers(folderId, unsyncedSubdirs = []) {
+  const read = await syncthingService.getFolderIgnores(folderId);
+  if (read.status !== 'success') {
+    log.error(`ensureStignoreCovers - could not read ignores for ${folderId}: ${read.data?.message ?? 'unknown error'}`);
+    return;
+  }
+  const desired = syncthingIgnoreLines(unsyncedSubdirs);
+  const current = Array.isArray(read.data?.ignore) ? read.data.ignore : [];
+  if (sameLines(desired, current)) {
+    attemptedIgnores.delete(folderId);
+    return;
+  }
+
+  // ONE ATTEMPT PER SET. Reaching here having already posted this exact set means the
+  // folder does not read back the way it was written, and posting it again would do
+  // the same on every pass for the life of the app - each one rewriting the file and
+  // rescanning the folder. A set the specification has since changed is a different
+  // set and is tried on its own account.
+  const attempted = attemptedIgnores.get(folderId);
+  if (attempted && sameLines(attempted.lines, desired)) {
+    if (!attempted.reported) {
+      attempted.reported = true;
+      log.error(`ensureStignoreCovers - ${folderId} was set to ${desired.join(', ')} and reads back as ${current.join(', ')}; leaving it as it stands`);
+    }
+    return;
+  }
+
+  const written = await syncthingService.setFolderIgnores(folderId, desired);
+  if (written.status !== 'success') {
+    log.error(`ensureStignoreCovers - could not set ignores for ${folderId}: ${written.data?.message ?? 'unknown error'}`);
+    return;
+  }
+  attemptedIgnores.set(folderId, { lines: desired, reported: false });
+  log.info(`ensureStignoreCovers - ${folderId} ignores set to ${desired.join(', ')}`);
+}
+
+module.exports = {
+  ensureStignoreCovers,
+};
