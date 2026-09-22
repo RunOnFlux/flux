@@ -676,6 +676,25 @@ function isRankableClaim(claim) {
  * trustworthy. The consensus-grounded election named in the RESIDUAL LIMITATION below
  * is what closes that.
  *
+ * WHICH OF THE TWO RULES APPLIES IS DECIDED FROM ONE NODE'S OWN ANSWERS, AND THAT IS
+ * NOT CLOSED HERE. `everyoneAnswered` is true or false according to what reached THIS
+ * node, so a candidate silent here and answering elsewhere puts two nodes on two rules
+ * over one field, and two rules elect two winners - both of which flip the same folder
+ * to sendreceive. The address order does not have this property, which is why it is
+ * still the fallback rather than a legacy path: every node computes it from the same
+ * input.
+ *
+ * Narrowing it costs more than it saves. A node that stands down whenever a candidate
+ * is silent to it is a node that will not seed while a peer is merely dead, and
+ * holderIsGone exists because a dead holder must never strand an app with no writable
+ * copy anywhere. What bounds the divergence today is the connectivity floor the caller
+ * applies before a win counts: a node that cannot see the fleet does not confirm a
+ * leadership streak. What remains is the case where both nodes saw a whole field and
+ * were handed different numbers by the same peer.
+ *
+ * So this ranks better among peers that agree; it does not make them agree. An agreed
+ * view of the field is the only thing that would, and that is the redesign below.
+ *
  * @param {Array<object>} allPeersList - holders in the election
  * @param {object} claims - socket address -> { bytes, newestModified }, absent = no answer
  * @returns {string|null} the address that should seed
