@@ -251,6 +251,21 @@ describe('paymentRelayService tests', () => {
       sinon.assert.calledWith(ws.close, 4012);
     });
 
+    // Delivered once, the id is spent: its slot frees on delivery rather than
+    // sitting for the rest of the hour, and a second callback or listener for it
+    // finds nothing to replace or re-read.
+    it('spends the id on delivery, leaving nothing to replace or re-read', () => {
+      const paymentId = issueId();
+      pending.set(paymentId, { txid: 'abc123' });
+
+      paymentRelayService.wsRespondPayment(fakeSocket(), paymentId);
+
+      expect(pending.has(paymentId)).to.equal(false);
+      const ws2 = fakeSocket();
+      paymentRelayService.wsRespondPayment(ws2, paymentId);
+      expect(qs.parse(ws2.send.firstCall.args[0]).status).to.equal('error');
+    });
+
     it('carries nothing the wallet claimed beyond the transaction id', () => {
       const paymentId = issueId();
       pending.set(paymentId, { txid: 'abc123' });

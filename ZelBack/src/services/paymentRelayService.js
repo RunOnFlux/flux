@@ -194,6 +194,11 @@ function wsRespondPayment(ws, paymentid) {
     }
 
     if (held.txid) {
+      // Delivered once, so the id is spent: dropped here rather than left to
+      // time out. A later callback for it finds nothing, and its slot does not
+      // hold the bound down for the rest of the hour. The txid is already in
+      // hand, so the drop is safe before the send.
+      pending.delete(paymentid);
       send(messageHelper.createDataMessage({
         message: 'Payment received',
         paymentId: paymentid,
