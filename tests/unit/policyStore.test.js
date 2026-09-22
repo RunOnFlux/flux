@@ -267,7 +267,7 @@ describe('policyStore', () => {
       await module.start();
       expect(state.policyReady).to.equal(false);
 
-      expect(module.offerBundle(bundle(9)), 'a peer hands over something newer').to.equal(true);
+      expect(await module.offerBundle(bundle(9)), 'a peer hands over something newer').to.equal(true);
       expect(state.policyReady).to.equal(true);
       module.stop();
     });
@@ -305,7 +305,7 @@ describe('policyStore', () => {
     // states that can be reached with only one of them - the cases the suite had no example
     // of, which is why a gate that recorded the pair in a latch on one of them shipped.
 
-    it('a source that answers 200 with bytes that do not verify does not spend the confirmation', () => {
+    it('a source that answers 200 with bytes that do not verify does not spend the confirmation', async () => {
       // A captive portal, a transparent proxy, an injected ISP page. All return a body, and
       // none of them is the publisher. On a cold node the old gate treated this as the
       // confirmation, kept it, and could never open afterwards.
@@ -313,9 +313,9 @@ describe('policyStore', () => {
       const { module, state } = load({ serviceHelper: { axiosGet } });
       module.setPeerTransport({});
 
-      return module.refresh().then(() => {
+      return module.refresh().then(async () => {
         expect(module.getSeq(), 'nothing was adopted').to.equal(0);
-        expect(module.offerBundle(bundle(7)), 'then a peer hands over a real one').to.equal(true);
+        expect(await module.offerBundle(bundle(7)), 'then a peer hands over a real one').to.equal(true);
         expect(state.policyReady, 'which is what the node may act on').to.equal(true);
       });
     });
@@ -333,7 +333,7 @@ describe('policyStore', () => {
       expect(state.policyReady, 'the second answer was the publisher and it counted').to.equal(true);
     });
 
-    it('a peer claiming seq 0 at an empty node does not spend the confirmation', () => {
+    it('a peer claiming seq 0 at an empty node does not spend the confirmation', async () => {
       // One signed broadcast from any node in the deterministic list. It is true - nobody
       // is ahead of a node that holds nothing - and there is nothing to act on yet, so it
       // must leave the gate able to open when something does arrive.
@@ -343,7 +343,7 @@ describe('policyStore', () => {
       module.notePeerSeq(0, 'peer-1');
       expect(state.policyReady, 'nothing held, so nothing to act on').to.equal(false);
 
-      expect(module.offerBundle(bundle(11))).to.equal(true);
+      expect(await module.offerBundle(bundle(11))).to.equal(true);
       expect(state.policyReady, 'and now there is').to.equal(true);
     });
 
@@ -1069,8 +1069,8 @@ describe('policyStore', () => {
       const { module: m } = load();
       m.setPeerTransport({ ...holdingNothing(m), announce });
 
-      m.offerBundle(bundle(6));
-      m.offerBundle(bundle(7));
+      await m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(7));
 
       expect(announce.args.map((a) => a[0])).to.deep.equal([6, 7]);
     });
@@ -1308,9 +1308,9 @@ describe('policyStore', () => {
       const { module: m } = load();
       m.onBundleChanged((change) => seen.push(change.seq));
 
-      m.offerBundle(bundle(5));
-      m.offerBundle(bundle(6));
-      m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(5));
+      await m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(6));
 
       expect(seen, 'twice, not three times - the repeat was not adopted').to.deep.equal([5, 6]);
       m.stop();
@@ -1321,9 +1321,9 @@ describe('policyStore', () => {
       const { module: m } = load();
       const off = m.onBundleChanged((change) => seen.push(change.seq));
 
-      m.offerBundle(bundle(5));
+      await m.offerBundle(bundle(5));
       off();
-      m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(6));
 
       expect(seen).to.deep.equal([5]);
       m.stop();
@@ -1335,7 +1335,7 @@ describe('policyStore', () => {
       const { module: m, log } = load();
       m.onBundleChanged(() => { throw new Error('consumer blew up'); });
 
-      m.offerBundle(bundle(5));
+      await m.offerBundle(bundle(5));
 
       expect(m.getSeq(), 'the bundle is held regardless').to.equal(5);
       expect(log.warn.calledWithMatch(/bundle listener threw/), 'and the failure is visible').to.equal(true);
@@ -1344,11 +1344,23 @@ describe('policyStore', () => {
 
     it('publishes the change to the harness event stream', async () => {
       const { module: m, eventBus } = load();
-      m.offerBundle(bundle(5));
+      await m.offerBundle(bundle(5));
 
       const published = eventBus.publish.getCalls().filter((c) => c.args[0] === 'policy:bundleChanged');
       expect(published).to.have.lengthOf(1);
       expect(published[0].args[1]).to.deep.equal({ seq: 5, source: 'peer' });
+      m.stop();
+    });
+
+    it('persists the bundle before it announces or notifies, so a restart restores what a subscriber acted on', async () => {
+      const order = [];
+      const writeBundle = sinon.stub().callsFake(async () => { order.push('persist'); return true; });
+      const { module: m } = load({ repo: { readBundle: sinon.stub().resolves(null), writeBundle } });
+      m.onBundleChanged(() => order.push('notify'));
+
+      await m.offerBundle(bundle(5));
+
+      expect(order, 'the write must land before the change is announced to anything').to.deep.equal(['persist', 'notify']);
       m.stop();
     });
   });
