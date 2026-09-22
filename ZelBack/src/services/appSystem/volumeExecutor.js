@@ -1678,6 +1678,7 @@ async function run(session, argv, options = {}) {
     // Host-side for the same reasons the sweep is, and after the mount check for
     // the same reason everything else here is.
     if (publish && publish.staging) {
+      await assertStagingRootIsADirectory(session.mount);
       const parent = path.dirname(publish.staging.hostPath);
       const made = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', parent] });
       if (made.error) throw made.error;
@@ -1885,19 +1886,61 @@ async function run(session, argv, options = {}) {
  * Remove one staging entry, on the host.
  *
  * Host-side rather than in a container, for the same reasons the sweep is: the
- * path is the mount plus the staging root and one minted component, neither of
- * them the app's to interpose a link on - the volume root is not mounted into
- * any container and the staging root is created by FluxOS as root. `rm -rf`
- * removes a symlink rather than following it in any case, and a node that
- * cannot fetch the executor image still reclaims its debris. Root, because the
- * container wrote into it as root and the FluxOS process is not root
+ * path is the mount plus the staging root and one minted component, and a node
+ * which cannot fetch the executor image still reclaims its debris. Root, because
+ * the container wrote into it as root and the FluxOS process is not root
  * everywhere.
+ *
+ * `rm -rf` unlinks a symlink where the link is the path's LAST component and
+ * follows one anywhere before it, so what protects this path is that the staging
+ * root ahead of the minted name is a directory - assertStagingRootIsADirectory,
+ * which every operation passes before its staging exists.
  *
  * @param {string} hostPath absolute path of the staging entry
  */
 async function removeStagingPath(hostPath) {
   const result = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', hostPath] });
   if (result.error) throw result.error;
+}
+
+/**
+ * Establish that the staging directory is a directory, before anything is done
+ * through it.
+ *
+ * THE STAGING ROOT IS A PATH PREFIX, and both things done to it as root traverse
+ * it: the sweep lists it and removes children by name, and an operation's
+ * `mkdir -p` creates through it. A symlink at this name is followed by each of
+ * them - readdir resolves it, and `rm -rf` unlinks a link only where the link is
+ * the path's LAST component - so it aims a privileged delete, and a privileged
+ * write, at wherever it points. The names the sweep matches are then the
+ * victim's entries, reported under a staging path they were never in.
+ *
+ * Established here rather than trusted from the volume's door. Reserving the
+ * name stops one arriving through the file API; a volume also carries what
+ * earlier releases allowed onto it and what syncthing copies from a holder still
+ * running one, so the name being refused today says nothing about the entry
+ * sitting there now.
+ *
+ * `unlink` rather than `rm`: it never follows a link and refuses a directory, so
+ * what is removed is the entry that was lstat'd rather than whatever the name
+ * resolves to by the time the removal runs. A failure to remove it throws -
+ * every use of this path is a root-privileged operation through a name this
+ * process cannot account for.
+ *
+ * @param {string} mount the volume root
+ */
+async function assertStagingRootIsADirectory(mount) {
+  const stagingRoot = path.join(mount, STAGING_ROOT);
+  const stats = await fs.lstat(stagingRoot).catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  // Absent is the volume that has never run an operation: there is nothing to
+  // list, and the operation's own `mkdir -p` creates the directory itself.
+  if (!stats || stats.isDirectory()) return;
+
+  await fs.unlink(stagingRoot);
+  log.warn(`volumeExecutor - ${stagingRoot} was not a directory and has been removed`);
 }
 
 /**
@@ -2050,16 +2093,19 @@ async function reapOrphanedContainers() {
  * the old sweep had: the prefix plus a full identifier, never the prefix alone,
  * because `.flux-op-backups` is a name somebody may legitimately have chosen.
  *
- * On the host rather than in a container: the name came from readdir, so it is
- * one component with nothing to traverse, and `rm -rf` unlinks a symlink rather
- * than following it. That also means a node which cannot fetch the executor
- * image still reclaims its debris.
+ * On the host rather than in a container: each name came from readdir, so it is
+ * one component with nothing to traverse, and `rm -rf` unlinks a symlink where
+ * the link is the path's last component. What the names hang off is the part
+ * that can be interposed on, which is assertStagingRootIsADirectory above. That
+ * also means a node which cannot fetch the executor image still reclaims its
+ * debris.
  *
  * @param {VolumeSession} session
  * @returns {Promise<{removed: Array<string>}>}
  */
 async function sweepStagingDirectories(session) {
   const { mount } = session;
+  await assertStagingRootIsADirectory(mount);
   const stagingRoot = path.join(mount, STAGING_ROOT);
   const removed = [];
 

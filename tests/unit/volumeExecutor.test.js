@@ -150,7 +150,9 @@ describe('volumeExecutor tests', () => {
     // figure undefined at the CALL rather than at load, inside a try, which is
     // how five earlier stubs in this suite passed while exercising nothing.
     fsStub = {
-      lstat: sinon.stub().rejects(new Error('ENOENT')),
+      // Carries the code, because that is what every caller of it reads: an fs
+      // rejection without one is a shape the filesystem never produces.
+      lstat: sinon.stub().rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
       readdir: sinon.stub().resolves([]),
       statfs: sinon.stub().resolves({ bsize: 4096, blocks: 1000, bfree: 1000 }),
       unlink: sinon.stub().resolves(),
@@ -1755,6 +1757,26 @@ describe('volumeExecutor tests', () => {
 
       expect(removed).to.deep.equal([OP]);
       expect(await exists(at(OP))).to.equal(false);
+    });
+
+    // The staging root is a path PREFIX, so everything the sweep touches is
+    // reached THROUGH it: readdir resolves a link at that name and the rm that
+    // follows carries root into whatever it points at. A volume can be carrying
+    // one - the name was the owner's to use on an earlier release, and a holder
+    // still running one replicates what it has.
+    it('removes a staging root that is a link, and takes nothing through it', async () => {
+      const victim = nodePath.join(tmpRoot, 'fluxcomp_victim');
+      await realFs.mkdir(nodePath.join(victim, ID), { recursive: true });
+      await realFs.writeFile(nodePath.join(victim, ID, 'theirs'), 'another volume');
+      await realFs.symlink(victim, at('.flux-op'));
+
+      const { removed } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(await exists(nodePath.join(victim, ID, 'theirs'))).to.equal(true);
+      // The link itself goes: left there it aims the next boot's sweep at the
+      // same place, and an operation's mkdir -p at it in the meantime.
+      expect(await exists(at('.flux-op'))).to.equal(false);
     });
 
     it('leaves a staging directory an operation is still writing into', async () => {
