@@ -1552,6 +1552,28 @@ describe('imageManager tests', () => {
       expect(t.removeAppLocally.secondCall.args[0]).to.equal('SecondApp');
     });
 
+    // EVERY WAY OUT OF A PASS OWES WHAT IT DID NOT JUDGE, including the one nobody
+    // planned: a throw that leaves nothing owed arms no timer, and the applications it
+    // never reached wait for the next bundle change.
+    it('holds the whole node when a pass throws', async () => {
+      let broken = true;
+      const t = build({
+        rows: () => [blockedApp('FirstApp'), blockedApp('SecondApp')],
+        decryptApps: async (apps) => {
+          if (broken) throw new Error('unreadable');
+          return { readable: apps, unreadable: [], inPlace: apps };
+        },
+      });
+
+      await t.sweeper.request();
+      expect(t.removeAppLocally.called, 'a pass that threw removed something anyway').to.equal(false);
+      expect(t.timers.count(), 'a pass that threw owed nothing, so nothing came back for it').to.equal(1);
+
+      broken = false;
+      await t.timers.fire();
+      expect(t.removeAppLocally.callCount, 'the applications the pass never judged were dropped').to.equal(2);
+    });
+
     // A pass that stopped before it classified anything knows no names to owe, so what
     // it owes is the node.
     it('holds the whole node when a pass could not start', async () => {

@@ -833,6 +833,11 @@ function createComplianceSweeper({
         }
       }
     } catch (error) {
+      // EVERY WAY OUT OF A PASS OWES WHAT IT DID NOT JUDGE, this one included. What
+      // threw is not known to have been reached, let alone answered for, and a pass
+      // that leaves nothing owed arms no timer: the applications it never judged would
+      // wait for the next bundle change.
+      holdEverything();
       log.error(error);
     }
   }
