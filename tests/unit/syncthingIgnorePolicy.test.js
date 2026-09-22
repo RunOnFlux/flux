@@ -153,57 +153,6 @@ describe('syncthingIgnorePolicy tests', () => {
       sinon.assert.calledOnce(logError);
     });
 
-    // syncthing stores each ignore line as it parses it, and a line it does not hand
-    // back verbatim is one no write can ever settle. Posted every pass, that rewrites
-    // the file and rescans the folder every 30 s for as long as the app exists.
-    it('posts a set that does not come back once, not on every pass', async () => {
-    // The folder answers with something other than what was written, for ever.
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/elsewhere'] }));
-      const write = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
-      const logError = sandbox.stub(log, 'error');
-
-      await policy.ensureStignoreCovers(ID);
-      await policy.ensureStignoreCovers(ID);
-      await policy.ensureStignoreCovers(ID);
-
-      sinon.assert.calledOnce(write);
-      sinon.assert.calledOnce(logError);
-    });
-
-    // The bound is a window, not a life sentence. What a folder stores is syncthing's
-    // to decide and a later version may decide differently, so a set is offered again
-    // once the window is out - which is also what drops the record of a folder nothing
-    // asks about any more, so an uninstalled app leaves nothing behind.
-    it('offers the set again once the window is out', async () => {
-      const clock = sandbox.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/elsewhere'] }));
-      const write = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
-      sandbox.stub(log, 'error');
-
-      await policy.ensureStignoreCovers(ID);
-      await policy.ensureStignoreCovers(ID);
-      sinon.assert.calledOnce(write);
-
-      clock.tick(30 * 60 * 1000);
-      await policy.ensureStignoreCovers(ID);
-
-      sinon.assert.calledTwice(write);
-    });
-
-    // The bound is on the SET, not on the folder: a specification that asks for
-    // different lines is a different question and gets its own attempt.
-    it('posts again when the spec asks for a different set', async () => {
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/elsewhere'] }));
-      const write = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
-      sandbox.stub(log, 'error');
-
-      await policy.ensureStignoreCovers(ID, ['cache']);
-      await policy.ensureStignoreCovers(ID, ['cache']);
-      await policy.ensureStignoreCovers(ID, ['cache', 'scratch']);
-
-      sinon.assert.calledTwice(write);
-    });
-
     it('logs when the write fails, rather than failing the pass', async () => {
       sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: [] }));
       sandbox.stub(syncthingService, 'setFolderIgnores').resolves(err('folder paused'));
