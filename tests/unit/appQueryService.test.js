@@ -7,6 +7,7 @@ describe('appQueryService tests', () => {
   let verificationHelperStub;
   let fluxNetworkHelperStub;
   let fluxCommunicationUtilsStub;
+  let networkStateServiceStub;
   let dbHelperStub;
   let messageHelperStub;
   let dockerServiceStub;
@@ -115,6 +116,7 @@ describe('appQueryService tests', () => {
       verifySignedFluxnodeMessage: sinon.stub().resolves(false),
     };
     fluxCommunicationUtilsStub = { verifyTimestampInFluxBroadcast: sinon.stub().returns(true) };
+    networkStateServiceStub = { isReady: sinon.stub().returns(true) };
     appQueryService = proxyquire('../../ZelBack/src/services/appQuery/appQueryService', {
       config: configStub,
       '../dbHelper': dbHelperStub,
@@ -128,6 +130,7 @@ describe('appQueryService tests', () => {
       '../verificationHelper': verificationHelperStub,
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../fluxCommunicationUtils': fluxCommunicationUtilsStub,
+      '../networkStateService': networkStateServiceStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -742,6 +745,24 @@ describe('appQueryService tests', () => {
           expect(result.holding, 'holdings went to a caller that proved nothing').to.equal(undefined);
           expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
         });
+      });
+
+      // A node that cannot yet say who its peers are refuses, and says so at once. The
+      // open shape has no way to express it: `ready` there is syncthing's first pass,
+      // set by a different pass from this one, so this node can be syncthing-ready and
+      // still unable to identify anybody - and a peer would read that answer as this
+      // node holding nothing, which is a claim rather than a deferral.
+      it('refuses while the network state has not started, rather than waiting for it', async () => {
+        networkStateServiceStub.isReady.returns(false);
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        messageHelperStub.createErrorMessage.returnsArg(0);
+        const res = { status: sinon.stub().returnsThis(), json: sinon.stub().returnsArg(0) };
+
+        await appQueryService.promotedFolderHoldings({ body: signed() }, res);
+
+        sinon.assert.calledWith(res.status, 503);
+        // and it never reached the list read that would have parked the request
+        sinon.assert.notCalled(fluxNetworkHelperStub.verifySignedFluxnodeMessage);
       });
 
       // The route is open, so the ORDER the checks run in is part of its contract: a

@@ -73,6 +73,25 @@ describe('peerFolderLiveness', () => {
       expect(answer.holding, 'an old peer claims nothing, which the address order expects').to.deep.equal({});
     });
 
+    // 503 is the one status the fallback must not cover. A node still loading its
+    // network state cannot say who anybody is, so it refuses at once instead of
+    // parking the request - and what it is saying is "alive, ask me again", which the
+    // promotion check blocks on. Answered over the open endpoint instead, it would
+    // report syncthing's readiness, and a peer reads THAT as this node holding
+    // nothing - a claim, where the node meant to defer.
+    it('reads a peer still loading its network state as alive and not ready', async () => {
+      const notReady = Object.assign(new Error('Request failed with status code 503'), { response: { status: 503 } });
+      axiosMock.post.rejects(notReady);
+
+      const liveness = createPeerFolderLiveness();
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer).to.deep.equal({
+        reachable: true, answerable: true, ready: false, folders: [], holding: {},
+      });
+      sinon.assert.notCalled(axiosMock.get);
+    });
+
     it('asks over the open endpoint when this node cannot sign as itself', async () => {
       nodeSignerMock.nodeSigner.resolves(null);
 

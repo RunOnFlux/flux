@@ -26,6 +26,11 @@ const { nodeSigner } = require('../utils/nodeSigner');
 // peer must not hold the promotion open.
 const PROBE_TIMEOUT_MS = 10 * 1000;
 
+// What a node answers while it still cannot say who its peers are: alive, and not able
+// to answer this yet. Distinguished from every other status because it is the one that
+// means "ask me again", and the caller blocks a promotion on it.
+const SERVICE_UNAVAILABLE = 503;
+
 // What proportion of this node's peers must still be answering before it will
 // conclude that an unreachable holder is dead rather than that it is itself cut
 // off. A proportion, not a count: an absolute floor is a fleet size in disguise,
@@ -96,6 +101,13 @@ async function probePeer(socketAddr) {
     const response = request
       ? await axios.post(url, request, { timeout: PROBE_TIMEOUT_MS }).catch((error) => {
         if (!error.response) throw error;
+        // 503 IS AN ANSWER, and it is the one answer the fallback must not cover.
+        // A node that cannot yet say who its peers are refuses rather than waiting,
+        // so it can say so in milliseconds - and what it is saying is "alive, not
+        // ready", which is a blocker. Falling back to the open GET would turn that
+        // into "ready, holding nothing", because the GET reports syncthing's
+        // readiness and the two flags are set by different passes.
+        if (error.response.status === SERVICE_UNAVAILABLE) throw error;
         return axios.get(url, { timeout: PROBE_TIMEOUT_MS });
       })
       : await axios.get(url, { timeout: PROBE_TIMEOUT_MS });
@@ -113,6 +125,14 @@ async function probePeer(socketAddr) {
     // error.response exists only when the peer sent one, so this separates a
     // reply we cannot use from no reply at all.
     if (error.response) {
+      // Answered, and what it answered is that it is not ready - which findPeerBlocking
+      // Promotion blocks on, where a peer it merely cannot ask does not. The difference
+      // decides whether this node seeds while that one is still starting, and that node
+      // may be the one holding the copy.
+      if (error.response.status === SERVICE_UNAVAILABLE) {
+        log.info(`peerFolderLiveness - ${ip} is up and not ready yet`);
+        return { reachable: true, answerable: true, ready: false, folders: [], holding: {} };
+      }
       log.info(`peerFolderLiveness - ${ip} answered ${error.response.status} and cannot say which folders it holds`);
       return { reachable: true, answerable: false, ready: false, folders: [], holding: {} };
     }

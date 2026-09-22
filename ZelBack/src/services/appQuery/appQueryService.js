@@ -13,6 +13,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const { Privilege, authOf } = require('../utils/privileges');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+const networkStateService = require('../networkStateService');
 const log = require('../../lib/log');
 
 // Database collections
@@ -650,6 +651,24 @@ async function promotedFolderHoldings(req, res) {
     const globalState = require('../utils/globalState');
     const ids = globalState.promotedFolderIds;
     const body = serviceHelper.ensureObject(req?.body) || {};
+
+    // NOT READY IS AN ANSWER, AND IT IS OWED IMMEDIATELY. Establishing who the caller is
+    // reads the deterministic node list, and the accessors for that WAIT for it to
+    // arrive - deliberately, for the callers that cannot tell an unknown list from an
+    // empty one. This is on a peer's monitor pass, which is the case that comment names
+    // as the one that must not reach it: parked here, the request holds a handler open
+    // and the peer that sent it learns nothing until its own probe expires, which it
+    // then reads as this node being gone rather than starting.
+    //
+    // Refused rather than answered, because the open shape cannot say this. `ready`
+    // there is syncthing's first pass, set by a different pass from this one, so a
+    // node in this state can answer `ready: true` while being unable to say who
+    // anybody is - and a peer reads that as this node holding nothing.
+    if (!networkStateService.isReady()) {
+      log.info('promotedFolderHoldings - network state has not started; answering not-ready rather than waiting for it');
+      const notReady = messageHelper.createErrorMessage('Network state is not ready', 'ServiceUnavailable', 503);
+      return res ? res.status(503).json(notReady) : notReady;
+    }
 
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     const entitled = authorized === true || await callerIsFluxnode(body);
