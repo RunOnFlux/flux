@@ -805,24 +805,17 @@ async function reconcile(rawIdentifier) {
     }
     log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
-    // The image is gone, or the image is not the one this node made. Both are
-    // about the volume rather than the host, and a host fault carries its own
-    // reason and is recorded by the boot sweep at no weight.
-    const VOLUME_FAULT_EVENTS = {
-      volume_file_missing: ['volume_missing', `Backing volume image for ${identifier} not found on disk`],
-      volume_image_unrecognised: ['volume_image_unrecognised', `Volume image for ${identifier} is not the one this node created`],
-      // The file is there and holds no filesystem the kernel knows, which is
-      // what an image overwritten with something else looks like. Recorded
-      // under the same name the boot sweep uses, so it does not go
-      // unattributed until the node next restarts.
-      mount_failed: ['volume_image_unrecognised', `Volume image for ${identifier} holds no filesystem`],
-      mount_point_not_a_directory: ['mount_vanished', `The directory ${identifier} mounts at is not a directory`],
-    };
+    // A mount fault is recorded under the same name the boot sweep uses, so a
+    // fleet query for an event sees a node whether the fault was there at boot
+    // or arose mid-run. Once per distinct reason per component, not every retry.
     const faultKey = String(volumeMount.reason).split(':')[0];
-    const faultEvent = VOLUME_FAULT_EVENTS[faultKey];
-    if (faultEvent && volumeFaultNoted.get(identifier) !== faultKey) {
+    if (volumeFaultNoted.get(identifier) !== faultKey) {
       volumeFaultNoted.set(identifier, faultKey);
-      await appTamperingDetectionService.recordEvent(mainAppName, faultEvent[0], faultEvent[1]);
+      await appTamperingDetectionService.recordEvent(
+        mainAppName,
+        appTamperingDetectionService.classifyVolumeFault(volumeMount.reason),
+        `Volume for ${identifier} not mountable: ${volumeMount.reason}`,
+      );
     }
     scheduleRetry(identifier, VOLUME_MOUNT_RETRY_MS);
     return;

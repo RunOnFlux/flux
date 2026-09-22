@@ -72,6 +72,44 @@ const EVENT_SEVERITY = {
   volume_host_fault: 0,
 };
 
+// The one mapping from a mount fault's reason to the event it is recorded as.
+// The startup sweep and the reconciler both classify through this, so a fault
+// reads the same whichever met it, and a fleet query for an event sees every
+// node rather than only those that met it at boot. A reason may carry a
+// ': detail' suffix; the stem before it selects the event.
+const VOLUME_FAULT_EVENTS = {
+  volume_file_missing: 'volume_missing',
+  volume_image_unrecognised: 'volume_image_unrecognised',
+  // No filesystem where a recorded image should be is that image overwritten.
+  mount_failed: 'volume_image_unrecognised',
+  // The mountpoint is a file, not a directory: something replaced it.
+  mount_point_not_a_directory: 'mount_vanished',
+  // The rest describe the host or this node's own state, not the operator's
+  // doing, so they weigh nothing: a read-only disk, no loop device, a refused
+  // mount, a mountpoint that could not be made, a mount table or record that
+  // would not read, an install that never finished formatting its volume.
+  host_filesystem_readonly: 'volume_host_fault',
+  mount_point_unavailable: 'volume_host_fault',
+  mount_table_unreadable: 'volume_host_fault',
+  candidate_path_unreadable: 'volume_host_fault',
+  record_unreadable: 'volume_host_fault',
+  loop_unavailable: 'volume_host_fault',
+  mount_host_refused: 'volume_host_fault',
+  volume_incomplete_install: 'volume_host_fault',
+};
+
+/**
+ * The tampering event a mount fault is recorded as, from its reason.
+ *
+ * @param {string} reason a reason from ensureAppVolumeMounted, with or without
+ *   a ': detail' suffix
+ * @returns {string} the event type; mount_vanished for a reason not named above
+ */
+function classifyVolumeFault(reason) {
+  const stem = String(reason).split(':')[0];
+  return VOLUME_FAULT_EVENTS[stem] || 'mount_vanished';
+}
+
 const EVENTS_DEFAULT_LIMIT = 500;
 const EVENTS_MAX_LIMIT = 1000;
 
@@ -555,6 +593,7 @@ async function prepareIncidentRollup() {
 
 module.exports = {
   recordEvent,
+  classifyVolumeFault,
   getEvents,
   isNetworkMissingError,
   checkNodeReboot,

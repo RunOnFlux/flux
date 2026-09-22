@@ -35,8 +35,12 @@ const enterpriseHelperMock = {
   checkAndDecryptAppSpecs: sinon.stub(),
 };
 
+// The real classifier: the boot sweep and the reconciler classify a mount fault
+// through this one function, so the mock borrows it rather than restating it.
+const { classifyVolumeFault } = require('../../ZelBack/src/services/appTamperingDetectionService');
 const appTamperingDetectionServiceMock = {
   recordEvent: sinon.stub(),
+  classifyVolumeFault,
 };
 
 // Load module with mocked dependencies

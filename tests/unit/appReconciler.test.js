@@ -2,6 +2,9 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
+// The real classifier: both the reconciler and the boot sweep classify a mount
+// fault through this one function, so the mock borrows it rather than restating it.
+const { classifyVolumeFault } = require('../../ZelBack/src/services/appTamperingDetectionService');
 
 describe('appReconciler tests', () => {
   let appReconciler;
@@ -81,7 +84,7 @@ describe('appReconciler tests', () => {
       },
       containerHealthMonitor: { recreateMissingContainers: sinon.stub().resolves() },
       appUninstaller: { removeAppLocally: sinon.stub().resolves() },
-      appTamperingDetectionService: { recordEvent: sinon.stub().resolves(), isNetworkMissingError: () => false },
+      appTamperingDetectionService: { recordEvent: sinon.stub().resolves(), isNetworkMissingError: () => false, classifyVolumeFault },
       serviceHelper: { delay: sinon.stub().resolves() },
     };
 
@@ -573,6 +576,21 @@ describe('appReconciler tests', () => {
       const events = stubs.appTamperingDetectionService.recordEvent.getCalls()
         .filter((c) => c.args[1] === 'volume_image_unrecognised');
       expect(events).to.have.lengthOf(1);
+    });
+
+    // A host fault - a read-only disk, no loop device, a refused mount - had no
+    // producer but the boot sweep, so a fault that arose after boot was invisible
+    // in the dataset that counts them until the node restarted. The reconciler
+    // now records it under the same name mid-run.
+    it('records a host fault mid-run, not only at boot', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'host_filesystem_readonly' });
+
+      await appReconciler.reconcile('www_App');
+
+      const events = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_host_fault');
+      expect(events).to.have.lengthOf(1);
+      expect(events[0].args[0]).to.equal('App');
     });
 
     // A removed component keeps no failure history. Keyed by identifier, a
