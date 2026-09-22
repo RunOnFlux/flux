@@ -744,6 +744,14 @@ async function ensureAppVolumeMounted(identifier) {
   const mountPoint = path.join(appsFolder, appId);
 
   if (await isPathMounted(mountPoint)) {
+    // The stamp is checked when THIS node mounts the volume, below. One already
+    // mounted is trusted as it is: a mismatch found here could not be acted on -
+    // unmounting a running app's volume destroys its live data - and re-reading
+    // every mounted image's stamp on every pass would blkid every volume on the
+    // node continuously for a check it could not enforce. A mount swapped by
+    // something with host root is what this leaves uncovered, and that is
+    // outside what the stamp defends.
+    //
     // A node that upgrades with its apps running never has to search for their
     // images: the loop device names its own backing file, so the path this
     // node used is readable from the kernel. Taken once, when there is nothing
@@ -860,6 +868,14 @@ async function ensureAppVolumeMounted(identifier) {
   // that basis would refuse the app's real data for good, with no way back
   // short of destroying it. So a record that does not describe where the image
   // actually is, is stale rather than damning: it is replaced below.
+  //
+  // Path-anchored, and that is the boundary: an image deleted at the recorded
+  // path and replaced at another searched location is adopted and recorded as
+  // moved (volume_image_moved, weight 0), not refused as unrecognised (weight
+  // 1) - the two cannot be told apart here. Reaching a searched path other than
+  // the app's own mounted volume takes host-level write access, which can
+  // manipulate mounts directly; the stamp defends against a container-level app
+  // planting a file where the search looks, not against host root.
   const stamped = discovered.recorded;
   const atRecordedPath = Boolean(stamped) && stamped.path === volumeFile;
   if (atRecordedPath && stamped.fsUuid) {
@@ -912,7 +928,16 @@ async function ensureAppVolumeMounted(identifier) {
     if (kind) {
       return { mounted: false, reason: `mount_host_refused: ${mountRes.error.message}` };
     }
-    return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };
+    // The image holds no filesystem. If this node recorded stamping one at this
+    // path it has been overwritten, which is evidence about the volume. If it
+    // never recorded one, the install died between allocating the file and
+    // formatting it - the node's own unfinished work, not the operator's, so it
+    // is not laid at the image. (A record that would not read returned above, so
+    // no record here means there is none, not that it could not be asked for.)
+    if (stamped) {
+      return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };
+    }
+    return { mounted: false, reason: `volume_incomplete_install: ${mountRes.error.message}` };
   }
 
   log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);

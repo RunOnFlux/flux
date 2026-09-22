@@ -252,6 +252,13 @@ export function dbClient(nodeNum) {
       await globalDb.collection('zelappsinformation').insertOne({ ...spec });
     },
 
+    // The specification row this node holds for one app. What a replayed
+    // message has to produce on a node that was never given the message.
+    async globalAppSpec(name) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').findOne({ name });
+    },
+
     // zelappsinformation holds one row per app - the CURRENT specification. An
     // update replaces it, the way hash sync does when the chain carries a newer
     // message; inserting a second row leaves the node reading whichever it finds

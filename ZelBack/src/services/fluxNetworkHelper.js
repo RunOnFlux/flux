@@ -15,7 +15,6 @@ const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
-const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
@@ -1703,7 +1702,7 @@ async function adjustExternalIP(ip) {
           await fluxCommunicationMessagesSender.broadcastMessageToAll(newIpChangedMessage);
         }
       }
-      const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
+      const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
       // Update geolocation service to track IP change and update static IP status
       // eslint-disable-next-line global-require
@@ -1960,7 +1959,7 @@ async function checkDeterministicNodesCollisions() {
           if (errorCall) {
             // Other node is confirmed offline after grace period - take over the collateral
             log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);
-            const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
+            const daemonResult = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
             log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
             // Clear any previous DOS state related to this collision
             if (getDosMessage() && getDosMessage().includes('is confirmed and reachable on flux network')) {

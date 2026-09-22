@@ -309,6 +309,16 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
+    // Named literally because they are no longer part of the schema: the payment
+    // request and receipt collections outlived the endpoint that wrote them, and
+    // a node's word was never the payment record - the chain is. Dropping is
+    // idempotent, so this costs one 'ns not found' per boot once they are gone.
+    await Promise.all(['activepaymentrequests', 'completedpayments'].map((orphan) => dbHelper
+      .dropCollection(database, orphan).catch((error) => {
+        if (error.message !== 'ns not found') {
+          log.error(error);
+        }
+      })));
     await ensureIndexes(database.collection(config.database.local.collections.loggedUsers), [
       { key: { createdAt: 1 }, expireAfterSeconds: 14 * 24 * 60 * 60 },
     ]);
@@ -317,13 +327,6 @@ async function startFluxFunctions() {
     ]);
     await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
       { key: { createdAt: 1 }, expireAfterSeconds: 900 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.activePaymentRequests), [
-      { key: { createdAt: 1 }, expireAfterSeconds: 3600 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.completedPayments), [
-      { key: { paymentId: 1 } },
-      { key: { createdAt: 1 }, expireAfterSeconds: 7 * 24 * 60 * 60 },
     ]);
     // legacy pre-incident-schema rows expire via detectedAt; current incident
     // documents expire via lastSeen. The tamper service purges pre-schema

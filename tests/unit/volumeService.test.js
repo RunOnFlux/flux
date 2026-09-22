@@ -1305,9 +1305,11 @@ describe('volumeService tests', () => {
       expect(result.reason, 'an unprobed image was scored against the operator').to.include('mount_host_refused');
     });
 
-    // blkid exits 2 for a device it recognises no filesystem on. That is the
-    // answer this asks for, and the one case that IS about the image.
-    it('names the image when the probe says it holds no filesystem', async () => {
+    // blkid exits 2 for a device it recognises no filesystem on. With a record
+    // that this node stamped an image at this path, that IS about the image: it
+    // has been overwritten.
+    it('names the image when a recorded image holds no filesystem', async () => {
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'ours-1' });
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
         mount: async () => ({ error: new Error('bad superblock'), stdout: '', stderr: '' }),
@@ -1351,7 +1353,8 @@ describe('volumeService tests', () => {
       expect(result.reason).to.include('mount_host_refused');
     });
 
-    it('should report mount_failed when the mount fails and the dir stays unmounted', async () => {
+    it('should report mount_failed when a recorded image fails to mount and the dir stays unmounted', async () => {
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'ours-1' });
       dispatchRunCommand({
         mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
         mount: async () => ({ error: new Error('bad superblock'), stdout: '', stderr: '' }),
@@ -1365,6 +1368,27 @@ describe('volumeService tests', () => {
       expect(result.mounted).to.be.false;
       expect(result.reason).to.include('mount_failed');
       expect(result.reason).to.include('bad superblock');
+    });
+
+    // An unstamped image that holds no filesystem is an install that died
+    // between allocating the file and formatting it - the node's own unfinished
+    // work, not an image an owner overwrote, so it is not scored as one.
+    it('reports an incomplete install when an unstamped image holds no filesystem', async () => {
+      appsRuntimeStateStub.getVolumeImage.resolves(null);
+      dispatchRunCommand({
+        mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }),
+        mount: async () => ({ error: new Error('bad superblock'), stdout: '', stderr: '' }),
+        blkid: async () => ({ error: Object.assign(new Error('exit 2'), { code: 2 }), stdout: '', stderr: '' }),
+      });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      fsStub.promises.readdir.resolves([]);
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.reason).to.include('volume_incomplete_install');
+      expect(result.reason).to.not.include('mount_failed');
     });
   });
 

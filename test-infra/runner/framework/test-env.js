@@ -15,7 +15,7 @@ import { execInContainer } from './container.js';
 import { waitFor } from './wait.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
-import { getSubnetConfig, REGISTRY_ALIAS } from './subnet-config.js';
+import { getSubnetConfig, REGISTRY_ALIAS, STORAGE_HOST } from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import {
   clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
@@ -1133,7 +1133,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   watchInfra(env, 'syncthingStub', syncthingStub);
 
   const externalStub = await new StaticIpContainer(image('flux-e2e-external-http-stub'))
-    .withStaticIp(networkName, EXTERNAL_STUB_IP)
+    // Also answers as Flux storage: the alias resolves through Docker's embedded
+    // DNS, and the cert under /certs is signed by the CA the nodes trust.
+    .withStaticIp(networkName, EXTERNAL_STUB_IP, [STORAGE_HOST])
+    .withBindMounts([{ source: join(fixturesDir, 'registry-tls'), target: '/certs', mode: 'ro' }])
     .withEnvironment({ STUB_PORT: '3000', CONTROL_PORT: '3001' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${EXTERNAL_STUB_IP}:3001/health`))
     .start();

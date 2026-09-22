@@ -11,13 +11,6 @@ const appTamperingDetectionService = require('../appTamperingDetectionService');
 
 const crontabLoad = util.promisify(systemcrontab.load);
 
-// Mount failures that describe the host rather than the volume. Matched on the
-// part before the colon, because two of the reasons carry the underlying error
-// after one.
-const HOST_FAULT_MOUNT_REASONS = new Set(['host_filesystem_readonly', 'mount_point_unavailable',
-  'mount_table_unreadable', 'candidate_path_unreadable', 'record_unreadable', 'loop_unavailable',
-  'mount_host_refused']);
-
 /**
  * Get all locally installed app IDs. Enterprise apps are stored locally with
  * `compose` deliberately emptied (the components only exist inside the
@@ -132,27 +125,12 @@ async function ensureInstalledAppVolumesMounted() {
     if (!mountResult.mounted) {
       log.error(`ensureInstalledAppVolumesMounted - ${appId} volume could not be mounted: ${mountResult.reason}`);
       results.failed.push({ appId, reason: mountResult.reason });
-      // A node's tampering score is a plain sum over every incident recorded on
-      // it, so a fault of the host's own must not add to one. But it is still
-      // recorded - as the zero-weighted class - because a host that cannot
-      // mount volumes is worth seeing and counting even though it is nobody's
-      // fault, and nothing else on the node reports it.
-      //
-      // Named for the fact, not the moment that found it: the reconciler
-      // records the same facts under the same names mid-run, so one app's
-      // fault reads the same whichever of the two met it, and a fleet query
-      // for either name sees every node rather than half of them.
-      //
-      // `mount_vanished` keeps the meaning its other producer gives it - a
-      // directory that should be mounted is not - rather than standing in for
-      // a missing image as well.
-      const reason = String(mountResult.reason).split(':')[0];
-      let eventType = 'mount_vanished';
-      if (HOST_FAULT_MOUNT_REASONS.has(reason)) eventType = 'volume_host_fault';
-      else if (reason === 'volume_file_missing') eventType = 'volume_missing';
-      // An image that mounts but is not this node's, and an image that holds
-      // no filesystem at all, are both the image having been written over.
-      else if (reason === 'volume_image_unrecognised' || reason === 'mount_failed') eventType = 'volume_image_unrecognised';
+      // A host fault weighs nothing - a node's score is a plain sum, and a host
+      // that cannot mount volumes is nobody's fault - but it is still recorded
+      // so the population is countable. The reason is classified the same way
+      // here and in the reconciler, so a fleet query for an event sees every
+      // node whether the fault was there at boot or arose mid-run.
+      const eventType = appTamperingDetectionService.classifyVolumeFault(mountResult.reason);
       // eslint-disable-next-line no-await-in-loop
       await appTamperingDetectionService.recordEvent(
         appId,

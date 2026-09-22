@@ -9,6 +9,7 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const signatureVerifier = require('../signatureVerifier');
+const fluxStorage = require('../utils/fluxStorage');
 const imageManager = require('../appSecurity/imageManager');
 const globalState = require('../utils/globalState');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
@@ -1210,6 +1211,37 @@ function checkComposeHWParameters(appSpecsComposed) {
 }
 
 /**
+ * Refuses a storage link that does not address Flux storage.
+ *
+ * Held to live submissions. The links already on chain were accepted under no
+ * rule at all, and a node replaying them has to reach the same verdict as every
+ * other node or the fleet builds different app lists from the same chain. What
+ * a node will actually fetch is decided at the fetch instead, where it binds to
+ * every app whatever height it was registered at.
+ *
+ * This reads the parameters the specification carries in the clear, which is
+ * all a validating node has: a v7 app's `secrets` are encrypted to the nodes
+ * that will run it, so a link inside one is not readable here and is refused
+ * at the fetch on each of those nodes instead. The fetch is what decides; this
+ * is what lets an owner be told at submission for the links it can see.
+ * @param {object} appSpecifications - Application specifications to validate.
+ * @throws {Error} If a storage link addresses anything else.
+ */
+function verifyStorageLinksOfApp(appSpecifications) {
+  const components = appSpecifications.version <= 3 ? [appSpecifications] : appSpecifications.compose;
+  components.forEach((component) => {
+    const parameters = (component.environmentParameters || component.enviromentParameters || [])
+      .concat(component.commands || []);
+    parameters.forEach((parameter) => {
+      const link = fluxStorage.storageLinkOf(parameter);
+      if (link !== null && !fluxStorage.isFluxStorageUrl(link)) {
+        throw new Error(`Storage link for Flux App ${component.name || appSpecifications.name} must address Flux storage over https`);
+      }
+    });
+  });
+}
+
+/**
  * Main validation function for application specifications
  * Validates specs including hardware requirements, architecture compatibility, and Docker compliance
  * @param {object} appSpecifications - Application specifications to validate
@@ -1329,6 +1361,11 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
         throw new Error('Datacenter requirement is only available for enterprise app owners.');
       }
     }
+  }
+
+  // STORAGE LINKS
+  if (liveSubmission) {
+    verifyStorageLinksOfApp(appSpecifications);
   }
 
   // RESTRICTION CHECKS

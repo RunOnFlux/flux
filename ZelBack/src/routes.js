@@ -5,16 +5,14 @@ const daemonServiceBenchmarkRpcs = require('./services/daemonService/daemonServi
 const daemonServiceMiningRpcs = require('./services/daemonService/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonService/daemonServiceNetworkRpcs');
 const daemonServiceNodeRpcs = require('./services/daemonService/daemonServiceFluxnodeRpcs');
-const daemonServiceWalletRpcs = require('./services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceUtilityRpcs = require('./services/daemonService/daemonServiceUtilityRpcs');
-const daemonServiceZcashRpcs = require('./services/daemonService/daemonServiceZcashRpcs');
 const daemonServiceControlRpcs = require('./services/daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
-const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxshareService = require('./services/fluxshareService');
+const paymentRelayService = require('./services/paymentRelayService');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const {
   asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
@@ -194,14 +192,26 @@ module.exports = (app) => {
   app.get('/daemon/decodescript/:hex?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.decodeScript(req, res);
   }));
-  app.get('/daemon/fundrawtransaction/:hexstring?', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.fundRawTransaction(req, res);
-  }));
   app.get('/daemon/getrawtransaction/:txid?/:verbose?', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.getRawTransaction(req, res);
   }));
   app.get('/daemon/sendrawtransaction/:hexstring?/:allowhighfees?', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.sendRawTransaction(req, res);
+  }));
+  app.get('/daemon/getaddresstxids/:address?/:start?/:end?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddresssTxids(req, res);
+  }));
+  app.get('/daemon/getaddressbalance/:address?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressBalance(req, res);
+  }));
+  app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
+  }));
+  app.get('/daemon/getaddressutxos/:address?/:chaininfo?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressUtxos(req, res);
+  }));
+  app.get('/daemon/getaddressmempool/:address?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressMempool(req, res);
   }));
   app.get('/daemon/createmultisig/:n?/:keys?', asyncRoute((req, res) => {
     return daemonServiceUtilityRpcs.createMultiSig(req, res);
@@ -217,9 +227,6 @@ module.exports = (app) => {
   }));
   app.get('/daemon/verifymessage/:fluxaddress?/:signature?/:message?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceUtilityRpcs.verifyMessage(req, res);
-  }));
-  app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getTransaction(req, res);
   }));
   app.get('/daemon/zvalidateaddress/:zaddr?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceUtilityRpcs.zValidateAddress(req, res);
@@ -689,171 +696,6 @@ module.exports = (app) => {
   app.get('/daemon/setban/:ip?/:command?/:bantime?/:absolute?', asyncRoute((req, res) => {
     return daemonServiceNetworkRpcs.setBan(req, res);
   }));
-  app.get('/daemon/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.signRawTransaction(req, res);
-  }));
-  app.get('/daemon/addmultisigaddress/:n?/:keysobject?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.addMultiSigAddress(req, res);
-  }));
-  app.get('/daemon/backupwallet/:destination?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.backupWallet(req, res);
-  }));
-  app.get('/daemon/dumpprivkey/:taddr?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.dumpPrivKey(req, res);
-  }));
-  app.get('/daemon/getbalance/:minconf?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getBalance(req, res);
-  }));
-  app.get('/daemon/getnewaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getNewAddress(req, res);
-  }));
-  app.get('/daemon/getrawchangeaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getRawChangeAddress(req, res);
-  }));
-  app.get('/daemon/getreceivedbyaddress/:fluxaddress?/:minconf?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getReceivedByAddress(req, res);
-  }));
-  app.get('/daemon/getunconfirmedbalance', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getUnconfirmedBalance(req, res);
-  }));
-  app.get('/daemon/getwalletinfo', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getWalletInfo(req, res);
-  }));
-  app.get('/daemon/importaddress/:address?/:label?/:rescan?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.importAddress(req, res);
-  }));
-  app.get('/daemon/importprivkey/:fluxprivkey?/:label?/:rescan?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.importPrivKey(req, res);
-  }));
-  app.get('/daemon/importwallet/:filename?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.importWallet(req, res);
-  }));
-  app.get('/daemon/keypoolrefill/:newsize?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.keyPoolRefill(req, res);
-  }));
-  app.get('/daemon/listaddressgroupings', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listAddressGroupings(req, res);
-  }));
-  app.get('/daemon/listlockunspent', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listLockUnspent(req, res);
-  }));
-  app.get('/daemon/listreceivedbyaddress/:minconf?/:includeempty?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listReceivedByAddress(req, res);
-  }));
-  app.get('/daemon/listsinceblock/:blockhash?/:targetconfirmations?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listSinceBlock(req, res);
-  }));
-  app.get('/daemon/listtransactions/:count?/:from?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listTransactions(req, res);
-  }));
-  app.get('/daemon/listunspent/:minconf?/:maxconf?/:addresses?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listUnspent(req, res);
-  }));
-  app.get('/daemon/lockunspent/:unlock?/:transactions?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.lockUnspent(req, res);
-  }));
-  app.get('/daemon/rescanblockchain/:startheight?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.rescanBlockchain(req, res);
-  }));
-  app.get('/daemon/sendfrom/:tofluxaddress?/:amount?/:minconf?/:comment?/:commentto?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendFrom(req, res);
-  }));
-  app.get('/daemon/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendMany(req, res);
-  }));
-  app.get('/daemon/sendtoaddress/:fluxaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendToAddress(req, res);
-  }));
-  app.get('/daemon/settxfee/:amount?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.setTxFee(req, res);
-  }));
-  app.get('/daemon/signmessage/:taddr?/:message?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.signMessage(req, res);
-  }));
-  app.get('/daemon/zexportkey/:zaddr?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zExportKey(req, res);
-  }));
-  app.get('/daemon/zexportviewingkey/:zaddr?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zExportViewingKey(req, res);
-  }));
-  app.get('/daemon/zgetbalance/:address?/:minconf?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetBalance(req, res);
-  }));
-  app.get('/daemon/zgetmigrationstatus', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetMigrationStatus(req, res);
-  }));
-  app.get('/daemon/zgetnewaddress/:type?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetNewAddress(req, res);
-  }));
-  app.get('/daemon/zgetoperationresult/:operationid?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetOperationResult(req, res);
-  }));
-  app.get('/daemon/zgetoperationstatus/:operationid?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetOperationStatus(req, res);
-  }));
-  app.get('/daemon/zgettotalbalance/:minconf?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetTotalBalance(req, res);
-  }));
-  app.get('/daemon/zimportkey/:zkey?/:rescan?/:startheight?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zImportKey(req, res);
-  }));
-  app.get('/daemon/zimportviewingkey/:vkey?/:rescan?/:startheight?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zImportViewingKey(req, res);
-  }));
-  app.get('/daemon/zimportwallet/:filename?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zImportWallet(req, res);
-  }));
-  app.get('/daemon/zlistaddresses/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListAddresses(req, res);
-  }));
-  app.get('/daemon/zlistoperationids', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListOperationIds(req, res);
-  }));
-  app.get('/daemon/zlistreceivedbyaddress/:address?/:minconf?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListReceivedByAddress(req, res);
-  }));
-  app.get('/daemon/zlistunspent/:minconf?/:maxonf?/:includewatchonly?/:addresses?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListUnspent(req, res);
-  }));
-  app.get('/daemon/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zMergeToAddress(req, res);
-  }));
-  app.get('/daemon/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zSendMany(req, res);
-  }));
-  app.get('/daemon/zsetmigration/:enabled?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zSetMigration(req, res);
-  }));
-  app.get('/daemon/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zShieldCoinBase(req, res);
-  }));
-  app.get('/daemon/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawJoinSplit(req, res);
-  }));
-  app.get('/daemon/zcrawkeygen', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawKeygen(req, res);
-  }));
-  app.get('/daemon/zcrawreceive/:zcsecretkey?/:encryptednote?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawReceive(req, res);
-  }));
-  app.get('/daemon/zcsamplejoinsplit', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
-  }));
-  app.get('/daemon/getaddresstxids/:address?/:start?/:end?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddresssTxids(req, res);
-  }));
-  app.get('/daemon/getaddressbalance/:address?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressBalance(req, res);
-  }));
-  app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
-  }));
-  app.get('/daemon/getaddressutxos/:address?/:chaininfo?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressUtxos(req, res);
-  }));
-  app.get('/daemon/getaddressmempool/:address?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressMempool(req, res);
-  }));
 
   app.get('/id/loggedusers', asyncRoute((req, res) => {
     return idService.loggedUsers(req, res);
@@ -906,9 +748,6 @@ module.exports = (app) => {
   }));
   app.get('/daemon/ping', asyncRoute((req, res) => { // we do not want this to be issued by anyone.
     return daemonServiceNetworkRpcs.ping(req, res);
-  }));
-  app.get('/daemon/zcbenchmark/:benchmarktype?/:samplecount?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcBenchmark(req, res);
   }));
   app.get('/daemon/startbenchmark', asyncRoute((req, res) => {
     return daemonServiceBenchmarkRpcs.startBenchmarkD(req, res);
@@ -1231,12 +1070,12 @@ module.exports = (app) => {
     return idService.checkLoggedUser(req, res);
   }));
 
-  // Payment request routes
+  // The rendezvous a wallet posts to, addressed by the sites that open it.
   app.get('/payment/paymentrequest', asyncRoute((req, res) => {
-    return paymentService.paymentRequest(req, res);
+    return paymentRelayService.paymentRequest(req, res);
   }));
   app.post('/payment/verifypayment', asyncRoute((req, res) => {
-    return paymentService.verifyPayment(req, res);
+    return paymentRelayService.receivePaymentCallback(req, res);
   }));
 
   app.post('/daemon/createrawtransaction', asyncRoute((req, res) => {
@@ -1247,9 +1086,6 @@ module.exports = (app) => {
   }));
   app.post('/daemon/decodescript', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.decodeScriptPost(req, res);
-  }));
-  app.post('/daemon/fundrawtransaction', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.fundRawTransactionPost(req, res);
   }));
   app.post('/daemon/sendrawtransaction', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.sendRawTransactionPost(req, res);
@@ -1314,33 +1150,6 @@ module.exports = (app) => {
   }));
 
   // POST PROTECTED API - FluxNode owner level
-  app.post('/daemon/signrawtransaction', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.signRawTransactionPost(req, res);
-  }));
-  app.post('/daemon/addmultisigaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.addMultiSigAddressPost(req, res);
-  }));
-  app.post('/daemon/sendfrom', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendFromPost(req, res);
-  }));
-  app.post('/daemon/sendmany', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendManyPost(req, res);
-  }));
-  app.post('/daemon/sendtoaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendToAddressPost(req, res);
-  }));
-  app.post('/daemon/signmessage', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.signMessagePost(req, res);
-  }));
-  app.post('/daemon/zsendmany', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zSendManyPost(req, res);
-  }));
-  app.post('/daemon/zcrawjoinsplit', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawJoinSplitPost(req, res);
-  }));
-  app.post('/daemon/zcrawreceive', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawReceivePost(req, res);
-  }));
 
   app.post('/benchmark/signfluxnodetransaction', asyncRoute((req, res) => {
     return benchmarkService.signFluxTransactionPost(req, res);

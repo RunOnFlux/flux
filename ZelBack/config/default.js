@@ -39,8 +39,6 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
-        activePaymentRequests: 'activepaymentrequests',
-        completedPayments: 'completedpayments',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',
@@ -382,6 +380,14 @@ module.exports = {
       7: isDevelopment ? 1390000 : 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope), staticip
       8: isDevelopment ? 1921500 : 1932380, // v8, brings enterprise apps using arcaneOS features to run these apps. // Around June 23th
     },
+    // Flux storage is the only host a storage link may address. The node
+    // dereferences F_S_ENV and F_S_CMD with its own signed identity before it
+    // starts a container, so the target is not the specification author's to
+    // choose. The harness reaches a stand-in under this same name - the stub
+    // carries it as a docker network alias and its certificate as a SAN - so
+    // the value is not overridden anywhere and a config that changed it would
+    // fail TLS against that certificate.
+    storageHost: 'storage.runonflux.io',
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
     addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
@@ -729,6 +735,37 @@ module.exports = {
     // Default: 15 minutes (15 * 60 * 1000 = 900000ms)
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
+  // The load balancers whose X-Forwarded-For this node will believe. A request
+  // arriving from any other address has its forwarding headers ignored entirely:
+  // every node is reachable directly on its public port, so a header from an
+  // unknown peer is chosen by the caller and says nothing.
+  //
+  // These are the addresses a node OBSERVES as its socket peer - each balancer's
+  // public egress - which is not the same as the address its hostname resolves to
+  // and not the management address ansible targets it on. Confirmed two ways
+  // (inventory plus DNS) before being listed, because a wrong entry here hands
+  // that address the power to name any client it likes, while a missing one only
+  // costs attribution on that path.
+  //
+  // Empty is safe and means "trust nothing", which is how this behaves for any
+  // balancer not yet listed.
+  fdmAddresses: [
+    // apps, production
+    '5.39.57.42', '5.39.57.43', '5.39.57.44', '5.39.57.45',
+    '146.190.83.190', '146.190.103.145', '134.209.107.70', '146.190.105.10',
+    '5.161.211.14', '5.161.178.20', '5.161.42.73', '5.161.81.155',
+    // apps, staging
+    '5.161.215.75', '5.161.109.34', '5.39.57.46', '5.39.57.47',
+    // main - one geo-steered name over three regional balancers, so resolving
+    // it from a single location returns that region's alone. The eu box is in
+    // the ansible inventory by its private address only.
+    '5.39.57.40', '128.199.246.121', '5.161.44.226',
+    // nodes - the per-node API hostnames the frontend pins to after login, and so
+    // the path a playground submission takes. These two are the whole fleet; they
+    // are absent from the ansible inventory and deployed by hand, so a change to
+    // the balancers will not show up here on its own.
+    '5.39.57.41', '5.161.198.150',
+  ],
   github: {
     // The REST API only. Nothing here reads files from github: the policy documents are
     // served from config.policy.baseUrl.

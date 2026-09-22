@@ -21,6 +21,8 @@ const request = require('supertest');
 const apicache = require('apicache');
 
 const registerRoutes = require('../../ZelBack/src/routes');
+const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
+const { FluxRpc } = require('../../ZelBack/src/services/utils/fluxRpc');
 const {
   asyncRoute, cache, rejectQueryParameters, requireBootSettled,
 } = require('../../ZelBack/src/services/utils/routeGuards');
@@ -407,12 +409,14 @@ describe('route wiring', () => {
     });
 
     // Without this the assertion below passes on an analysis that resolved
-    // nothing at all.
+    // nothing at all. A floor rather than a count: removing fluxd's wallet RPCs
+    // took their operator checks with them, and a route surface that is
+    // deliberately shrinking must not need this edited every time it does.
     it('finds the privilege checks it is looking for', () => {
       const checked = registrations.filter((route) => route.handlers.length === 1
         && (checkersIn(route.handlers[0].module) || new Set()).has(route.handlers[0].fn));
 
-      expect(checked.length).to.be.greaterThan(200);
+      expect(checked.length).to.be.greaterThan(150);
     });
 
     it('are answered by their handler, never from a cache', () => {
@@ -441,7 +445,7 @@ describe('route wiring', () => {
     });
 
     it('are read from a route file that registered something, so an empty read cannot pass', () => {
-      expect(registrations.length).to.be.greaterThan(400);
+      expect(registrations.length).to.be.greaterThan(300);
     });
 
     it('answer the caller, rather than taking the node down with them', () => {
@@ -450,6 +454,143 @@ describe('route wiring', () => {
         .map((route) => `${route.method} ${route.path}`);
 
       expect(dropped, 'these discard the promise their handler returns').to.deep.equal([]);
+    });
+  });
+  // The daemon RPCs a node publishes, as a whole list rather than a set of
+  // absences. FluxOS used to proxy every wallet RPC fluxd has - key export and
+  // import, spending, signing, the shielded pool - and a fluxnode has no wallet
+  // to drive: its only daemon-side secret is the node identity, and the one call
+  // that uses it creates the confirmation transaction. Those routes are gone.
+  //
+  // Pinned as the full surface because the guarantee is which RPCs a node
+  // answers at all, and an assertion that one route is missing holds just as
+  // well over a route table that failed to build. A wallet RPC coming back fails
+  // this, and so does a lookup quietly disappearing.
+  describe('the daemon RPCs a node publishes', () => {
+    const expected = [
+      'get /daemon/addnode/:node?/:command?',
+      'get /daemon/clearbanned',
+      'get /daemon/createfluxnodekey',
+      'get /daemon/createmultisig/:n?/:keys?',
+      'get /daemon/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?',
+      'get /daemon/createzelnodekey',
+      'get /daemon/decoderawtransaction/:hexstring?',
+      'get /daemon/decodescript/:hex?',
+      'get /daemon/disconnectnode/:node?',
+      'get /daemon/estimatefee/:nblocks?',
+      'get /daemon/estimatepriority/:nblocks?',
+      'get /daemon/fluxnodecurrentwinner',
+      'get /daemon/getaddednodeinfo/:dns?/:node?',
+      'get /daemon/getaddressbalance/:address?',
+      'get /daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?',
+      'get /daemon/getaddressmempool/:address?',
+      'get /daemon/getaddresstxids/:address?/:start?/:end?',
+      'get /daemon/getaddressutxos/:address?/:chaininfo?',
+      'get /daemon/getbenchmarks',
+      'get /daemon/getbenchstatus',
+      'get /daemon/getbestblockhash',
+      'get /daemon/getblock/:hashheight?/:verbosity?',
+      'get /daemon/getblockchaininfo',
+      'get /daemon/getblockcount',
+      'get /daemon/getblockdeltas/:hash?',
+      'get /daemon/getblockhash/:index?',
+      'get /daemon/getblockhashes/:high?/:low?/:noorphans?/:logicaltimes?',
+      'get /daemon/getblockheader/:hash?/:verbose?',
+      'get /daemon/getblocksubsidy/:height?',
+      'get /daemon/getblocktemplate/:jsonrequestobject?',
+      'get /daemon/getchaintips',
+      'get /daemon/getconnectioncount',
+      'get /daemon/getdeprecationinfo',
+      'get /daemon/getdifficulty',
+      'get /daemon/getdoslist',
+      'get /daemon/getfluxnodecount',
+      'get /daemon/getfluxnodeoutputs',
+      'get /daemon/getfluxnodestatus',
+      'get /daemon/getinfo',
+      'get /daemon/getlocalsolps',
+      'get /daemon/getmempoolinfo',
+      'get /daemon/getmininginfo',
+      'get /daemon/getnettotals',
+      'get /daemon/getnetworkhashps/:blocks?/:height?',
+      'get /daemon/getnetworkinfo',
+      'get /daemon/getnetworksolps/:blocks?/:height?',
+      'get /daemon/getpeerinfo',
+      'get /daemon/getrawmempool/:verbose?',
+      'get /daemon/getrawtransaction/:txid?/:verbose?',
+      'get /daemon/getspentinfo/:txid?/:index?',
+      'get /daemon/getstartlist',
+      'get /daemon/gettxout/:txid?/:n?/:includemempool?',
+      'get /daemon/gettxoutproof/:txids?/:blockhash?',
+      'get /daemon/gettxoutsetinfo',
+      'get /daemon/getzelnodecount',
+      'get /daemon/getzelnodeoutputs',
+      'get /daemon/getzelnodestatus',
+      'get /daemon/help/:command?',
+      'get /daemon/listbanned',
+      'get /daemon/listfluxnodeconf/:filter?',
+      'get /daemon/listfluxnodes/:filter?',
+      'get /daemon/listzelnodeconf/:filter?',
+      'get /daemon/listzelnodes/:filter?',
+      'get /daemon/ping',
+      'get /daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?',
+      'get /daemon/reindex',
+      'get /daemon/restart',
+      'get /daemon/sendrawtransaction/:hexstring?/:allowhighfees?',
+      'get /daemon/setban/:ip?/:command?/:bantime?/:absolute?',
+      'get /daemon/start',
+      'get /daemon/startbenchmark',
+      'get /daemon/startdeterministicfluxnode/:alias?/:lockwallet?',
+      'get /daemon/startdeterministiczelnode/:alias?/:lockwallet?',
+      'get /daemon/startfluxnode/:set?/:lockwallet?/:alias?',
+      'get /daemon/startzelnode/:set?/:lockwallet?/:alias?',
+      'get /daemon/stop',
+      'get /daemon/stopbenchmark',
+      'get /daemon/submitblock/:hexdata?/:jsonparametersobject?',
+      'get /daemon/validateaddress/:fluxaddress?',
+      'get /daemon/verifychain/:checklevel?/:numblocks?',
+      'get /daemon/verifymessage/:fluxaddress?/:signature?/:message?',
+      'get /daemon/verifytxoutproof/:proof?',
+      'get /daemon/viewdeterministicfluxnodelist/:filter?',
+      'get /daemon/viewdeterministiczelnodelist/:filter?',
+      'get /daemon/zvalidateaddress/:zaddr?',
+      'post /daemon/createmultisig',
+      'post /daemon/createrawtransaction',
+      'post /daemon/decoderawtransaction',
+      'post /daemon/decodescript',
+      'post /daemon/getaddressbalance',
+      'post /daemon/getaddressdeltas',
+      'post /daemon/getaddressmempool',
+      'post /daemon/getaddresstxids',
+      'post /daemon/getaddressutxos',
+      'post /daemon/getblockhashes',
+      'post /daemon/getspentinfo',
+      'post /daemon/sendrawtransaction',
+      'post /daemon/submitblock',
+      'post /daemon/verifymessage',
+    ];
+
+    it('is exactly this list', () => {
+      const daemon = recordRouteTable()
+        .filter((route) => route.path.startsWith('/daemon'))
+        .map((route) => `${route.method} ${route.path}`)
+        .sort();
+
+      expect(daemon).to.deep.equal(expected);
+    });
+
+    it('keeps the confirmation transaction the node re-confirms itself with', () => {
+      expect(daemonServiceFluxnodeRpcs.createConfirmationTransaction).to.be.a('function');
+    });
+
+    it('can no longer ask fluxd for a wallet RPC at all', () => {
+      const client = new FluxRpc('http://127.0.0.1:16124', { mode: 'fluxd' });
+      const walletRpcs = ['dumpprivkey', 'importprivkey', 'sendtoaddress', 'gettransaction',
+        'signrawtransaction', 'fundrawtransaction', 'z_exportkey', 'z_sendmany'];
+
+      const reachable = walletRpcs.filter((method) => client.methods.has(method));
+
+      expect(reachable, 'the rpc client still names these methods').to.deep.equal([]);
+      expect(client.methods.has('createconfirmationtransaction')).to.equal(true);
     });
   });
 });

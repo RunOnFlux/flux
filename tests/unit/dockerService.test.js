@@ -62,22 +62,13 @@ describe('dockerService tests', () => {
       expect(result).to.equal(appName);
     });
 
-    it('should add "zel" to app identifier if it is KadenaChainWebNode', async () => {
-      const appName = 'KadenaChainWebNode';
-      const expected = 'zelKadenaChainWebNode';
-
-      const result = dockerService.getAppIdentifier(appName);
-
-      expect(result).to.equal(expected);
-    });
-
-    it('should add "zel" to app identifier if it is FoldingAtHomeB', async () => {
-      const appName = 'FoldingAtHomeB';
-      const expected = 'zelFoldingAtHomeB';
-
-      const result = dockerService.getAppIdentifier(appName);
-
-      expect(result).to.equal(expected);
+    // KadenaChainWebNode and FoldingAtHomeB were once forced to a zel prefix;
+    // neither is registered anywhere and the volumes they named are long gone,
+    // so they take the flux prefix like every other name. This guards against
+    // the special-case being reintroduced.
+    it('gives the formerly zel-prefixed names the flux prefix like any other', async () => {
+      expect(dockerService.getAppIdentifier('KadenaChainWebNode')).to.equal('fluxKadenaChainWebNode');
+      expect(dockerService.getAppIdentifier('FoldingAtHomeB')).to.equal('fluxFoldingAtHomeB');
     });
 
     it('should add "flux" to app identifier with any other name', async () => {
@@ -112,7 +103,7 @@ describe('dockerService tests', () => {
       expect(dockerService.getBaseAppName('db_App')).to.equal('db_App');
     });
 
-    it('should round-trip getAppIdentifier for compose and zel-legacy names', async () => {
+    it('should round-trip getAppIdentifier for compose and plain names', async () => {
       ['db_App', 'testing1234', 'KadenaChainWebNode', 'FoldingAtHomeB'].forEach((bare) => {
         expect(dockerService.getBaseAppName(dockerService.getAppIdentifier(bare))).to.equal(bare);
       });
@@ -1921,7 +1912,7 @@ describe('dockerService tests', () => {
       const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
       const nodeApp = {
         ...baseNodeApp,
-        enviromentParameters: ['F_S_ENV=https://storage.example/env'],
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io/v1/env/123'],
         containerPorts: [],
         ports: [],
         version: 3,
@@ -1932,6 +1923,131 @@ describe('dockerService tests', () => {
 
       sinon.assert.notCalled(fetch);
       sinon.assert.notCalled(dockerStub);
+    });
+
+    // The link decides where a node sends a request carrying its own signature,
+    // so it is checked before the request is built rather than trusted because
+    // the specification was signed by its owner. Anyone who can register an app
+    // writes this field.
+    it('refuses to fetch parameters from anywhere but Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=http://169.254.169.254/latest/meta-data/'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // The link the door approved is the link the fetch requests. Read by
+    // splitting on the marker, a second occurrence of it inside the query
+    // truncates the URL, and the node then asks for something nothing
+    // validated.
+    it('requests the whole link the marker carries', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const link = 'https://storage.runonflux.io/v1/env/123?x=F_S_ENV=y';
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: [`F_S_ENV=${link}`],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal(link);
+    });
+
+    // The command marker is fetched by the same rules as the environment one,
+    // and pinned separately: one reading them differently is how the two
+    // drifted apart.
+    it('requests the whole link the command marker carries', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['--chain'] });
+      const link = 'https://storage.runonflux.io/v1/cmd/123?x=F_S_CMD=y';
+      const nodeApp = {
+        ...baseNodeApp,
+        commands: [`F_S_CMD=${link}`],
+        enviromentParameters: [],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal(link);
+    });
+
+    it('refuses a command link that does not address Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['--chain'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        commands: ['F_S_CMD=https://storage.runonflux.io:8443/v1/cmd/123'],
+        enviromentParameters: [],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // An address is more than a host: another port on the same machine is
+    // another service, and the node signs whatever it sends there.
+    it('refuses a link naming another port on the storage host', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io:8443/v1/env/123'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // The host is the whole of the check, so a storage answering 302 would
+    // otherwise choose the node's next request for it.
+    it('does not follow a redirect away from Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io/v1/env/123'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal('https://storage.runonflux.io/v1/env/123');
+      expect(fetch.firstCall.args[1].maxRedirects).to.equal(0);
     });
 
     it('should create an app given proper parameters for specs version > 1', async () => {

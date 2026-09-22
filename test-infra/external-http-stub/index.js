@@ -2,6 +2,7 @@ const zlib = require('zlib');
 const dgram = require('dgram');
 const fs = require('fs');
 const crypto = require('crypto');
+const https = require('https');
 const express = require('express');
 const {
   PINNED_PUBLIC_HEX, SECONDARY_PUBLIC_HEX, ROGUE_PUBLIC_HEX, signBundle,
@@ -9,6 +10,8 @@ const {
 
 const PORT = parseInt(process.env.STUB_PORT || '3000', 10);
 const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
+const STORAGE_PORT = parseInt(process.env.STORAGE_PORT || '443', 10);
+const STORAGE_TLS_DIR = process.env.STORAGE_TLS_DIR || '/certs';
 
 // The harness fleet lives in 198.18.0.0/15 (RFC 2544 benchmarking range).
 const HARNESS_NET_START = (198 * 2 ** 24) + (18 * 2 ** 16);
@@ -830,10 +833,60 @@ app.get('/artifact/:name', (req, res) => {
   return res.end(artifact.body);
 });
 
+// --- Flux storage ---
+//
+// A storage link is the one address a node dereferences on a specification's
+// behalf, and the node requires https and this host. Serving that name from
+// inside the fleet, under a cert the nodes already trust, is what lets the
+// fetch itself run in a suite.
+//
+// The routes live on their own listener rather than beside the artifact store,
+// so a recorded request is one that arrived over TLS at this hostname - the
+// record is then evidence about the rule and not merely about the stub.
+
+const storagePayloads = new Map();
+const storageRequests = [];
+
+const storage = express();
+
+storage.get('/:name', (req, res) => {
+  // Recorded before the payload is looked up, so a request for something that
+  // was never staged is still a request this node chose to make.
+  storageRequests.push({
+    name: req.params.name,
+    at: new Date().toISOString(),
+    fluxApp: req.get('flux-app') || null,
+    fluxMessage: req.get('flux-message') || null,
+    fluxSignature: req.get('flux-signature') || null,
+  });
+  const staged = storagePayloads.get(req.params.name);
+  if (!staged) return res.status(404).json({ error: 'no such payload' });
+  if (staged.redirectTo) {
+    res.setHeader('location', staged.redirectTo);
+    return res.status(302).end();
+  }
+  return res.json(staged.body);
+});
+
 // --- Control API ---
 
 const control = express();
 control.use(express.json());
+
+control.post('/storage', (req, res) => {
+  const { name, body = null, redirectTo = null } = req.body || {};
+  storagePayloads.set(name, { body, redirectTo });
+  res.json({ ok: true });
+});
+
+control.get('/storage-requests', (req, res) => {
+  res.json({ requests: storageRequests });
+});
+
+control.post('/storage-requests/reset', (req, res) => {
+  storageRequests.length = 0;
+  res.json({ ok: true });
+});
 
 control.get('/state', (req, res) => {
   // the wire artifact is opaque bytes; its size, its claimed row count and the
@@ -1184,3 +1237,23 @@ app.listen(PORT, () => {
 control.listen(CONTROL_PORT, () => {
   console.log(`External HTTP stub control API on port ${CONTROL_PORT}`);
 });
+
+// Absent TLS material leaves the listener down rather than failing the stub:
+// every other surface here is plain HTTP, and a fleet that registers no storage
+// link never reaches this one.
+const storageCert = `${STORAGE_TLS_DIR}/storage-cert.pem`;
+const storageKey = `${STORAGE_TLS_DIR}/storage-key.pem`;
+if (fs.existsSync(storageCert) && fs.existsSync(storageKey)) {
+  const server = https.createServer(
+    { cert: fs.readFileSync(storageCert), key: fs.readFileSync(storageKey) },
+    storage,
+  );
+  server.on('error', (error) => {
+    console.error(`External HTTP stub Flux storage error: ${error.message}`);
+  });
+  server.listen(STORAGE_PORT, () => {
+    console.log(`External HTTP stub Flux storage on port ${STORAGE_PORT}`);
+  });
+} else {
+  console.log(`External HTTP stub Flux storage off: no TLS material in ${STORAGE_TLS_DIR}`);
+}

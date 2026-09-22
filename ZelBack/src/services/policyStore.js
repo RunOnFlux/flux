@@ -276,13 +276,20 @@ function onBundleChanged(listener) {
   return () => bundleListeners.delete(listener);
 }
 
-function adopt(raw, payload, source) {
+async function adopt(raw, payload, source) {
   current = payload;
   currentRaw = raw;
   refreshGate();
   log.info(`policyStore - adopted seq ${payload.seq} from ${source}`);
   // Adopting settles it too: this bundle came from outside this node, moments ago.
   markConfirmed(`adoption from ${source}`);
+  // Persisted before anything downstream is told. A subscriber reacts by fetching the
+  // artifact this bundle names, and a restart restores whatever is on disk, so neither may
+  // run against a bundle this node has not written yet. Failing to store is untidy rather
+  // than incorrect - the node is already running on the verified bundle in memory - so a
+  // write failure is logged and the announce and notify below still happen.
+  await policyArtifactRepository.writeBundle(raw, payload.seq)
+    .catch((error) => log.warn(`policyStore - could not persist bundle: ${error.message}`));
   // Announced on adoption, never on a timer. Each adopter tells its own peers, so a change
   // spreads outwards from whichever node reached the backstop first rather than every node
   // waiting out its own interval. The traffic is bounded by how often policy changes.
@@ -290,11 +297,6 @@ function adopt(raw, payload, source) {
     peerAnnounce(payload.seq).catch((error) => log.warn(`policyStore - could not announce seq: ${error.message}`));
   }
   notifyBundleChanged(source);
-  // Persisted as the bytes that were verified. Failing to store is untidy rather than
-  // incorrect: this node is already running on the bundle, it just will not have it at the
-  // next boot.
-  policyArtifactRepository.writeBundle(raw, payload.seq)
-    .catch((error) => log.warn(`policyStore - could not persist bundle: ${error.message}`));
 }
 
 // What a candidate turned out to be. Three outcomes, not two: a body that did not verify
@@ -309,7 +311,7 @@ const VERDICT = Object.freeze({ ADOPTED: 'adopted', LEVEL: 'level', REJECTED: 'r
  * minSeq is getSeq() rather than getSeq() + 1: re-verifying the sequence already held is
  * harmless and means a source that is merely level is not treated as hostile.
  */
-function consider(raw, source) {
+async function consider(raw, source) {
   const payload = verifyBundle(raw, {
     publicKeys: config.policy.publicKeys,
     minSeq: getSeq(),
@@ -317,7 +319,7 @@ function consider(raw, source) {
   });
   if (!payload) return VERDICT.REJECTED;
   if (current && payload.seq === current.seq) return VERDICT.LEVEL; // valid, but nothing new
-  adopt(raw, payload, source);
+  await adopt(raw, payload, source);
   return VERDICT.ADOPTED;
 }
 
@@ -376,8 +378,18 @@ async function restore() {
  * @param {string} raw The bundle as received.
  * @returns {boolean} Whether it was adopted.
  */
-function offerBundle(raw, peerKey, correlationId) {
-  const verdict = consider(raw, 'peer');
+async function offerBundle(raw, peerKey, correlationId) {
+  let verdict = VERDICT.REJECTED;
+  try {
+    verdict = await consider(raw, 'peer');
+  } catch (error) {
+    // Nothing awaits this. The message handler calls it detached, so a failure
+    // leaving here is a rejected promise that reaches the process, whose answer
+    // to one is to exit - on a message a peer chose the contents of. A bundle
+    // that could not be considered did not verify, and the ask is settled on
+    // that below rather than left for its deadline to find.
+    log.error(`policyStore - bundle from ${peerKey} could not be considered: ${error.message}`);
+  }
   // A bundle that verifies leaves this node level with the peer that sent it, whether it
   // carried something newer or the sequence already held - so that peer is not ahead. One
   // that does not verify establishes nothing beyond the peer having answered.
@@ -554,7 +566,7 @@ async function considerBackstopFetch() {
     if (!raw) return;
     // A body that verifies is the publisher answering, which is the one answer that means
     // current rather than merely not-behind-my-neighbours.
-    if (consider(raw, 'backstop') !== VERDICT.REJECTED) markConfirmed('the published source');
+    if (await consider(raw, 'backstop') !== VERDICT.REJECTED) markConfirmed('the published source');
   } finally {
     backstopFetchInFlight = false;
     lastBackstopAttemptAt = monotonicMs();
@@ -621,7 +633,7 @@ async function refresh() {
     lastBackstopAttemptAt = monotonicMs();
   }
   if (!raw) return false;
-  const verdict = consider(raw, 'backstop');
+  const verdict = await consider(raw, 'backstop');
   // The source answered, and what it said VERIFIED. Even when it carried the sequence we
   // already had - which is the ordinary case - that is the publisher itself, which is the
   // one answer that DOES mean current rather than merely not-behind-my-neighbours.

@@ -135,6 +135,18 @@ describe('policySignature', () => {
       expect(rejections[0], 'it was refused for its shape, having got past the cap').to.include('over the');
     });
 
+    // `raw` is whatever a peer put in the message. Buffer.byteLength raises on a
+    // value that is not text rather than answering, and the caller is async, so a
+    // raise here leaves as a rejected promise no try reaches.
+    it('refuses a bundle that is not text rather than throwing', () => {
+      const notText = { length: 1 };
+      expect(() => verifyBundle(notText, { publicKeys: [key.publicHex], onReject })).to.not.throw();
+      expect(verifyBundle(notText, { publicKeys: [key.publicHex], onReject })).to.equal(null);
+      expect(rejections[0]).to.include('not text');
+      expect(verifyBundle(() => {}, { publicKeys: [key.publicHex], onReject })).to.equal(null);
+      expect(verifyBundle(12345, { publicKeys: [key.publicHex], onReject })).to.equal(null);
+    });
+
     it('refuses when no pinned key is usable', () => {
       const result = verifyBundle(sign(key.privateKey, payload()), { publicKeys: ['not-a-key', ''], onReject });
       expect(result).to.equal(null);

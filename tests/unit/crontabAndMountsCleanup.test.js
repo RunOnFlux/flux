@@ -35,8 +35,12 @@ const enterpriseHelperMock = {
   checkAndDecryptAppSpecs: sinon.stub(),
 };
 
+// The real classifier: the boot sweep and the reconciler classify a mount fault
+// through this one function, so the mock borrows it rather than restating it.
+const { classifyVolumeFault } = require('../../ZelBack/src/services/appTamperingDetectionService');
 const appTamperingDetectionServiceMock = {
   recordEvent: sinon.stub(),
+  classifyVolumeFault,
 };
 
 // Load module with mocked dependencies
@@ -422,6 +426,20 @@ describe('crontabAndMountsCleanup tests', () => {
       // reconciler records it under this name mid-run
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.true;
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    // An install that died before formatting its volume is unfinished node work,
+    // not an image an owner overwrote: recorded at no weight, never scored.
+    it('records an incomplete install as a host fault, not as an overwritten image', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_incomplete_install: bad superblock' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_incomplete_install: bad superblock' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.false;
     });
   });
 
