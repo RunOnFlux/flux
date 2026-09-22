@@ -235,12 +235,10 @@ if [ -n "$FLUX_FLUXOS_USER" ]; then
   FLUXOS_GID="$(id -g "$FLUX_FLUXOS_USER")"
   HOME="$(getent passwd "$FLUX_FLUXOS_USER" | cut -d: -f6)"
   export HOME
-  # The whole install, because that is what it is on such a node: the account that
-  # runs FluxOS is the account that installed it, and FluxOS writes across its own
-  # tree - its logs, its config, and the TLS key it generates into certs/ at first
-  # boot, whose script discards its own errors so a refusal there surfaces only as
-  # the read that follows it.
-  chown -R "$FLUXOS_UID:$FLUXOS_GID" /flux "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
+  # The apps folder only. The install itself already belongs to this account, from
+  # the image - a recursive chown of it here would copy the whole tree up into the
+  # overlay and outlast the node's readiness window.
+  chown "$FLUXOS_UID:$FLUXOS_GID" "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
   set -- setpriv --reuid="$FLUXOS_UID" --regid="$FLUXOS_GID" --init-groups "$@"
 fi
 

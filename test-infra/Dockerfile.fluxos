@@ -136,18 +136,6 @@ RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list \
 # recent. Emptied, the index is then both absent and apparently current, and every
 # install fails with `Unable to locate package` before reaching the network at all.
 
-WORKDIR /flux
-
-COPY package.json ./
-RUN npm install --production
-
-COPY . .
-
-COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
-
-RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
-    && ln -s /flux /root/zelflux
-
 # The account a node runs FluxOS under when it is not root.
 #
 # FluxOS is root on Arcane and the user the operator installed it as everywhere
@@ -172,6 +160,27 @@ RUN set -eu; \
     printf 'fluxuser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/fluxuser; \
     chmod 0440 /etc/sudoers.d/fluxuser; \
     sudo -n -u fluxuser sudo -n id -u | grep -qx 0
+
+WORKDIR /flux
+
+COPY package.json ./
+RUN npm install --production
+
+# The install belongs to the account that runs it, which is what an operator's own
+# install looks like and what lets FluxOS write its logs, its config and the TLS
+# key it generates at first boot. Carried by the copy rather than a chown of its
+# own: on an overlay filesystem a recursive chown copies every file it touches up
+# into the container's writable layer, which on this tree is minutes of boot and
+# reads as a node that never came up. node_modules keeps root's ownership - it is
+# .dockerignore'd here and installed above, and FluxOS only reads it. Root ignores
+# all of it, so the image is unchanged for a node that stays root.
+COPY --chown=fluxuser:fluxuser . .
+
+COPY --chown=fluxuser:fluxuser test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
+
+RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
+    && chown fluxuser:fluxuser /flux /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
+    && ln -s /flux /root/zelflux
 
 ENV NODE_CONFIG_DIR=/flux/ZelBack/config
 
