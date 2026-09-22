@@ -2503,6 +2503,123 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.isSafe).to.be.true;
     });
 
+    // A volume holds what the app's container wrote, under the ownership and mode that
+    // container chose - postgres keeps PGDATA at 0700 and refuses to start otherwise,
+    // on every start - while syncthing indexes it as root. On a node where FluxOS is
+    // not root the two sides of this check see different filesystems, and the one that
+    // can see less is the one deciding whether to stop the app.
+    const lockedAppdata = () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/appdata').rejects(
+        Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+      );
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, state: 'idle',
+      });
+    };
+
+    const findCall = () => serviceHelperMock.runCommand.getCalls().find((call) => call.args[0] === 'find');
+
+    it('does not demote a volume whose data this process is not permitted to see', async () => {
+      lockedAppdata();
+      serviceHelperMock.runCommand.resolves({ error: null, stdout: '/apps/test-app/appdata/base/world.db\n', stderr: '' });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe).to.be.true;
+      // The probe has to have happened, and on the subtree the walk was refused: a
+      // verdict that holds whether or not it ran proves nothing about the escalation.
+      expect(findCall(), 'the refused subtree is asked of root').to.exist;
+      expect(findCall().args[1].runAsRoot).to.be.true;
+      expect(findCall().args[1].params).to.deep.equal([
+        '/apps/test-app/appdata', '-type', 'f', '-print', '-quit',
+      ]);
+    });
+
+    it('flags a phantom when root confirms the unreadable volume holds nothing', async () => {
+      lockedAppdata();
+      serviceHelperMock.runCommand.resolves({ error: null, stdout: '', stderr: '' });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(findCall(), 'the refused subtree is asked of root').to.exist;
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
+    // find reports a subtree it could not read as a non-zero exit, which is the only
+    // signal that survives the node's locale.
+    it('leaves the folder alone when nothing on the node can read the volume', async () => {
+      lockedAppdata();
+      serviceHelperMock.runCommand.resolves({ error: new Error('command exited with code 1'), stdout: '', stderr: '' });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('test-app', 'volume_unreadable')).to.be.true;
+    });
+
+    // The privileged read carries the caller's notion of content unchanged. A folder
+    // whose payload is empty directories holds no regular file at all, so asking root
+    // for one would answer every such folder "empty" and demote it. Reached through an
+    // unreadable volume root, which is the only way this reading gets that far: below
+    // the root, a directory nothing can enter has already been counted where it sits.
+    it('asks root for any entry when the index claims directories', async () => {
+      fsMock.promises.readdir.rejects(
+        Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+      );
+      serviceHelperMock.runCommand.resolves({ error: null, stdout: '/apps/test-app/a\n', stderr: '' });
+
+      const check = await stateMachine.checkDirectoryHasSyncScopedContent('/apps/test-app', [], { countDirs: true });
+
+      expect(findCall().args[1].params).to.deep.equal([
+        '/apps/test-app', '-mindepth', '1', '-print', '-quit',
+      ]);
+      expect(check.hasContent).to.be.true;
+    });
+
+    // An entry that is GONE is an answer about the disk, and a walk meets one whenever
+    // something is removed under it. Only a refusal is worth a privileged read.
+    it('treats a vanished directory as the answer it is, without escalating', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/appdata').rejects(
+        Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+      );
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, state: 'idle',
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(findCall(), 'a missing entry is not asked of root').to.not.exist;
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
+    // find reads a leading dash as an option, and an app names the directories on its
+    // own volume: handed `--version` as a bare name it prints its own version and exits
+    // 0, which reads as a file found and disables this guard. Absolute paths cannot be
+    // parsed that way, and that is the property enforced rather than assumed.
+    it('refuses to hand find a path it could read as an option', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('relative-root').resolves([dirent('--version', false)]);
+      fsMock.promises.readdir.withArgs('relative-root/--version').rejects(
+        Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+      );
+
+      const check = await stateMachine.checkDirectoryHasSyncScopedContent('relative-root', [], { countDirs: false });
+
+      expect(findCall(), 'a relative path is never handed to find').to.not.exist;
+      expect(check.hasContent).to.be.false;
+      expect(check.readable, 'unread is not the same as empty').to.be.false;
+    });
+
     // Every one of these exclusions is a .stignore line anchored to the folder root, so
     // the same name inside the owner's own tree is their data. Asserted on the count,
     // which is where it shows: the verdict is already decided by the root entry above it.

@@ -78,18 +78,29 @@ function noteSafetyObservation(appId, observation, logFn, message) {
  * exclusion derived from a syncthing ignore line means: those lines are anchored to
  * the folder root, so a name repeated deeper in the owner's own tree is their data
  * and is counted.
+ *
+ * A directory this process was not shown is reported, not counted as empty. The two
+ * ways a read fails are different facts: ENOENT is the entry being gone, which is an
+ * answer about the disk and happens normally when something is removed mid-walk,
+ * while a refusal or an I/O error says only that this process could not look. A
+ * volume holds what the app's container wrote, under whatever ownership and mode that
+ * container chose, and FluxOS is root on Arcane and the operator's user elsewhere - so
+ * a caller deciding on a count of zero has to be able to tell the two apart.
+ *
  * @param {string} dirPath - Directory to scan
  * @param {number} limit - Stop counting once this many entries are found
  * @param {{excludeNames?: string[], excludeDirs?: string[],
  *   excludeRoot?: (name: string) => boolean, countDirs?: boolean}} options - Skips, and
  *   whether a (non-excluded) directory counts as content in its own right rather than
  *   only as a subtree to descend into.
- * @returns {Promise<number>} Number of entries found (capped at limit)
+ * @returns {Promise<{count: number, unreadable: string[]}>} Entries found (capped at
+ *   limit), and the absolute paths of the directories that could not be read
  */
 async function countFilesUpTo(dirPath, limit, {
   excludeNames = [], excludeDirs = [], excludeRoot = null, countDirs = false,
 } = {}) {
   let count = 0;
+  const unreadable = [];
   const pending = [{ dir: dirPath, isRoot: true }];
   while (pending.length > 0 && count < limit) {
     const current = pending.pop();
@@ -98,7 +109,7 @@ async function countFilesUpTo(dirPath, limit, {
       // eslint-disable-next-line no-await-in-loop
       entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
     } catch (error) {
-      // unreadable/missing directory - skip it, like find does
+      if (error.code !== 'ENOENT') unreadable.push(current.dir);
       // eslint-disable-next-line no-continue
       continue;
     }
@@ -129,7 +140,7 @@ async function countFilesUpTo(dirPath, limit, {
       }
     }
   }
-  return count;
+  return { count, unreadable };
 }
 
 /**
@@ -138,11 +149,68 @@ async function countFilesUpTo(dirPath, limit, {
  * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
  */
 async function checkDirectoryHasContent(dirPath) {
-  const fileCount = await countFilesUpTo(dirPath, 100);
+  const { count } = await countFilesUpTo(dirPath, 100);
   return {
-    hasContent: fileCount > 0,
-    fileCount,
+    hasContent: count > 0,
+    fileCount: count,
   };
+}
+
+const PrivilegedProbe = Object.freeze({
+  FOUND: 'found',
+  NONE: 'none',
+  UNKNOWN: 'unknown',
+});
+
+// A find over a subtree holding nothing walks all of it, and the monitor pass it runs
+// in has a folder loop behind it.
+const PRIVILEGED_PROBE_TIMEOUT_MS = 10_000;
+// One volume has one primary mount and a handful of m: directories. A bound keeps a
+// volume carrying more than that from turning one safety check into a fork storm.
+const PRIVILEGED_PROBE_LIMIT = 8;
+
+/**
+ * Whether a subtree the walk was refused holds content, asked of root.
+ *
+ * Syncthing runs as root on every node and indexes the whole volume; FluxOS is root on
+ * Arcane and the operator's user elsewhere. A check that reads the index against this
+ * process's own view of the disk is comparing two different sets of eyes, and the
+ * difference is entirely what the app's container chose to make readable - postgres
+ * holds PGDATA at 0700 and refuses to start otherwise, on every start, so widening it
+ * is not available. Root is the view syncthing already has.
+ *
+ * The privileged side is asked ONE BIT, so it never decides what counts as the owner's
+ * data: isSyncedPayloadName has already been applied at the volume root, which is where
+ * each of those exclusions is anchored, so every path reaching here is inside the
+ * payload scope by construction and the rule stays stated once. `countDirs` carries the
+ * caller's notion of content unchanged, because a folder whose payload is empty
+ * directories holds none of the regular files the other reading asks for.
+ *
+ * The verdict is the exit status, never stderr: find renders its errors in the node's
+ * locale. Exit 0 naming a path is content, exit 0 naming nothing is a subtree that holds
+ * none, and a non-zero exit is a subtree nothing on this node could read.
+ *
+ * @param {string} dirPath - absolute path to a directory inside the payload scope.
+ *   find reads a leading dash as an option and an app names the directories on its own
+ *   volume, so a relative path is refused rather than passed on
+ * @param {boolean} countDirs - whether an entry of any type is content, as against a
+ *   regular file only
+ * @returns {Promise<'found'|'none'|'unknown'>}
+ */
+async function privilegedSubtreeHoldsContent(dirPath, countDirs) {
+  if (!path.isAbsolute(dirPath)) return PrivilegedProbe.UNKNOWN;
+  const scope = countDirs ? ['-mindepth', '1'] : ['-type', 'f'];
+  const probe = await serviceHelper.runCommand('find', {
+    runAsRoot: true,
+    logError: false,
+    timeout: PRIVILEGED_PROBE_TIMEOUT_MS,
+    params: [dirPath, ...scope, '-print', '-quit'],
+  });
+  if (probe.error) {
+    log.warn(`privilegedSubtreeHoldsContent - ${dirPath} could not be read even as root: ${probe.error.message}`);
+    return PrivilegedProbe.UNKNOWN;
+  }
+  return (probe.stdout || '').trim() ? PrivilegedProbe.FOUND : PrivilegedProbe.NONE;
 }
 
 /**
@@ -190,17 +258,35 @@ function isSyncedPayloadName(name, unsyncedSubdirs = []) {
  * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
  * @param {{countDirs?: boolean}} options - whether a directory is content in its own
  *   right, which the caller decides from what the index claims
- * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
+ * @returns {Promise<{hasContent: boolean, fileCount: number, readable: boolean}>}
+ *   whether the scope holds the owner's data, how many entries this process counted
+ *   itself (a privileged probe answers the question, never with a number), and
+ *   whether the answer was established at all
  */
 async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = [], { countDirs = true } = {}) {
-  const fileCount = await countFilesUpTo(dirPath, 100, {
+  const { count, unreadable } = await countFilesUpTo(dirPath, 100, {
     excludeRoot: (name) => !isSyncedPayloadName(name, unsyncedSubdirs),
     countDirs,
   });
-  return {
-    hasContent: fileCount > 0,
-    fileCount,
-  };
+  if (count > 0 || unreadable.length === 0) {
+    return { hasContent: count > 0, fileCount: count, readable: true };
+  }
+
+  // Nothing found, and part of the scope was never shown to this process - the state a
+  // container leaves behind whenever it owns its mount point and keeps it to itself.
+  // Root reads what the walk was refused.
+  const subtrees = unreadable.slice(0, PRIVILEGED_PROBE_LIMIT);
+  let readable = subtrees.length === unreadable.length;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const subtree of subtrees) {
+    // eslint-disable-next-line no-await-in-loop
+    const verdict = await privilegedSubtreeHoldsContent(subtree, countDirs);
+    if (verdict === PrivilegedProbe.FOUND) {
+      return { hasContent: true, fileCount: count, readable: true };
+    }
+    if (verdict === PrivilegedProbe.UNKNOWN) readable = false;
+  }
+  return { hasContent: false, fileCount: count, readable };
 }
 
 /**
@@ -379,6 +465,15 @@ async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs 
   // empty directories, where directories are the payload and the only honest count.
   const claimsFiles = syncStatus.globalFiles > 0;
   const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs, { countDirs: !claimsFiles });
+  // An empty reading is acted on only where it is an answer. A volume no process on
+  // this node could read says nothing about what it holds, and demoting on it stops a
+  // running app over the node's own blindness - so it is reported as the fault it is,
+  // and the folder is left as it stands.
+  if (!dataCheck.hasContent && !dataCheck.readable) {
+    noteSafetyObservation(appId, 'volume_unreadable', log.error, `verifySendReceiveFolderSafety - ${appId} volume could not be read even as root; the index claims ${syncStatus.globalBytes} bytes in ${syncStatus.globalFiles} files and nothing on this node can confirm or deny it.`);
+    await appTamperingDetectionService.recordEvent(appId, 'volume_unreadable', 'Volume could not be read as root; mount safety undecidable');
+    return result;
+  }
   if (!dataCheck.hasContent) {
     result.isSafe = false;
     result.reason = 'phantom_index_empty_disk';
