@@ -217,6 +217,29 @@ if [ -n "$FLUX_BOOT_ID" ]; then
   echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
 fi
 
+# WHO FLUXOS RUNS AS. Root unless the fleet names an account, which is the Arcane
+# node; named, it is the unprivileged install - FluxOS as the user the operator
+# installed it as, with passwordless sudo for everything privileged.
+#
+# What that account owns is decided here rather than in the image, because it is
+# per-node: the tree FluxOS writes into, its logs, and the apps folder, which on an
+# unprivileged node belongs to the operator. Nothing else changes hands - dockerd,
+# syncthing and every app volume stay root's, and that is what makes the node's own
+# reads refusable, exactly as a container's mount point is on a real node.
+#
+# setpriv rather than sudo: this node's environment IS its configuration, and sudo
+# rebuilds the environment it passes on. HOME travels with the account because a
+# legacy node derives its flux directory from it.
+if [ -n "$FLUX_FLUXOS_USER" ]; then
+  FLUXOS_UID="$(id -u "$FLUX_FLUXOS_USER")"
+  FLUXOS_GID="$(id -g "$FLUX_FLUXOS_USER")"
+  HOME="$(getent passwd "$FLUX_FLUXOS_USER" | cut -d: -f6)"
+  export HOME
+  chown "$FLUXOS_UID:$FLUXOS_GID" /flux /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log
+  chown -R "$FLUXOS_UID:$FLUXOS_GID" /flux/config /flux/ZelBack/config "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
+  set -- setpriv --reuid="$FLUXOS_UID" --regid="$FLUXOS_GID" --init-groups "$@"
+fi
+
 # Run FluxOS (CMD ["node","app.js"]) under a respawn watchdog instead of exec'ing it
 # as PID 1. This mirrors the dockerd watchdog above and production's systemd: the
 # entrypoint shell stays PID 1 and node runs as a child, so a test can kill+respawn
