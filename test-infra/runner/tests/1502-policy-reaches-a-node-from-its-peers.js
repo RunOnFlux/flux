@@ -10,6 +10,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { buildAppSpec } from '../framework/app-helper.js';
+import { execInContainer } from '../framework/container.js';
 
 // Policy arriving from a PEER rather than from the published source.
 //
@@ -162,6 +163,38 @@ describe('policy reaching a node from its peers', function () {
       async () => (await Promise.all([0, 1, 2, 3].map(heldSeq))).every((s) => s === policySeq),
       { timeout: 90000, label: `all four nodes to hold seq ${policySeq}` },
     );
+  });
+
+  it('survives a bundle from a peer that is not a bundle at all', async function () {
+    this.timeout(240000);
+    // `fluxpolicy` is an ANSWER: it is not deduplicated and it is delivered whether or not
+    // this node asked for it, so any registered fluxnode peered with it can send one and
+    // choose what is inside. The handler runs detached from the socket that carried the
+    // message, so a failure inside it has nowhere to go but the process - and the node's
+    // answer to that is to exit. Sent from the stub exactly as a real peer would.
+    const client = env.clients[TOLD_NODE];
+    const readPid = async () => (await execInContainer(client.container, 'cat /tmp/fluxos.pid')).stdout.trim();
+
+    const pidBefore = await readPid();
+    // A pid that was never read is equal to itself afterwards, so the comparison below
+    // would hold for a node that had died and come back twice.
+    expect(pidBefore, 'no FluxOS pid to compare against').to.match(/^[0-9]+$/);
+    const seqBefore = await heldSeq(TOLD_NODE);
+
+    // Not text. Measuring it raises before anything is parsed and before any signature is
+    // checked, so nothing about the sender has to be forged to reach it.
+    await env.stubPeerClients.get(STUB_PEER_INDEX).broadcast({
+      type: 'fluxpolicy', version: 1, bundle: { length: 1 },
+    });
+
+    // Long enough for the handler to have run AND for the node to have been restarted if
+    // it went: a pid read straight after the send matches whether or not it survived.
+    await new Promise((resolve) => { setTimeout(resolve, 30000); });
+
+    expect(await readPid(), 'the node exited and came back, so any peer can restart it at will')
+      .to.equal(pidBefore);
+    expect((await client.getVersion()).status, 'the node stopped answering').to.equal('success');
+    expect(await heldSeq(TOLD_NODE), 'a bundle that is not a bundle was adopted').to.equal(seqBefore);
   });
 
   it('a node TOLD by a peer adopts it and passes it on to its own peers', async function () {
