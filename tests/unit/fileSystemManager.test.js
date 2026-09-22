@@ -846,7 +846,7 @@ describe('fileSystemManager tests', () => {
       '../serviceHelper': serviceHelperStub,
       '../IOUtils': { getVolumeInfo: sinon.stub().resolves({ error: null, mounts: [{ mount: MOUNT }] }) },
       '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
-      '../utils/pathSecurity': { sanitizePath: (f, base) => `${base}/${f}`, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+      '../utils/pathSecurity': { sanitizePath: (f, base) => `${base}/${f}`, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
       './volumeSession': volumeSessionStub,
       './volumeExecutor': executorStub,
       '../utils/jobRegistry': jobRegistry,
@@ -865,7 +865,7 @@ describe('fileSystemManager tests', () => {
       const subject = subjectWith({
         archiver: require('archiver'),
         stream,
-        '../utils/pathSecurity': { sanitizePath: () => realDir, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+        '../utils/pathSecurity': { sanitizePath: () => realDir, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
       });
       const res = validatingRes();
       const finished = new Promise((resolve) => { res.on('finish', resolve); res.on('close', resolve); });
@@ -925,7 +925,7 @@ describe('fileSystemManager tests', () => {
       const subject = subjectWith({
         archiver: () => zip,
         stream,
-        '../utils/pathSecurity': { sanitizePath: () => MOUNT, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+        '../utils/pathSecurity': { sanitizePath: () => MOUNT, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
       });
 
       await subject.downloadAppsFolder({ params: {}, query: { appname: 'myapp', component: 'comp', folder: '.' } }, validatingRes());
@@ -944,7 +944,7 @@ describe('fileSystemManager tests', () => {
       const subject = subjectWith({
         archiver: () => zip,
         stream,
-        '../utils/pathSecurity': { sanitizePath: () => `${MOUNT}/photos`, verifyRealPathOfExistingPath: sinon.stub().resolves() },
+        '../utils/pathSecurity': { sanitizePath: () => `${MOUNT}/photos`, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
       });
 
       await subject.downloadAppsFolder({ params: {}, query: { appname: 'myapp', component: 'comp', folder: 'photos' } }, validatingRes());
