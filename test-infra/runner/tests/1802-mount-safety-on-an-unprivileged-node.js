@@ -121,17 +121,18 @@ describe('mount safety decides on what a node can actually read', function () {
     this.timeout(60000);
     expect(await fluxosAccount(env.clients[0]), 'node 0 FluxOS account').to.equal('fluxuser');
     expect(await fluxosAccount(env.clients[1]), 'node 1 FluxOS account').to.equal('root');
-
-    // and the account really is refused the volume, which is what the guard meets
-    const asFluxos = await execInContainer(env.clients[0].container,
-      `sh -c 'su fluxuser -s /bin/sh -c "ls ${appDir(name)}/appdata"'`);
-    expect(asFluxos.exitCode, 'the FluxOS account must not be able to list appdata').to.not.equal(0);
   });
 
   it('leaves a folder alone when the data is there and the node is refused it', async function () {
     this.timeout(120000);
     const client = env.clients[0];
     await lockAppdataToTheContainer(client);
+    // The premise of everything below, and it only exists once the container has
+    // taken its mount point back: FluxOS widens the volume on the way to promoting
+    // it, so before the lock the account can read it perfectly well.
+    const asFluxos = await execInContainer(client.container,
+      `su fluxuser -s /bin/sh -c 'ls ${appDir(name)}/appdata'`);
+    expect(asFluxos.exitCode, 'the FluxOS account must be refused appdata').to.not.equal(0);
     const from = linesFor(0).length;
     await claimsFilesOnDisk();
     await flagFolder();
