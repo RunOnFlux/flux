@@ -1,3 +1,6 @@
+const path = require('node:path');
+const fs = require('node:fs/promises');
+
 /**
  * The names an app volume's root does not belong to its owner.
  *
@@ -222,6 +225,31 @@ function isReservedName(name) {
     || isStagingName(name);
 }
 
+/**
+ * Whether a path inside a volume reaches one of those names at its root.
+ *
+ * ASKED OF THE PATH, not of a listing. Hiding these from the browser's root listing
+ * says what an owner is offered; it does not say what they may ask for by name, and the
+ * two are different questions to every endpoint that takes a path. A read that filters
+ * the listing and then serves whatever it is handed offers nothing and gives everything.
+ *
+ * Resolved on both sides before comparing: the volume root can itself be a symlink, and
+ * the path may be one - a name that is reserved nowhere can still arrive in the same
+ * place, which is the whole reason the write side resolves too.
+ *
+ * @param {string} realPath - the path being served, symlinks already resolved
+ * @param {string} mountPath - the volume root it must be read relative to
+ * @returns {Promise<boolean>}
+ */
+async function reachesReservedName(realPath, mountPath) {
+  const base = path.resolve(mountPath);
+  const realBase = await fs.realpath(base).catch(() => base);
+  const relative = path.relative(realBase, path.resolve(realPath));
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return false;
+  const [first] = relative.split(path.sep);
+  return isReservedName(first);
+}
+
 module.exports = {
   STAGING_ROOT,
   LEGACY_STAGING_PREFIX,
@@ -237,4 +265,5 @@ module.exports = {
   isLiteralIgnoreName,
   isStagingName,
   isReservedName,
+  reachesReservedName,
 };
