@@ -662,11 +662,11 @@ function createComplianceSweeper({
    *   subject is the record answering that the node does not hold it.
    */
   async function subjectNow(appName, decided) {
-    const res = await installedApps(appName).catch(() => null);
-    if (!res || res.status !== 'success' || !Array.isArray(res.data)) {
+    const installedAppsRes = await installedApps(appName).catch(() => null);
+    if (!installedAppsRes || installedAppsRes.status !== 'success' || !Array.isArray(installedAppsRes.data)) {
       return { answered: false, subject: null };
     }
-    const row = res.data.find((app) => app.name === appName);
+    const row = installedAppsRes.data.find((app) => app.name === appName);
     if (!row) return { answered: true, subject: null };
     return {
       answered: true,
@@ -701,8 +701,9 @@ function createComplianceSweeper({
         holdEverything();
         return;
       }
-      const res = await installedApps();
-      if (res.status !== 'success') {
+      // A MESSAGE ENVELOPE, not rows: a status, and the applications under it.
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
         holdEverything();
         throw new Error('Failed to get installed Apps');
       }
@@ -715,7 +716,9 @@ function createComplianceSweeper({
         return;
       }
 
-      const subjects = scope ? res.data.filter((app) => scope.has(app.name)) : res.data;
+      const subjects = scope
+        ? installedAppsRes.data.filter((app) => scope.has(app.name))
+        : installedAppsRes.data;
       // An application named in a scope that the node no longer holds has nothing left
       // to answer for, and owing it would arm a timer for an application that is gone.
       if (scope) {
