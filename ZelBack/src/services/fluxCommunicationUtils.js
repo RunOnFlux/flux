@@ -90,6 +90,16 @@ let counter = 0;
 let lastUpdate = 0;
 
 /**
+ * How far ahead of this node a signed message may be stamped and still be read as now.
+ *
+ * The fleet's clocks are not identical and nothing waits for them to be, so a message
+ * from a node running slightly ahead is honest. Beyond it, a timestamp is not skew: it
+ * is a sender choosing when its message expires, and a check bounded only on the old
+ * side lets them choose never.
+ */
+const BROADCAST_CLOCK_SKEW_MS = 120_000;
+
+/**
  * To verify a Flux broadcast message.
  * @param {FluxNetworkMessage} broadcast Flux network layer message containing public key, timestamp, signature and version.
  * @returns {Promise<boolean>} False unless message is successfully verified.
@@ -120,7 +130,7 @@ async function verifyFluxBroadcast(broadcast) {
   const now = Date.now();
 
   // message was broadcasted in the future. Allow 120 sec clock sync
-  if (now < timestamp - 120_000) {
+  if (now < timestamp - BROADCAST_CLOCK_SKEW_MS) {
     log.error('VerifyBroadcast: Message from future, rejecting');
     return VerifyResult.MALFORMED;
   }
@@ -261,6 +271,7 @@ async function verifyOriginalFluxBroadcast(data, currentTimeStamp) {
 }
 
 module.exports = {
+  BROADCAST_CLOCK_SKEW_MS,
   VerifyResult,
   getNodeCount,
   verifyTimestampInFluxBroadcast,

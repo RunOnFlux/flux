@@ -611,7 +611,17 @@ async function callerIsFluxnode(body) {
   // eslint-disable-next-line global-require
   const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 
-  if (!fluxCommunicationUtils.verifyTimestampInFluxBroadcast(body, Date.now())) return false;
+  // BOUNDED BOTH WAYS, because only one of them is a freshness question.
+  // verifyTimestampInFluxBroadcast asks whether a request is too OLD, which is what
+  // makes one captured off the wire stop working. It says nothing about a request
+  // stamped for next year, and that is the one a node can mint deliberately: signed
+  // once against a chosen target, it authorises whoever holds the body, for as long as
+  // they hold it - so what a node may serve only to a node becomes public the moment
+  // that body is. The forward bound is the network's own tolerance for clocks that do
+  // not agree, and beyond it a timestamp is a choice rather than skew.
+  const now = Date.now();
+  if (body.timestamp > now + fluxCommunicationUtils.BROADCAST_CLOCK_SKEW_MS) return false;
+  if (!fluxCommunicationUtils.verifyTimestampInFluxBroadcast(body, now)) return false;
 
   const verified = await fluxNetworkHelper.verifySignedFluxnodeMessage(body);
   if (verified !== true) return false;

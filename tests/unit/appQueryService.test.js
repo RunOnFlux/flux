@@ -115,7 +115,10 @@ describe('appQueryService tests', () => {
       getLocalSocketAddress: sinon.stub().resolves('10.0.0.9:16127'),
       verifySignedFluxnodeMessage: sinon.stub().resolves(false),
     };
-    fluxCommunicationUtilsStub = { verifyTimestampInFluxBroadcast: sinon.stub().returns(true) };
+    fluxCommunicationUtilsStub = {
+      verifyTimestampInFluxBroadcast: sinon.stub().returns(true),
+      BROADCAST_CLOCK_SKEW_MS: 120_000,
+    };
     networkStateServiceStub = { isReady: sinon.stub().returns(true) };
     appQueryService = proxyquire('../../ZelBack/src/services/appQuery/appQueryService', {
       config: configStub,
@@ -744,6 +747,35 @@ describe('appQueryService tests', () => {
 
           expect(result.holding, 'holdings went to a caller that proved nothing').to.equal(undefined);
           expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
+        });
+      });
+
+      // A request stamped for next year is not stale, so the freshness check passes it
+      // forever. That is the one a node can mint on purpose: signed once against a
+      // chosen target, the body itself authorises whoever holds it, so publishing it
+      // hands out what this endpoint exists to keep to nodes. Skew is bounded; choosing
+      // when your own request expires is not skew.
+      it('withholds the holdings from a request stamped beyond the clock-skew bound', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({
+          body: signed({ timestamp: Date.now() + (365 * 24 * 60 * 60 * 1000) }),
+        });
+
+        expect(result.holding, 'a body dated in the future served as a credential').to.equal(undefined);
+        expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'] });
+      });
+
+      // The bound is the fleet's clocks disagreeing, which is honest and must still work.
+      it('serves a request from a node whose clock runs a little ahead', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        const result = await appQueryService.promotedFolderHoldings({
+          body: signed({ timestamp: Date.now() + 60_000 }),
+        });
+
+        expect(result.holding, 'a peer 60s ahead is skew, not a forged expiry').to.deep.equal({
+          fluxa_a: { bytes: 5821604997, newestModified: 200 },
         });
       });
 
