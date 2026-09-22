@@ -21,11 +21,10 @@ const { lruRateLimit } = require('./utils/rateLimit');
  * transaction on chain matches its message hash at the price for that height,
  * which every node establishes for itself from the chain.
  *
- * THIS BELONGS TO THE SITES THAT OPEN THE WALLET. The callback is theirs to
- * host, and hosting it there is what takes an unauthenticated write endpoint
- * off every node in the fleet. It is here only because
- * palworld-server-website, minecraft-server-website and games-website address
- * it here; when they host it themselves, this goes.
+ * It is reachable unauthenticated on every node, because neither end can be:
+ * the page holds no session and the wallet is a separate application. The id
+ * is the whole of what the callback is held to - unguessable, spent on
+ * delivery, and capped per caller so one source cannot take the cache.
  */
 
 /**
@@ -84,7 +83,7 @@ function paymentRequest(req, res) {
     // browser waiting on it.
     const paymentId = `${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
     // The address is kept so a later request can count what this source already
-    // holds; the callback overwrites the entry with just the txid on its way out.
+    // holds.
     pending.set(paymentId, { txid: null, ip });
     res.json(messageHelper.createDataMessage({ paymentId }));
   } catch (error) {

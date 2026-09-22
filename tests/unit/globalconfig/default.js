@@ -409,35 +409,10 @@ module.exports = {
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',
   ],
-  // The load balancers whose X-Forwarded-For this node will believe. A request
-  // arriving from any other address has its forwarding headers ignored entirely:
-  // every node is reachable directly on its public port, so a header from an
-  // unknown peer is chosen by the caller and says nothing.
-  //
-  // These are the addresses a node OBSERVES as its socket peer - each balancer's
-  // public egress - which is not the same as the address its hostname resolves to
-  // and not the management address ansible targets it on. Confirmed two ways
-  // (inventory plus DNS) before being listed, because a wrong entry here hands
-  // that address the power to name any client it likes, while a missing one only
-  // costs attribution on that path.
-  //
-  // Empty is safe and means "trust nothing", which is how this behaves for any
-  // balancer not yet listed.
-  fdmAddresses: [
-    // apps, production
-    '5.39.57.42', '5.39.57.43', '5.39.57.44', '5.39.57.45',
-    '146.190.83.190', '146.190.103.145', '134.209.107.70', '146.190.105.10',
-    '5.161.211.14', '5.161.178.20', '5.161.42.73', '5.161.81.155',
-    // apps, staging
-    '5.161.215.75', '5.161.109.34', '5.39.57.46', '5.39.57.47',
-    // main
-    '128.199.246.121', '5.161.44.226',
-    // nodes - the per-node API hostnames the frontend pins to after login, and so
-    // the path a playground submission takes. These two are the whole fleet; they
-    // are absent from the ansible inventory and deployed by hand, so a change to
-    // the balancers will not show up here on its own.
-    '5.39.57.41', '5.161.198.150',
-  ],
+  // The load balancers whose X-Forwarded-For this node will believe. A stand-in:
+  // the tests need one address the code trusts, not the fleet's real ones, so
+  // adding a balancer in production does not mean editing this file too.
+  fdmAddresses: ['1.2.3.4'],
   github: {
     apiBaseUrl: 'https://api.github.com',
   },

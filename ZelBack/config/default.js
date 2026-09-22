@@ -756,8 +756,10 @@ module.exports = {
     '5.161.211.14', '5.161.178.20', '5.161.42.73', '5.161.81.155',
     // apps, staging
     '5.161.215.75', '5.161.109.34', '5.39.57.46', '5.39.57.47',
-    // main
-    '128.199.246.121', '5.161.44.226',
+    // main - one geo-steered name over three regional balancers, so resolving
+    // it from a single location returns that region's alone. The eu box is in
+    // the ansible inventory by its private address only.
+    '5.39.57.40', '128.199.246.121', '5.161.44.226',
     // nodes - the per-node API hostnames the frontend pins to after login, and so
     // the path a playground submission takes. These two are the whole fleet; they
     // are absent from the ansible inventory and deployed by hand, so a change to
