@@ -594,34 +594,43 @@ function createComplianceSweeper({
     owedWholeNode = true;
   }
 
-  /** What is owed, in a form two passes can be compared by. */
+  /** What is owed, in a form two passes can be compared by. Null when nothing is. */
   function owedNow() {
-    return owedWholeNode ? EVERYTHING : [...owed.keys()].sort().join(' ');
+    if (owedWholeNode) return EVERYTHING;
+    return owed.size ? [...owed.keys()].sort().join(' ') : null;
   }
 
   /**
-   * Arm the retry, if anything is owed and nothing is armed.
+   * Set the wait for what is owed now, replacing one armed for anything else.
    *
    * SELF-CANCELLING: the timer exists for what is owed and ends with it, so a node
-   * owing nothing runs no timer. Armed once a pass is over, never while one runs - a
+   * owing nothing runs no timer. Decided once a pass is over, never while one runs - a
    * pass spaces its removals over minutes and holds applications as it goes, so a timer
    * armed at the moment of holding fires inside the pass that armed it.
    */
   function armRetry() {
-    if (retryTimer || (!owed.size && !owedWholeNode)) return;
-    // THE WAIT IS DECIDED HERE AND NOWHERE ELSE, from what is owed at the moment of
-    // arming. It doubles for as long as the same thing is owed, and starts again the
-    // moment that changes: a node that resolved something has shown it can, and what is
-    // left of a debt that is moving is worth asking about sooner than one that is not.
+    // THE WAIT BELONGS TO A DEBT, and every pass decides it against the debt it ends
+    // with: one already running was armed for what was owed then, which is not always
+    // what is owed now. It doubles for as long as the same thing is owed and starts
+    // again when that changes - a node that resolved something has shown it can, and
+    // what is left of a debt that is moving is worth asking about sooner than one that
+    // is not. A debt discharged and owed again changed twice, so it is asked about at
+    // the base rate however long it was stuck before.
     //
     // Asked of the debt rather than of the act that recorded it, because the retry path
     // clears what it is about to re-ask before the pass runs - a rule written at the
     // point of holding reads that as a debt this node has never carried.
     const owing = owedNow();
-    retryDelayMs = owing === owedWhenLastArmed
-      ? Math.min(retryDelayMs * 2, retryMaxMs)
-      : retryBaseMs;
+    if (retryTimer && owing === owedWhenLastArmed) return;
+    if (retryTimer) timers.clear(retryTimer);
+    retryTimer = null;
+    const unchanged = owing !== null && owing === owedWhenLastArmed;
     owedWhenLastArmed = owing;
+    if (owing === null) {
+      retryDelayMs = retryBaseMs;
+      return;
+    }
+    retryDelayMs = unchanged ? Math.min(retryDelayMs * 2, retryMaxMs) : retryBaseMs;
     const delayMs = retryDelayMs;
     retryTimer = timers.set(() => {
       retryTimer = null;

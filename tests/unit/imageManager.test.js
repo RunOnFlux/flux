@@ -1666,6 +1666,73 @@ describe('imageManager tests', () => {
       expect(Math.max(...delays), 'the wait grew past the ceiling').to.equal(KNOBS.complianceRetryMaxMs);
     });
 
+    // A DEBT DISCHARGED IS NOT THE SAME DEBT WHEN IT RETURNS. The wait grows for a node
+    // that cannot make progress; a node that owed nothing has made all of it, and the
+    // next thing it cannot do is worth asking about at the base rate.
+    it('starts the wait again for a name owed after the node had cleared it', async () => {
+      let outcome = RemovalOutcome.BUSY;
+      const t = build({
+        rows: () => [blockedApp('StuckApp')],
+        removeAppLocally: sinon.stub().callsFake(async () => outcome),
+      });
+
+      await t.sweeper.request();
+      await t.timers.fire();
+      await t.timers.fire();
+      await t.timers.fire();
+      expect(t.timers.delays, 'the wait did not reach its ceiling').to.deep.equal([10, 20, 40, 80]);
+
+      outcome = RemovalOutcome.REMOVED;
+      await t.timers.fire();
+      expect(t.timers.count(), 'a node owing nothing kept a wait running').to.equal(0);
+
+      outcome = RemovalOutcome.BUSY;
+      await t.sweeper.request();
+      expect(t.timers.delays.slice(4), 'the same name owed again was asked about at the ceiling')
+        .to.deep.equal([10]);
+    });
+
+    // WHAT IS OWED DECIDES THE WAIT, at every pass and not only at the one that armed
+    // it. An application held for the first time is a debt this node has not backed off
+    // from, whatever it is already waiting to re-ask about.
+    it('replaces a running wait when a pass holds something new', async () => {
+      let names = ['StuckApp'];
+      const t = build({
+        rows: () => names.map((name) => blockedApp(name)),
+        removeAppLocally: sinon.stub().resolves(RemovalOutcome.BUSY),
+      });
+
+      await t.sweeper.request();
+      await t.timers.fire();
+      await t.timers.fire();
+      await t.timers.fire();
+      expect(t.timers.delays, 'the wait did not reach its ceiling').to.deep.equal([10, 20, 40, 80]);
+
+      names = ['StuckApp', 'NewlyBlockedApp'];
+      await t.sweeper.request();
+
+      expect(t.timers.count(), 'the node is waiting on more than one thing at a time').to.equal(1);
+      expect(t.timers.delays.slice(4), 'the new application waited out a wait armed for another')
+        .to.deep.equal([10]);
+    });
+
+    // The timer exists for what is owed and ends with it.
+    it('drops a running wait when a pass settles what it was armed for', async () => {
+      let outcome = RemovalOutcome.BUSY;
+      const t = build({
+        rows: () => [blockedApp('StuckApp')],
+        removeAppLocally: sinon.stub().callsFake(async () => outcome),
+      });
+
+      await t.sweeper.request();
+      expect(t.timers.count(), 'nothing came back for a held application').to.equal(1);
+
+      outcome = RemovalOutcome.REMOVED;
+      await t.sweeper.request();
+
+      expect(t.timers.count(), 'a node owing nothing kept a wait running').to.equal(0);
+    });
+
     // An application whose specification does not decrypt was never judged on its
     // images, and nothing announces that it has become readable.
     it('asks again about an application it could not read, and stops once it can', async () => {
