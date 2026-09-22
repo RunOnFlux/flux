@@ -51,14 +51,6 @@ const sameLines = (left, right) => left.length === right.length
  * Every syncthing call returns its outcome in-band and never throws, so status is
  * checked rather than caught.
  *
- * .stignore is syncthing's own control file - it writes it atomically, runs as
- * root so it lands on any legacy root-owned file, and never replicates it or
- * its temp. So FluxOS sets the patterns through syncthing's API rather than
- * writing the file: there is no temp, no ownership dance, and nothing on the
- * volume to orphan on a powercut. Volume creation still seeds the file directly
- * for a brand-new folder syncthing does not yet know; this converges every
- * EXISTING folder.
- *
  * Call only for a folder syncthing already knows (the caller checks); on an
  * unknown folder the API would answer with an error and nothing would converge.
  *
