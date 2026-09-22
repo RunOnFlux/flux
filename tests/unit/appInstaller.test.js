@@ -26,6 +26,9 @@ const makeDockerServiceStub = (overrides = {}) => ({
 
 describe('appInstaller tests', () => {
   let appInstaller;
+  // The same stub map the default instance is built from, so a test that needs one
+  // more seam spreads it rather than restating eighty lines of it.
+  let baseStubs;
   let verificationHelperStub;
   let messageHelperStub;
   let dbHelperStub;
@@ -129,7 +132,7 @@ describe('appInstaller tests', () => {
     };
 
     // Proxy require
-    appInstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+    baseStubs = {
       config: configStub,
       '../verificationHelper': verificationHelperStub,
       '../messageHelper': messageHelperStub,
@@ -232,11 +235,75 @@ describe('appInstaller tests', () => {
       util: {
         promisify: (fn) => fn,
       },
-    });
+    };
+    appInstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', baseStubs);
   });
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  // An install onto an EXISTING volume: the soft redeploy an update takes whenever hdd
+  // is unchanged. Volume creation is what seeds .stignore and this path never reaches
+  // it, so a directory the spec newly declares ml: is created here with nothing keeping
+  // it off the network until the monitor's next pass - and syncthing's watcher is on by
+  // default with a ten second delay, so it indexes the directory while the container is
+  // writing into it. An ignore does not withdraw what already replicated.
+  describe('a local directory is covered before it exists', () => {
+    const softInstaller = (volumeService, ignorePolicy) => proxyquire(
+      '../../ZelBack/src/services/appLifecycle/appInstaller',
+      {
+        ...baseStubs,
+        // The real derivation, because the folder asked about has to be the
+        // component-qualified one that syncthing knows this volume by.
+        '../dockerService': { ...baseStubs['../dockerService'], getAppIdentifier: (name) => `flux${name}` },
+        '../utils/volumeService': volumeService,
+        '../appMonitoring/syncthingMonitorHelpers': ignorePolicy,
+        './appNetworkLinker': {
+          checkAppNetworkRequirements: sinon.stub().resolves(),
+          connectComponentToLinkedApps: sinon.stub().resolves(),
+        },
+      },
+    );
+
+    // Stopped at the directory creation, which is the moment the answer is decided:
+    // what matters is which of the two ran first, not what the install did afterwards.
+    const drive = async (containerData) => {
+      const ensureStignoreCovers = sinon.stub().resolves();
+      const ensureMountPathsExist = sinon.stub().rejects(new Error('stop here'));
+      const installer = softInstaller({ ensureMountPathsExist }, { ensureStignoreCovers });
+      const spec = {
+        name: 'web', repotag: 'a/b:1', containerData, ports: [], domains: [], environmentParameters: [], commands: [],
+      };
+
+      await installer.installApplicationSoft(spec, 'myapp', true, null, { name: 'myapp', compose: [spec] })
+        .catch(() => {});
+
+      return { ensureStignoreCovers, ensureMountPathsExist };
+    };
+
+    it('asserts the ignore policy before the directory is created', async () => {
+      const { ensureStignoreCovers, ensureMountPathsExist } = await drive('r:/data|ml:cache:/cache');
+
+      sinon.assert.calledOnceWithExactly(ensureStignoreCovers, 'fluxweb_myapp', ['cache']);
+      sinon.assert.callOrder(ensureStignoreCovers, ensureMountPathsExist);
+    });
+
+    // Asked of the spec: a component with no local directory has nothing to cover, and
+    // one whose volume is not replicated has nowhere for it to go.
+    it('does not ask when the spec declares no local directory', async () => {
+      const { ensureStignoreCovers, ensureMountPathsExist } = await drive('r:/data|m:shared:/shared');
+
+      sinon.assert.notCalled(ensureStignoreCovers);
+      sinon.assert.called(ensureMountPathsExist);
+    });
+
+    it('does not ask when the volume is not replicated at all', async () => {
+      const { ensureStignoreCovers, ensureMountPathsExist } = await drive('/data|ml:cache:/cache');
+
+      sinon.assert.notCalled(ensureStignoreCovers);
+      sinon.assert.called(ensureMountPathsExist);
+    });
   });
 
   describe('checkAppRequirements', () => {
