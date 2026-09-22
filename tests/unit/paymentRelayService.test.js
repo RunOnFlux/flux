@@ -5,6 +5,7 @@ const qs = require('qs');
 
 const paymentRelayService = require('../../ZelBack/src/services/paymentRelayService');
 const cacheManager = require('../../ZelBack/src/services/utils/cacheManager').default;
+const config = require('config');
 
 const { expect } = chai;
 
@@ -50,9 +51,15 @@ const callWithBody = (body, query) => new Promise((resolve) => {
 let peerCounter = 0;
 const fromNewPeer = () => ({ socket: { remoteAddress: `10.0.${Math.floor(peerCounter / 250)}.${(peerCounter += 1) % 250}` } });
 
+// The address an id was issued to, which the entry carries and the issuance
+// limit counts. Exposed so a test can assert it is still there afterwards.
+let lastIssuedIp = null;
+
 const issueId = () => {
+  const peer = fromNewPeer();
+  lastIssuedIp = peer.socket.remoteAddress;
   const res = generateResponse();
-  paymentRelayService.paymentRequest(fromNewPeer(), res);
+  paymentRelayService.paymentRequest(peer, res);
   return res.json.firstCall.args[0].data.paymentId;
 };
 
@@ -178,7 +185,7 @@ describe('paymentRelayService tests', () => {
 
       expect(body.status).to.equal('success');
       expect(body.data.txid).to.equal('abc123');
-      expect(pending.get(paymentId)).to.deep.equal({ txid: 'abc123' });
+      expect(pending.get(paymentId)).to.deep.equal({ txid: 'abc123', ip: lastIssuedIp });
     });
 
     it('takes the wallet spelling of the field as well', async () => {
@@ -186,7 +193,7 @@ describe('paymentRelayService tests', () => {
 
       await callWithBody(JSON.stringify({ transaction_id: 'wallet-spelling' }), { paymentid: paymentId });
 
-      expect(pending.get(paymentId)).to.deep.equal({ txid: 'wallet-spelling' });
+      expect(pending.get(paymentId)).to.deep.equal({ txid: 'wallet-spelling', ip: lastIssuedIp });
     });
 
     it('takes the payment id from the body when the query does not carry one', async () => {
@@ -194,7 +201,7 @@ describe('paymentRelayService tests', () => {
 
       await callWithBody(JSON.stringify({ txid: 'abc123', paymentid: paymentId }), {});
 
-      expect(pending.get(paymentId)).to.deep.equal({ txid: 'abc123' });
+      expect(pending.get(paymentId)).to.deep.equal({ txid: 'abc123', ip: lastIssuedIp });
     });
 
     // express.json is mounted globally, so a JSON callback arrives parsed with
@@ -219,7 +226,7 @@ describe('paymentRelayService tests', () => {
 
       sinon.assert.calledOnce(res.json);
       expect(res.json.firstCall.args[0].status).to.equal('success');
-      expect(pending.get(paymentId)).to.deep.equal({ txid: 'parsed-by-express' });
+      expect(pending.get(paymentId)).to.deep.equal({ txid: 'parsed-by-express', ip: lastIssuedIp });
     });
 
     it('refuses an id nothing is waiting on, and leaves nothing behind', async () => {
@@ -396,6 +403,47 @@ describe('paymentRelayService tests', () => {
       }
     });
 
+    // A browser is the only party that collects an id, so one it has stopped
+    // waiting on will never be collected. Left behind, it holds a cache slot and
+    // its asker's allowance for the rest of the hour - which is what a dialog
+    // abandoned for another wallet leaves.
+    it('frees an id the browser stopped waiting on', () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const paymentId = issueId();
+        const ws = fakeSocket();
+
+        paymentRelayService.wsRespondPayment(ws, paymentId);
+        expect(pending.has(paymentId), 'nothing was being waited on, so freeing it proves nothing').to.equal(true);
+
+        ws.onclose({ code: 1000 });
+
+        expect(pending.has(paymentId), 'an abandoned id kept its slot').to.equal(false);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    // The wallet was told the payment landed. The delivery path drops the id
+    // once a browser has it, and a browser that left is not a reason to throw
+    // away a transaction id the node has been given.
+    it('leaves an answered id alone when the browser goes', () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const paymentId = issueId();
+        const ws = fakeSocket();
+
+        paymentRelayService.wsRespondPayment(ws, paymentId);
+        pending.set(paymentId, { txid: 'already-paid', ip: lastIssuedIp });
+
+        ws.onclose({ code: 1000 });
+
+        expect(pending.get(paymentId).txid).to.equal('already-paid');
+      } finally {
+        clock.restore();
+      }
+    });
+
     it('writes nothing to a browser that left while it was waiting', () => {
       const clock = sinon.useFakeTimers();
       try {
@@ -413,6 +461,81 @@ describe('paymentRelayService tests', () => {
       } finally {
         clock.restore();
       }
+    });
+  });
+
+  describe('what the issuance limit counts', () => {
+    // An answered id still holds a slot until the browser collects it. If
+    // answering took the address off it, whoever asked could answer their own
+    // ids and go on minting: the slots fill, the oldest are evicted, and the
+    // allowance is never spent. Answering your own id is free to do - the
+    // callback is held to nothing but the id, which its asker has.
+    it('still counts an id after its asker has answered it', async () => {
+      const ip = '203.0.113.12';
+      const peer = { socket: { remoteAddress: ip } };
+      for (let i = 0; i < 9; i += 1) pending.set(`held${i}`, { txid: null, ip });
+
+      const issued = generateResponse();
+      paymentRelayService.paymentRequest(peer, issued);
+      const { paymentId } = issued.json.firstCall.args[0].data;
+      await callWithBody(JSON.stringify({ txid: 'answered-by-its-asker' }), { paymentid: paymentId });
+      expect(pending.get(paymentId).ip, 'the address left with the answer').to.equal(ip);
+
+      const res = generateResponse();
+      paymentRelayService.paymentRequest(peer, res);
+
+      expect(res.json.firstCall.args[0].status, 'an answered id stopped counting, so the limit was walked past').to.equal('error');
+      sinon.assert.calledWith(res.status, 429);
+    });
+
+    // A meeting is an hour old from when it was made. Answering is not a reason
+    // to buy another one, or an id could be kept alive indefinitely by its own
+    // asker answering it again.
+    it('does not extend an id lifetime by answering it', async () => {
+      const paymentId = issueId();
+      // Part-way through its hour. Reading the remaining life of an id issued in
+      // the same millisecond cannot tell a preserved lifetime from a renewed
+      // one, because both answer the full hour.
+      pending.set(paymentId, pending.get(paymentId), { ttl: 1000 });
+
+      await callWithBody(JSON.stringify({ txid: 'abc123' }), { paymentid: paymentId });
+
+      expect(pending.getRemainingTTL(paymentId), 'answering bought the id another hour').to.be.at.most(1000);
+    });
+
+    // Nodes are reached through the domain proxy as well as directly, so the
+    // socket peer is the balancer for every browser arriving that way. Counting
+    // against that address spends one allowance on all of them together.
+    it('counts against the caller a balancer reports, not the balancer', () => {
+      const balancer = config.get('fdmAddresses')[0];
+      const behind = { socket: { remoteAddress: balancer }, headers: { 'x-forwarded-for': '198.51.100.40' } };
+      for (let i = 0; i < 10; i += 1) pending.set(`theirs${i}`, { txid: null, ip: '198.51.100.40' });
+
+      const refused = generateResponse();
+      paymentRelayService.paymentRequest(behind, refused);
+      expect(refused.json.firstCall.args[0].status, 'the caller behind the balancer was not counted').to.equal('error');
+
+      const other = generateResponse();
+      paymentRelayService.paymentRequest(
+        { socket: { remoteAddress: balancer }, headers: { 'x-forwarded-for': '198.51.100.41' } }, other,
+      );
+      expect(other.json.firstCall.args[0].status, 'everyone behind one balancer shared a single allowance').to.equal('success');
+    });
+
+    // A forwarding header from anything but a balancer this node recognises is
+    // the caller's own claim, and believing it would let anyone hand themselves
+    // a fresh allowance per request.
+    it('ignores a forwarding header from an address that is not a balancer', () => {
+      const ip = '203.0.113.13';
+      for (let i = 0; i < 10; i += 1) pending.set(`mine${i}`, { txid: null, ip });
+
+      const res = generateResponse();
+      paymentRelayService.paymentRequest(
+        { socket: { remoteAddress: ip }, headers: { 'x-forwarded-for': '198.51.100.99' } }, res,
+      );
+
+      expect(res.json.firstCall.args[0].status, 'a caller named themselves out of their own limit').to.equal('error');
+      sinon.assert.calledWith(res.status, 429);
     });
   });
 });

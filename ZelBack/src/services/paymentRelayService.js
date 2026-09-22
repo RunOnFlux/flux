@@ -3,6 +3,7 @@ const qs = require('qs');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
+const { resolveClientIp } = require('./utils/ingressCapture');
 const cacheManager = require('./utils/cacheManager').default;
 const { lruRateLimit } = require('./utils/rateLimit');
 
@@ -58,11 +59,13 @@ const pending = cacheManager.paymentRelayCache;
  */
 function paymentRequest(req, res) {
   try {
-    // The real peer address, never x-forwarded-for: a per-IP limit keyed on a
-    // header the caller sets is none. Capping issuance is what keeps a flood
-    // from minting ids fast enough to evict the entries a wallet has still to
-    // answer - the small cache alone would evict them sooner, not later.
-    const ip = ((req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/i, '');
+    // The caller as far as this node can honestly tell: the socket peer, or the
+    // address a balancer this node recognises reports having seen. A forwarding
+    // header from anything else is the caller's own claim and is ignored, so the
+    // limits below cannot be stepped around by setting one. Nodes are reached
+    // through the domain proxy as well as directly, and keying on the socket
+    // peer alone spends one allowance on everyone arriving that way.
+    const ip = resolveClientIp(req.socket && req.socket.remoteAddress, req.headers).ip || '';
     if (!lruRateLimit(ip, PAYMENT_REQUEST_RATE_PER_SEC)) {
       res.status(429).json(messageHelper.createErrorMessage('Too many payment requests'));
       return;
@@ -122,7 +125,14 @@ function answerCallback(req, res, payload) {
       throw new Error('Payment request not found or has expired');
     }
 
-    pending.set(paymentId, { txid });
+    // The address stays with the id. It is what the issuance limit counts, and an
+    // answered id still holds a slot until the browser collects it - so an id
+    // answered by whoever asked for it goes on costing them their own allowance
+    // rather than becoming a free slot. The remaining lifetime is carried too: a
+    // meeting is an hour old from when it was made, and answering does not buy
+    // another one.
+    const held = pending.get(paymentId) || {};
+    pending.set(paymentId, { ...held, txid }, { ttl: pending.getRemainingTTL(paymentId) || undefined });
 
     res.json(messageHelper.createDataMessage({
       message: 'Payment received successfully',
@@ -192,6 +202,13 @@ function wsRespondPayment(ws, paymentid) {
   ws.onclose = (evt) => {
     log.info(`WebSocket payment listener closed with code: ${evt.code}`);
     closed = true;
+    // The browser is the only party that collects an id, so one it is no longer
+    // waiting on will not be collected: it is dropped rather than left holding a
+    // slot, and its asker's allowance, for the rest of the hour. An id that has
+    // been answered is left alone - the wallet was told the payment landed, and
+    // the delivery path drops it once the browser has it.
+    const held = pending.get(paymentid);
+    if (held && !held.txid) pending.delete(paymentid);
   };
 
   ws.onerror = (evt) => {
