@@ -26,7 +26,7 @@ const {
 
 const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
-const { isReservedName } = require('../appSystem/volumeReservedNames');
+const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -224,18 +224,17 @@ async function privilegedSubtreeHoldsContent(dirPath, countDirs) {
  * whole answer to "is anything here", which is why a walk that counts them can
  * never find a volume empty.
  *
- * Stated once because the disk walk and the index read have to agree: a name one
- * treats as the owner's and the other does not puts the two sides of the phantom
- * check on different scopes.
+ * The set is the one the folder's own ignore lines describe, asked of them rather
+ * than restated here, because the disk walk and the index read have to agree: a
+ * name one treats as the owner's and the other does not puts the two sides of the
+ * phantom check on different scopes.
  *
  * @param {string} name - a single volume-root path component, not a path
  * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
  * @returns {boolean}
  */
 function isSyncedPayloadName(name, unsyncedSubdirs = []) {
-  return !isReservedName(name)
-    && name !== 'backup'
-    && !unsyncedSubdirs.includes(name);
+  return isSyncedRootName(name, unsyncedSubdirs);
 }
 
 /**

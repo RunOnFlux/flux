@@ -142,10 +142,11 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
       expect(lines, `node ${i} does not exclude the f: file`).to.not.include('/server.json');
       // syncthing takes the FIRST pattern that matches, so a policy line below
       // anything is a line something else can answer for.
-      // The staging directory by its exact name, the legacy glob beside it for as
-      // long as volumes in the field still carry `.flux-op-<id>` at their root,
-      // then what this spec declared local.
-      expect(lines.slice(0, 4), `node ${i} leading block`).to.deep.equal(['/backup', '/.flux-op', '/.flux-op-*', '/cache']);
+      // The owner's archives, the directory the filesystem recovers into, the staging
+      // directory by its exact name, the legacy glob beside it for as long as volumes
+      // in the field still carry `.flux-op-<id>` at their root, then what this spec
+      // declared local.
+      expect(lines.slice(0, 5), `node ${i} leading block`).to.deep.equal(['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/cache']);
     }));
   });
 
@@ -292,7 +293,13 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     expect(binds, 'f: mount must bind the file itself').to.include(`${dir}/server.json=>/etc/server.json`);
   });
 
-  it('replicates an m: directory and never an ml: one', async function () {
+  // lost+found joins the two mount forms here because it is the same question asked
+  // of a third kind of entry: a component's volume root IS its syncthing folder, and
+  // every volume is formatted ext4, so the directory fsck recovers into sits inside
+  // the replicated tree. What one node's filesystem recovers is that node's, and
+  // syncthing's own internal names are .stfolder, .stignore and .stversions - so
+  // nothing but a FluxOS ignore line keeps it off every other holder.
+  it('replicates an m: directory, and neither an ml: one nor the filesystem\'s own', async function () {
     this.timeout(420000);
     const folderId = `flux${appName}_${appName}`;
 
@@ -319,7 +326,8 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     // Written in the same breath, so the m: file is this test's canary: "the ml:
     // file did not arrive" is also true of a run where nothing replicated at all,
     // and that run would pass a bare negative assertion while proving nothing.
-    await sh(a, `echo replicated > ${dir}/logs/carried && echo local > ${dir}/cache/kept`);
+    const written = await sh(a, `echo replicated > ${dir}/logs/carried && echo local > ${dir}/cache/kept && echo orphan > ${dir}/lost+found/recovered`);
+    expect(written.exitCode, `could not write the fixture: ${written.output}`).to.equal(0);
 
     await waitFor(
       async () => (await pathKind(b, `${dir}/logs/carried`)) === 'file',
@@ -329,6 +337,11 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     expect(
       await pathKind(b, `${dir}/cache/kept`),
       'the ml: directory must not reach the peer - the canary above proves replication was running',
+    ).to.equal('');
+
+    expect(
+      await pathKind(b, `${dir}/lost+found/recovered`),
+      'what fsck recovered on one node must not reach the peer - the canary above proves replication was running',
     ).to.equal('');
   });
 });

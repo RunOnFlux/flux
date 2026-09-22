@@ -385,7 +385,7 @@ describe('mountParser tests', () => {
     // What the refusal is for: one declared name, one derived line.
     it('derives exactly one ignore line per declared directory', () => {
       const lines = syncthingIgnoreLines(mountParser.getUnsyncedSubdirs('/data|ml:cache:/a'));
-      expect(lines).to.deep.equal(['/backup', '/.flux-op', '/.flux-op-*', '/cache']);
+      expect(lines).to.deep.equal(['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/cache']);
       expect(lines.join('\n').split('\n')).to.have.length(lines.length);
     });
 

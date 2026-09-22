@@ -4,6 +4,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const { globalState } = require('./fixtures/globalState');
+const { syncthingIgnoreLines } = require('../../ZelBack/src/services/appSystem/volumeReservedNames');
 const proxyquire = require('proxyquire').noCallThru();
 
 // Create mocks for dependencies
@@ -2374,6 +2375,34 @@ describe('syncthingFolderStateMachine tests', () => {
       } finally {
         clock.restore();
       }
+    });
+  });
+
+  // A component's volume root IS its syncthing folder, so the disk side and the
+  // index have to be reading the same set. A name FluxOS skips on disk while
+  // syncthing indexes it is counted by one and not the other, which misreads the
+  // phantom check and the holdings figure - and replicates something that is not
+  // the owner's to every node holding the app.
+  describe('what the disk skips and what syncthing indexes are the same set', () => {
+    // Syncthing's own, and the whole of them: lib/fs/filesystem.go, `internals`.
+    const syncthingInternals = ['.stfolder', '.stignore', '.stversions'];
+    // An ignore line is anchored at the folder root, and one of them is still a glob.
+    const covers = (line, name) => (line.endsWith('*')
+      ? `/${name}`.startsWith(line.slice(0, -1))
+      : line === `/${name}`);
+
+    [
+      '.stfolder', '.stignore', '.stversions', 'lost+found', 'backup', '.flux-op', 'cache',
+      // The released staging shape, and the glob that covers it takes any suffix -
+      // so the disk side has to take any suffix too, not only the ids FluxOS mints.
+      '.flux-op-3f2504e0-4f89-11d3-9a0c-0305e82c3301', '.flux-op-anything',
+    ].forEach((name) => {
+      it(`excludes ${name} on both sides`, () => {
+        expect(stateMachine.isSyncedPayloadName(name, ['cache']), `${name} counted on disk`).to.be.false;
+        const lines = syncthingIgnoreLines(['cache']);
+        const excluded = syncthingInternals.includes(name) || lines.some((line) => covers(line, name));
+        expect(excluded, `${name} is skipped on disk but syncthing indexes it: ${lines.join(', ')}`).to.be.true;
+      });
     });
   });
 

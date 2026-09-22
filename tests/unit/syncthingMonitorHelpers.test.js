@@ -397,7 +397,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*']);
     });
 
     it('seeds every line when the folder has no ignores yet', async () => {
@@ -406,13 +406,13 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*']);
     });
 
     it('posts nothing when the folder already reads exactly the derived set', async () => {
       // Idempotent: a converged folder is neither rewritten nor rescanned, which
       // is what keeps this safe to run on every monitor pass.
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op', '/.flux-op-*'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID);
@@ -428,11 +428,11 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID, ['game']);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*', '/game']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/game']);
     });
 
     it('posts nothing when the declared directories are already the whole set', async () => {
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op', '/.flux-op-*', '/game'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/game'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID, ['game']);
@@ -444,12 +444,12 @@ describe('syncthingMonitorHelpers tests', () => {
       // A spec that drops an ml: mount is asking for that directory to replicate.
       // The derived set is built afresh every pass and never accumulates, so the
       // line goes with the mount rather than outliving it as a silent exclusion.
-      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op', '/.flux-op-*', '/game'] }));
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/game'] }));
       const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
       await helpers.ensureStignoreCovers(ID, []);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*']);
     });
 
     it('removes a pattern it did not write', async () => {
@@ -461,7 +461,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*']);
     });
 
     it('removes a negation that would otherwise answer for a policy line', async () => {
@@ -473,7 +473,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*']);
     });
 
     it('collapses a policy line the folder holds more than once', async () => {
@@ -482,7 +482,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*']);
     });
 
     it('rewrites a folder that holds the right lines in the wrong order', async () => {
@@ -493,7 +493,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
       await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op', '/.flux-op-*']);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/lost+found', '/.flux-op', '/.flux-op-*']);
     });
 
     it('logs and posts nothing when the read fails, rather than failing the pass', async () => {
