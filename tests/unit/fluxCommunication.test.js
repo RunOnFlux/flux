@@ -1125,6 +1125,112 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('the crossing-dial rule: the pair keeps the connection the lower address dialed', () => {
+    let port;
+    let key;
+    let held;
+
+    beforeEach(async () => {
+      peerManager.reset();
+      peerManager.setOwnSocketAddress(null);
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: false, height: 0 } });
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').returns('44.192.51.11:16127');
+      ({ port } = localWsServer.address());
+      key = `127.0.0.1:${port}`;
+      // The pair's other connection, held as the far end's inbound dial.
+      held = await connectWs();
+      held.on = sinon.stub();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      peerManager.reset();
+      peerManager.setOwnSocketAddress(null);
+    });
+
+    // The dial's own socket, as the server accepted it.
+    const nextServerSocket = () => new Promise((resolve) => {
+      localWsServer.once('connection', (ws) => resolve(ws));
+    });
+
+    // Both ends can dial the same pair at once, and each then holds the other's
+    // dial when its own opens. Both ends keep the connection the lower address
+    // dialed; until this node knows its own address it cannot order the pair,
+    // and the held connection stays.
+    it('a dial opening into a live held pair closes itself while this node cannot order the pair', async () => {
+      const dialAccepted = nextServerSocket();
+      const dial = fluxCommunication.initiateAndHandleConnection(key, PEER_SOURCE.DETERMINISTIC);
+      // Land the held connection while the dial is still handshaking.
+      peerManager.add(held, '127.0.0.1', port, { source: PEER_SOURCE.INBOUND });
+      const original = peerManager.get(key);
+      expect(original, 'the held connection is in place before the dial opens').to.not.equal(undefined);
+
+      await dial;
+      const dialSocket = await dialAccepted;
+      // Settled one way or the other: the dial closed itself, or it was held.
+      await waitFor(() => dialSocket.readyState === WebSocket.CLOSED || peerManager.outboundCount > 0, 5000);
+
+      expect(peerManager.get(key), 'the held connection is still the one held').to.equal(original);
+      expect(peerManager.get(key).direction).to.equal('inbound');
+      expect(held.readyState, 'the held connection was never closed').to.equal(WebSocket.OPEN);
+      expect(dialSocket.readyState, 'the dial that lost the race is closed').to.equal(WebSocket.CLOSED);
+      expect(peerManager.outboundCount).to.equal(0);
+      expect(peerManager.inboundCount).to.equal(1);
+    });
+
+    it('a dial opening into a live held inbound replaces it when this node has the lower address', async () => {
+      peerManager.setOwnSocketAddress('1.1.1.1:16127');
+      const dialAccepted = nextServerSocket();
+      const dial = fluxCommunication.initiateAndHandleConnection(key, PEER_SOURCE.DETERMINISTIC);
+      peerManager.add(held, '127.0.0.1', port, { source: PEER_SOURCE.INBOUND });
+      const original = peerManager.get(key);
+
+      await dial;
+      await dialAccepted;
+      await waitFor(() => peerManager.outboundCount === 1, 5000);
+
+      expect(peerManager.get(key)).to.not.equal(original);
+      expect(peerManager.get(key).direction).to.equal('outbound');
+      expect(peerManager.inboundCount).to.equal(0);
+      await waitFor(() => held.readyState === WebSocket.CLOSED, 5000);
+    });
+
+    it('a dial opening into a live held inbound closes itself when the peer has the lower address', async () => {
+      peerManager.setOwnSocketAddress('200.1.1.1:16127');
+      const dialAccepted = nextServerSocket();
+      const dial = fluxCommunication.initiateAndHandleConnection(key, PEER_SOURCE.DETERMINISTIC);
+      peerManager.add(held, '127.0.0.1', port, { source: PEER_SOURCE.INBOUND });
+      const original = peerManager.get(key);
+
+      await dial;
+      const dialSocket = await dialAccepted;
+      await waitFor(() => dialSocket.readyState === WebSocket.CLOSED || peerManager.outboundCount > 0, 5000);
+
+      expect(peerManager.get(key)).to.equal(original);
+      expect(peerManager.get(key).direction).to.equal('inbound');
+      expect(held.readyState).to.equal(WebSocket.OPEN);
+      expect(dialSocket.readyState).to.equal(WebSocket.CLOSED);
+    });
+
+    it('a dial completing into a dead held connection replaces it', async () => {
+      const dialAccepted = nextServerSocket();
+      const dial = fluxCommunication.initiateAndHandleConnection(key, PEER_SOURCE.DETERMINISTIC);
+      peerManager.add(held, '127.0.0.1', port, { source: PEER_SOURCE.INBOUND });
+      const original = peerManager.get(key);
+      held.terminate();
+      expect(original.isAlive, 'the held connection reads as dead').to.equal(false);
+
+      await dial;
+      await dialAccepted;
+      await waitFor(() => peerManager.outboundCount === 1, 5000);
+
+      expect(peerManager.get(key)).to.not.equal(original);
+      expect(peerManager.get(key).direction).to.equal('outbound');
+      expect(peerManager.inboundCount).to.equal(0);
+    });
+  });
+
   describe('initiateAndHandleConnection tests', () => {
     before(function () { if (process.platform !== 'linux') this.skip(); });
 

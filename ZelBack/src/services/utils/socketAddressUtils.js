@@ -56,6 +56,23 @@ function parseSocketAddress(raw) {
   return { ip, port: +portStr };
 }
 
+// Orders two socket addresses: IPv4 octets as numbers, then port, with a bare IP
+// taken at the default API port. -1, 0 or 1 as `a` is lower, equal or higher;
+// null when either does not parse, so no caller mistakes "cannot tell" for an
+// order.
+function compareSocketAddresses(a, b) {
+  const pa = parseSocketAddress(a);
+  const pb = parseSocketAddress(b);
+  if (!pa || !pb) return null;
+  const octetsA = pa.ip.split('.').map(Number);
+  const octetsB = pb.ip.split('.').map(Number);
+  for (let i = 0; i < 4; i += 1) {
+    if (octetsA[i] !== octetsB[i]) return octetsA[i] < octetsB[i] ? -1 : 1;
+  }
+  if (pa.port !== pb.port) return pa.port < pb.port ? -1 : 1;
+  return 0;
+}
+
 function socketAddressesMatch(a, b) {
   if (!a || !b) return false;
   if (a === b) return true;
@@ -87,5 +104,6 @@ module.exports = {
   extractPort,
   parseSocketAddress,
   socketAddressesMatch,
+  compareSocketAddresses,
   ipsMatch,
 };

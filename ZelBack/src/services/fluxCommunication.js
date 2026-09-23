@@ -13,7 +13,7 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
-const { peerManager, PEER_SOURCE } = require('./utils/peerState');
+const { peerManager, PEER_SOURCE, CLOSE_CODES } = require('./utils/peerState');
 const { SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
@@ -1165,6 +1165,21 @@ function onOutboundError(error) {
 function onOutboundOpen() {
   const meta = wsMetadata.get(this);
   if (!meta) return;
+  const key = `${meta.ip}:${meta.port}`;
+  const existing = peerManager.get(key);
+  // A connection to this peer is already held: a live one in the same
+  // direction stays, and when both ends dialed at once the pair keeps the
+  // connection dialed by the lower address (peerManager.crossingSurvivor), the
+  // same choice the far end makes. Otherwise add() replaces the held one.
+  const replaces = !existing || peerManager.newcomerReplaces(existing, DIRECTION.OUTBOUND);
+  if (existing && existing.isAlive && existing.direction === DIRECTION.INBOUND) {
+    fluxEventBus.count('peers:crossing', replaces ? DIRECTION.OUTBOUND : DIRECTION.INBOUND);
+  }
+  if (!replaces) {
+    peerManager.clearPending(key);
+    try { this.close(CLOSE_CODES.DUPLICATE_PEER, 'Peer already connected'); } catch (_e) { /* noop */ }
+    return;
+  }
   peerManager.add(this, meta.ip, meta.port, {
     source: meta.source,
     remoteCapabilities: meta.remoteCapabilities,
