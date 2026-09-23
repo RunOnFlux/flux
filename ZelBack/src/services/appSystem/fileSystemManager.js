@@ -460,18 +460,136 @@ async function downloadAppsFile(req, res) {
 async function resolveOperands(req, volume) {
   const source = requiredParam(req, 'source');
   const destination = requiredParam(req, 'destination');
-  // A real boolean from a JSON body, or the string a form-encoded caller sends.
-  // Anything else is false: overwrite has to be asked for, so an unparseable
-  // value must not be read as consent to destroy something.
-  const raw = serviceHelper.ensureObject(req.body)?.overwrite ?? req.query.overwrite;
-  const overwrite = raw === true || raw === 'true';
   const pair = await volume.pair(source, destination);
 
   // Carried to the publish rather than settled here. What "the destination is
   // taken" means is decided by the rename that acts on it, in one step, on the
   // volume of an application that is writing to it the whole time - a look taken
   // now answers for a moment that has passed by the time the container runs.
-  return { ...pair, noReplace: !overwrite };
+  return { ...pair, noReplace: !overwriteRequested(req) };
+}
+
+/**
+ * Whether the caller asked for an occupied destination to be replaced.
+ *
+ * A real boolean from a JSON body, or the string a form-encoded caller sends.
+ * Anything else is false: overwrite has to be asked for, so an unparseable value
+ * must not be read as consent to destroy something.
+ */
+function overwriteRequested(req) {
+  const raw = serviceHelper.ensureObject(req.body)?.overwrite ?? req.query.overwrite;
+  return raw === true || raw === 'true';
+}
+
+/**
+ * The most entries one compressobject list may name.
+ *
+ * Every entry is resolved and measured by the FluxOS process before a container
+ * starts - a handful of realpath and lstat calls each - so the list's length is
+ * the multiplier on the work one request from an app owner asks of the node. A
+ * thousand is past any selection made by hand in a file browser; a caller
+ * archiving more archives the folder holding them.
+ */
+const MAX_ARCHIVE_SOURCES = 1000;
+
+/**
+ * Read compressobject's operands: what goes into the archive, and where the
+ * archiver runs so that it lands at the archive's top level.
+ *
+ * `source` is one path or a list of paths.
+ *
+ * One path archives that entry's CONTENTS when it is a directory, and the file
+ * itself otherwise, so extracting the archive to a destination reproduces the
+ * source under that name - compress then extract returns what went in.
+ *
+ * A list archives each listed entry by its path from the deepest directory
+ * holding all of them, which is where the archiver runs: entries sharing a
+ * folder arrive under their bare names, and `["logs/a.txt", "notes.txt"]`
+ * arrives as `logs/a.txt` and `notes.txt`. A directory in the list arrives as
+ * that directory, not as its contents, a list of one included. An entry inside
+ * another listed entry is refused, because the archivers would store it twice.
+ *
+ * Both archivers decide their layout from where they run and what they are
+ * handed, and neither infers anything useful from an absolute operand: zip
+ * stores the whole path minus its leading slash, which would put an internal
+ * mount directory the user has never seen inside their archive, and tar's -C
+ * cannot be pointed at a file at all. Running in the right directory and
+ * passing relative operands is what makes the two agree, and is the only form
+ * that works for a single file.
+ *
+ * The list's length is capped at MAX_ARCHIVE_SOURCES, and its total size by the
+ * JSON body limit, which keeps the argv far inside the kernel's.
+ *
+ * @param {object} req
+ * @param {VolumeSession} volume
+ * @returns {Promise<{sources: VolumePath[], destination: VolumePath,
+ *   noReplace: boolean, workingDir: VolumePath, operands: string[]}>}
+ */
+async function resolveArchiveOperands(req, volume) {
+  const requested = requiredParam(req, 'source');
+
+  if (!Array.isArray(requested)) {
+    const { source, destination, noReplace } = await resolveOperands(req, volume);
+    const sourceIsDirectory = await volume.isDirectory(source);
+    return {
+      sources: [source],
+      destination,
+      noReplace,
+      workingDir: sourceIsDirectory ? source : volume.parent(source),
+      operands: [sourceIsDirectory ? '.' : path.basename(source.relative)],
+    };
+  }
+
+  if (!requested.length || !requested.every((entry) => typeof entry === 'string' && entry)) {
+    throw new Error('source must be a path or a non-empty list of paths');
+  }
+  if (requested.length > MAX_ARCHIVE_SOURCES) {
+    throw new Error(`source lists at most ${MAX_ARCHIVE_SOURCES} entries - archive the folder holding them instead`);
+  }
+  const destinationPath = requiredParam(req, 'destination');
+
+  // Each entry is paired with the destination, so every guard a single source
+  // gets - it exists, the archive is not written over it or inside it - holds
+  // for each of them.
+  //
+  // One at a time: resolving is filesystem work on the thread pool every other
+  // request shares, and a list resolved all at once queues the whole of it
+  // ahead of them.
+  const pairs = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const entry of requested) {
+    // eslint-disable-next-line no-await-in-loop
+    pairs.push(await volume.pair(entry, destinationPath));
+  }
+  const sources = pairs.map((pair) => pair.source);
+
+  // The same entry twice, or one entry inside another, would be archived
+  // twice: tar stores both copies, and an extraction then writes the one name
+  // two times.
+  if (new Set(sources.map((source) => source.hostPath)).size !== sources.length) {
+    throw new Error('A source is listed more than once');
+  }
+  const listed = new Set(sources.map((source) => source.relative));
+  sources.forEach((source) => {
+    for (let dir = path.posix.dirname(source.relative); dir !== '.'; dir = path.posix.dirname(dir)) {
+      if (listed.has(dir)) throw new Error(`${source.relative} is inside ${dir}, which is also listed`);
+    }
+  });
+
+  const holds = (dir, source) => dir.relative === '' || source.relative.startsWith(`${dir.relative}/`);
+  let workingDir = volume.parent(sources[0]);
+  while (!sources.every((source) => holds(workingDir, source))) {
+    workingDir = volume.parent(workingDir);
+  }
+  const prefixLength = workingDir.relative === '' ? 0 : workingDir.relative.length + 1;
+
+  return {
+    sources,
+    destination: pairs[0].destination,
+    noReplace: !overwriteRequested(req),
+    workingDir,
+    operands: sources.map((source) => source.relative.slice(prefixLength)),
+  };
 }
 
 /**
@@ -675,7 +793,9 @@ async function copyAppsObject(req, res) {
 }
 
 /**
- * Archive a file or folder, leaving the archive on the volume.
+ * Archive a file, a folder, or a list of entries, leaving the archive on the
+ * volume. See resolveArchiveOperands for what each form of
+ * `source` puts in the archive.
  *
  * Unlike downloadAppsFolder, which zips only to stream the result to the
  * browser, this produces an archive the app keeps - the thing you want before a
@@ -687,7 +807,9 @@ async function copyAppsObject(req, res) {
 async function compressAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
-    const { source, destination, noReplace } = await resolveOperands(req, volume);
+    const {
+      sources, destination, noReplace, workingDir, operands,
+    } = await resolveArchiveOperands(req, volume);
 
     const format = archiveFormat(destination.relative);
     if (!format) {
@@ -695,24 +817,16 @@ async function compressAppsObject(req, res) {
     }
 
     // The archive cannot be larger than what goes into it by enough to matter,
-    // and compressed output is normally far smaller - so the source size is a
-    // safe over-estimate rather than a guess.
-    volume.requireSpace(await volume.measure(source));
-
-    // An archive holds the source's CONTENTS at its top level, so extracting it
-    // to a destination reproduces the source under that name - compress then
-    // extract returns what went in.
-    //
-    // Both archivers decide their layout from where they run and what they are
-    // handed, and neither infers anything useful from an absolute operand: zip
-    // stores the whole path minus its leading slash, which would put an
-    // internal mount directory the user has never seen inside their archive,
-    // and tar's -C cannot be pointed at a file at all. Running in the right
-    // directory and passing a bare operand is what makes the two agree, and is
-    // the only form that works for a single file.
-    const sourceIsDirectory = await volume.isDirectory(source);
-    const workingDir = sourceIsDirectory ? source : volume.parent(source);
-    const operand = sourceIsDirectory ? '.' : path.basename(source.relative);
+    // and compressed output is normally far smaller - so the sources' size is a
+    // safe over-estimate rather than a guess. Measured one at a time, as they
+    // were resolved.
+    let totalBytes = 0;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const source of sources) {
+      // eslint-disable-next-line no-await-in-loop
+      totalBytes += await volume.measure(source);
+    }
+    volume.requireSpace(totalBytes);
 
     // The archive goes inside a minted DIRECTORY rather than at the root,
     // because the tool's scratch follows its output: Info-ZIP builds the
@@ -721,18 +835,22 @@ async function compressAppsObject(req, res) {
     // a partial archive and the entry are one reclaim. The executor creates
     // the directory and reclaims it whole.
     const { entry: staging } = volume.stagingDir(destination);
-    // `--` before the operand, because a name is not an option. A file may
+    // `--` before the operands, because a name is not an option. A file may
     // legitimately begin with a dash - the component rule rejects only the
     // separators and the control characters - and both archivers would read one
-    // as a flag and refuse the request. Ending option parsing is what makes the
+    // as a flag and refuse the request. Ending option parsing is what makes each
     // operand a filename whatever it starts with, and unlike a `./` prefix it
     // leaves the name stored in the archive alone.
+    //
+    // zip also reads an operand of exactly `-` as standard input, after `--`
+    // too, and archives a file of that name as empty while exiting 0. `./-`
+    // names the file, and zip stores it as `-`.
     const argv = format === 'zip'
       // -r recurses, -q keeps the per-file listing out of the container's
       // output, -y stores a symlink as a symlink instead of the file it points
       // at, which is what tar and cp -a already do.
-      ? ['zip', '-r', '-q', '-y', staging, '--', operand]
-      : ['tar', '-czf', staging, '--', operand];
+      ? ['zip', '-r', '-q', '-y', staging, '--', ...operands.map((operand) => (operand === '-' ? './-' : operand))]
+      : ['tar', '-czf', staging, '--', ...operands];
 
     // Bytes written to the archive, with no total: how far a source of a known
     // size compresses is not knowable until it has.

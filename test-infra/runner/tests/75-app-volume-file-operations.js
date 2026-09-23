@@ -416,6 +416,98 @@ describe('app volume file operations - the contract', function () {
         });
         expect(await contentOf(node.container, `${root}/restored/a.txt`)).to.equal('first');
       });
+
+      it(`archives a list of entries as ${label}, each under its own name`, async function () {
+        this.timeout(300000);
+        // A directory in a list arrives as that directory, where a single
+        // directory source arrives as its contents. The archive holds exactly
+        // the listed entries at its top level, and the originals stay put.
+        await seedVolumeTree(node.container, appName, { 'notes.txt': 'loose', 'unlisted.txt': 'left out' });
+
+        await succeed('/apps/compressobject', {
+          appname: appName, component: appName, source: ['photos', 'notes.txt'], destination: `selection.${extension}`,
+        });
+
+        await succeed('/apps/extractobject', {
+          appname: appName, component: appName, source: `selection.${extension}`, destination: 'restored',
+        });
+        expect(await treeOf(node.container, `${root}/restored`)).to.deep.equal(
+          ['./notes.txt', './photos', './photos/a.txt', './photos/sub', './photos/sub/b.txt'],
+        );
+        expect(await contentOf(node.container, `${root}/restored/photos/sub/b.txt`)).to.equal('nested');
+        expect(await contentOf(node.container, `${root}/photos/a.txt`)).to.equal('first');
+        expect(await contentOf(node.container, `${root}/notes.txt`)).to.equal('loose');
+      });
+    }
+
+    for (const [label, extension] of [['zip', 'zip'], ['tar.gz', 'tar.gz']]) {
+      it(`archives a list from different folders as ${label}, keeping each entry's path`, async function () {
+        this.timeout(300000);
+        // Run from the deepest folder holding every entry - the volume root
+        // here - so an entry in a subfolder keeps that subfolder in the archive.
+        await seedVolumeTree(node.container, appName, {
+          'notes.txt': 'loose',
+          'logs/server.log': 'logged',
+          'logs/unlisted.log': 'left out',
+        });
+
+        await succeed('/apps/compressobject', {
+          appname: appName,
+          component: appName,
+          source: ['photos/sub/b.txt', 'logs/server.log', 'notes.txt'],
+          destination: `mixed.${extension}`,
+        });
+
+        await succeed('/apps/extractobject', {
+          appname: appName, component: appName, source: `mixed.${extension}`, destination: 'restored',
+        });
+        expect(await treeOf(node.container, `${root}/restored`)).to.deep.equal(
+          ['./logs', './logs/server.log', './notes.txt', './photos', './photos/sub', './photos/sub/b.txt'],
+        );
+        expect(await contentOf(node.container, `${root}/restored/logs/server.log`)).to.equal('logged');
+        expect(await contentOf(node.container, `${root}/restored/photos/sub/b.txt`)).to.equal('nested');
+      });
+    }
+
+    it('refuses a list with an entry inside another listed entry, before doing any work', async function () {
+      this.timeout(60000);
+      const res = await post('/apps/compressobject', {
+        appname: appName, component: appName, source: ['photos', 'photos/sub/b.txt'], destination: 'nested.zip',
+      });
+
+      expect(res.status).to.not.equal(202);
+      expect(JSON.stringify(res.data)).to.match(/is inside photos, which is also listed/);
+      expect(await exists(node.container, `${root}/nested.zip`)).to.equal(false);
+    });
+
+    for (const [label, extension] of [['zip', 'zip'], ['tar.gz', 'tar.gz']]) {
+      it(`archives names an archiver could misread, exactly, as ${label}`, async function () {
+        this.timeout(300000);
+        // `-` is standard input to zip, and `[ab].txt` and `sub/x?` are
+        // patterns that name files which also exist. Each must arrive as the
+        // one file it names, with its content, and nothing a pattern matches.
+        await seedVolumeTree(node.container, appName, {
+          '-': 'dash',
+          '[ab].txt': 'bracketed',
+          'a.txt': 'unlisted',
+          'sub/x?': 'question',
+          'sub/x1': 'unlisted',
+        });
+
+        await succeed('/apps/compressobject', {
+          appname: appName, component: appName, source: ['-', '[ab].txt', 'sub/x?'], destination: `odd.${extension}`,
+        });
+
+        await succeed('/apps/extractobject', {
+          appname: appName, component: appName, source: `odd.${extension}`, destination: 'restored',
+        });
+        expect(await treeOf(node.container, `${root}/restored`)).to.deep.equal(
+          ['./-', './[ab].txt', './sub', './sub/x?'],
+        );
+        expect(await contentOf(node.container, `${root}/restored/-`)).to.equal('dash');
+        expect(await contentOf(node.container, `${root}/restored/[ab].txt`)).to.equal('bracketed');
+        expect(await contentOf(node.container, `${root}/restored/sub/x?`)).to.equal('question');
+      });
     }
 
     it('archives a file whose name begins with a dash', async function () {

@@ -442,6 +442,15 @@ describe('fileSystemManager tests', () => {
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
     });
 
+    it('names a single file called `-` to zip as ./-', async () => {
+      sessionStub.isDirectory.resolves(false);
+      req.body.source = 'uploads/-';
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/backup.zip', '--', './-']);
+    });
+
     it('hands a name beginning with a dash over as a name, not an option', async () => {
       // The component rule rejects only the separators and the control
       // characters, so a leading dash is a name someone may legitimately have.
@@ -480,6 +489,195 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(argv()[0]).to.equal('zip');
+    });
+
+    describe('a list of sources', () => {
+      beforeEach(() => {
+        req.body.destination = 'data/selection.zip';
+      });
+
+      it('archives each entry by name, from the folder they share', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/selection.zip', '--', 'saves', 'notes.txt']);
+      });
+
+      it('hands tar the same operands', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        req.body.destination = 'data/selection.tar.gz';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc/selection.tar.gz', '--', 'saves', 'notes.txt']);
+      });
+
+      it('archives a directory in a list of one as that directory, not its contents', async () => {
+        // isDirectory answers true here, which a single `source` would turn into
+        // `.` run from inside the directory. A list names entries, so the
+        // directory itself is the operand.
+        req.body.source = ['data/saves'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv().slice(-2)).to.deep.equal(['--', 'saves']);
+      });
+
+      it('runs from the volume root for entries at the root', async () => {
+        req.body.source = ['saves', 'notes.txt'];
+        req.body.destination = 'selection.zip';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work');
+        expect(argv().slice(-3)).to.deep.equal(['--', 'saves', 'notes.txt']);
+      });
+
+      it('pairs every entry with the destination, so each gets the pair guards', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.pair.args).to.deep.equal([
+          ['data/saves', 'data/selection.zip'],
+          ['data/notes.txt', 'data/selection.zip'],
+        ]);
+      });
+
+      it('refuses when any entry fails its pair guard', async () => {
+        sessionStub.pair.withArgs('data/notes.txt').rejects(new Error('Source does not exist'));
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('Source does not exist');
+      });
+
+      it('requires space for all the entries together', async () => {
+        sessionStub.measure.callsFake(async (p) => (p.relative === 'data/saves' ? 3000 : 500));
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.requireSpace.calledOnceWithExactly(3500)).to.equal(true);
+      });
+
+      it('hands names beginning with a dash over after `--`', async () => {
+        req.body.source = ['data/-a.txt', 'data/-b.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv().slice(-3)).to.deep.equal(['--', '-a.txt', '-b.txt']);
+      });
+
+      it('carries overwrite to the publish', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        req.body.overwrite = true;
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().noReplace).to.equal(false);
+      });
+
+      it('archives entries from different folders by their paths from the volume root', async () => {
+        req.body.source = ['mods/config.ini', 'readme.txt', 'saves', 'logs/server.log'];
+        req.body.destination = 'selection.tar.gz';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work');
+        expect(argv().slice(-5)).to.deep.equal(['--', 'mods/config.ini', 'readme.txt', 'saves', 'logs/server.log']);
+      });
+
+      it('runs from the deepest folder holding every entry', async () => {
+        req.body.source = ['data/logs/a.txt', 'data/saves/world/b.dat', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv().slice(-4)).to.deep.equal(['--', 'logs/a.txt', 'saves/world/b.dat', 'notes.txt']);
+      });
+
+      it('does not read a sibling that shares a prefix as a folder holding the others', async () => {
+        // `data/log` is not inside `data/lo`, so the working directory has to
+        // climb to `data` rather than stop at a string prefix.
+        req.body.source = ['data/lo/a.txt', 'data/log/b.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv().slice(-3)).to.deep.equal(['--', 'lo/a.txt', 'log/b.txt']);
+      });
+
+      it('refuses an entry inside another listed entry', async () => {
+        req.body.source = ['saves', 'readme.txt', 'saves/world/level.dat'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('saves/world/level.dat is inside saves, which is also listed');
+      });
+
+      it('names an entry called `-` to zip as ./- so it is not read as standard input', async () => {
+        req.body.source = ['data/-', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv().slice(-3)).to.deep.equal(['--', './-', 'notes.txt']);
+      });
+
+      it('hands tar an entry called `-` unchanged, since tar reads it as a name', async () => {
+        req.body.source = ['data/-', 'data/notes.txt'];
+        req.body.destination = 'data/selection.tar.gz';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv().slice(-3)).to.deep.equal(['--', '-', 'notes.txt']);
+      });
+
+      it('accepts a list of MAX_ARCHIVE_SOURCES entries', async () => {
+        req.body.source = Array.from({ length: 1000 }, (_, i) => `data/f${i}`);
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.pair.callCount).to.equal(1000);
+        expect(executorStub.run.calledOnce).to.equal(true);
+      });
+
+      it('refuses a list longer than MAX_ARCHIVE_SOURCES before resolving any of it', async () => {
+        req.body.source = Array.from({ length: 1001 }, (_, i) => `data/f${i}`);
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.pair.called).to.equal(false);
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.match(/at most 1000 entries/);
+      });
+
+      it('resolves the entries one at a time', async () => {
+        // Resolving is filesystem work on the thread pool every request shares,
+        // so a list must not queue all of it at once.
+        let inFlight = 0;
+        let mostInFlight = 0;
+        sessionStub.pair.callsFake(async (source, destination) => {
+          inFlight += 1;
+          mostInFlight = Math.max(mostInFlight, inFlight);
+          await new Promise((resolve) => { setImmediate(resolve); });
+          inFlight -= 1;
+          return { source: volumePath(source), destination: volumePath(destination) };
+        });
+        req.body.source = ['data/a', 'data/b', 'data/c'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.pair.callCount).to.equal(3);
+        expect(mostInFlight).to.equal(1);
+      });
+
+      it('refuses an entry listed twice', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt', 'data/saves'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('A source is listed more than once');
+      });
+
+      for (const [label, source] of [['an empty list', []], ['an entry that is not a path', ['data/saves', 7]], ['an empty entry', ['data/saves', '']]]) {
+        it(`refuses ${label}`, async () => {
+          req.body.source = source;
+          await fileSystemManager.compressAppsObject(req, res);
+
+          expect(executorStub.run.called).to.equal(false);
+          expect(sessionStub.pair.called).to.equal(false);
+          expect(res.json.firstCall.args[0].data.message).to.equal('source must be a path or a non-empty list of paths');
+        });
+      }
     });
   });
 
