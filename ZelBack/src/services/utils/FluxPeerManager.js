@@ -1743,4 +1743,17 @@ class FluxPeerManager extends EventEmitter {
 // Singleton export
 const peerManager = new FluxPeerManager();
 
+// The connections this node holds right now, by direction, and the address it
+// knows itself by - harness-only, see fluxEventBus.js.
+fluxEventBus.snapshot('peers', () => {
+  const describe = (peer) => ({
+    ip: peer.ip, port: String(peer.port), source: peer.source, alive: peer.isAlive, connectedAt: peer.connectedAt,
+  });
+  return {
+    self: peerManager.getOwnSocketAddress(),
+    outbound: [...peerManager.outboundValues()].map(describe),
+    inbound: [...peerManager.inboundValues()].map(describe),
+  };
+});
+
 module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };
