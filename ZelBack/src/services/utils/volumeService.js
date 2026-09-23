@@ -990,24 +990,23 @@ async function verifyAppVolumeMount(appName, isComponent, componentName) {
 }
 
 /**
- * Creates a missing host mount path — a file (777) or a directory — as root.
+ * Creates a missing host mount path — a file or a directory — as root, mode 777,
+ * the same mode volume creation gives the paths it makes: the container's user
+ * is not root, and a path added to an existing volume must be as writable to it
+ * as one the volume was created with. Only a path this call created is widened.
  * Uses runCommand (execFile, no shell) so paths are passed as arguments and
- * cannot be shell-interpreted. Throws if the command fails.
+ * cannot be shell-interpreted. Throws if a command fails.
  * @param {string} fullPath Absolute host path to create.
  * @param {boolean} isFile True for a file mount, false for a directory.
  */
 async function createMountPath(fullPath, isFile) {
-  if (isFile) {
-    const touch = await serviceHelper.runCommand('touch', { runAsRoot: true, params: [fullPath] });
-    if (touch.error) throw touch.error;
-    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', fullPath] });
-    if (chmod.error) throw chmod.error;
-    log.info(`Created file mount with 777 permissions: ${fullPath}`);
-  } else {
-    const mkdir = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', fullPath] });
-    if (mkdir.error) throw mkdir.error;
-    log.info(`Created directory: ${fullPath}`);
-  }
+  const create = isFile
+    ? await serviceHelper.runCommand('touch', { runAsRoot: true, params: [fullPath] })
+    : await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', fullPath] });
+  if (create.error) throw create.error;
+  const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', fullPath] });
+  if (chmod.error) throw chmod.error;
+  log.info(`Created ${isFile ? 'file' : 'directory'} mount with 777 permissions: ${fullPath}`);
 }
 
 /**
