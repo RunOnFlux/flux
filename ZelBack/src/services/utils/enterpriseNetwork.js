@@ -3,6 +3,9 @@ const dbHelper = require('../dbHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appConstants = require('./appConstants');
 const enterpriseConfig = require('./enterpriseConfig');
+const signatureVerifier = require('../signatureVerifier');
+const policyStore = require('../policyStore');
+const globalState = require('./globalState');
 const log = require('../../lib/log');
 
 // This node's own fluxnode pubkey, cached once resolved. The pubkey never
@@ -14,6 +17,10 @@ const log = require('../../lib/log');
 // and getCachedAllowedOwnersForNode().
 let cachedNodePubKey = null;
 
+// The sweep in progress, and whether anything asked for another while it ran.
+let sweepInFlight = null;
+let sweepAgain = false;
+
 function getEnterpriseAppOwners() {
   return enterpriseConfig.getEnterpriseAppOwners();
 }
@@ -22,23 +29,30 @@ function getEnterpriseNodesPublicKeys() {
   return enterpriseConfig.getEnterpriseNodesPublicKeys();
 }
 
+/**
+ * Whether an address is an enterprise app owner. Returns null when the policy is
+ * unknown — callers must not read that as false, which would let an ordinary node
+ * host enterprise apps and let the sweep tear down apps it cannot judge.
+ */
 function isEnterpriseAppOwner(owner) {
   if (!owner) return false;
-  return getEnterpriseAppOwners().includes(owner);
+  const owners = getEnterpriseAppOwners();
+  if (owners === null) return null;
+  return signatureVerifier.includesSigningIdentity(owners, owner);
 }
 
 /**
  * Returns true if this fluxnode's own pubkey is currently listed in the
- * enterprise nodes public keys (helpers/enterprisenodes.json, synced via
- * enterpriseConfig). Only the resolved pubkey is cached for the lifetime of the
+ * enterprise nodes public keys (enterprisenodes.json in fluxos-network-policy,
+ * fetched via enterpriseConfig). Only the resolved pubkey is cached for the lifetime of the
  * process; membership is evaluated live against the current map on every call,
  * so a node added to or removed from the map is reflected within the sync
  * interval with no restart. resetEnterpriseNodeCache() forces the pubkey to be
  * re-resolved.
  *
- * Throws if the pubkey cannot be resolved (daemon/benchmark down). Prefer the
- * boot-time scheduleIdentityResolution() + getCachedEnterpriseIdentity() pair
- * over awaiting this from hot paths.
+ * Throws if the pubkey cannot be read from flux.conf, or if policy has not been
+ * obtained. Prefer the boot-time scheduleIdentityResolution() +
+ * getCachedEnterpriseIdentity() pair over awaiting this from hot paths.
  */
 async function isEnterpriseNode() {
   if (cachedNodePubKey === null) {
@@ -51,7 +65,14 @@ async function isEnterpriseNode() {
     }
     cachedNodePubKey = pubKey;
   }
-  return getEnterpriseNodesPublicKeys().includes(cachedNodePubKey);
+  const pubKeys = getEnterpriseNodesPublicKeys();
+  // Unknown policy throws rather than answering false, so scheduleIdentityResolution
+  // keeps retrying and identityReady stays unresolved — which is what holds the
+  // ownership sweep back until there is something real to judge against.
+  if (pubKeys === null) {
+    throw new Error('enterpriseNetwork: network policy not yet obtained');
+  }
+  return pubKeys.includes(cachedNodePubKey);
 }
 
 /**
@@ -67,7 +88,9 @@ async function isEnterpriseNode() {
  */
 function getCachedEnterpriseIdentity() {
   if (cachedNodePubKey === null) return null;
-  return getEnterpriseNodesPublicKeys().includes(cachedNodePubKey);
+  const pubKeys = getEnterpriseNodesPublicKeys();
+  if (pubKeys === null) return null;
+  return pubKeys.includes(cachedNodePubKey);
 }
 
 /**
@@ -79,34 +102,72 @@ function getCachedEnterpriseIdentity() {
  */
 function getCachedAllowedOwnersForNode() {
   if (cachedNodePubKey === null) return null;
-  if (!getEnterpriseNodesPublicKeys().includes(cachedNodePubKey)) return [];
+  const pubKeys = getEnterpriseNodesPublicKeys();
+  if (pubKeys === null) return null;
+  if (!pubKeys.includes(cachedNodePubKey)) return [];
   return enterpriseConfig.getAllowedOwnersForNode(cachedNodePubKey);
 }
 
 /**
- * Boot-time identity resolution. Calls isEnterpriseNode() to populate the
- * cache; if the pubkey can't be resolved (daemon/benchmark still coming up),
- * reschedules itself every retryDelayMs until a run succeeds. Returns a
- * promise that resolves once the identity is cached.
+ * Boot-time identity resolution. Calls isEnterpriseNode() to populate the cache,
+ * and resolves once it is. Policy arriving is subscribed to; anything else that
+ * can fail reschedules every retryDelayMs until a run succeeds.
  */
 function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
   return new Promise((resolve) => {
+    let timer = null;
+    let unsubscribe = null;
+
+    const done = () => {
+      if (timer) clearTimeout(timer);
+      if (unsubscribe) unsubscribe();
+      timer = null;
+      unsubscribe = null;
+      resolve();
+    };
+
+    // One attempt at a time. An attempt in flight will report its own outcome, and a second
+    // one started beside it would arm a second deadline over the first handle - leaving a
+    // chain nothing can cancel, which then outlives the success that was meant to end it.
+    let inFlight = false;
+
     const tryResolve = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         await isEnterpriseNode();
         log.info('enterpriseNetwork: identity resolved');
-        resolve();
+        done();
       } catch (err) {
         log.warn(`enterpriseNetwork: identity resolution failed, retrying in ${Math.round(retryDelayMs / 1000)}s: ${err.message || err}`);
-        setTimeout(tryResolve, retryDelayMs);
+        timer = setTimeout(tryResolve, retryDelayMs);
+      } finally {
+        inFlight = false;
       }
     };
+
+    // THE TWO REASONS THIS FAILS NEED DIFFERENT ANSWERS, AND ONLY ONE OF THEM IS A WAIT.
+    // Policy not yet obtained arrives and says so, so it is subscribed to. An unreadable
+    // flux.conf announces nothing, and the interval is all there is - but that is a local
+    // file, not a service coming up, so it is the rare case rather than every boot.
+    //
+    // Without the subscription the node waits the full interval for a fact already in hand:
+    // the spawner is gated on this identity (appSpawner: enterprise_unresolved), and a fleet
+    // measured here had policy nine seconds after boot and could not spawn for five minutes.
+    unsubscribe = policyStore.onBundleChanged(() => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      tryResolve();
+    });
+
     tryResolve();
   });
 }
 
 function resetEnterpriseNodeCache() {
   cachedNodePubKey = null;
+  sweepInFlight = null;
+  sweepAgain = false;
 }
 
 /**
@@ -119,11 +180,15 @@ function resetEnterpriseNodeCache() {
  * callers pass (both derive from isEnterpriseNode()).
  */
 function filterAppsByOwnership(apps, isEnterprise) {
+  // Defensive: the spawner already declines to run at all while the policy gate is
+  // shut, so this should be unreachable. Selecting nothing is the answer that cannot
+  // be wrong if it ever is reached.
+  if (!enterpriseConfig.isPolicyKnown()) return [];
   if (isEnterprise) {
     const allowedOwners = getCachedAllowedOwnersForNode() || [];
-    return apps.filter((app) => allowedOwners.includes(app.owner));
+    return apps.filter((app) => signatureVerifier.includesSigningIdentity(allowedOwners, app.owner));
   }
-  return apps.filter((app) => !isEnterpriseAppOwner(app.owner));
+  return apps.filter((app) => isEnterpriseAppOwner(app.owner) === false);
 }
 
 /**
@@ -151,11 +216,21 @@ function getSpawnDelays(isEnterprise, appsAvailable) {
  *   - every other node must never host apps owned by ANY enterprise app owner
  *
  * sendMessage=true so peers receive fluxappremoved and drop this IP from
- * appLocations. Intended to run once, ~5 minutes after boot.
+ * appLocations. Driven by startOwnershipSweeps, which runs it whenever this node's view of
+ * who may host what changes.
  */
 async function cleanupOwnershipViolations() {
   // eslint-disable-next-line global-require
   const appUninstaller = require('../appLifecycle/appUninstaller');
+
+  // NOTHING IS UNINSTALLED ON POLICY THIS NODE HAS NOT ESTABLISHED IS THE NETWORK'S.
+  // Holding a bundle is not that: one off disk is whatever this node last had, and a map
+  // that has since granted an owner reads here as that owner's apps being violations. This
+  // is the only destructive path in the module, so it takes the gate acquisition takes.
+  if (!globalState.policyReady) {
+    log.warn('enterpriseNetwork: network policy not confirmed, skipping ownership cleanup');
+    return;
+  }
 
   const enterprise = await isEnterpriseNode();
   const allowedOwners = getCachedAllowedOwnersForNode() || [];
@@ -172,7 +247,7 @@ async function cleanupOwnershipViolations() {
 
   const offenders = apps.filter((app) => (
     enterprise
-      ? !allowedOwners.includes(app.owner)
+      ? !signatureVerifier.includesSigningIdentity(allowedOwners, app.owner)
       : isEnterpriseAppOwner(app.owner)
   ));
   if (!offenders.length) {
@@ -192,8 +267,60 @@ async function cleanupOwnershipViolations() {
   }
 }
 
+/**
+ * Run the sweep, and once more if anything asked for one while it ran.
+ *
+ * COALESCED RATHER THAN QUEUED. The sweep is a function of the bundle this node holds now,
+ * so a second request arriving during a pass needs exactly one more pass - a queue of them
+ * would each re-read the same final state and walk the whole local app table again.
+ * @returns {Promise<void>} The run in progress, so a caller can wait for it.
+ */
+function requestOwnershipSweep() {
+  if (sweepInFlight) {
+    sweepAgain = true;
+    return sweepInFlight;
+  }
+  sweepInFlight = (async () => {
+    do {
+      // Cleared BEFORE the pass, so a request arriving during it is not read as one this
+      // pass already accounted for.
+      sweepAgain = false;
+      // eslint-disable-next-line no-await-in-loop
+      await cleanupOwnershipViolations()
+        .catch((error) => log.error(`enterpriseNetwork: ownership cleanup failed: ${error.message || error}`));
+    } while (sweepAgain);
+  })().finally(() => { sweepInFlight = null; });
+  return sweepInFlight;
+}
+
+/**
+ * Sweep whenever this node's view of who may host what changes.
+ *
+ * TWO TRIGGERS, BECAUSE NEITHER COVERS THE OTHER. The gate opening is what makes the map
+ * safe to act on at all, and it opens without the bundle changing - a node confirmed by its
+ * peers holds exactly what it restored. A bundle changing is what makes an already-safe map
+ * say something different, and that happens for the rest of the node's life: an owner
+ * granted or revoked after boot is not visible to a sweep that ran once at boot.
+ *
+ * NOTHING WAITS ON THIS. The sweep uninstalls apps, so it runs only on policy this node has
+ * established is the network's - which may be a long time coming, and may never come.
+ * @returns {Function} Ends the subscription.
+ */
+function startOwnershipSweeps() {
+  const unsubscribe = policyStore.onBundleChanged(() => {
+    // A bundle this node may not act on yet changes nothing it may do. The gate opening
+    // carries its own trigger.
+    if (!globalState.policyReady) return;
+    requestOwnershipSweep();
+  });
+  globalState.waitForPolicyReady().then(() => requestOwnershipSweep());
+  return unsubscribe;
+}
+
 module.exports = {
   cleanupOwnershipViolations,
+  requestOwnershipSweep,
+  startOwnershipSweeps,
   filterAppsByOwnership,
   getCachedAllowedOwnersForNode,
   getCachedEnterpriseIdentity,

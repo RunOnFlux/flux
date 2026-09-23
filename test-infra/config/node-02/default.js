@@ -11,8 +11,6 @@ module.exports = {
             "loggedUsers": "loggedusers",
             "activeLoginPhrases": "activeloginphrases",
             "activeSignatures": "activesignatures",
-            "activePaymentRequests": "activepaymentrequests",
-            "completedPayments": "completedpayments",
             "geolocation": "geolocation",
             "benchmark": "benchmark",
             "appTamperingEvents": "apptamperingevents",
@@ -54,12 +52,6 @@ module.exports = {
         "database": "node02_chainparams",
         "collections": {
             "chainMessages": "chainmessages"
-        }
-    },
-    "fluxshare": {
-        "database": "node02_zelshare",
-        "collections": {
-            "shared": "shared"
         }
     }
 },

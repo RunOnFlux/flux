@@ -29,6 +29,49 @@ describe('coupled harness knobs track production', () => {
     expect(knobs.PRODUCTION.removeFluxAppsPeriod).to.equal(fluxapps.removeFluxAppsPeriod);
     expect(knobs.PRODUCTION.residentialQueueBaseMs).to.equal(fluxapps.residentialQueueBaseMs);
     expect(knobs.PRODUCTION.residentialQueueStepMs).to.equal(fluxapps.residentialQueueStepMs);
+    expect(knobs.PRODUCTION.peerSetDipWindowMinutes).to.equal(fluxapps.peerSetDipWindowMinutes);
+    expect(knobs.PRODUCTION.peerSetDipEvaluateMs).to.equal(fluxapps.peerSetDipEvaluateMs);
+  });
+
+  it('gives a partitioning suite production\'s miss count, not the compressed one', () => {
+    const { peers } = productionConfig();
+
+    expect(knobs.PRODUCTION.wsMaxMissedPongs).to.equal(peers.wsMaxMissedPongs);
+    expect(knobs.PRODUCTION.wsPingIntervalMs).to.equal(peers.wsPingIntervalMs);
+    // The pair is the point. A suite that takes only the interval inherits the
+    // shared fleet's 2 and quietly runs at two thirds of the margin it states.
+    expect(knobs.PARTITION_PEERS.wsMaxMissedPongs).to.equal(peers.wsMaxMissedPongs);
+    // The harness never runs at production's interval, so this one is compressed
+    // - which is exactly why the miss count beside it must not be.
+    expect(knobs.PARTITION_PEERS.wsPingIntervalMs).to.be.below(peers.wsPingIntervalMs);
+  });
+
+  it('refuses to derive a peer death from a config that is missing either half', () => {
+    const shared = knobs.loadSharedConfig().peers;
+
+    expect(knobs.peerDeathMs(shared)).to.equal(shared.wsPingIntervalMs * (shared.wsMaxMissedPongs + 1));
+    expect(knobs.peerDeathMs(knobs.PARTITION_PEERS)).to.equal(12000);
+    // No production fallback. It would return 60s where the shared fleet's real
+    // answer is 6s, and an over-long budget passes every wait it is given, so the
+    // caller's omission would never surface.
+    expect(() => knobs.peerDeathMs({ wsPingIntervalMs: 3000 })).to.throw(/wsMaxMissedPongs/);
+    expect(() => knobs.peerDeathMs({ wsMaxMissedPongs: 3 })).to.throw(/wsPingIntervalMs/);
+    expect(() => knobs.peerDeathMs(undefined)).to.throw(/EFFECTIVE peers config/);
+  });
+
+  // Suite 103 compresses a two-hour window into minutes and has to bring the
+  // sweep that releases the DOS down with it. A suite that shortened only the
+  // window would sit through a tick that never comes and read as the rule
+  // holding the node out - which is exactly what the suite next to it asserts,
+  // so the failure would look like a pass.
+  it('derives how many release sweeps a window holds', () => {
+    const { fluxapps } = productionConfig();
+    const expected = (fluxapps.peerSetDipWindowMinutes * 60 * 1000) / fluxapps.peerSetDipEvaluateMs;
+
+    expect(knobs.peerSetSweepsPerWindow()).to.equal(expected);
+    // Above one is the property: a window swept less than once cannot release
+    // anything, whatever else is true.
+    expect(knobs.peerSetSweepsPerWindow()).to.be.above(1);
   });
 
   it('derives the ratio production actually runs at', () => {
@@ -39,6 +82,29 @@ describe('coupled harness knobs track production', () => {
     // Above one is the property itself: a step shorter than a pass cannot
     // separate two positions, whatever else is true.
     expect(knobs.productionQueueRatio()).to.be.above(1);
+  });
+
+  it('rejects a fleet where a departure cannot be seen before the next holder decides', () => {
+    // Suite 55's own pacing, with the step pulled down until the two holders'
+    // decisions land inside what a departure costs to become visible. Sat ON the
+    // bound rather than under it: the bound is strict, and a step edited to just
+    // reach it is the one a later change drifts to.
+    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833 };
+    const pass = knobs.giveUpPassMs(fleet, knobs.harnessBlockCostMs(fleet));
+    const fluxapps = {
+      ...fleet, residentialQueueStepMs: Math.floor(pass) + knobs.DEPARTURE_ANNOUNCE_MS,
+    };
+
+    expect(() => knobs.assertDepartureIsVisibleInTime(fluxapps))
+      .to.throw(/cannot be announced before the next holder decides/);
+  });
+
+  it('accepts the separation suite 55 actually runs at', () => {
+    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833 };
+
+    expect(() => knobs.assertDepartureIsVisibleInTime({
+      ...fleet, residentialQueueStepMs: knobs.derivedQueueStepMs(fleet),
+    })).to.not.throw();
   });
 
   it('rejects a harness fleet whose step is shorter than its pass', () => {

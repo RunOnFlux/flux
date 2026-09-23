@@ -5,18 +5,17 @@ const daemonServiceBenchmarkRpcs = require('./services/daemonService/daemonServi
 const daemonServiceMiningRpcs = require('./services/daemonService/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonService/daemonServiceNetworkRpcs');
 const daemonServiceNodeRpcs = require('./services/daemonService/daemonServiceFluxnodeRpcs');
-const daemonServiceWalletRpcs = require('./services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceUtilityRpcs = require('./services/daemonService/daemonServiceUtilityRpcs');
-const daemonServiceZcashRpcs = require('./services/daemonService/daemonServiceZcashRpcs');
 const daemonServiceControlRpcs = require('./services/daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
-const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
+const fluxshareService = require('./services/fluxshareService');
+const paymentRelayService = require('./services/paymentRelayService');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const {
-  asyncRoute, cache, rejectQueryParameters, requireBootSettled,
+  asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
 } = require('./services/utils/routeGuards');
 const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
 
@@ -45,7 +44,6 @@ const monitoringOrchestrator = require('./services/appMonitoring/monitoringOrche
 const systemIntegration = require('./services/appSystem/systemIntegration');
 
 const explorerService = require('./services/explorerService');
-const fluxshareService = require('./services/fluxshareService');
 const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
@@ -194,14 +192,26 @@ module.exports = (app) => {
   app.get('/daemon/decodescript/:hex?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.decodeScript(req, res);
   }));
-  app.get('/daemon/fundrawtransaction/:hexstring?', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.fundRawTransaction(req, res);
-  }));
   app.get('/daemon/getrawtransaction/:txid?/:verbose?', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.getRawTransaction(req, res);
   }));
   app.get('/daemon/sendrawtransaction/:hexstring?/:allowhighfees?', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.sendRawTransaction(req, res);
+  }));
+  app.get('/daemon/getaddresstxids/:address?/:start?/:end?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddresssTxids(req, res);
+  }));
+  app.get('/daemon/getaddressbalance/:address?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressBalance(req, res);
+  }));
+  app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
+  }));
+  app.get('/daemon/getaddressutxos/:address?/:chaininfo?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressUtxos(req, res);
+  }));
+  app.get('/daemon/getaddressmempool/:address?', asyncRoute((req, res) => {
+    return daemonServiceAddressRpcs.getSingleAddressMempool(req, res);
   }));
   app.get('/daemon/createmultisig/:n?/:keys?', asyncRoute((req, res) => {
     return daemonServiceUtilityRpcs.createMultiSig(req, res);
@@ -217,9 +227,6 @@ module.exports = (app) => {
   }));
   app.get('/daemon/verifymessage/:fluxaddress?/:signature?/:message?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceUtilityRpcs.verifyMessage(req, res);
-  }));
-  app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getTransaction(req, res);
   }));
   app.get('/daemon/zvalidateaddress/:zaddr?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceUtilityRpcs.zValidateAddress(req, res);
@@ -286,14 +293,8 @@ module.exports = (app) => {
   app.get('/flux/routerip', cache('1 day'), asyncRoute((req, res) => {
     return fluxService.getRouterIP(req, res);
   }));
-  app.get('/flux/blockedports', cache('1 day'), asyncRoute((req, res) => {
-    return fluxService.getBlockedPorts(req, res);
-  }));
   app.get('/flux/apiport', cache('1 day'), asyncRoute((req, res) => {
     return fluxService.getAPIPort(req, res);
-  }));
-  app.get('/flux/blockedrepositories', cache('1 day'), asyncRoute((req, res) => {
-    return fluxService.getBlockedRepositories(req, res);
   }));
   app.get('/flux/enterpriseappowners', cache('1 hour'), asyncRoute((req, res) => {
     return fluxService.getEnterpriseAppOwners(req, res);
@@ -306,6 +307,9 @@ module.exports = (app) => {
   }));
   app.get('/flux/dosstate', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxNetworkHelper.getDOSState(req, res);
+  }));
+  app.get('/flux/health', cache('30 seconds'), asyncRoute((req, res) => {
+    return idService.nodeHealth(req, res);
   }));
   app.post('/flux/dosstate', asyncRoute((req, res) => {
     return fluxNetworkHelper.setDOSStateApi(req, res);
@@ -406,6 +410,14 @@ module.exports = (app) => {
   // read by the same callers on the same path.
   app.get('/apps/promotedfolders', rejectQueryParameters, asyncRoute((req, res) => {
     return appQueryService.promotedFolders(req, res);
+  }));
+  // The same answer with what each receive-only folder HOLDS, which is a size and a
+  // last-write time per app and therefore the tenant's. A caller signs as a node on the
+  // deterministic list, or holds Flux team privilege; one that does neither is answered
+  // without it rather than refused, because a peer too old to sign is not doing anything
+  // wrong. POST because a signature needs a body to be over.
+  app.post('/apps/promotedfolders', asyncRoute((req, res) => {
+    return appQueryService.promotedFolderHoldings(req, res);
   }));
   app.get('/apps/listallapps', cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.listAllAppsApi(req, res);
@@ -597,173 +609,8 @@ module.exports = (app) => {
     return benchmarkService.getInfo(req, res);
   }));
 
-  app.get('/syncthing/meta', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getMetaApi(req, res);
-  }));
   app.get('/syncthing/deviceid', cache('30 seconds'), asyncRoute((req, res) => {
     return syncthingService.getDeviceIdApi(req, res);
-  }));
-  app.get('/syncthing/health', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getHealthApi(req, res);
-  }));
-  app.get('/syncthing/system/browse/:current?', asyncRoute((req, res) => {
-    return syncthingService.systemBrowse(req, res);
-  }));
-  app.get('/syncthing/system/connections', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemConnections(req, res);
-  }));
-  app.get('/syncthing/system/debug/:enable?/:disable?', asyncRoute((req, res) => {
-    return syncthingService.systemDebug(req, res);
-  }));
-  app.get('/syncthing/system/discovery/:device?/:addr?', asyncRoute((req, res) => {
-    return syncthingService.systemDiscovery(req, res);
-  }));
-  app.get('/syncthing/system/error/clear', asyncRoute((req, res) => {
-    return syncthingService.systemErrorClear(req, res);
-  }));
-  app.get('/syncthing/system/error/:message?', asyncRoute((req, res) => {
-    return syncthingService.systemError(req, res);
-  }));
-  app.get('/syncthing/system/log/:since?', asyncRoute((req, res) => {
-    return syncthingService.systemLog(req, res);
-  }));
-  app.get('/syncthing/system/logtxt/:since?', asyncRoute((req, res) => {
-    return syncthingService.systemLogTxt(req, res);
-  }));
-  app.get('/syncthing/system/paths', asyncRoute((req, res) => {
-    return syncthingService.systemPaths(req, res);
-  }));
-  app.get('/syncthing/system/pause/:device?', asyncRoute((req, res) => {
-    return syncthingService.systemPauseApi(req, res);
-  }));
-  app.get('/syncthing/system/ping', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemPingApi(req, res);
-  }));
-  app.get('/syncthing/system/reset/:folder?', asyncRoute((req, res) => {
-    return syncthingService.systemReset(req, res);
-  }));
-  app.get('/syncthing/system/restart', asyncRoute((req, res) => {
-    return syncthingService.systemRestartApi(req, res);
-  }));
-  app.get('/syncthing/system/resume/:device?', asyncRoute((req, res) => {
-    return syncthingService.systemResumeApi(req, res);
-  }));
-  app.get('/syncthing/system/shutdown', asyncRoute((req, res) => {
-    return syncthingService.systemShutdown(req, res);
-  }));
-  app.get('/syncthing/system/status', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemStatus(req, res);
-  }));
-  app.get('/syncthing/system/upgrade', asyncRoute((req, res) => {
-    return syncthingService.systemUpgrade(req, res);
-  }));
-  app.get('/syncthing/system/version', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.systemVersionApi(req, res);
-  }));
-  app.get('/syncthing/config', asyncRoute((req, res) => {
-    return syncthingService.getConfigApi(req, res);
-  }));
-  app.get('/syncthing/config/restart-required', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigRestartRequired(req, res);
-  }));
-  app.get('/syncthing/config/folders/:id?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigFoldersApi(req, res);
-  }));
-  app.get('/syncthing/config/devices/:id?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDevicesApi(req, res);
-  }));
-  app.get('/syncthing/config/defaults/folder', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDefaultsFolderApi(req, res);
-  }));
-  app.get('/syncthing/config/defaults/device', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDefaultsDevice(req, res);
-  }));
-  app.get('/syncthing/config/defaults/ignores', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigDefaultsIgnores(req, res);
-  }));
-  app.get('/syncthing/config/options', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigOptionsApi(req, res);
-  }));
-  app.get('/syncthing/config/ldap', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getConfigLdap(req, res);
-  }));
-  app.get('/syncthing/config/gui', asyncRoute((req, res) => {
-    return syncthingService.getConfigGuiApi(req, res);
-  }));
-  app.get('/syncthing/stats/device', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.statsDevice(req, res);
-  }));
-  app.get('/syncthing/stats/folder', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.statsFolder(req, res);
-  }));
-  app.get('/syncthing/cluster/pending/devices', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getClusterPendigDevices(req, res);
-  }));
-  app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getClusterPendigFolders(req, res);
-  }));
-  app.get('/syncthing/folder/errors/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getFolderErrors(req, res);
-  }));
-  app.get('/syncthing/folder/versions/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getFolderVersions(req, res);
-  }));
-  app.get('/syncthing/db/browse/:folder?/:levels?/:prefix?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbBrowse(req, res);
-  }));
-  app.get('/syncthing/db/completion/:folder?/:device?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbCompletionApi(req, res);
-  }));
-  app.get('/syncthing/db/file/:folder?/:file?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbFile(req, res);
-  }));
-  app.get('/syncthing/db/ignores/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbIgnores(req, res);
-  }));
-  app.get('/syncthing/db/localchanged/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbLocalchanged(req, res);
-  }));
-  app.get('/syncthing/db/need/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbNeed(req, res);
-  }));
-  app.get('/syncthing/db/remoteneed/:folder?/:device?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbRemoteNeed(req, res);
-  }));
-  app.get('/syncthing/db/status/:folder?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getDbStatusApi(req, res);
-  }));
-  app.get('/syncthing/events/disk', asyncRoute((req, res) => {
-    return syncthingService.getEventsDisk(req, res);
-  }));
-  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', asyncRoute((req, res) => {
-    return syncthingService.getEventsApi(req, res);
-  }));
-  app.get('/syncthing/svc/random/string/:length?', asyncRoute((req, res) => {
-    return syncthingService.getSvcRandomString(req, res);
-  }));
-  app.get('/syncthing/svc/report', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getSvcReport(req, res);
-  }));
-  app.get('/syncthing/svc/:deviceid?', cache('30 seconds'), asyncRoute((req, res) => {
-    return syncthingService.getSvcDeviceID(req, res);
-  }));
-  app.get('/syncthing/debug/peercompletion', asyncRoute((req, res) => {
-    return syncthingService.debugPeerCompletion(req, res);
-  }));
-  app.get('/syncthing/debug/httpmetrics', asyncRoute((req, res) => {
-    return syncthingService.debugHttpmetrics(req, res);
-  }));
-  app.get('/syncthing/debug/cpuprof', asyncRoute((req, res) => {
-    return syncthingService.debugCpuprof(req, res);
-  }));
-  app.get('/syncthing/debug/heapprof', asyncRoute((req, res) => {
-    return syncthingService.debugHeapprof(req, res);
-  }));
-  app.get('/syncthing/debug/support', asyncRoute((req, res) => {
-    return syncthingService.debugSupport(req, res);
-  }));
-  app.get('/syncthing/debug/file', asyncRoute((req, res) => {
-    return syncthingService.debugFile(req, res);
   }));
   // BACKUP & RESTORE
 
@@ -849,171 +696,6 @@ module.exports = (app) => {
   app.get('/daemon/setban/:ip?/:command?/:bantime?/:absolute?', asyncRoute((req, res) => {
     return daemonServiceNetworkRpcs.setBan(req, res);
   }));
-  app.get('/daemon/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.signRawTransaction(req, res);
-  }));
-  app.get('/daemon/addmultisigaddress/:n?/:keysobject?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.addMultiSigAddress(req, res);
-  }));
-  app.get('/daemon/backupwallet/:destination?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.backupWallet(req, res);
-  }));
-  app.get('/daemon/dumpprivkey/:taddr?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.dumpPrivKey(req, res);
-  }));
-  app.get('/daemon/getbalance/:minconf?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getBalance(req, res);
-  }));
-  app.get('/daemon/getnewaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getNewAddress(req, res);
-  }));
-  app.get('/daemon/getrawchangeaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getRawChangeAddress(req, res);
-  }));
-  app.get('/daemon/getreceivedbyaddress/:fluxaddress?/:minconf?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getReceivedByAddress(req, res);
-  }));
-  app.get('/daemon/getunconfirmedbalance', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getUnconfirmedBalance(req, res);
-  }));
-  app.get('/daemon/getwalletinfo', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.getWalletInfo(req, res);
-  }));
-  app.get('/daemon/importaddress/:address?/:label?/:rescan?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.importAddress(req, res);
-  }));
-  app.get('/daemon/importprivkey/:fluxprivkey?/:label?/:rescan?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.importPrivKey(req, res);
-  }));
-  app.get('/daemon/importwallet/:filename?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.importWallet(req, res);
-  }));
-  app.get('/daemon/keypoolrefill/:newsize?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.keyPoolRefill(req, res);
-  }));
-  app.get('/daemon/listaddressgroupings', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listAddressGroupings(req, res);
-  }));
-  app.get('/daemon/listlockunspent', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listLockUnspent(req, res);
-  }));
-  app.get('/daemon/listreceivedbyaddress/:minconf?/:includeempty?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listReceivedByAddress(req, res);
-  }));
-  app.get('/daemon/listsinceblock/:blockhash?/:targetconfirmations?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listSinceBlock(req, res);
-  }));
-  app.get('/daemon/listtransactions/:count?/:from?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listTransactions(req, res);
-  }));
-  app.get('/daemon/listunspent/:minconf?/:maxconf?/:addresses?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.listUnspent(req, res);
-  }));
-  app.get('/daemon/lockunspent/:unlock?/:transactions?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.lockUnspent(req, res);
-  }));
-  app.get('/daemon/rescanblockchain/:startheight?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.rescanBlockchain(req, res);
-  }));
-  app.get('/daemon/sendfrom/:tofluxaddress?/:amount?/:minconf?/:comment?/:commentto?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendFrom(req, res);
-  }));
-  app.get('/daemon/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendMany(req, res);
-  }));
-  app.get('/daemon/sendtoaddress/:fluxaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendToAddress(req, res);
-  }));
-  app.get('/daemon/settxfee/:amount?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.setTxFee(req, res);
-  }));
-  app.get('/daemon/signmessage/:taddr?/:message?', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.signMessage(req, res);
-  }));
-  app.get('/daemon/zexportkey/:zaddr?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zExportKey(req, res);
-  }));
-  app.get('/daemon/zexportviewingkey/:zaddr?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zExportViewingKey(req, res);
-  }));
-  app.get('/daemon/zgetbalance/:address?/:minconf?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetBalance(req, res);
-  }));
-  app.get('/daemon/zgetmigrationstatus', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetMigrationStatus(req, res);
-  }));
-  app.get('/daemon/zgetnewaddress/:type?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetNewAddress(req, res);
-  }));
-  app.get('/daemon/zgetoperationresult/:operationid?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetOperationResult(req, res);
-  }));
-  app.get('/daemon/zgetoperationstatus/:operationid?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetOperationStatus(req, res);
-  }));
-  app.get('/daemon/zgettotalbalance/:minconf?/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zGetTotalBalance(req, res);
-  }));
-  app.get('/daemon/zimportkey/:zkey?/:rescan?/:startheight?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zImportKey(req, res);
-  }));
-  app.get('/daemon/zimportviewingkey/:vkey?/:rescan?/:startheight?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zImportViewingKey(req, res);
-  }));
-  app.get('/daemon/zimportwallet/:filename?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zImportWallet(req, res);
-  }));
-  app.get('/daemon/zlistaddresses/:includewatchonly?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListAddresses(req, res);
-  }));
-  app.get('/daemon/zlistoperationids', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListOperationIds(req, res);
-  }));
-  app.get('/daemon/zlistreceivedbyaddress/:address?/:minconf?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListReceivedByAddress(req, res);
-  }));
-  app.get('/daemon/zlistunspent/:minconf?/:maxonf?/:includewatchonly?/:addresses?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zListUnspent(req, res);
-  }));
-  app.get('/daemon/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zMergeToAddress(req, res);
-  }));
-  app.get('/daemon/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zSendMany(req, res);
-  }));
-  app.get('/daemon/zsetmigration/:enabled?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zSetMigration(req, res);
-  }));
-  app.get('/daemon/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zShieldCoinBase(req, res);
-  }));
-  app.get('/daemon/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawJoinSplit(req, res);
-  }));
-  app.get('/daemon/zcrawkeygen', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawKeygen(req, res);
-  }));
-  app.get('/daemon/zcrawreceive/:zcsecretkey?/:encryptednote?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawReceive(req, res);
-  }));
-  app.get('/daemon/zcsamplejoinsplit', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
-  }));
-  app.get('/daemon/getaddresstxids/:address?/:start?/:end?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddresssTxids(req, res);
-  }));
-  app.get('/daemon/getaddressbalance/:address?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressBalance(req, res);
-  }));
-  app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
-  }));
-  app.get('/daemon/getaddressutxos/:address?/:chaininfo?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressUtxos(req, res);
-  }));
-  app.get('/daemon/getaddressmempool/:address?', asyncRoute((req, res) => {
-    return daemonServiceAddressRpcs.getSingleAddressMempool(req, res);
-  }));
 
   app.get('/id/loggedusers', asyncRoute((req, res) => {
     return idService.loggedUsers(req, res);
@@ -1040,14 +722,8 @@ module.exports = (app) => {
   app.get('/flux/adjustrouterip/:routerip?', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
     return fluxService.adjustRouterIP(req, res);
   }));
-  app.post('/flux/adjustblockedports', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
-    return fluxService.adjustBlockedPorts(req, res);
-  }));
   app.get('/flux/adjustapiport/:apiport?', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
     return fluxService.adjustAPIPort(req, res);
-  }));
-  app.post('/flux/adjustblockedrepositories', asyncRoute((req, res) => { // note this essentially rebuilds flux use with caution!
-    return fluxService.adjustBlockedRepositories(req, res);
   }));
   app.get('/flux/reindexdaemon', asyncRoute((req, res) => {
     return fluxService.reindexDaemon(req, res);
@@ -1072,9 +748,6 @@ module.exports = (app) => {
   }));
   app.get('/daemon/ping', asyncRoute((req, res) => { // we do not want this to be issued by anyone.
     return daemonServiceNetworkRpcs.ping(req, res);
-  }));
-  app.get('/daemon/zcbenchmark/:benchmarktype?/:samplecount?', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcBenchmark(req, res);
   }));
   app.get('/daemon/startbenchmark', asyncRoute((req, res) => {
     return daemonServiceBenchmarkRpcs.startBenchmarkD(req, res);
@@ -1319,10 +992,10 @@ module.exports = (app) => {
   app.get('/apps/appremove/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
     return appUninstaller.removeAppLocallyApi(req, res);
   }));
-  app.get('/apps/installapplocally/:appname?', requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/installapplocally/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.installAppLocally(req, res);
   }));
-  app.get('/apps/testappinstall/:appname?', requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/testappinstall/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.testAppInstall(req, res);
   }));
   app.get('/apps/createfluxnetwork', asyncRoute((req, res) => {
@@ -1337,10 +1010,10 @@ module.exports = (app) => {
   app.get('/apps/reindexglobalappslocation', asyncRoute((req, res) => {
     return registryManager.reindexGlobalAppsLocationAPI(req, res);
   }));
-  app.get('/apps/redeploy/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return advancedWorkflows.redeployAPI(req, res);
   }));
-  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
+  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', alwaysRespond, requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return advancedWorkflows.redeployComponentAPI(req, res);
   }));
   app.get('/apps/reconstructhashes', asyncRoute((req, res) => {
@@ -1397,12 +1070,12 @@ module.exports = (app) => {
     return idService.checkLoggedUser(req, res);
   }));
 
-  // Payment request routes
+  // The rendezvous a wallet posts to, addressed by the sites that open it.
   app.get('/payment/paymentrequest', asyncRoute((req, res) => {
-    return paymentService.paymentRequest(req, res);
+    return paymentRelayService.paymentRequest(req, res);
   }));
   app.post('/payment/verifypayment', asyncRoute((req, res) => {
-    return paymentService.verifyPayment(req, res);
+    return paymentRelayService.receivePaymentCallback(req, res);
   }));
 
   app.post('/daemon/createrawtransaction', asyncRoute((req, res) => {
@@ -1413,9 +1086,6 @@ module.exports = (app) => {
   }));
   app.post('/daemon/decodescript', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.decodeScriptPost(req, res);
-  }));
-  app.post('/daemon/fundrawtransaction', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.fundRawTransactionPost(req, res);
   }));
   app.post('/daemon/sendrawtransaction', asyncRoute((req, res) => {
     return daemonServiceTransactionRpcs.sendRawTransactionPost(req, res);
@@ -1480,33 +1150,6 @@ module.exports = (app) => {
   }));
 
   // POST PROTECTED API - FluxNode owner level
-  app.post('/daemon/signrawtransaction', asyncRoute((req, res) => {
-    return daemonServiceTransactionRpcs.signRawTransactionPost(req, res);
-  }));
-  app.post('/daemon/addmultisigaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.addMultiSigAddressPost(req, res);
-  }));
-  app.post('/daemon/sendfrom', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendFromPost(req, res);
-  }));
-  app.post('/daemon/sendmany', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendManyPost(req, res);
-  }));
-  app.post('/daemon/sendtoaddress', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.sendToAddressPost(req, res);
-  }));
-  app.post('/daemon/signmessage', asyncRoute((req, res) => {
-    return daemonServiceWalletRpcs.signMessagePost(req, res);
-  }));
-  app.post('/daemon/zsendmany', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zSendManyPost(req, res);
-  }));
-  app.post('/daemon/zcrawjoinsplit', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawJoinSplitPost(req, res);
-  }));
-  app.post('/daemon/zcrawreceive', asyncRoute((req, res) => {
-    return daemonServiceZcashRpcs.zcRawReceivePost(req, res);
-  }));
 
   app.post('/benchmark/signfluxnodetransaction', asyncRoute((req, res) => {
     return benchmarkService.signFluxTransactionPost(req, res);
@@ -1547,9 +1190,6 @@ module.exports = (app) => {
   app.post('/syncthing/config/defaults/device', asyncRoute((req, res) => {
     return syncthingService.postConfigDefaultsDevice(req, res);
   }));
-  app.post('/syncthing/config/defaults/ignores', asyncRoute((req, res) => {
-    return syncthingService.postConfigDefaultsIgnores(req, res);
-  }));
   app.post('/syncthing/config/options', asyncRoute((req, res) => {
     return syncthingService.postConfigOptions(req, res);
   }));
@@ -1568,9 +1208,6 @@ module.exports = (app) => {
   app.post('/syncthing/folder/versions', asyncRoute((req, res) => {
     return syncthingService.postFolderVersions(req, res);
   }));
-  app.post('/syncthing/db/ignores', asyncRoute((req, res) => {
-    return syncthingService.postDbIgnores(req, res);
-  }));
   app.post('/syncthing/db/override', asyncRoute((req, res) => {
     return syncthingService.postDbOverride(req, res);
   }));
@@ -1584,46 +1221,16 @@ module.exports = (app) => {
     return syncthingService.postDbScan(req, res);
   }));
 
-  // FluxShare
-  app.get('/apps/fluxshare/getfile/:file?/:token?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareDownloadFile(req, res);
-  }));
+  // What is left of FluxShare: an operator collects the files a previous
+  // release let them put on the node. Read only, and the node's operator only -
+  // the token that served a file to whoever held the link is gone with the rest.
   app.get('/apps/fluxshare/getfolder/:folder?', asyncRoute((req, res) => {
     return fluxshareService.fluxShareGetFolder(req, res);
   }));
-  app.get('/apps/fluxshare/createfolder/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareCreateFolder(req, res);
+  app.get('/apps/fluxshare/getfile/:file?', asyncRoute((req, res) => {
+    return fluxshareService.fluxShareDownloadFile(req, res);
   }));
-  app.post('/apps/fluxshare/uploadfile/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareUpload(req, res);
-  }));
-  app.get('/apps/fluxshare/removefile/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareRemoveFile(req, res);
-  }));
-  app.get('/apps/fluxshare/removefolder/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareRemoveFolder(req, res);
-  }));
-  app.get('/apps/fluxshare/fileexists/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareFileExists(req, res);
-  }));
-  app.get('/apps/fluxshare/stats', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareStorageStats(req, res);
-  }));
-  app.get('/apps/fluxshare/sharefile/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareShareFile(req, res);
-  }));
-  app.get('/apps/fluxshare/unsharefile/:file?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareUnshareFile(req, res);
-  }));
-  app.get('/apps/fluxshare/sharedfiles', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareGetSharedFiles(req, res);
-  }));
-  app.get('/apps/fluxshare/rename/:oldpath?/:newname?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareRename(req, res);
-  }));
-  app.get('/apps/fluxshare/downloadfolder/:folder?', asyncRoute((req, res) => {
-    return fluxshareService.fluxShareDownloadFolder(req, res);
-  }));
+
   // Handing the file operation image to a node that cannot reach the registry.
   // Open to other Flux nodes rather than to an owner: it carries no app data,
   // and a node needing it has nobody to authenticate as.

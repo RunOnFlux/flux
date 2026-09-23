@@ -60,7 +60,8 @@ const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
-const { sanitizePath, verifyRealPath, validateFilename } = require('../utils/pathSecurity');
+const { sanitizePath, verifyRealPathOfExistingPath, validateFilename } = require('../utils/pathSecurity');
+const { isReservedName, reachesReservedName } = require('./volumeReservedNames');
 const { openVolume, SPACE_HEADROOM } = require('./volumeSession');
 const { sendFile } = require('../utils/fileTransfer');
 const executor = require('./volumeExecutor');
@@ -323,32 +324,49 @@ async function downloadAppsFolder(req, res) {
         // Sanitize folder path to prevent directory traversal attacks
         folderpath = sanitizePath(folder, mounts[0].mount);
         // Verify real path after symlink resolution to prevent symlink escape attacks
-        await verifyRealPath(folderpath, mounts[0].mount);
+        const realPath = await verifyRealPathOfExistingPath(folderpath, mounts[0].mount);
+        // Inside the volume is not the same as the owner's: an archive of an operation's
+        // scratch is FluxOS's working state, and building it walks the tree twice.
+        if (await reachesReservedName(realPath, mounts[0].mount)) {
+          throw new Error('Folder is not accessible');
+        }
       } else {
         throw new Error('Application volume not found');
       }
+      const folderName = path.basename(folderpath);
       const zip = archiver('zip');
-      const sizeStream = new PassThrough();
-      let compressedSize = 0;
-      sizeStream.on('data', (chunk) => {
-        compressedSize += chunk.length;
+      // The download name is set through content-disposition, which encodes it,
+      // so a name the application chose reaches the header as ASCII. Interpolated
+      // into the header directly it throws on any byte the header grammar
+      // forbids, from a stream callback this function's catch cannot reach.
+      res.attachment(`${folderName}.zip`);
+      // No Content-Length: the archive streams as it is built, so its size is
+      // not known ahead of time, and an app writing to its own volume during the
+      // download cannot make the body contradict an announced length.
+      zip.on('error', (error) => {
+        // An archiver error - the folder is a file, a member vanishes mid-read -
+        // arrives on the stream after this function has returned; unhandled it
+        // reaches the process. Headers are already sent, so a reset is what
+        // tells the client the archive is not whole.
+        log.error(error);
+        res.destroy();
       });
-      sizeStream.on('end', () => {
-        const folderNameArray = folderpath.split('/');
-        const folderName = folderNameArray[folderNameArray.length - 1];
-        res.writeHead(200, {
-          'Content-Type': 'application/zip',
-          'Content-disposition': `attachment; filename=${folderName}.zip`,
-          'Content-Length': compressedSize,
-        });
-        // Now, pipe the compressed data to the response stream
-        const zipFinal = archiver('zip');
-        zipFinal.pipe(res);
-        zipFinal.directory(folderpath, false);
-        zipFinal.finalize();
-      });
-      zip.pipe(sizeStream);
-      zip.directory(folderpath, false);
+      // pipe ends the destination but does not destroy the source when the
+      // destination dies, so a client that aborts would otherwise leave the
+      // archiver reading the volume.
+      res.on('close', () => zip.destroy());
+      zip.pipe(res);
+      // The volume root carries entries that are not the owner's data - staging
+      // dirs, syncthing markers, filesystem recovery - which the browse endpoint
+      // hides. A root download excludes them too, so it matches what a root
+      // listing shows. Reserved at the root only: the same name inside a
+      // subfolder is the owner's, so the filter is applied only there.
+      const atRoot = path.resolve(folderpath) === path.resolve(mounts[0].mount);
+      if (atRoot) {
+        zip.directory(folderpath, false, (entry) => (isReservedName(String(entry.name).split('/')[0]) ? false : entry));
+      } else {
+        zip.directory(folderpath, false);
+      }
       zip.finalize();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -398,7 +416,11 @@ async function downloadAppsFile(req, res) {
         // Sanitize file path to prevent directory traversal attacks
         filepath = sanitizePath(file, mounts[0].mount);
         // Verify real path after symlink resolution to prevent symlink escape attacks
-        await verifyRealPath(filepath, mounts[0].mount);
+        const realPath = await verifyRealPathOfExistingPath(filepath, mounts[0].mount);
+        // Inside the volume is not the same as the owner's - see getAppsFolder.
+        if (await reachesReservedName(realPath, mounts[0].mount)) {
+          throw new Error('File is not accessible');
+        }
       } else {
         throw new Error('Application volume not found');
       }

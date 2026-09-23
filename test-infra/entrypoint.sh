@@ -111,6 +111,35 @@ if [ "$FLUX_APT_BAD_SOURCE" = "true" ]; then
     > /etc/apt/sources.list.d/flux-e2e-unreachable.list
 fi
 
+# cgroup v2: move this container's processes into an init sub-cgroup so the root
+# can hand its controllers down (same approach as official docker:dind). A group
+# holding processes is refused permission to delegate, so the move has to leave
+# the root empty and nothing may start into it afterwards - which is why this runs
+# before anything is put in the background below.
+#
+# Verified rather than attempted. Without `memory` delegated, every container
+# docker creates here is missing memory.max and cannot start, and the node says
+# nothing about it: it boots looking healthy and fails every app it is ever given.
+# Refusing the boot is the smaller fault, and names itself.
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+  mkdir -p /sys/fs/cgroup/init
+  for attempt in 1 2 3; do
+    xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || :
+    sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+        > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
+    if grep -qw memory /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null; then
+      break
+    fi
+    echo "cgroup delegation not in effect (attempt ${attempt}), retrying" >&2
+    sleep 1
+  done
+  if ! grep -qw memory /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null; then
+    echo "ERROR: cgroup v2 root still holds $(wc -l < /sys/fs/cgroup/cgroup.procs) process(es)" >&2
+    echo "ERROR: memory is not delegated, so no app container on this node can start" >&2
+    exit 1
+  fi
+fi
+
 # Syncthing listens on apiport+2 in production. The availability checker tests
 # that port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
@@ -123,12 +152,17 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # which node-config loads last. No socat either way: whoever
   # starts the daemon, it binds apiport+2 itself.
   #
-  # WHO starts it depends on the node type, and SYNCTHING_PATH is the same
-  # signal FluxOS reads to decide. Set, FluxOS takes the node for ArcaneOS and
-  # leaves supervision to the OS - so the harness stands in for the OS here.
-  # Unset, it is a legacy node and FluxOS supervises the daemon itself, so this
-  # must keep its hands off or there would be two.
-  if [ -n "$SYNCTHING_PATH" ]; then
+  # WHO starts it is the complement of FluxOS's own rule, which is that it
+  # supervises a syncthing that is on this host and not Arcane. Binary mode is
+  # the on-this-host half - the runner points the node at 127.0.0.1 for exactly
+  # these nodes - so what is left to decide here is the Arcane half. Set, FluxOS
+  # stands back and the OS supervises the daemon, and the harness stands in for
+  # the OS. Unset, FluxOS supervises it itself and this must keep its hands off
+  # or the node gets two.
+  #
+  # The two must stay complements. Answer this from a signal FluxOS does not
+  # read and a node with one of them gets either two syncthings or none.
+  if [ -n "$FLUXOS_PATH" ]; then
     # the flags a real Arcane node is supervised with, read off a live one
     mkdir -p /dat/var/log
     nohup syncthing --no-browser --allow-newer-config --home "$SYNCTHING_PATH" \
@@ -138,15 +172,6 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   fi
 elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
-fi
-
-# cgroup v2: move existing processes to an init sub-cgroup so dockerd
-# can enable subtree controllers (same approach as official docker:dind)
-if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
-  mkdir -p /sys/fs/cgroup/init
-  xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || :
-  sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
-      > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
 fi
 
 # Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly).
@@ -190,6 +215,31 @@ echo "dockerd is ready (took ${ELAPSED}s)"
 # control machineRebooted detection in readBootContext().
 if [ -n "$FLUX_BOOT_ID" ]; then
   echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
+fi
+
+# WHO FLUXOS RUNS AS. Root unless the fleet names an account, which is the Arcane
+# node; named, it is the unprivileged install - FluxOS as the user the operator
+# installed it as, with passwordless sudo for everything privileged.
+#
+# What that account owns is decided here rather than in the image, because it is
+# per-node: the tree FluxOS writes into, its logs, and the apps folder, which on an
+# unprivileged node belongs to the operator. Nothing else changes hands - dockerd,
+# syncthing and every app volume stay root's, and that is what makes the node's own
+# reads refusable, exactly as a container's mount point is on a real node.
+#
+# setpriv rather than sudo: this node's environment IS its configuration, and sudo
+# rebuilds the environment it passes on. HOME travels with the account because a
+# legacy node derives its flux directory from it.
+if [ -n "$FLUX_FLUXOS_USER" ]; then
+  FLUXOS_UID="$(id -u "$FLUX_FLUXOS_USER")"
+  FLUXOS_GID="$(id -g "$FLUX_FLUXOS_USER")"
+  HOME="$(getent passwd "$FLUX_FLUXOS_USER" | cut -d: -f6)"
+  export HOME
+  # The apps folder only. The install itself already belongs to this account, from
+  # the image - a recursive chown of it here would copy the whole tree up into the
+  # overlay and outlast the node's readiness window.
+  chown "$FLUXOS_UID:$FLUXOS_GID" "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
+  set -- setpriv --reuid="$FLUXOS_UID" --regid="$FLUXOS_GID" --init-groups "$@"
 fi
 
 # Run FluxOS (CMD ["node","app.js"]) under a respawn watchdog instead of exec'ing it

@@ -728,6 +728,14 @@ async function appExec(req, res) {
 
         const containers = await dockerService.dockerListContainers(true);
         const myContainer = containers.find((container) => (container.Names[0] === dockerService.getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
+
+        // An owner may ask any node about their app, and most nodes do not run
+        // it. That is an ordinary answer, not a crash: without this the find
+        // returns undefined and the caller is told it cannot read Id.
+        if (!myContainer) {
+          throw new Error(`Application ${processedBody.appname} is not installed on this node`);
+        }
+
         const dockerContainer = dockerService.getDockerContainer(myContainer.Id);
 
         res.setHeader('Content-Type', 'application/json');

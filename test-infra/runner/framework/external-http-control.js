@@ -2,7 +2,7 @@
 // fetch over real HTTP from inside the subnet. The restore suites need this
 // because the remote path - the download, the content-length comparison, the
 // file landing in backup/remote - cannot be reached with a local archive.
-import { getSubnetConfig } from './subnet-config.js';
+import { getSubnetConfig, STORAGE_HOST } from './subnet-config.js';
 
 const HOST = getSubnetConfig().externalStub;
 const CONTROL = process.env.EXTERNAL_HTTP_CONTROL || `http://${HOST}:3001`;
@@ -68,6 +68,32 @@ export async function resetDnsAttempts() {
 }
 
 /**
+ * Publish the typed blocklist every node fetches, each entry naming the kind of
+ * thing it refuses: `{ kind, value, reason, added }` with kind one of hash, name,
+ * owner, image or org.
+ *
+ * A node caches what it fetched for six hours, so a fleet that has already read
+ * an empty document will not see this until that expires. Set it before the nodes
+ * that must see it are asked anything.
+ *
+ * @param {Array<{kind: string, value: string, reason?: string, added?: string}>} entries
+ */
+export async function setBlocklist(entries) {
+  return post('/blocklist', entries);
+}
+
+/**
+ * Publish the flat blocklist, which a node reads only when the typed document is
+ * empty or unreadable. Its entries are bare strings matched against the hash, the
+ * owner, the repository and the namespace alike.
+ *
+ * @param {string[]} entries
+ */
+export async function setBlockedRepositories(entries) {
+  return post('/blocked-repos', entries);
+}
+
+/**
  * Fail naming the host and the node, rather than leaving a caller to compare
  * lists. `allowed` is for a suite that means to reach something - it should be
  * rare enough that writing the name down is the easy part.
@@ -82,4 +108,60 @@ export async function expectNoUnexpectedDns({ allowed = [] } = {}) {
     .map((a) => `${a.name} (node ${a.node})`)
     .join(', ');
   throw new Error(`nodes reached for names the fleet does not serve: ${detail}`);
+}
+
+/**
+ * Stage what Flux storage answers for a link.
+ *
+ * The body is what the node receives as the container's environment or command
+ * parameters, so it is a JSON array of strings.
+ *
+ * @param {string} name - the last path segment of the link
+ * @param {string[]} body - the parameters the payload carries
+ */
+export async function stageStoragePayload(name, body) {
+  return post('/storage', { name, body });
+}
+
+/**
+ * Stage a link that answers 302 to somewhere else.
+ *
+ * The host is the whole of the rule, so a followed redirect would put the node
+ * back to fetching an address the response chose.
+ *
+ * @param {string} name - the last path segment of the link
+ * @param {string} redirectTo - the location header to answer with
+ */
+export async function stageStorageRedirect(name, redirectTo) {
+  return post('/storage', { name, redirectTo });
+}
+
+/**
+ * The link a specification should carry to reach a staged payload.
+ * @param {string} name - the staged payload's name
+ * @returns {string} an https link addressing Flux storage
+ */
+export function storageUrl(name) {
+  return `https://${STORAGE_HOST}/${name}`;
+}
+
+/**
+ * Every storage request the fleet made, in order.
+ *
+ * Only requests that arrived over TLS at the storage host are here, so an entry
+ * is a fetch that satisfied both halves of the rule - and an empty list after a
+ * container start is a node that refused before asking.
+ *
+ * @returns {Promise<Array<{name: string, at: string, fluxApp: string|null,
+ *   fluxMessage: string|null, fluxSignature: string|null}>>}
+ */
+export async function storageRequests() {
+  const res = await fetch(`${CONTROL}/storage-requests`);
+  const { requests } = await res.json();
+  return requests;
+}
+
+/** Forget every storage request, so what follows is this test's doing. */
+export async function resetStorageRequests() {
+  return post('/storage-requests/reset');
 }

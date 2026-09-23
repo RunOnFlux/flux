@@ -13,6 +13,7 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
+  waitForInstallSettled,
   waitForReconcileActuated, waitForBootSettled,
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
@@ -31,11 +32,34 @@ import { execInContainer } from './container.js';
 // written earlier. seedSyncthingApp runs this ordering itself; only suites
 // installing through another path need to call it directly.
 export async function seedSyncScopedData(env, name, index) {
-  const dataFile = `/mnt/appdata/flux-apps/flux${name}_${name}/appdata/seed-data`;
+  const folder = `flux${name}_${name}`;
+  const dataFile = `/mnt/appdata/flux-apps/${folder}/appdata/seed-data`;
   const r = await execInContainer(env.clients[index].container, `sh -c 'echo seeded > ${dataFile}'`);
   if (r.exitCode !== 0) {
     throw new Error(`seedSyncScopedData: could not write ${dataFile} on node ${index}: ${r.output}`);
   }
+  // Tell the stub what was just written. Against the control-plane stub this is the
+  // only way the bytes on the volume can reach the decision: the stub runs in its own
+  // container and the appdata is a loop-mounted image in the node's namespace, so it
+  // can never read them. Declared HERE rather than left to each suite, because a suite
+  // that seeds data and forgets to say so describes a folder syncthing cannot produce -
+  // real bytes on disk with the local-change list denying them - and the node then
+  // decides as though the volume were empty. That is what let the cold-start suites
+  // pass against a data-holder that could not seed.
+  //
+  // Harmless on a `syncthing: 'binary'` fleet, where the daemon has already scanned the
+  // file and the control surface is not in the path.
+  await setSyncState({
+    ip: getSubnetConfig().nodeIp(index + 1),
+    folder,
+    state: 'idle',
+    globalBytes: 0,
+    inSyncBytes: 0,
+    localChanged: [
+      { name: 'appdata', type: 'FILE_INFO_TYPE_DIRECTORY', size: 128, deleted: false, modified: new Date().toISOString() },
+      { name: 'appdata/seed-data', type: 'FILE_INFO_TYPE_FILE', size: 7, deleted: false, modified: new Date().toISOString() },
+    ],
+  }).catch(() => {});
 }
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
@@ -106,13 +130,27 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
     // reconciliation to keep it by, so it is removed as one that moved away.
     await waitForBootSettled(client);
     const auth = await authenticate(client.url, teamKey);
-    // installapplocally streams progress then a final status; surface a failure
-    // in that body instead of silently waiting out the app:installed timeout.
+    // WHAT THIS PROMISES IS THAT THE NODE HOLDS THE APP, not that this call is what put it
+    // there, so the app:installed event decides and the response body never does. A node's
+    // own spawner goes after any app short of instances - which is every app a suite seeds
+    // and then installs - so it can be installing this one already and refuse the explicit
+    // call, or have finished and answer "already installed". Both keep the promise by the
+    // other route.
+    //
+    // The body is carried only as evidence for the failure message. Reading it to decide
+    // would put this helper's control flow on the wording of a message, which is what it
+    // did: "already installed" was a failure here, and a spawner that got there first
+    // failed a suite whose fixture had in fact worked.
+    //
+    // An attempt that will not install says so on the bus, so this settles as soon as
+    // either answer arrives rather than spending the whole budget on a refusal.
+    const mark = client.getLastEventId();
     const body = await client.installAppLocally(app.spec.name, auth.zelidauth);
-    if (/"status"\s*:\s*"error"|Application .* not found|already installed|Unauthorized|Not enough/i.test(body)) {
-      throw new Error(`installapplocally failed on node ${i}: ${body.slice(-600)}`);
+    try {
+      await waitForInstallSettled(client, app.spec.name, timeout, { afterId: mark });
+    } catch (error) {
+      throw new Error(`node ${i} does not hold ${app.spec.name}: ${error.message} :: ${body.slice(-400)}`);
     }
-    await waitForAppInstalled(client, app.spec.name, timeout);
   }));
   return indices;
 }
@@ -152,6 +190,9 @@ export async function placeGAppInOrder(env, app, {
     await Promise.all(placementOrder.map((i) => Promise.all([
       setSyncState({
         ip: getSubnetConfig().nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+        // 0 is a claim about this node's disk, and it holds only while the app declares
+        // no f:/m:/ml: mount - a real daemon counts the scaffolding those leave behind.
+        receiveOnlyChangedFiles: 0,
       }),
       setNoPeerData({ ip: getSubnetConfig().nodeIp(i + 1), folder }),
     ])));
@@ -297,6 +338,7 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     },
     { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
   );
+
   await startTicker();
 }
 
@@ -470,10 +512,10 @@ export async function waitForInstanceCount(env, appName, target, {
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
 export async function seedSyncthingApp(env, {
-  name, mode = 'r', forceNonLeader = false, index = 0,
+  name, mode = 'r', forceNonLeader = false, index = 0, extraMounts = [],
 }) {
   await pushImage(name, 'v1');
-  const app = await buildSeedableSyncthingApp({ name, mode });
+  const app = await buildSeedableSyncthingApp({ name, mode, extraMounts });
   const folder = `flux${name}_${name}`;
   const identifier = `${name}_${name}`;
 

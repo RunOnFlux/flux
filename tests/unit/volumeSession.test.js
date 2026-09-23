@@ -199,6 +199,19 @@ describe('volumeSession tests', () => {
       await expect(vol.resolve('.stignore')).to.be.rejectedWith('not an application');
       await expect(vol.resolve('lost+found')).to.be.rejectedWith('not an application');
       await expect(vol.resolve(`.flux-op-${id}`)).to.be.rejectedWith('not an application');
+      await expect(vol.resolve('.flux-op')).to.be.rejectedWith('not an application');
+    });
+
+    it('refuses the staging directory as a subtree, not merely as a name', async () => {
+      // The other reserved names are files with nothing inside them, so refusing
+      // the name refused everything. Staging has children, and they are what a
+      // live operation is writing - `.flux-op/<id>` names nothing reserved at
+      // either end and must still be refused.
+      const vol = await volumeSession.openVolume(reqFor());
+      const id = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+      await expect(vol.resolve(`.flux-op/${id}`)).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`.flux-op/${id}/result.zip`)).to.be.rejectedWith('not an application');
+      await expect(vol.resolve('.flux-op/anything')).to.be.rejectedWith('not an application');
     });
 
     it('reserves those names in the root and nowhere else', async () => {
@@ -313,9 +326,9 @@ describe('volumeSession tests', () => {
     it('allocates a recognisable directory inside the volume', async () => {
       const vol = await volumeSession.openVolume(reqFor());
       const staging = vol.staging();
-      expect(staging.relative).to.match(/^\.flux-op-/);
-      expect(staging.hostPath.startsWith(MOUNT)).to.equal(true);
-      expect(staging.containerPath.startsWith('/work/.flux-op-')).to.equal(true);
+      expect(staging.relative).to.match(/^\.flux-op\/[0-9a-f-]{36}$/);
+      expect(staging.hostPath.startsWith(`${MOUNT}/.flux-op/`)).to.equal(true);
+      expect(staging.containerPath.startsWith('/work/.flux-op/')).to.equal(true);
     });
 
     it('allocates a distinct directory each time', async () => {

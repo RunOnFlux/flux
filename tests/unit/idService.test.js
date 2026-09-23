@@ -315,34 +315,6 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return error if dos status returns an error', async () => {
-      const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
-      osTotalmemStub.returns(8 * 1024 ** 3);
-      osCpusStub.returns([1, 1, 1, 1]);
-      getDOSStateStub.returns({
-        status: 'error',
-        data: {
-          dosState: null,
-          dosMessage: null,
-        },
-      });
-
-      const expectedResponse = {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: 'Unable to check DOS state',
-        },
-      };
-
-      await idService.loginPhrase(undefined, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-
     it('should return error if dosState > 11 and message is Flux IP detection failed', async () => {
       const res = generateResponse();
       tierStub.resolves('basic');
@@ -354,7 +326,6 @@ describe('idService tests', () => {
         data: {
           dosState: 11,
           dosMessage: 'Flux IP detection failed',
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -383,7 +354,6 @@ describe('idService tests', () => {
         data: {
           dosState: 11,
           dosMessage: 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -412,7 +382,6 @@ describe('idService tests', () => {
         data: {
           dosState: 11,
           dosMessage: 'test',
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -430,7 +399,16 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return  error if nodeHardwareSpecsGood is false', async () => {
+    // The gate is two independent terms, and every case above trips both at
+    // once - so either could be deleted without a test noticing. One each.
+    //
+    // The score-only case is a guard, not a live shape: every site in
+    // fluxNetworkHelper that pushes the score past the bar sets a message in the
+    // same block, and every reset clears both. It is pinned because that pairing
+    // is hand-maintained across twenty-one separate mutations of the score - the
+    // module says so itself - and the twenty-second added without a message must
+    // still take the node out, rather than reading as healthy.
+    it('fails on the dos score alone, even with no message paired to it', async () => {
       const res = generateResponse();
       tierStub.resolves('basic');
       collateralStub.resolves(1000);
@@ -440,23 +418,40 @@ describe('idService tests', () => {
         status: 'success',
         data: {
           dosState: 11,
-          dosMessage: 'test',
-          nodeHardwareSpecsGood: false,
+          dosMessage: null,
         },
       });
 
-      const expectedResponse = {
+      await idService.loginPhrase(undefined, res);
+
+      // createErrorMessage substitutes its own text for a null message, so a
+      // score-only failure reaches the caller as 'Unknown error'.
+      sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
+        data: { code: 11, name: 'CONNERROR', message: 'Unknown error' },
+      });
+    });
+
+    it('fails on a message alone, with the score still at zero', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
         data: {
-          code: 100,
-          name: 'DOS',
-          message: 'Minimum hardware required for FluxNode tier not met',
+          dosState: 0,
+          dosMessage: 'Flux IP detection failed',
         },
-      };
+      });
 
       await idService.loginPhrase(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: 0, name: 'DOS', message: 'Flux IP detection failed' },
+      });
     });
 
     it('should return write new phrase into the db', async () => {
@@ -473,7 +468,6 @@ describe('idService tests', () => {
         data: {
           dosState: 0,
           dosMessage: null,
-          nodeHardwareSpecsGood: true,
         },
       });
 
@@ -481,6 +475,284 @@ describe('idService tests', () => {
 
       sinon.assert.calledOnce(insertintoDBStub);
       sinon.assert.calledOnceWithMatch(res.json, { status: 'success', data: sinon.match.string });
+    });
+  });
+
+  describe('nodeHealth / checkNodeFitness tests', () => {
+    let osTotalmemStub;
+    let osCpusStub;
+    let tierStub;
+    let collateralStub;
+    let getDOSStateStub;
+
+    before(async () => {
+      await dbHelper.initiateDB();
+    });
+
+    const healthyHardware = () => {
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
+        data: { dosState: 0, dosMessage: null },
+      });
+    };
+
+    beforeEach(() => {
+      osTotalmemStub = sinon.stub(os, 'totalmem');
+      osCpusStub = sinon.stub(os, 'cpus');
+      tierStub = sinon.stub(generalService, 'nodeTier');
+      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
+      syncthingService.setSyncthingRunningState(true);
+      sinon.stub(dockerService, 'dockerListImages').returns(true);
+    });
+
+    afterEach(() => {
+      syncthingService.setSyncthingRunningState(true);
+      sinon.restore();
+    });
+
+    it('nodeHealth reports success with per-check data when the node is fit', async () => {
+      healthyHardware();
+      const res = generateResponse();
+
+      await idService.nodeHealth(undefined, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, {
+        status: 'success',
+        data: { db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'ok', dos: 'ok', appsDos: 'ok' },
+      });
+    });
+
+    it('checkNodeFitness returns ok with the checks when the node is fit', async () => {
+      healthyHardware();
+
+      const fitness = await idService.checkNodeFitness();
+
+      expect(fitness.ok).to.equal(true);
+      expect(fitness.error).to.equal(null);
+      expect(fitness.checks.syncthing).to.equal('ok');
+    });
+
+    it('nodeHealth gates on hardware exactly as loginPhrase does', async () => {
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(1 * 1024 ** 3);
+      osCpusStub.returns([1]);
+      const res = generateResponse();
+
+      await idService.nodeHealth(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Node hardware requirements not met' },
+      });
+    });
+
+    it('nodeHealth gates on syncthing - a sustained outage fails the node', async () => {
+      healthyHardware();
+      syncthingService.setSyncthingRunningState(false);
+      const res = generateResponse();
+
+      await idService.nodeHealth(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Syncthing is not running properly' },
+      });
+    });
+
+    it('loginPhrase gates on syncthing the same way, through the shared check', async () => {
+      healthyHardware();
+      syncthingService.setSyncthingRunningState(false);
+      const res = generateResponse();
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Syncthing is not running properly' },
+      });
+    });
+
+    // The boot defect, at the layer that reported it. The node stamped itself
+    // healthy at module load and the sentinel started behind an unbounded wait
+    // for the daemon, so a node whose fluxd was slow to warm up went stale
+    // before a single probe had run - and then told fluxbench, for minutes on
+    // end, that the operator's syncthing was broken. Nothing had looked at it.
+    describe('with nothing having measured syncthing yet', () => {
+      beforeEach(() => {
+        syncthingService.setSyncthingUnmeasured();
+      });
+
+      it('does not refuse the node for a check it has not run', async () => {
+        healthyHardware();
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.ok, 'a node was taken off the network over a probe that had never happened').to.equal(true);
+      });
+
+      it('says unmeasured rather than claiming either verdict', async () => {
+        healthyHardware();
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.checks.syncthing).to.equal('unmeasured');
+      });
+
+      it('loginPhrase answers a phrase rather than a syncthing error', async () => {
+        healthyHardware();
+        const res = generateResponse();
+
+        await idService.loginPhrase(undefined, res);
+
+        const [answer] = res.json.firstCall.args;
+        expect(answer.status, 'the boot window refused a login phrase and failed the benchmark').to.equal('success');
+      });
+    });
+
+    // /id/loginphrase is uncached and fluxbench retries it on a 30s sleep while a
+    // node is failing, so a line per refusal is ~2,880 a day for one unchanged
+    // state - and the line that says WHEN it started is buried under thousands
+    // of copies of itself. The transition is the event; the condition is not.
+    describe('fitness logging says when the verdict changed, not that it holds', () => {
+      let warnStub;
+      let infoStub;
+
+      beforeEach(async () => {
+        healthyHardware();
+        // Normalise the module's remembered verdict through the real function,
+        // so these tests do not inherit whatever the previous one left.
+        await idService.checkNodeFitness();
+        warnStub = sinon.stub(log, 'warn');
+        infoStub = sinon.stub(log, 'info');
+      });
+
+      it('says a node is unfit once, however often it is asked', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+
+        await idService.checkNodeFitness();
+        await idService.checkNodeFitness();
+        await idService.checkNodeFitness();
+
+        expect(
+          warnStub.callCount,
+          'every refusal logged, so a node sitting in DOS writes a line every time anyone asks',
+        ).to.equal(1);
+      });
+
+      // The case that makes keying on the code wrong: the score accrues while
+      // the condition is the same one.
+      it('does not speak again as the dos score climbs under the same message', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 13, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        expect(
+          warnStub.callCount,
+          'a climbing score counted as a new fault, which is the flood keying on the message exists to stop',
+        ).to.equal(1);
+      });
+
+      it('speaks again when a different check is the one failing', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 0, dosMessage: null },
+        });
+        osTotalmemStub.returns(1 * 1024 ** 3);
+        osCpusStub.returns([1]);
+        await idService.checkNodeFitness();
+
+        expect(warnStub.callCount, 'the node started failing for a new reason and said nothing').to.equal(2);
+        expect(warnStub.secondCall.args[0]).to.contain('hardware');
+      });
+
+      it('says so once when the node recovers, and not again', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+        await idService.checkNodeFitness();
+
+        healthyHardware();
+        await idService.checkNodeFitness();
+        await idService.checkNodeFitness();
+
+        const recovered = infoStub.getCalls().filter((c) => String(c.args[0]).includes('fit to serve'));
+        expect(recovered.length, 'recovery was silent, or repeated on every healthy pass').to.equal(1);
+      });
+    });
+
+    // The syncthing gate asks whether the operator has broken a syncthing FluxOS
+    // can do something about, so it is held to the nodes that own the daemon -
+    // the same question the repair path is held to. Where we do not own it,
+    // FluxOS cannot restart it, and failing the node would take it off the
+    // network for a fault it cannot repair. Reported, not fatal.
+    //
+    // Stubbed on ownsSyncthing rather than set through FLUXOS_PATH: the node
+    // type is no longer what decides this, and a test that reaches the branch
+    // through the old variable would pass while the branch had moved.
+    describe('where FluxOS does not own syncthing, the outage is reported, not fatal', () => {
+      beforeEach(() => {
+        sinon.stub(syncthingService, 'ownsSyncthing').returns(false);
+      });
+
+      it('reports syncthing degraded and stays fit', async () => {
+        healthyHardware();
+        syncthingService.setSyncthingRunningState(false);
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.ok, 'a node was failed for a syncthing it cannot restart').to.equal(true);
+        expect(fitness.checks.syncthing, 'the outage went unreported instead of being shown').to.equal('degraded');
+      });
+
+      it('still fails on a check that is not syncthing', async () => {
+        healthyHardware();
+        syncthingService.setSyncthingRunningState(false);
+        osTotalmemStub.returns(1 * 1024 ** 3);
+        osCpusStub.returns([1]);
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.ok, 'the carve-out let a genuinely unfit node through').to.equal(false);
+        expect(fitness.error.message).to.equal('Node hardware requirements not met');
+      });
+    });
+
+    // The other side of the same question, and the case that used to be decided
+    // differently here than in syncthingService: a node whose syncthing FluxOS
+    // does own is still refused for it.
+    it('refuses a node whose own syncthing is broken', async () => {
+      healthyHardware();
+      sinon.stub(syncthingService, 'ownsSyncthing').returns(true);
+      syncthingService.setSyncthingRunningState(false);
+
+      const fitness = await idService.checkNodeFitness();
+
+      expect(fitness.ok).to.equal(false);
+      expect(fitness.error.message).to.equal('Syncthing is not running properly');
     });
   });
 

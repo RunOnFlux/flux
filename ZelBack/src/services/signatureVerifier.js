@@ -45,6 +45,46 @@ function isValidSigningIdentity(identity) {
 }
 
 /**
+ * Whether two identities are the same signer.
+ *
+ * Case is part of a Flux ID, which is base58. It is not part of an Ethereum address:
+ * the capitalisation there is an EIP-55 checksum over an address that is really 20
+ * bytes, which is why verifySignature below compares the recovered address
+ * case-insensitively. Two specs whose owners differ only in that capitalisation name
+ * the same key, and anything that treats them as different owners locks that owner
+ * out of their own app.
+ *
+ * @param {string} a
+ * @param {string} b
+ *
+ * @returns {bool} isSame
+ */
+function sameSigningIdentity(a, b) {
+  if (!a || !b || typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.startsWith('0x') && b.startsWith('0x')) return a.toLowerCase() === b.toLowerCase();
+  return a === b;
+}
+
+/**
+ * Whether a list of identities holds this signer.
+ *
+ * Membership, on the same terms as sameSigningIdentity above: a list is a set of signers,
+ * and the question every caller of it asks is whether this signer is one of them. Asked
+ * with an exact match instead, an owner writing their own address in the other valid
+ * capitalisation is a stranger to every list while still signing as themselves - refused
+ * their own privileges, and swept off a node as an app that does not belong there.
+ *
+ * @param {string[]} identities
+ * @param {string} identity
+ *
+ * @returns {bool} isMember
+ */
+function includesSigningIdentity(identities, identity) {
+  if (!Array.isArray(identities)) return false;
+  return identities.some((candidate) => sameSigningIdentity(candidate, identity));
+}
+
+/**
  * Verifies signature of application owner on bitcoin or ethereum networks
  *
  * @param {object} message
@@ -82,6 +122,8 @@ function verifySignature(message, address, signature) {
 }
 
 module.exports = {
+  includesSigningIdentity,
   isValidSigningIdentity,
+  sameSigningIdentity,
   verifySignature,
 };

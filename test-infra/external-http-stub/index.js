@@ -1,10 +1,17 @@
 const zlib = require('zlib');
 const dgram = require('dgram');
 const fs = require('fs');
+const crypto = require('crypto');
+const https = require('https');
 const express = require('express');
+const {
+  PINNED_PUBLIC_HEX, SECONDARY_PUBLIC_HEX, ROGUE_PUBLIC_HEX, signBundle,
+} = require('./policy-signing');
 
 const PORT = parseInt(process.env.STUB_PORT || '3000', 10);
 const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
+const STORAGE_PORT = parseInt(process.env.STORAGE_PORT || '443', 10);
+const STORAGE_TLS_DIR = process.env.STORAGE_TLS_DIR || '/certs';
 
 // The harness fleet lives in 198.18.0.0/15 (RFC 2544 benchmarking range).
 const HARNESS_NET_START = (198 * 2 ** 24) + (18 * 2 ** 16);
@@ -329,11 +336,40 @@ function encodeIpLocationBinary(artifact, { pad = true } = {}) {
  * @returns {{total: number, ok: number, notModified: number, missing: number}}
  */
 function newRouteCounters() {
-  return { total: 0, ok: 0, notModified: 0, missing: 0 };
+  // byClient answers the question the totals cannot: these are one fleet's requests to one
+  // stub, so "did anyone fetch" and "did THIS node fetch" are different questions and only
+  // the first was askable. A suite asserting what one node did about an artifact was
+  // reading a number every node writes to, and another node's entirely correct request -
+  // for an artifact the bundle IT held still named - failed the assertion.
+  return {
+    total: 0, ok: 0, notModified: 0, missing: 0, byClient: {},
+  };
+}
+
+/**
+ * The fleet address a request came from, as a suite names its nodes.
+ *
+ * Express reports IPv4 over a dual-stack socket as ::ffff:a.b.c.d, and a suite asks with the
+ * address subnet-config gave it - so the mapped form is stripped rather than left to every
+ * caller to remember.
+ * @param {object} req
+ * @returns {string}
+ */
+function clientAddress(req) {
+  const raw = req.socket?.remoteAddress ?? req.ip ?? '';
+  return String(raw).replace(/^::ffff:/, '');
 }
 
 const IPLOCATION_JSON_ROUTE = '/iplocation.json';
 const IPLOCATION_BINARY_ROUTE = '/iplocation.bin.gz';
+// the same artifact as the bundle names it: a file name, not a path
+const IPLOCATION_BINARY_FILE = 'iplocation.bin.gz';
+// The signed bundle, at the root of what config.policy.signedBaseUrl names.
+const POLICY_SIGNED_ROUTE = '/policy-signed.json';
+
+function sha256Hex(bytes) {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
 
 // The apt repository copied out of the node image at build time, served to the fleet
 // so a legacy node installs its packages from here instead of from the internet. It is
@@ -354,10 +390,19 @@ function imageSyncthingVersion() {
 }
 
 const state = {
+  // Bytes served INSTEAD of the signed artifact, under the signed artifact's own name. A
+  // mirror or CDN answering correctly-named requests with the wrong content, which is the
+  // one attack a content-addressed name cannot prevent on its own - only the digest check
+  // at the consumer can. null means serve the real thing.
+  ipLocationTampered: null,
+  blocklist: [],
   blockedRepositories: [],
   vettedRepositories: [],
-  whitelistedRepositories: [],
   tamperingBlocklist: [],
+  // node pubkey -> [owner address]. Empty is a FACT the node acts on: it means nobody is an
+  // enterprise node, which is what every suite that is not about enterprise placement wants.
+  // Absent would be a different thing entirely - see the policy block below.
+  enterpriseNodes: {},
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
   // The syncthing the node image ships, read from the repository the image was built
@@ -393,17 +438,50 @@ const state = {
     [IPLOCATION_JSON_ROUTE]: newRouteCounters(),
     [IPLOCATION_BINARY_ROUTE]: newRouteCounters(),
   },
+  // --- the signed policy bundle ---
+  //
+  // This is the `signed` branch of fluxos-network-policy: the same documents served above,
+  // bundled under one signature with a sequence number. It is what a node actually reads --
+  // nothing fetches the plain documents any more - so it is published from the moment the
+  // stub starts. A fleet whose stub served no bundle would have no policy at all, and a node
+  // with no policy installs nothing: globalState.policyReady is shut and the spawner returns
+  // before it considers a single app. That is not a policy suite failing, it is EVERY app
+  // suite failing, so the default here has to be a good bundle.
+  policySeq: 1,
+  // Which key signs. 'pinned' and 'secondary' are both in the fleet's config - the second
+  // is what a key rotation moves to, and pinning a key nothing has ever verified against
+  // proves nothing. 'rogue' is a valid signature from a signer the fleet does not trust,
+  // which is the only way to tell a refusal-to-TRUST from a refusal-to-parse.
+  policySigner: 'pinned',
+  // false serves 503 - the published source is reachable and not answering, which is the
+  // shape a node must survive by restoring what it already verified.
+  policyAvailable: true,
+  // Exact bytes to serve instead of a signed bundle, for the cases that are not a bundle at
+  // all: not JSON, or JSON that is not { payload_b64, sig_b64 }. Null means sign normally.
+  policyBodyOverride: null,
+  // the signed bytes, rebuilt by resignPolicy whenever a document or a knob above changes
+  policyBundle: null,
+  // Counted like the artifact routes, and for the same reason: a suite proving a node took
+  // its policy from a PEER has to show the backstop was not asked, and the only side of that
+  // it controls is this one.
+  policyFetches: { total: 0, ok: 0, unavailable: 0 },
 };
 
 /**
  * Count one artifact fetch.
  * @param {string} route Which representation was fetched
  * @param {'ok'|'notModified'|'missing'} outcome What it was answered with
+ * @param {object} req The request, for the node it came from
  */
-function countIpLocationFetch(route, outcome) {
+function countIpLocationFetch(route, outcome, req) {
   const counters = state.ipLocationFetches[route];
   counters.total += 1;
   counters[outcome] += 1;
+  const client = clientAddress(req);
+  const forClient = counters.byClient[client] ?? { total: 0, ok: 0, notModified: 0, missing: 0 };
+  forClient.total += 1;
+  forClient[outcome] += 1;
+  counters.byClient[client] = forClient;
 }
 
 /**
@@ -428,6 +506,64 @@ function serveIpLocation(artifact, { pad = true } = {}) {
 }
 
 serveIpLocation(buildIpLocationArtifact(1));
+
+/**
+ * Rebuild and re-sign the policy bundle from the documents the stub currently serves.
+ *
+ * Called after every change to one of them, so a suite never signs anything itself: it POSTs
+ * the blocked list it wants and the fleet is offered a bundle carrying it.
+ *
+ * The sequence advances on every rebuild. It has to: a node refuses a bundle at or below the
+ * one it holds, so a re-signed bundle at the same sequence is indistinguishable from nothing
+ * having changed and the fleet would go on running the old documents. A suite that wants a
+ * rollback refused sets the sequence backwards deliberately, through the control.
+ *
+ * @param {{bumpSeq?: boolean}} [options] bumpSeq: false re-signs at the current sequence -
+ *   for the suite that changes the SIGNER without changing the content.
+ */
+function resignPolicy({ bumpSeq = true } = {}) {
+  if (bumpSeq) state.policySeq += 1;
+  const payload = {
+    seq: state.policySeq,
+    issued_at: new Date().toISOString(),
+    // The same four names the live bundle carries. A document the node does not find reads
+    // as unknown rather than empty, so all four are always present even when empty.
+    documents: {
+      // The typed document the readers prefer. It is served over HTTP as well, but the
+      // bundle is what a current node reads - so without it here getDocument('blocklist')
+      // is null on every harness fleet and the typed path is never exercised, while the
+      // flat fallback passes and looks like coverage.
+      blocklist: state.blocklist,
+      blockedrepositories: state.blockedRepositories,
+      vettedrepositories: state.vettedRepositories,
+      tamperingblockednodes: state.tamperingBlocklist,
+      enterprisenodes: state.enterpriseNodes,
+    },
+    // Content-addressed, as the real publisher does it: the plain name is mutable and means
+    // "the current table", so the bundle names the hash a fetch should produce. Derived from
+    // the bytes actually served rather than restated, which is the only way it stays true
+    // across a POST /iplocation.
+    // THE FIELD IS `file`, AND `bytes` IS PART OF IT. Both match scripts/sign-policy.js in
+    // fluxos-network-policy, which is the only publisher a node will ever meet. This entry
+    // read `name` and carried no size, so a consumer reading the real shape got undefined on
+    // every harness fleet while working in production - green suites over a stub that had
+    // quietly agreed with nobody.
+    artifacts: state.ipLocationBinary
+      ? {
+        [IPLOCATION_BINARY_FILE]: {
+          file: `iplocation-${sha256Hex(state.ipLocationBinary)}.bin.gz`,
+          sha256: sha256Hex(state.ipLocationBinary),
+          bytes: state.ipLocationBinary.length,
+        },
+      }
+      : {},
+  };
+  state.policyBundle = signBundle(payload, state.policySigner);
+  state.policyFetches = { total: 0, ok: 0, unavailable: 0 };
+  return state.policySeq;
+}
+
+resignPolicy({ bumpSeq: false });
 
 function defaultGeoResponse(ip) {
   return {
@@ -455,30 +591,53 @@ function defaultGeoResponse(ip) {
 const app = express();
 app.use(express.json());
 
-// Policy documents. Served at the repo root (the fluxos-network-policy layout,
-// config.policy.baseUrl) and at the retired /helpers/ paths (the RunOnFlux/flux
-// layout, config.github.rawBaseUrl) so one stub covers nodes from either era.
-app.get(['/blockedrepositories.json', '/helpers/blockedrepositories.json'], (req, res) => {
+// Policy documents, served at the repo root - the fluxos-network-policy layout that
+// config.policy.baseUrl names. The /helpers/ paths went with the version floor: they
+// covered nodes on a release that read RunOnFlux/flux, and the floor is now above every
+// such release, so there is no era left for them to cover.
+//
+// The typed document a node prefers. Left empty by default, which is how a node that asks
+// for it falls through to the flat one below - the same shape as a release published
+// before this document existed.
+app.get('/blocklist.json', (req, res) => {
+  res.json(state.blocklist);
+});
+
+app.get('/blockedrepositories.json', (req, res) => {
   res.json(state.blockedRepositories);
 });
 
-app.get(['/vettedrepositories.json', '/helpers/vettedrepositories.json'], (req, res) => {
+app.get('/vettedrepositories.json', (req, res) => {
   res.json(state.vettedRepositories);
 });
 
-app.get('/helpers/repositories.json', (req, res) => {
-  res.json(state.whitelistedRepositories);
+app.get('/tamperingblockednodes.json', (req, res) => {
+  res.json(state.tamperingBlocklist);
 });
 
-app.get(['/tamperingblockednodes.json', '/helpers/tamperingblockednodes.json'], (req, res) => {
-  res.json(state.tamperingBlocklist);
+app.get('/enterprisenodes.json', (req, res) => {
+  res.json(state.enterpriseNodes);
+});
+
+// The signed bundle - the `signed` branch, and the only policy route a current node reads.
+// Sent as text with no parsing on either side: the signature covers the bytes as served, so
+// anything that re-serialises them verifies something the signer never signed.
+app.get(POLICY_SIGNED_ROUTE, (req, res) => {
+  state.policyFetches.total += 1;
+  if (!state.policyAvailable) {
+    state.policyFetches.unavailable += 1;
+    res.status(503).json({ error: 'policy source unavailable' });
+    return;
+  }
+  state.policyFetches.ok += 1;
+  res.type('application/json').send(state.policyBodyOverride ?? state.policyBundle);
 });
 
 // The IP location artifact. Served with a strong etag so the conditional
 // refresh path (If-None-Match -> 304) is exercised, not just the first fetch.
 app.get(IPLOCATION_JSON_ROUTE, (req, res) => {
   if (!state.ipLocation) {
-    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'missing');
+    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'missing', req);
     res.status(404).json({ error: 'no artifact configured' });
     return;
   }
@@ -486,11 +645,11 @@ app.get(IPLOCATION_JSON_ROUTE, (req, res) => {
   const etag = `"iplocation-${state.ipLocationVersion}"`;
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) {
-    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'notModified');
+    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'notModified', req);
     res.status(304).end();
     return;
   }
-  countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'ok');
+  countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'ok', req);
   res.type('application/json').send(body);
 });
 
@@ -501,19 +660,40 @@ app.get(IPLOCATION_JSON_ROUTE, (req, res) => {
 // reader the wrong bytes.
 app.get(IPLOCATION_BINARY_ROUTE, (req, res) => {
   if (!state.ipLocationBinary) {
-    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing');
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing', req);
     res.status(404).json({ error: 'no artifact configured' });
     return;
   }
   const etag = `"iplocationbin-${state.ipLocationVersion}"`;
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) {
-    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'notModified');
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'notModified', req);
     res.status(304).end();
     return;
   }
-  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok');
+  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok', req);
   res.type('application/octet-stream').send(state.ipLocationBinary);
+});
+
+// The content-addressed artifact the signed bundle names. A verifying consumer fetches THIS
+// rather than the mutable name above, and the name it asks for is the hash it will check, so
+// serving anything else here is served-under-the-wrong-name and must 404 rather than hand
+// back bytes that will fail verification and look like corruption.
+app.get('/iplocation-:sha.bin.gz', (req, res) => {
+  if (!state.ipLocationBinary) {
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing', req);
+    res.status(404).json({ error: 'no artifact configured' });
+    return;
+  }
+  if (req.params.sha !== sha256Hex(state.ipLocationBinary)) {
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing', req);
+    res.status(404).json({ error: 'no artifact with that digest' });
+    return;
+  }
+  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok', req);
+  // The name asked for is the one the bundle signed; the BODY is not. Only the consumer's
+  // own digest check can catch that, which is the point of serving it.
+  res.type('application/octet-stream').send(state.ipLocationTampered ?? state.ipLocationBinary);
 });
 
 // GitHub API endpoints
@@ -653,35 +833,108 @@ app.get('/artifact/:name', (req, res) => {
   return res.end(artifact.body);
 });
 
+// --- Flux storage ---
+//
+// A storage link is the one address a node dereferences on a specification's
+// behalf, and the node requires https and this host. Serving that name from
+// inside the fleet, under a cert the nodes already trust, is what lets the
+// fetch itself run in a suite.
+//
+// The routes live on their own listener rather than beside the artifact store,
+// so a recorded request is one that arrived over TLS at this hostname - the
+// record is then evidence about the rule and not merely about the stub.
+
+const storagePayloads = new Map();
+const storageRequests = [];
+
+const storage = express();
+
+storage.get('/:name', (req, res) => {
+  // Recorded before the payload is looked up, so a request for something that
+  // was never staged is still a request this node chose to make.
+  storageRequests.push({
+    name: req.params.name,
+    at: new Date().toISOString(),
+    fluxApp: req.get('flux-app') || null,
+    fluxMessage: req.get('flux-message') || null,
+    fluxSignature: req.get('flux-signature') || null,
+  });
+  const staged = storagePayloads.get(req.params.name);
+  if (!staged) return res.status(404).json({ error: 'no such payload' });
+  if (staged.redirectTo) {
+    res.setHeader('location', staged.redirectTo);
+    return res.status(302).end();
+  }
+  return res.json(staged.body);
+});
+
 // --- Control API ---
 
 const control = express();
 control.use(express.json());
 
+control.post('/storage', (req, res) => {
+  const { name, body = null, redirectTo = null } = req.body || {};
+  storagePayloads.set(name, { body, redirectTo });
+  res.json({ ok: true });
+});
+
+control.get('/storage-requests', (req, res) => {
+  res.json({ requests: storageRequests });
+});
+
+control.post('/storage-requests/reset', (req, res) => {
+  storageRequests.length = 0;
+  res.json({ ok: true });
+});
+
 control.get('/state', (req, res) => {
   // the wire artifact is opaque bytes; its size, its claimed row count and the
-  // per-route fetch counters (ipLocationFetches) are the readable parts
-  res.json({ ...state, ipLocationBinary: undefined, ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0 });
+  // per-route fetch counters (ipLocationFetches) are the readable parts. The signed bundle
+  // is the same: what a suite asserts on is the sequence, the signer and who fetched it,
+  // never the base64.
+  res.json({
+    ...state,
+    ipLocationBinary: undefined,
+    ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0,
+    policyBundle: undefined,
+    policyBundleBytes: state.policyBundle?.length ?? 0,
+    policyPublicKeys: {
+      pinned: PINNED_PUBLIC_HEX, secondary: SECONDARY_PUBLIC_HEX, rogue: ROGUE_PUBLIC_HEX,
+    },
+  });
+});
+
+control.post('/blocklist', (req, res) => {
+  state.blocklist = req.body;
+  // RE-SIGNED, like every sibling below. This endpoint predates the bundle - on a tree
+  // where the only road was blocklist.json over HTTP, setting the state WAS publishing,
+  // and there was nothing to re-sign. With the bundle it is not: a suite that publishes a
+  // typed blocklist and then waits for a node to act on it would wait forever, because the
+  // node reads the bundle and the bundle still holds whatever was signed at boot.
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/blocked-repos', (req, res) => {
   state.blockedRepositories = req.body;
-  res.json({ ok: true });
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/vetted-repos', (req, res) => {
   state.vettedRepositories = req.body;
-  res.json({ ok: true });
-});
-
-control.post('/whitelisted-repos', (req, res) => {
-  state.whitelistedRepositories = req.body;
-  res.json({ ok: true });
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/tampering-blocklist', (req, res) => {
   state.tamperingBlocklist = req.body;
-  res.json({ ok: true });
+  res.json({ ok: true, seq: resignPolicy() });
+});
+
+// The node->owners map. `{}` is the default and means nobody is an enterprise node; a suite
+// pinning an app to a node POSTs that node's pubkey with the owner allowed to place there.
+control.post('/enterprise-nodes', (req, res) => {
+  state.enterpriseNodes = req.body;
+  res.json({ ok: true, seq: resignPolicy() });
 });
 
 control.post('/latest-release', (req, res) => {
@@ -711,6 +964,31 @@ control.post('/iplocation', (req, res) => {
   // here a healthy node is expected to refuse.
   // Whichever it is, both /iplocation.json and /iplocation.bin.gz follow it,
   // and the fetch counters start again from zero.
+  // { tamper: true } leaves the published artifact and its signed digest alone and serves
+  // DIFFERENT bytes under the signed name. Nothing else changes - same bundle, same
+  // sequence, same file name - so a node that installs it has skipped the digest check.
+  if (req.body.tamper === true) {
+    if (!state.ipLocationBinary) {
+      res.status(400).json({ error: 'nothing published to tamper with' });
+      return;
+    }
+    const tampered = Buffer.from(state.ipLocationBinary);
+    // Same LENGTH, so the size check cannot be what rejects it and the digest is the only
+    // thing standing between the node and a forged location table.
+    tampered[tampered.length - 1] ^= 0xff;
+    state.ipLocationTampered = tampered;
+    // Serving different bytes is a new question for the fleet, exactly as a publication is,
+    // so the answers to it are counted from zero. Without this a suite asserting "it
+    // downloaded the tampered one" could be satisfied by a fetch of the clean one that
+    // happened before the swap.
+    state.ipLocationFetches = {
+      [IPLOCATION_JSON_ROUTE]: newRouteCounters(),
+      [IPLOCATION_BINARY_ROUTE]: newRouteCounters(),
+    };
+    res.json({ ok: true, tampered: true, bytes: tampered.length, servedUnder: `iplocation-${sha256Hex(state.ipLocationBinary)}.bin.gz` });
+    return;
+  }
+  state.ipLocationTampered = null;
   const pad = req.body.pad !== false;
   let regions = null; // a caller-supplied artifact has no assignment to report
   if (Object.prototype.hasOwnProperty.call(req.body, 'artifact')) {
@@ -728,8 +1006,13 @@ control.post('/iplocation', (req, res) => {
     );
     regions = regionAssignment(domains, withRegions);
   }
+  // The bundle names the artifact by content hash, so publishing a new one makes the held
+  // bundle's claim false. Re-signed here rather than inside serveIpLocation so there is one
+  // place that publishes at boot and one that republishes on demand.
+  resignPolicy();
   res.json({
     ok: true,
+    policySeq: state.policySeq,
     ranges: state.ipLocation?.v4?.length ?? 0,
     // what the served binary's header claims, filler included - null when the
     // bytes are not a format-2 artifact
@@ -738,6 +1021,64 @@ control.post('/iplocation', (req, res) => {
     bytes: state.ipLocationBinary?.length ?? 0,
     regions,
     orgClasses: state.ipLocation?.orgClasses ?? null,
+  });
+});
+
+/**
+ * The bundle itself, for the cases that are about the bundle rather than about a document.
+ *
+ * Every field is optional and they compose, so one control covers the whole refusal surface:
+ *
+ *   { signer: 'rogue' }        a real signature from a signer the fleet does not pin. The
+ *                              only way to test an UNTRUSTED bundle - corrupting bytes gives
+ *                              an invalid signature, which is a different refusal.
+ *   { signer: 'secondary' }    the fleet's OTHER pinned key: a rotation, which must be
+ *                              adopted exactly as the first one is.
+ *   { seq: 1 }                 publish backwards, for a rollback that must be refused.
+ *   { available: false }       the source stops answering (503).
+ *   { body: 'not json' }       served verbatim, for what is not a bundle at all.
+ *   { documents: {...} }       merged over the served documents, then signed - a VALID
+ *                              bundle carrying a malformed document, which is the case a
+ *                              signature cannot catch and the reader must.
+ *
+ * Defaults are restored by passing the opposite, or by POST /reset.
+ */
+control.post('/policy', (req, res) => {
+  const body = req.body || {};
+  if (body.documents) {
+    const map = {
+      blockedrepositories: 'blockedRepositories',
+      vettedrepositories: 'vettedRepositories',
+      tamperingblockednodes: 'tamperingBlocklist',
+      enterprisenodes: 'enterpriseNodes',
+    };
+    for (const [name, value] of Object.entries(body.documents)) {
+      if (!map[name]) return res.status(400).json({ error: `unknown document ${name}` });
+      state[map[name]] = value;
+    }
+  }
+  if (body.signer !== undefined) {
+    if (!['pinned', 'secondary', 'rogue'].includes(body.signer)) {
+      return res.status(400).json({ error: "signer must be 'pinned', 'secondary' or 'rogue'" });
+    }
+    state.policySigner = body.signer;
+  }
+  if (body.available !== undefined) state.policyAvailable = body.available !== false;
+  if (Object.prototype.hasOwnProperty.call(body, 'body')) state.policyBodyOverride = body.body;
+  // An explicit sequence replaces the bump rather than adding to it, so a suite can publish
+  // backwards. Signing still happens: a rollback the fleet must refuse has to be otherwise
+  // perfect, or it proves only that a broken bundle is refused.
+  if (body.seq !== undefined) {
+    if (!Number.isInteger(body.seq)) return res.status(400).json({ error: 'seq must be an integer' });
+    state.policySeq = body.seq;
+  }
+  resignPolicy({ bumpSeq: body.seq === undefined });
+  return res.json({
+    ok: true,
+    seq: state.policySeq,
+    signer: state.policySigner,
+    available: state.policyAvailable,
+    overridden: state.policyBodyOverride !== null,
   });
 });
 
@@ -752,15 +1093,24 @@ control.post('/artifact', (req, res) => {
 });
 
 control.post('/reset', (req, res) => {
+  state.blocklist = [];
   state.blockedRepositories = [];
   state.vettedRepositories = [];
-  state.whitelistedRepositories = [];
   state.tamperingBlocklist = [];
+  state.enterpriseNodes = {};
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
   artifacts.clear();
+  state.ipLocationTampered = null;
   serveIpLocation(buildIpLocationArtifact(1));
-  res.json({ ok: true });
+  // Back to a good bundle from a trusted signer. The sequence is NOT reset: a node that has
+  // already adopted one refuses anything at or below it, and a reset between suites sharing
+  // a fleet would otherwise leave the fleet unable to adopt anything again.
+  state.policySigner = 'pinned';
+  state.policyAvailable = true;
+  state.policyBodyOverride = null;
+  resignPolicy();
+  res.json({ ok: true, seq: state.policySeq });
 });
 
 control.get('/health', (req, res) => {
@@ -887,3 +1237,23 @@ app.listen(PORT, () => {
 control.listen(CONTROL_PORT, () => {
   console.log(`External HTTP stub control API on port ${CONTROL_PORT}`);
 });
+
+// Absent TLS material leaves the listener down rather than failing the stub:
+// every other surface here is plain HTTP, and a fleet that registers no storage
+// link never reaches this one.
+const storageCert = `${STORAGE_TLS_DIR}/storage-cert.pem`;
+const storageKey = `${STORAGE_TLS_DIR}/storage-key.pem`;
+if (fs.existsSync(storageCert) && fs.existsSync(storageKey)) {
+  const server = https.createServer(
+    { cert: fs.readFileSync(storageCert), key: fs.readFileSync(storageKey) },
+    storage,
+  );
+  server.on('error', (error) => {
+    console.error(`External HTTP stub Flux storage error: ${error.message}`);
+  });
+  server.listen(STORAGE_PORT, () => {
+    console.log(`External HTTP stub Flux storage on port ${STORAGE_PORT}`);
+  });
+} else {
+  console.log(`External HTTP stub Flux storage off: no TLS material in ${STORAGE_TLS_DIR}`);
+}

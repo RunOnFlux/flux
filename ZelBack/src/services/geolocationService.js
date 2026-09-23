@@ -554,11 +554,16 @@ async function setNodeGeolocation() {
 /**
  * Method responsible for getting stored node geolocation information.
  * If not available in memory, attempts to retrieve from database.
+ *
+ * The result is a copy, so a caller may shape it for a reply. The original is
+ * the node's own record of where it is, and the next refresh persists whatever
+ * it holds. The record is flat scalars, so one level copies all of it - a
+ * nested field added later needs this to deepen with it.
  * @returns {Promise<object|null>} The geolocation object or null
  */
 async function getNodeGeolocation() {
   if (storedGeolocation) {
-    return storedGeolocation;
+    return { ...storedGeolocation };
   }
   // Try to get from database if not in memory
   const dbData = await getGeolocationFromDb();
@@ -581,7 +586,7 @@ async function getNodeGeolocation() {
       ?? (staticIp ? STATIC_IP_STATE.STATIC : STATIC_IP_STATE.UNKNOWN);
     log.info('Geolocation restored from database');
   }
-  return storedGeolocation;
+  return storedGeolocation ? { ...storedGeolocation } : null;
 }
 
 /**

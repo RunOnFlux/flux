@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
-import { pushImage } from '../framework/registry-helper.js';
+import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
@@ -117,7 +117,15 @@ async function bootToReady(env) {
  * buildSeedableApp, which assigns one where the spec is built.
  */
 async function seedApp(env, appName, { instances = 3, containerData = '/tmp' } = {}) {
-  await pushImage(appName, 'v1');
+  // A CONTAINER THAT HONOURS docker stop. This suite times one holder's
+  // departure against another holder's next give-up pass, so what the app does
+  // with SIGTERM is part of the arithmetic: /bin/pause installs no handler and
+  // is PID 1, where Linux discards unhandled signals, so docker waits its full
+  // ten-second grace and then kills it. That put the announcement of a
+  // departure a whole grace period after the commitment to it, and the second
+  // holder decided in between. test-app exits on the signal, which is the
+  // behaviour the pacing in coupled-knobs is sized against.
+  await pushTestApp(appName, 'v1');
   const app = await buildSeedableApp({
     name: appName,
     instances,
@@ -877,10 +885,25 @@ describe('Residential node evacuation: one holder at a time', function () {
     // departure. The give-up pass only runs on a block, so stopping the chain
     // the moment one node leaves means the other never gets a pass in which to
     // refuse, and the wait times out on a suite that stopped the clock itself.
+    // STOP ON THE VIOLATION TOO, not only on the refusal. The property here is
+    // that the second holder does NOT depart, so a run where it does has already
+    // answered the question - and waiting out the full departure budget for a
+    // refusal that cannot now arrive reports it as a slow box. Three sessions
+    // have read this timeout as one.
+    const departures = () => [TARGET, SECOND_TARGET]
+      .map((node) => env.clients[node - 1].getEventBuffer()
+        .filter((e) => e.event === 'giveUp:considered'
+          && e.data?.appName === 'sharedapp' && e.data?.giveUp === true).length)
+      .reduce((a, b) => a + b, 0);
+
     await stopTicker();
-    await driveUntil(env.clients[TARGET - 1], async () => refusal !== null,
+    await driveUntil(env.clients[TARGET - 1],
+      async () => refusal !== null || departures() >= 2,
       { timeoutMs: DEPARTURE_WAIT_MS });
     await startTicker();
+
+    expect(departures(), 'both holders handed the same app back, so one-at-a-time did not hold')
+      .to.be.lessThan(2);
 
     const verdict = await refusedForBeingShort;
     expect(verdict.data.code).to.equal('BELOW_INSTANCE_COUNT');
@@ -1038,15 +1061,36 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     const verdict = await stoodDown;
     expect(verdict.data.code).to.equal('STAND_DOWN_REQUIRED');
 
-    // The container is what "standing down" means, and this assertion has to be
-    // able to FAIL. Read through a helper that throws on an unreadable answer:
-    // `!names.some(...)` over an empty list is true, so a failed request or a
-    // shape that does not match reads as "stopped" and the test passes while the
-    // node is still writing. It did exactly that on the first run here.
-    // Positive control: the component must be running here NOW, or the wait
-    // below proves nothing about a stop.
-    expect(await runningComponents(env, TARGET)).to.include('fluxprimaryapp_primaryapp');
+    // STANDING DOWN IS A TRANSITION, so it is read as one. The reconciler
+    // publishes the desired state it sets and the reason it set it, which is
+    // what two samples of container state can never be: a transition that
+    // completes between the samples is invisible to them, and the only thing
+    // that used to make it visible was an image that ignored SIGTERM and so
+    // spent docker's whole stop grace on its way out.
+    //
+    // The reason is half the property. A stopped container says nothing about
+    // WHY it stopped, so sampling could not tell a stand-down from a crash or
+    // from a component that was never running. This can. It also names the
+    // identifier, which is what stops the negative assertion below being
+    // satisfied by an empty answer - `!includes(...)` over an empty list is
+    // true, so a failed request or a changed shape would otherwise read as
+    // "stopped" while the node is still writing.
+    const desired = await env.clients[TARGET - 1].waitForEvent(
+      'reconciler:desiredChanged',
+      (d) => d.identifier === 'primaryapp_primaryapp' && d.state === 'stopped',
+      180000,
+      // ANCHORED ON THE VERDICT, because the stand-down is what this transition
+      // has to have been caused by. The install stops the component too, with
+      // its own reason, and that lands whenever the local lifecycle gets there -
+      // after the location count this test waits on, which is a database
+      // reading. Anchoring anywhere before the decision picks that one up.
+      { afterId: verdict.id },
+    );
+    expect(desired.data.reason, 'the component stopped for some reason other than standing down')
+      .to.contain('standing down');
 
+    // The intent above, carried out. Both are worth having: the reconciler can
+    // record a desired state it never applies.
     await waitFor(async () => !(await runningComponents(env, TARGET)).includes('fluxprimaryapp_primaryapp'),
       { timeout: 180000, label: 'the g: component is stopped on the standing-down node' });
 

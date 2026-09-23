@@ -390,7 +390,7 @@ async function resolveTag(registry, repo, tag) {
  * @param {string} [repo] Destination repository. Defaults to the source's.
  * @returns {Promise<string>} The same image addressed in the harness registry.
  */
-export async function mirrorImage(reference, repo = null) {
+export async function mirrorImage(reference, repo = null, { digest: knownDigest = null } = {}) {
   const pinned = /^([^/]+)\/(.+)@(sha256:[0-9a-f]{64})$/.exec(reference);
   const tagged = /^([^/]+)\/([^:]+):([\w][\w.-]*)$/.exec(reference);
   if (!pinned && !tagged) {
@@ -403,7 +403,18 @@ export async function mirrorImage(reference, repo = null) {
   // A tag is resolved at the source and then copied by digest, so the bytes
   // that arrive are the ones the tag named at that moment rather than whatever
   // it names when a blob is fetched later.
-  const digest = pinned ? pointer : await resolveTag(registry, sourceRepo, pointer);
+  //
+  // A CALLER THAT ALREADY KNOWS THE DIGEST HANDS IT OVER, and that is the only
+  // request here no cache can answer: everything else is addressed by digest and
+  // served from the local store once a box has seen it. Left to the network, a
+  // suite reaches the public registry to be told a constant, unretried, and a
+  // dropped connection takes the suite with it.
+  //
+  // Nothing is taken on trust for it. fetchByDigest refuses bytes that do not hash
+  // to the digest asked for, so a wrong one fails rather than mirroring the wrong
+  // image; what is given up is noticing that the TAG has since moved, which is a
+  // fact about the pin and belongs to whoever changes it.
+  const digest = pinned ? pointer : (knownDigest ?? await resolveTag(registry, sourceRepo, pointer));
 
   const manifest = await mirrorManifest({ registry, repo: sourceRepo }, destRepo, digest);
 
@@ -503,7 +514,11 @@ export function executorAcceptedIds(architecture) {
  * @returns {Promise<string>} the harness reference, matching executorImageReference
  */
 export async function mirrorExecutorImage() {
-  return mirrorImage(publishedExecutorPin().image);
+  // The pin carries the index digest the tag resolves to, so the mirror is told it
+  // rather than asking the public registry for it once per suite. A pin without one
+  // still resolves over the network.
+  const pin = publishedExecutorPin();
+  return mirrorImage(pin.image, null, { digest: pin.indexId ?? null });
 }
 
 export async function pushUpdatedImage(repo, tag) {

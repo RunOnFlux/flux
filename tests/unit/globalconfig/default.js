@@ -32,8 +32,6 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
-        activePaymentRequests: 'activepaymentrequests',
-        completedPayments: 'completedpayments',
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
@@ -79,12 +77,6 @@ module.exports = {
         // height, txid, message, version (version X_ determines the value of adjustment p_ specifies new price structure as per fluxapps.price array values)
       },
     },
-    fluxshare: {
-      database: 'zelsharetest',
-      collections: {
-        shared: 'shared',
-      },
-    },
   },
   logConsole: false,
   upnp: {
@@ -108,13 +100,14 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.0.0',
+  minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,
-  messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
+    storageHost: 'storage.runonflux.io',
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
     restartBurstCount: 5,
@@ -255,7 +248,6 @@ module.exports = {
     },
     redeploy: {
       probability: 2, // 50%
-      delay: 30,
       composedDelay: 5,
     },
     blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
@@ -292,7 +284,10 @@ module.exports = {
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,
     portRestoreIntervalMs: 600000,
-    imageComplianceIntervalMs: 3600000,
+    complianceSweepStaggerMs: 120000,
+    complianceRemovalSpacingMs: 180000,
+    complianceRetryBaseMs: 60000,
+    complianceRetryMaxMs: 3600000,
     forceRemovalIntervalMs: 7200000,
     installCollisionWaitMs: 90000,
     portTestBindDelayMs: 5000,
@@ -313,7 +308,6 @@ module.exports = {
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     spawnDeferrals: {
-      targetedNodesMs: { enterprise: 1800000, standard: 3420000 },
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },
       capacityGap: {
@@ -398,6 +392,8 @@ module.exports = {
     ip: '127.0.0.1', // local
     port: 8384, // local
     monitorIntervalMs: 30000,
+    healthWindowMs: 300000,
+    sentinelIntervalMs: 60000,
     stallNudgeAfterMs: 180000,
     stallNudgeMaxIntervalMs: 900000,
     stallRemoveMinWindowMs: 1200000,
@@ -413,12 +409,25 @@ module.exports = {
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',
   ],
+  // The load balancers whose X-Forwarded-For this node will believe. A stand-in:
+  // the tests need one address the code trusts, not the fleet's real ones, so
+  // adding a balancer in production does not mean editing this file too.
+  fdmAddresses: ['1.2.3.4'],
   github: {
-    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
     apiBaseUrl: 'https://api.github.com',
   },
   policy: {
     baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
+    signedBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/signed',
+    publicKeys: [
+      'c31930ec386a49f31321851766d93bcb90bf269cd15bec7a329155a4d79ea380',
+      '739ca41408f66c75d6cb4bc1d5c044ca5a118de190081da68e5a7d6839fb69f8',
+    ],
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    peerWindowMs: 3 * 1000,
+    fetchTimeoutMs: 10 * 1000,
+    minConfirmingPeers: 4,
+    backstopRetryIntervalMs: 60 * 1000,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

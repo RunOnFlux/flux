@@ -57,6 +57,25 @@ class LogFrameDecoder {
     // newline is counted and dropped, so one absurd line costs the cap once
     // rather than arriving as a run of invented lines.
     this.discarding = false;
+    // WHETHER THE FIRST LINE MAY BE A FRAGMENT, because this decoder attached to
+    // a stream already in progress.
+    //
+    // A follow stream opens with docker's `tail`, which counts ENTRIES - its own
+    // 16KB frames - not lines. A container writing short lines gives one line per
+    // entry, so the stream does begin at a line boundary; one writing lines longer
+    // than a frame does not, and the first thing to arrive is the end of a line
+    // this decoder never saw the start of.
+    //
+    // It cannot tell which it got, and does not need to: what it must not do is
+    // say how much was CUT from that line. It never saw how much there was, so the
+    // figure would be true of what arrived and false of the line - and a reader
+    // takes it for the line. So the line is handed over either way, and only the
+    // claim about it is withheld, until the first newline proves the next line was
+    // seen from the start.
+    //
+    // Dropping the fragment instead would cost every ordinary container a real
+    // line of backfill, which is the common case paying for the rare one.
+    this.joining = options.joinMidStream ?? false;
   }
 
   // What has been cut from the line still arriving. Held rather than reported,
@@ -81,6 +100,20 @@ class LogFrameDecoder {
    * @returns {void}
    */
   #settle() {
+    // A LINE THIS DECODER JOINED PART-WAY THROUGH CANNOT BE SPOKEN FOR. It never
+    // saw how long the line was, so "this much was cut from it" would be a figure
+    // true of what arrived and false of the line - and a reader takes it for the
+    // line. Dropped rather than reported.
+    if (this.joining) {
+      // And THIS is the newline that ends it. Cleared here rather than beside any
+      // one caller because a line can end in either place - the loop that hands
+      // lines over, or the branch draining the tail of one past the cap - and a
+      // flag cleared in only one of them stays set through the other, silencing
+      // every line after it.
+      this.joining = false;
+      this.#discarded = 0;
+      return;
+    }
     this.truncated += this.#discarded;
     this.#discarded = 0;
   }
@@ -114,6 +147,14 @@ class LogFrameDecoder {
     // NEXT frame a continuation of one rather than the start of another. Taken
     // from the state this push begins in: a held partial, or a line whose tail
     // is being discarded.
+    //
+    // NOT a stream joined part-way through, although that also begins mid-line.
+    // This decides one thing - whether the stamp at the front of the frame is a
+    // repeat to strip or the one to remember - and a joined stream has nothing
+    // remembered to strip against. Read as a continuation, the first frame's
+    // stamp is kept and so is every later one on the same line, which is the
+    // splicing #lineStamp exists to stop. Docker gives every chunk the message's
+    // stamp, so the frame this stream joins on carries one like any other.
     let continuing = this.partial !== '' || this.discarding;
     while (offset + 8 <= this.bytes.length) {
       const length = this.bytes.readUInt32BE(offset + 4);
@@ -155,7 +196,8 @@ class LogFrameDecoder {
     const cut = [];
     for (let i = 0; i < lines.length; i += 1) {
       cut.push(this.#cut(lines[i]));
-      // Its newline has arrived, so nothing more can be cut from this one.
+      // Its newline has arrived, so nothing more can be cut from this one - and
+      // if this was the line the decoder joined, that newline ends the join.
       this.#settle();
     }
 

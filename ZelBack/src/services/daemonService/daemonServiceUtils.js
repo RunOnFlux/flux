@@ -1,3 +1,4 @@
+const log = require('../../lib/log');
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
 const daemonConfig = require('../utils/daemonConfig');
@@ -24,7 +25,7 @@ configManager.on('configReloaded', async (newConfig) => {
     await buildFluxdClient();
     const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
     const rpcPort = fluxdConfig?.rpcport || config.daemon[portId];
-    serviceHelper.log('info', `Testnet mode changed, rebuilt daemon RPC client on port ${rpcPort}`);
+    log.info(`Testnet mode changed, rebuilt daemon RPC client on port ${rpcPort}`);
   }
 });
 
@@ -39,13 +40,36 @@ const cache = cacheManager.daemonGenericCache;
 const rawTxCache = cacheManager.daemonTxCache;
 const blockCache = cacheManager.daemonBlockCache;
 
+/**
+ * Parse flux.conf into the module's config.
+ *
+ * Published only once it is parsed. Assigning first left a window in which the config was
+ * set and empty, so a caller arriving during the read took it for a file with nothing in it.
+ * @returns {Promise<void>}
+ */
 async function readDaemonConfig() {
-  fluxdConfig = new daemonConfig.DaemonConfig();
-  await fluxdConfig.parseConfig();
+  const parsed = new daemonConfig.DaemonConfig();
+  await parsed.parseConfig();
+  fluxdConfig = parsed;
+}
+
+/**
+ * Parse flux.conf if nothing has yet.
+ *
+ * flux.conf is a local file and reading it involves no daemon at all - but until this was
+ * something a caller could ask for, it was parsed only as a side effect of building the RPC
+ * client. Anything that wanted a config value before the first RPC read undefined, and that
+ * looked exactly like the daemon being down.
+ * @returns {Promise<void>}
+ */
+async function ensureConfigLoaded() {
+  // Two callers arriving before either finishes both parse the file. Left alone: they read
+  // the same local file and write the same result, so it costs one duplicate parse at boot.
+  if (!fluxdConfig) await readDaemonConfig();
 }
 
 async function buildFluxdClient() {
-  if (!fluxdConfig) await readDaemonConfig();
+  await ensureConfigLoaded();
 
   const username = fluxdConfig.rpcuser || 'rpcuser';
   const password = fluxdConfig.rpcpassword || 'rpcpassword';
@@ -295,6 +319,7 @@ module.exports = {
   getFluxdConfigPath,
   getFluxdDir,
   readDaemonConfig,
+  ensureConfigLoaded,
   setConfigValue,
   writeFluxdConfig,
 

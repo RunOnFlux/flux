@@ -1,6 +1,5 @@
 const util = require('util');
 const path = require('path');
-const nodecmd = require('node-cmd');
 const systemcrontab = require('crontab');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -9,7 +8,9 @@ const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
-const { localAppsInformation, globalAppsInformation, globalAppsMessages } = require('../utils/appConstants');
+const {
+  localAppsInformation, globalAppsInformation, globalAppsMessages, ANNOUNCE_CYCLE_WAIT_MS,
+} = require('../utils/appConstants');
 const config = require('config');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const upnpService = require('../upnpService');
@@ -23,11 +24,26 @@ const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const volumeService = require('../utils/volumeService');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { Privilege, authOf } = require('../utils/privileges');
+const { RemovalOutcome } = require('../utils/removalOutcome');
+
+/**
+ * The node does not hold this application.
+ *
+ * WHAT MARKS IT IS THE TYPE, NOT THE WORDS. A caller that has to tell "it is not here"
+ * from "the removal did not complete" reads the mark; the message is the body these
+ * endpoints answer with, and belongs to whoever reads the response stream.
+ *
+ * `name` is left as Error's, because it is serialised into that same body.
+ */
+class AppNotFoundError extends Error {
+  constructor() {
+    super('Flux App not found');
+  }
+}
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
-const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 
 // Fired once per component identifier after a successful local removal, beside
@@ -49,20 +65,25 @@ function setOnComponentRemoved(callback) {
  * @returns {Promise<void>}
  */
 async function stopSyncthingAndCleanup(monitoredName, appId, res) {
+  // Hard removal - the data is going, so what this node says about it goes first
+  // and unconditionally. Stopping syncthing can fail; the volume is deleted either
+  // way, and state describing it must not outlive it on the strength of that.
+  const { receiveOnlySyncthingAppsCache } = globalState;
+  if (receiveOnlySyncthingAppsCache && receiveOnlySyncthingAppsCache.has(appId)) {
+    receiveOnlySyncthingAppsCache.delete(appId);
+    log.info(`Deleted syncthing cache for ${appId} during hard removal`);
+  }
+  // The published claim goes with the data it describes. Peers rank a seed on it,
+  // and one kept past the removal offers a volume this node no longer has -
+  // outranking a node that still holds the app and seeding an empty folder in its
+  // place.
+  globalState.folderHoldings?.delete(appId);
+
   try {
     // Dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const advancedWorkflows = require('./advancedWorkflows');
     await advancedWorkflows.stopSyncthingApp(monitoredName, res);
-
-    // Hard removal - delete syncthing cache since data will be deleted
-    // eslint-disable-next-line no-shadow, global-require
-    const globalState = require('../utils/globalState');
-    const { receiveOnlySyncthingAppsCache } = globalState;
-    if (receiveOnlySyncthingAppsCache && receiveOnlySyncthingAppsCache.has(appId)) {
-      receiveOnlySyncthingAppsCache.delete(appId);
-      log.info(`Deleted syncthing cache for ${appId} during hard removal`);
-    }
   } catch (error) {
     log.error(`Error stopping Syncthing app: ${error.message}`);
   }
@@ -82,22 +103,27 @@ async function unmountVolume(appId, entityName, res) {
     if (res.flush) res.flush();
   }
 
-  const execUnmount = `sudo umount ${appsFolder + appId}`;
-  const execSuccess = await cmdAsync(execUnmount).catch((e) => {
-    log.error(e);
+  // The unmount carries on either way - a volume that will not unmount is not
+  // a reason to hold an uninstall open - but only one of these two lines is
+  // true, and the stream is the only account an operator gets of what is still
+  // mounted.
+  const unmount = await serviceHelper.runCommand('umount', {
+    runAsRoot: true, params: [appsFolder + appId], logError: false,
+  });
+  if (unmount.error) {
+    log.error(unmount.error);
     log.info(`An error occurred while unmounting ${entityName} storage. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while unmounting ${entityName} storage. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+    return;
+  }
 
-  if (execSuccess) {
-    log.info(`Volume of ${entityName} unmounted`);
-    if (res) {
-      res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} unmounted` }));
-      if (res.flush) res.flush();
-    }
+  log.info(`Volume of ${entityName} unmounted`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} unmounted` }));
+    if (res.flush) res.flush();
   }
 }
 
@@ -119,15 +145,21 @@ async function cleanupAppData(appId, entityName, res) {
   // creation); clear the flag or the removal below fails
   await serviceHelper.runCommand('chattr', { runAsRoot: true, params: ['-i', appsFolder + appId], logError: false });
 
-  const execDelete = `sudo rm -rf ${appsFolder + appId}`;
-  await cmdAsync(execDelete).catch((e) => {
-    log.error(e);
+  // The removal carries on either way - data left behind is not a reason to
+  // hold an uninstall open - but only one of these two lines is true, and the
+  // stream is the only account an operator gets of what is still on the disk.
+  const removal = await serviceHelper.runCommand('rm', {
+    runAsRoot: true, params: ['-rf', appsFolder + appId], logError: false,
+  });
+  if (removal.error) {
+    log.error(removal.error);
     log.info(`An error occured while cleaning ${entityName} data. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} data. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+    return;
+  }
 
   log.info(`Data of ${entityName} cleaned`);
   if (res) {
@@ -212,10 +244,28 @@ async function cleanupCrontab(appId, res) {
  * @param {string} volumepath - Volume path to clean
  * @param {string} entityName - Entity name for logging
  * @param {object} res - Response object for streaming
+ * @param {boolean} [conclusive=true] - Whether the search that produced
+ *   `volumepath` covered everywhere it should have. False with no path means
+ *   an image may be on disk that nothing will account for again, which is
+ *   said rather than passed over; the default suits a caller that did not
+ *   search.
  * @returns {Promise<void>}
  */
-async function cleanupVolumePath(volumepath, entityName, res) {
-  if (!volumepath) return;
+async function cleanupVolumePath(volumepath, entityName, res, conclusive = true) {
+  if (!volumepath) {
+    // Nothing to delete and nowhere left to look are different answers, and
+    // only the first of them means the disk is clear. An image whose location
+    // could not be established outlives the app's last record of itself, so
+    // the one chance to say it is here.
+    if (!conclusive) {
+      log.warn(`Data volume of ${entityName} could not be located and is left on disk`);
+      if (res) {
+        res.write(serviceHelper.ensureString({ status: `Data volume of ${entityName} could not be located and is left on disk` }));
+        if (res.flush) res.flush();
+      }
+    }
+    return;
+  }
 
   log.info(`Cleaning up data volume of ${entityName}...`);
   if (res) {
@@ -223,15 +273,24 @@ async function cleanupVolumePath(volumepath, entityName, res) {
     if (res.flush) res.flush();
   }
 
-  const execVolumeDelete = `sudo rm -rf ${volumepath}`;
-  await cmdAsync(execVolumeDelete).catch((e) => {
-    log.error(e);
+  // Passed as an argument rather than interpolated into a command string. The
+  // path can come from the recorded image now, which reached this node as a
+  // kernel string and went through the database - so whitespace in it would
+  // turn one removal into several, and `rm -rf` is not a thing to be wrong
+  // about.
+  const removal = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumepath], logError: false });
+  // The removal carries on either way - an image left behind is not a reason
+  // to hold an uninstall open - but only one of these two is true, and the
+  // stream is the only account an operator gets of what is still on the disk.
+  if (removal.error) {
+    log.error(removal.error);
     log.info(`An error occured while cleaning ${entityName} volume. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} volume. Continuing...` }));
       if (res.flush) res.flush();
     }
-  });
+    return;
+  }
 
   log.info(`Volume of ${entityName} cleaned`);
   if (res) {
@@ -354,11 +413,11 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
   // The backing image is discovered deterministically; the crontab (legacy
   // remount mechanism) is only cleaned up, never relied on - a missing entry
   // used to orphan the image on disk.
-  const discoveredVolume = await volumeService.getVolumeFilePath(appId);
+  const discovered = await volumeService.getVolumeFilePath(appId);
   const crontabVolume = await cleanupCrontab(appId, res);
 
   // Clean up volume path
-  await cleanupVolumePath(discoveredVolume ?? crontabVolume, `component ${componentName}`, res);
+  await cleanupVolumePath(discovered.path ?? crontabVolume, `component ${componentName}`, res, discovered.conclusive);
 
   // Remove image (only if container was successfully removed)
   if (containerRemoved) {
@@ -505,11 +564,11 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
   // The backing image is discovered deterministically; the crontab (legacy
   // remount mechanism) is only cleaned up, never relied on - a missing entry
   // used to orphan the image on disk.
-  const discoveredVolume = await volumeService.getVolumeFilePath(appId);
+  const discovered = await volumeService.getVolumeFilePath(appId);
   const crontabVolume = await cleanupCrontab(appId, res);
 
   // Clean up volume path
-  await cleanupVolumePath(discoveredVolume ?? crontabVolume, appName, res);
+  await cleanupVolumePath(discovered.path ?? crontabVolume, appName, res, discovered.conclusive);
 
   // Remove image (only if container was successfully removed)
   if (containerRemoved) {
@@ -782,9 +841,17 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @param {boolean} force - Force removal
  * @param {boolean} endResponse - Whether to end response
  * @param {boolean} sendMessage - Whether to send message to network
- * @returns {Promise<void>}
+ * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
+  // Names what this call marked as departing, and nothing else: the guards below
+  // return through the same finally without having marked anything, and a refused
+  // duplicate must not unmark the removal that is actually running.
+  let departingName = null;
+  // Whether this call took the node's removal lock. The same guards return through
+  // the same finally, and a refused duplicate must not release the lock the removal
+  // actually running is holding.
+  let acquired = false;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -808,7 +875,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
             res.end();
           }
         }
-        return;
+        return RemovalOutcome.BUSY;
       }
       if (globalState.installationInProgress) {
         const warnResponse = messageHelper.createWarningMessage('Another application is undergoing installation. Removal not possible.');
@@ -820,11 +887,12 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
             res.end();
           }
         }
-        return;
+        return RemovalOutcome.BUSY;
       }
     }
 
     globalState.removalInProgress = true;
+    acquired = true;
 
     if (!app) {
       throw new Error('No App specified');
@@ -833,6 +901,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
+
+    // The node stops claiming the app here, at the decision to hand it back, and
+    // not when its container happens to die. Keyed by the name the removal message
+    // carries below, so the two can never name different things.
+    if (sendMessage) {
+      departingName = appName;
+      globalState.departingApps.enter(departingName);
+    }
 
     // Find app specifications in database
     const dbopen = dbHelper.databaseConnection();
@@ -844,7 +920,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
       if (!force) {
-        throw new Error('Flux App not found');
+        throw new AppNotFoundError();
       }
       // get it from global Specifications
       appSpecifications = await dbHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
@@ -875,7 +951,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     }
 
     if (!appSpecifications) {
-      throw new Error('Flux App not found');
+      throw new AppNotFoundError();
     }
 
     let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
@@ -921,6 +997,13 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     fluxEventBus.publish('app:removed', { name: appName });
 
     if (sendMessage) {
+      // An announcement cycle that took its list before this removal marked the
+      // app still names it, and a claim arriving after this message re-creates the
+      // row it cleared. Waiting for the cycle in flight puts the two on the wire in
+      // the order they happened, so the claim is applied first and this clears it.
+      // A cycle starting from here on reads the mark and leaves the app out.
+      // Bounded: a wedged cycle must not hold up the node's removals.
+      await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
       const ip = await fluxNetworkHelper.getLocalSocketAddress();
       if (ip) {
         const broadcastedAt = Date.now();
@@ -940,6 +1023,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           runningAppsCache.delete(appName);
           log.info(`Removed ${appName} from running apps cache`);
         }
+      } else {
+        log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
       }
     }
 
@@ -1047,6 +1132,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.end();
       }
     }
+    return RemovalOutcome.REMOVED;
   } catch (error) {
     log.error(`Error removing app ${app}: ${error.message}`);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1062,8 +1148,18 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.end();
       }
     }
+    // A specification that cannot be found anywhere means the node is not holding
+    // this app, which answers a caller asking for it to be gone. Every other error
+    // leaves it possibly here, whole or in part, and only the caller can decide what
+    // that costs it.
+    return error instanceof AppNotFoundError
+      ? RemovalOutcome.NOT_INSTALLED
+      : RemovalOutcome.FAILED;
   } finally {
-    globalState.removalInProgress = false;
+    if (acquired) globalState.removalInProgress = false;
+    if (departingName) {
+      globalState.departingApps.leave(departingName);
+    }
   }
 }
 
@@ -1106,7 +1202,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
     const appsProjection = {};
     let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
-      throw new Error('Flux App not found');
+      throw new AppNotFoundError();
     }
 
     let appId = dockerService.getAppIdentifier(app);
@@ -1146,7 +1242,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
     // eslint-disable-next-line no-restricted-syntax
     for (const identifier of removedIdentifiers) {
       // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.remove(identifier);
+      await appsRuntimeState.removeControllerState(identifier);
       if (onComponentRemoved) onComponentRemoved(identifier);
     }
 
@@ -1193,21 +1289,22 @@ async function removeAppLocallyApi(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
-    let { global } = req.params;
-    global = global || req.query.global || false;
-    global = serviceHelper.ensureBoolean(global);
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
 
     if (appname.includes('_')) {
       throw new Error('Components cannot be removed manually');
     }
 
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
+
     let { force } = req.params;
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
 
     // The node operator is deliberately NOT here. Hosting an app is not owning it:
     // an operator who can remove one can script the removal against every install

@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const mountParser = require('../../ZelBack/src/services/utils/mountParser');
+const { syncthingIgnoreLines } = require('../../ZelBack/src/services/appSystem/volumeReservedNames');
 
 describe('mountParser tests', () => {
   describe('parseContainerData tests', () => {
@@ -304,6 +305,118 @@ describe('mountParser tests', () => {
       expect(mountParser.parseContainerData('gs:/data').primary.flags).to.have.members(['g', 's']);
       // repeated letters are valid flag segments; each flag is reported once
       expect(mountParser.parseContainerData('gg:/data').primary.flags).to.deep.equal(['g']);
+    });
+  });
+
+  describe('ml: local directory mounts', () => {
+    it('parses ml: as its own mount type', () => {
+      const result = mountParser.parseContainerData('g:/savegame|ml:game:/home/steam/game');
+      expect(result.additional[0].type).to.equal(mountParser.MountType.LOCAL_DIRECTORY);
+      expect(result.additional[0].subdir).to.equal('game');
+      expect(result.additional[0].containerPath).to.equal('/home/steam/game');
+      expect(result.additional[0].flags).to.deep.equal([]);
+    });
+
+    it('creates the directory like any other local mount', () => {
+      const parsed = mountParser.parseContainerData('g:/savegame|ml:game:/home/steam/game');
+      expect(mountParser.getRequiredLocalPaths(parsed).map((entry) => entry.name))
+        .to.deep.equal(['appdata', 'game']);
+    });
+
+    it('reports its subdir as unsynced, and reports nothing for the other forms', () => {
+      expect(mountParser.getUnsyncedSubdirs('g:/savegame|ml:game:/g|ml:cache:/c'))
+        .to.deep.equal(['game', 'cache']);
+      expect(mountParser.getUnsyncedSubdirs('g:/savegame|m:logs:/var/log|f:a.json:/a.json'))
+        .to.deep.equal([]);
+    });
+
+    it('answers [] for an unparseable spec rather than throwing', () => {
+      expect(mountParser.getUnsyncedSubdirs('ml:')).to.deep.equal([]);
+      expect(mountParser.getUnsyncedSubdirs(undefined)).to.deep.equal([]);
+    });
+
+    it('collides with another mount claiming the same subdir', () => {
+      expect(() => mountParser.parseContainerData('/data|m:game:/a|ml:game:/b'))
+        .to.throw(/Duplicate subdirectory/);
+    });
+
+    it('refuses reserved volume-root names', () => {
+      expect(() => mountParser.parseContainerData('/data|ml:appdata:/a')).to.throw(/reserved name/);
+      expect(() => mountParser.parseContainerData('/data|ml:lost+found:/a')).to.throw(/reserved name/);
+    });
+
+    // The name is asserted as a syncthing ignore pattern, so one carrying pattern
+    // syntax stands for some other set of entries: `/[a]ppdata` excludes the
+    // component's synced storage and leaves the directory actually named
+    // `[a]ppdata` replicating - the reverse of the spec, on every node, silently.
+    ['[a]ppdata', '{appdata,cache}', 'back\\slash'].forEach((name) => {
+      it(`refuses a name syncthing would read as a pattern: ${name}`, () => {
+        expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+          .to.throw(/may not contain/);
+      });
+    });
+
+    // The derived lines are joined with a newline and written as one document, so a
+    // name carrying a line terminator writes a SECOND line the specification never
+    // named - and the converge reads back more lines than it derived, so it rewrites
+    // the file and rescans the folder every pass for as long as the app exists.
+    [['newline', 'cache\nsecret'], ['carriage return', 'cache\rsecret'], ['tab', 'ca\tche'], ['delete', 'cache\u007f']]
+      .forEach(([what, name]) => {
+        it(`refuses a name carrying a ${what}`, () => {
+          expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+            .to.throw(/may not contain/);
+        });
+      });
+
+    // syncthing trims each line as it reads the file (lib/ignore, TrimSpace before the
+    // line is parsed and before it is reported), so a name with whitespace at either
+    // edge is a DIFFERENT name as a pattern: the directory the spec asked to keep local
+    // replicates, a directory named the trimmed way stops, and the converge never sees
+    // the file it wrote. The set is Unicode's, not ASCII's.
+    [['trailing space', 'cache '], ['leading space', ' cache'], ['no-break space', 'cache\u00a0'],
+      ['ideographic space', '\u3000cache'], ['thin space', 'cache\u2009']]
+      .forEach(([what, name]) => {
+        it(`refuses a name with a ${what} at its edge`, () => {
+          expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+            .to.throw(/may not contain/);
+        });
+      });
+
+    // The edges only: inside the name it survives the round trip and is the owner's.
+    it('accepts whitespace inside the name', () => {
+      expect(() => mountParser.parseContainerData('/data|ml:my cache:/a')).to.not.throw();
+      expect(mountParser.getUnsyncedSubdirs('/data|ml:my cache:/a')).to.deep.equal(['my cache']);
+    });
+
+    // Refused before the rule above sees them, by the character set every mount name
+    // is held to. Named here because the ignore line is the reason they must stay out.
+    ['star*', 'quer?y'].forEach((name) => {
+      it(`refuses a wildcard in a name: ${name}`, () => {
+        expect(() => mountParser.parseContainerData(`/data|ml:${name}:/a`))
+          .to.throw(/invalid characters/);
+      });
+    });
+
+    it('still accepts the ordinary names an ignore line can carry', () => {
+      expect(mountParser.getUnsyncedSubdirs('/data|ml:steam-content.v2:/a|ml:build_cache:/b'))
+        .to.deep.equal(['steam-content.v2', 'build_cache']);
+    });
+
+    // What the refusal is for: one declared name, one derived line.
+    it('derives exactly one ignore line per declared directory', () => {
+      const lines = syncthingIgnoreLines(mountParser.getUnsyncedSubdirs('/data|ml:cache:/a'));
+      expect(lines).to.deep.equal(['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/cache']);
+      expect(lines.join('\n').split('\n')).to.have.length(lines.length);
+    });
+
+    it('is not a primary mount - the primary carries the sync mode', () => {
+      expect(() => mountParser.parseContainerData('ml:game:/home/steam/game'))
+        .to.throw(/Invalid primary mount syntax/);
+    });
+
+    it('leaves the component sync mode to the primary', () => {
+      expect(mountParser.getComponentSyncMode('g:/savegame|ml:game:/g')).to.equal('g');
+      expect(mountParser.getComponentSyncMode('/savegame|ml:game:/g')).to.equal(null);
     });
   });
 

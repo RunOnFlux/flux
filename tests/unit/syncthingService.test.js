@@ -3,14 +3,11 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
-const EventEmitter = require('node:events');
 
 // 3rd Party Stubbed
 const axios = require('axios');
 const log = require('../../ZelBack/src/lib/log');
-const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
 // Testing imports
 const chai = require('chai');
@@ -27,90 +24,29 @@ const utilFake = { promisify: () => runExecStub };
 // Module under test
 const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService', { 'node:util': utilFake });
 
-describe('syncthingService tests', () => {
-  // These endpoints authorise unconditionally now, so a test that wants to reach
-  // the request underneath supplies a caller who passes rather than omitting the
-  // response to skip the check.
-  const asAuthorised = () => {
-    if (!verificationHelper.verifyPrivilege.restore) sinon.stub(verificationHelper, 'verifyPrivilege');
-    verificationHelper.verifyPrivilege.resolves(true);
-    return { json: sinon.stub().returnsArg(0) };
-  };
+/**
+ * Move the monotonic clock forward for the duration of a check. Health windows
+ * are measured on process.hrtime.bigint, so faking Date does nothing to them -
+ * which is the property the ntp test below pins.
+ * @param {number} ms
+ * @returns {Function} restores the real clock
+ */
+// The paths handed to chown, in call order.
+function chownedPaths(runCmdStub) {
+  return runCmdStub.getCalls()
+    .filter((call) => call.args[0] === 'chown')
+    .map((call) => call.args[1].params[call.args[1].params.length - 1]);
+}
 
+function advanceMonotonic(ms) {
+  const real = process.hrtime.bigint;
+  process.hrtime.bigint = () => real() + BigInt(ms) * 1000000n;
+  return () => { process.hrtime.bigint = real; };
+}
+
+describe('syncthingService tests', () => {
   // The gui config carries syncthing's apikey - the credential that authenticates
   // every syncthing call on this node - so these ask for fluxteam where their
-  // siblings take adminandfluxteam. The operator can read the same key off their
-  // own disk, but only with a shell on the box: over the API a zelidauth session
-  // was enough, and on ArcaneOS the operator has no shell at all. Pinned because
-  // the difference is a single string.
-  describe('config/gui privilege tests', () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('reading it asks for fluxteam, not the node operator', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const req = { headers: {} };
-      const res = { json: sinon.stub() };
-
-      await syncthingService.getConfigGuiApi(req, res);
-
-      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
-      expect(res.json.firstCall.args[0].status).to.equal('error');
-    });
-
-    it('writing it asks for fluxteam, not the node operator', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const req = new EventEmitter();
-      req.headers = {};
-
-      const answer = await new Promise((resolve) => {
-        syncthingService.postConfigGui(req, { json: resolve });
-        req.emit('data', JSON.stringify({ config: { theme: 'dark' } }));
-        req.emit('end');
-      });
-
-      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
-      expect(answer.status).to.equal('error');
-    });
-  });
-
-  describe('postDbIgnores privilege tests', () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    // .stignore decides what LEAVES the node for an app the node operator does
-    // not own, so this route asks for fluxteam where its siblings take
-    // adminandfluxteam. Pinned because the difference is a single string.
-    const answerFor = (req) => new Promise((resolve) => {
-      syncthingService.postDbIgnores(req, { json: resolve });
-      req.emit('data', JSON.stringify({ folder: 'fluxcomp_app', config: { ignore: ['!/backup'] } }));
-      req.emit('end');
-    });
-
-    it('should ask for fluxteam, not the node operator', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const req = new EventEmitter();
-
-      const answer = await answerFor(req);
-
-      sinon.assert.calledOnceWithExactly(verify, Privilege.FLUX_TEAM, authOf(req));
-      expect(answer.data.code).to.equal(401);
-      expect(answer.data.name).to.equal('Unauthorized');
-    });
-
-    it('should refuse a session the privilege check rejects, without reaching syncthing', async () => {
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const requested = sinon.stub(axios, 'create');
-
-      const answer = await answerFor(new EventEmitter());
-
-      sinon.assert.notCalled(requested);
-      expect(answer.status).to.equal('error');
-    });
-  });
-
   describe('getConfigFile tests', () => {
     let runCmdStub;
     beforeEach(async () => {
@@ -181,6 +117,136 @@ describe('syncthingService tests', () => {
     });
   });
 
+  describe('eachDbLocalChanged tests', () => {
+    // syncthing serves local changes a page at a time. The total is what decides
+    // which copy of an owner's data survives an election, so a caller reading one
+    // page reads a prefix of any larger folder - and two nodes each totalling their
+    // own prefix produce figures that no longer order by how much each holds.
+    const PAGE = 65536;
+    const MAX_PAGES = 16;
+    const entry = (i) => ({ name: `f${i}`, type: 'FILE_INFO_TYPE_FILE', size: 1, deleted: false, modified: '2026-09-16T10:00:00Z' });
+    const pageOf = (n) => Array.from({ length: n }, (_, i) => entry(i));
+
+    let pagesServed;
+    let pathsRequested;
+
+    // A page generator rather than an array of pages, so a case can describe a folder
+    // far larger than a test could hold.
+    const serve = (pageAt) => {
+      pagesServed = [];
+      pathsRequested = [];
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      sinon.stub(axios, 'create').returns({
+        get: sinon.fake(async (reqPath) => {
+          pathsRequested.push(reqPath);
+          const page = Number(new URLSearchParams(reqPath.split('?')[1]).get('page'));
+          pagesServed.push(page);
+          return { data: { files: pageAt(page) } };
+        }),
+      });
+    };
+
+    const collect = async (folder = 'fluxapp_x') => {
+      let seen = 0;
+      const outcome = await syncthingService.eachDbLocalChanged(folder, (batch) => { seen += batch.length; });
+      return { seen, outcome };
+    };
+
+    afterEach(async () => {
+      syncthingService.getAxiosCache().reset();
+      await syncthingService.syncthingController().abort();
+      sinon.restore();
+    });
+
+    it('asks for one page and stops when it comes back short', async () => {
+      serve((p) => (p === 1 ? pageOf(3) : null));
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(3);
+      expect(outcome).to.deep.equal({ read: true, pages: 1, truncated: false });
+      expect(pagesServed).to.deep.equal([1]);
+    });
+
+    it('reads on while a page comes back full, and hands over every entry', async () => {
+      serve((p) => (p <= 2 ? pageOf(PAGE) : pageOf(7)));
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(PAGE * 2 + 7);
+      expect(outcome.pages).to.equal(3);
+      expect(outcome.truncated).to.equal(false);
+      expect(pagesServed).to.deep.equal([1, 2, 3]);
+    });
+
+    it('stops on a page with no list at all, which is how an exact multiple ends', async () => {
+      // A folder holding exactly one page answers the second request with no list
+      // rather than an empty one. That is the end, not a failure.
+      serve((p) => (p === 1 ? pageOf(PAGE) : null));
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(PAGE);
+      expect(outcome.read).to.equal(true);
+      expect(outcome.pages).to.equal(1);
+      expect(pagesServed).to.deep.equal([1, 2]);
+    });
+
+    it('reports an unreadable folder rather than an empty one', async () => {
+      // Only the FIRST page can say the folder cannot be read. The caller must tell
+      // that from "holds nothing", because it treats unknown as holding data.
+      serve(() => null);
+
+      const { seen, outcome } = await collect();
+
+      expect(seen).to.equal(0);
+      expect(outcome.read).to.equal(false);
+      expect(pagesServed).to.deep.equal([1]);
+    });
+
+    it('never accumulates the entries it walks', async () => {
+      // How many entries exist is the app's to choose - it writes the files. The
+      // walk hands each page over and keeps none of it, so a folder of any size
+      // costs this process the same.
+      serve((p) => (p <= 3 ? pageOf(PAGE) : pageOf(1)));
+
+      const batchSizes = [];
+      await syncthingService.eachDbLocalChanged('fluxapp_x', (batch) => { batchSizes.push(batch.length); });
+
+      expect(batchSizes).to.deep.equal([PAGE, PAGE, PAGE, 1]);
+    });
+
+    it('stops at the page bound and says the total is a floor', async () => {
+      // Every one of these requests is paid again on the next monitor pass, so a
+      // folder large enough would make the pass itself the expense. The bound is
+      // ours rather than the app's, and what was counted is reported as partial.
+      serve(() => pageOf(PAGE));
+
+      const { seen, outcome } = await collect();
+
+      expect(outcome.truncated).to.equal(true);
+      expect(outcome.pages).to.equal(MAX_PAGES);
+      expect(seen).to.equal(PAGE * MAX_PAGES);
+      expect(pagesServed).to.have.length(MAX_PAGES);
+    });
+
+    it('sends the page size it counts against rather than inheriting a default', async () => {
+      // The walk ends on a page shorter than the size it asked for, so the size has
+      // to be the one sent - a default left to syncthing is not a contract, and a
+      // larger one there would make every full page read as short.
+      serve((p) => (p === 1 ? pageOf(1) : null));
+
+      await collect();
+
+      expect(pathsRequested).to.have.length(1);
+      const query = new URLSearchParams(pathsRequested[0].split('?')[1]);
+      expect(query.get('folder')).to.equal('fluxapp_x');
+      expect(query.get('page')).to.equal('1');
+      expect(query.get('perpage')).to.equal(String(PAGE));
+    });
+  });
+
   describe('getDeviceId tests', () => {
     let fakePerformRequest;
     let fakeMeta;
@@ -216,6 +282,7 @@ describe('syncthingService tests', () => {
 
     afterEach(async () => {
       syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
       await syncthingService.syncthingController().abort();
       sinon.restore();
     });
@@ -258,124 +325,294 @@ describe('syncthingService tests', () => {
     });
   });
 
-  describe('getEvents tests', () => {
-    let fakeGet;
+  describe('syncthing health robustness', () => {
+    const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;
+    let fakeMeta;
+
+    const wireSyncthing = (metaStub) => {
+      const get = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') return metaStub();
+        if (reqPath === '/rest/noauth/health') return { status: 'success', data: { status: 'OK' } };
+        if (reqPath === '/rest/system/ping') return { status: 'success', data: { ping: 'pong' } };
+        return {};
+      });
+      sinon.stub(axios, 'create').returns({ get });
+    };
 
     beforeEach(() => {
-      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      // Start from a clean axios instance and id cache so this block's stub is
+      // the one used, not an instance a prior test left warm in the cache.
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
+      // getConfigFile runs chown/chmod via runCommand to read the api key; stub it
+      // so no real sudo fires and the key is read from the fixture below.
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
       sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
-      fakeGet = sinon.stub().resolves({ data: [] });
-      sinon.stub(axios, 'create').returns({ get: fakeGet });
+      fakeMeta = sinon.stub().resolves({ status: 'success', data: metaBody });
+      wireSyncthing(fakeMeta);
     });
 
     afterEach(() => {
       syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
       sinon.restore();
     });
 
-    it('long-poll request: the client-side timeout must exceed the requested server-side hold', async () => {
-      // the events endpoint holds the request open up to `timeout` seconds when
-      // nothing is pending; the shared instance's 5s default aborts every quiet
-      // poll before syncthing can answer
-      await syncthingService.getEvents({ since: 5, events: 'FolderSummary', timeout: 55 });
+    it('caches the device id - a second read does not re-probe syncthing', async () => {
+      const first = await syncthingService.getDeviceId();
+      const second = await syncthingService.getDeviceId();
 
-      sinon.assert.calledOnce(fakeGet);
-      const config = fakeGet.firstCall.args[1];
-      expect(config, 'axios per-request config').to.be.an('object');
-      expect(config.timeout, 'client timeout (ms)').to.be.greaterThan(55 * 1000);
+      expect(first).to.equal(deviceId);
+      expect(second).to.equal(deviceId);
+      expect(fakeMeta.callCount).to.equal(1);
     });
 
-    it('plain request (no hold asked): keeps the instance default timeout', async () => {
-      await syncthingService.getEvents({ since: 5 });
+    it('getDeviceId does not touch the health flag - peer reads cannot move it', async () => {
+      syncthingService.setSyncthingRunningState(false);
 
-      sinon.assert.calledOnce(fakeGet);
-      const config = fakeGet.firstCall.args[1];
-      expect(config?.timeout).to.equal(undefined);
+      const id = await syncthingService.getDeviceId();
+
+      expect(id).to.equal(deviceId);
+      expect(syncthingService.isRunning()).to.equal(false);
     });
 
-    // The endpoint above it, which is where the privilege lives. The bare
-    // function takes no request and checks nobody; a test that hands it one is
-    // testing neither half.
-    it('the endpoint refuses a caller it does not admit, and reads nothing', async () => {
-      const res = asAuthorised();
-      verificationHelper.verifyPrivilege.resolves(false);
+    // Who owns the daemon is two facts, not one, and reading either environment
+    // variable alone gets a real case wrong. A legacy node pointed at a syncthing
+    // on another host is the case that has no equivalent in production and is
+    // exactly what the harness boots: FluxOS treating it as its own spawned a
+    // second, unconfigured daemon beside the stub, which then went looking for
+    // discovery servers, relays and STUN.
+    describe('who owns the syncthing daemon', () => {
+      const cases = [
+        ['legacy node, syncthing on this host', '127.0.0.1', false, true],
+        ['the same by name', 'localhost', false, true],
+        ['the same over v6', '::1', false, true],
+        ['Arcane ships and supervises it, so FluxOS stands back', '127.0.0.1', true, false],
+        ['syncthing on another host cannot be stopped or reinstalled from here', '198.18.0.9', false, false],
+        ['and neither can it on Arcane', '198.18.0.9', true, false],
+      ];
 
-      await syncthingService.getEventsApi({ params: {}, query: {}, headers: {} }, res);
-
-      sinon.assert.notCalled(fakeGet);
-      expect(res.json.firstCall.args[0].status).to.equal('error');
-    });
-
-    it('the endpoint passes the caller\'s filters through to the request', async () => {
-      const res = asAuthorised();
-
-      await syncthingService.getEventsApi({ params: {}, query: { since: 5, limit: 2 }, headers: {} }, res);
-
-      sinon.assert.calledOnce(fakeGet);
-      const url = fakeGet.firstCall.args[0];
-      expect(url, 'the filters the caller asked for did not reach syncthing').to.contain('since=5');
-      expect(url).to.contain('limit=2');
-      expect(res.json.firstCall.args[0].status).to.equal('success');
-    });
-  });
-
-  // This endpoint had no test at all: both branches end in res.json, and until
-  // now nothing had ever called it the way the router does. Its sibling in
-  // syncthingEventsConsumer takes a folder id and is a different function; the
-  // name collision is why the gap read as covered.
-  describe('getFolderErrors tests', () => {
-    let fakeGet;
-    let errorSpy;
-
-    beforeEach(() => {
-      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
-      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
-      fakeGet = sinon.stub().resolves({ data: [{ error: 'folder marker missing' }] });
-      sinon.stub(axios, 'create').returns({ get: fakeGet });
-      errorSpy = sinon.spy(log, 'error');
-    });
-
-    afterEach(() => {
-      syncthingService.getAxiosCache().reset();
-      sinon.restore();
-    });
-
-    it('answers the folder syncthing was asked about, through the response', async () => {
-      const res = { json: sinon.stub() };
-
-      await syncthingService.getFolderErrors({ params: { folder: 'fluxcomp_app' }, query: {} }, res);
-
-      sinon.assert.calledOnceWithExactly(fakeGet, '/rest/folder/errors?folder=fluxcomp_app', undefined);
-      sinon.assert.calledOnceWithExactly(res.json, {
-        status: 'success',
-        data: [{ error: 'folder marker missing' }],
+      cases.forEach(([name, ip, arcane, expected]) => {
+        it(name, () => {
+          expect(syncthingService.supervisesSyncthing(ip, arcane)).to.equal(expected);
+        });
       });
     });
 
-    it('reads the folder from the query when the path does not carry it', async () => {
-      const res = { json: sinon.stub() };
+    it('keeps health up through a blip: the last success is still fresh', async () => {
+      syncthingService.resetDeviceIdCache();
+      fakeMeta.throws(new Error('syncthing busy'));
 
-      await syncthingService.getFolderErrors({ params: {}, query: { folder: 'fluxcomp_other' } }, res);
+      await syncthingService.refreshSyncthingHealth();
+      await syncthingService.refreshSyncthingHealth();
+      await syncthingService.refreshSyncthingHealth();
 
-      sinon.assert.calledOnceWithExactly(fakeGet, '/rest/folder/errors?folder=fluxcomp_other', undefined);
-      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(
+        syncthingService.isRunning(),
+        'a run of failed probes inside the window flipped the node, which is what fails a benchmark over nothing',
+      ).to.equal(true);
     });
 
-    it('answers the error through the response, and reads nothing, when no folder is named', async () => {
-      const res = { json: sinon.stub() };
+    // The point of deriving health rather than storing it: NOTHING has to write
+    // a failure. Every way the sentinel can fail to land a probe - a throw out
+    // of the repair path, a sentinel that never starts because the binary is
+    // missing, the loop dying outright - arrives here as the same thing. No
+    // probe has succeeded lately, so the node is not running syncthing.
+    it('reports not running once no probe has succeeded inside the window, with nothing having written a failure', () => {
+      syncthingService.resetDeviceIdCache();
+      expect(syncthingService.isRunning(), 'fixture: healthy to begin with').to.equal(true);
 
-      await syncthingService.getFolderErrors({ params: {}, query: {} }, res);
+      // Not one call into the service: this is the sentinel simply never coming
+      // back, which is the case a stored flag reports as healthy forever.
+      const restore = advanceMonotonic(5 * 60 * 1000 + 1);
 
-      sinon.assert.notCalled(fakeGet);
-      sinon.assert.calledOnceWithExactly(res.json, {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'folder parameter is mandatory',
-        },
+      try {
+        expect(
+          syncthingService.isRunning(),
+          'the sentinel stopped landing probes and the node still claimed syncthing was fine',
+        ).to.equal(false);
+      } finally {
+        restore();
+      }
+    });
+
+    // The window is elapsed time, so it is measured on the monotonic clock. A
+    // node boots, ntp steps the wall clock, and a window measured on Date.now()
+    // expires on the spot or never - and boot is precisely when this window is
+    // load-bearing, because it is the one covering the first probe.
+    it('an ntp step does not move health, forwards or backwards', () => {
+      syncthingService.resetDeviceIdCache();
+
+      const realNow = Date.now;
+      Date.now = () => realNow() + 60 * 60 * 1000;
+      try {
+        expect(syncthingService.isRunning(), 'the wall clock jumped an hour forward and expired the window').to.equal(true);
+      } finally {
+        Date.now = realNow;
+      }
+
+      syncthingService.setSyncthingRunningState(false);
+      Date.now = () => realNow() - 60 * 60 * 1000;
+      try {
+        expect(syncthingService.isRunning(), 'the wall clock jumped an hour back and made a stale reading fresh').to.equal(false);
+      } finally {
+        Date.now = realNow;
+      }
+    });
+
+    // Three states, not two. Until the sentinel starts there is no reading to be
+    // stale, and either default is a lie: healthy invents a probe that never
+    // ran, unhealthy blames syncthing for a check this node has not made.
+    describe('before anything has measured syncthing', () => {
+      beforeEach(() => {
+        syncthingService.setSyncthingUnmeasured();
       });
-      sinon.assert.calledOnce(errorSpy);
+
+      it('says so, rather than guessing in either direction', () => {
+        expect(syncthingService.healthState()).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+      });
+
+      it('is not "running" - nothing should scrape a daemon no probe has reached', () => {
+        expect(syncthingService.isRunning()).to.equal(false);
+      });
+
+      // The boot defect this exists for: the sentinel starts behind whatever
+      // else startFluxFunctions is waiting on, and a node that stamped itself
+      // healthy at module load went stale before the first probe ever ran -
+      // then told fluxbench its syncthing was broken.
+      it('stays unmeasured however long the sentinel takes to start', () => {
+        const restore = advanceMonotonic(60 * 60 * 1000);
+
+        try {
+          expect(syncthingService.healthState()).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+        } finally {
+          restore();
+        }
+      });
+    });
+
+    // The other half: unmeasured must not become a place to hide. Once the
+    // sentinel has taken the question on, silence is a fault - and the sentinel
+    // stamps itself before the binary wait, which is where a legacy node with
+    // no syncthing executable sits for ever.
+    describe('once the sentinel has taken responsibility', () => {
+      it('holds unmeasured for one window while the first probe lands', () => {
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+
+        expect(syncthingService.healthState()).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+      });
+
+      // The node that has never worked is the more serious of the two, and it is
+      // the one the old boolean could not say anything about: it reached
+      // UNHEALTHY from UNMEASURED rather than from OK, so a check written as
+      // "was healthy, is not now" stayed silent through the whole outage.
+      it('says so in the log when it gives up on a syncthing that never answered', async () => {
+        const errorSpy = sinon.spy(log, 'error');
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+        fakeMeta.throws(new Error('syncthing has never come up'));
+
+        await syncthingService.refreshSyncthingHealth();
+        sinon.assert.neverCalledWithMatch(errorSpy, /marking syncthing not running/);
+
+        const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+        try {
+          await syncthingService.refreshSyncthingHealth();
+        } finally {
+          restore();
+        }
+
+        sinon.assert.calledWithMatch(errorSpy, /marking syncthing not running/);
+      });
+
+      // A log that says a node went down and never says it came back reads as a
+      // node still down. Only from unhealthy: a first probe landing after boot
+      // is the node starting up, not a recovery.
+      it('says so in the log when syncthing comes back', async () => {
+        const infoSpy = sinon.spy(log, 'info');
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+        fakeMeta.throws(new Error('syncthing is down'));
+
+        const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+        try {
+          await syncthingService.refreshSyncthingHealth();
+        } finally {
+          restore();
+        }
+        sinon.assert.neverCalledWithMatch(infoSpy, /marking syncthing running/);
+
+        fakeMeta.resetBehavior();
+        fakeMeta.resolves({
+          status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
+        });
+
+        await syncthingService.refreshSyncthingHealth();
+
+        sinon.assert.calledWithMatch(infoSpy, /marking syncthing running/);
+      });
+
+      it('says nothing when the first probe of the node\'s life lands', async () => {
+        const infoSpy = sinon.spy(log, 'info');
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+
+        await syncthingService.refreshSyncthingHealth();
+
+        sinon.assert.neverCalledWithMatch(infoSpy, /marking syncthing running/);
+      });
+
+      it('reports unhealthy once that window passes with no probe having succeeded', () => {
+        syncthingService.setSyncthingUnmeasured();
+        syncthingService.noteMeasurementStarted();
+
+        const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+        try {
+          expect(
+            syncthingService.healthState(),
+            'a node whose syncthing binary is missing never leaves the wait, and unmeasured would hide it for ever',
+          ).to.equal(syncthingService.SYNCTHING_HEALTH.UNHEALTHY);
+        } finally {
+          restore();
+        }
+      });
+    });
+
+    it('a single success restores health', async () => {
+      syncthingService.setSyncthingRunningState(false);
+      expect(syncthingService.isRunning()).to.equal(false);
+
+      fakeMeta.resolves({ status: 'success', data: metaBody });
+      await syncthingService.refreshSyncthingHealth();
+
+      expect(syncthingService.isRunning()).to.equal(true);
+    });
+
+    // probeSyncthing promises {ok, deviceId}. It used to parse the meta body
+    // outside its own try, so a body that answered but did not parse threw at
+    // the caller instead - and a throw out of refreshSyncthingHealth is one more
+    // way for a pass to record nothing.
+    it('a meta body that does not parse is a failed probe, not a throw', async () => {
+      syncthingService.resetDeviceIdCache();
+      fakeMeta.resolves({ status: 'success', data: 'not json at all' });
+
+      const result = await syncthingService.refreshSyncthingHealth();
+
+      expect(result, 'the probe reported success on a body it could not read').to.equal(false);
+    });
+
+    it('stopSyncthing drops the cached id, so the next read re-probes', async () => {
+      await syncthingService.getDeviceId();
+      expect(fakeMeta.callCount).to.equal(1);
+
+      await syncthingService.stopSyncthing();
+      await syncthingService.getDeviceId();
+
+      expect(fakeMeta.callCount).to.equal(2);
     });
   });
 
@@ -649,6 +886,64 @@ describe('syncthingService tests', () => {
       sinon.restore();
     });
 
+    // The declaration has to be made BY the sentinel, or unmeasured becomes a
+    // place a broken node hides: nothing else stamps it, so a sentinel that
+    // stopped calling this would leave health permanently without a verdict.
+    it('declares that it is now measuring syncthing, before anything can block', async () => {
+      syncthingService.setSyncthingUnmeasured();
+      expect(
+        syncthingService.healthState(),
+        'fixture: no measurement yet',
+      ).to.equal(syncthingService.SYNCTHING_HEALTH.UNMEASURED);
+
+      // Deliberately not awaited: the declaration is the first statement, so it
+      // has already happened by the time this call yields. That is the property
+      // - a legacy node with no syncthing binary never leaves the wait below it,
+      // and a stamp placed after that wait would never be reached on the one
+      // node whose syncthing is actually broken.
+      const started = syncthingService.startSyncthingSentinel();
+
+      const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+      try {
+        expect(
+          syncthingService.healthState(),
+          'the sentinel never took the question on, so silence could never become a fault',
+        ).to.equal(syncthingService.SYNCTHING_HEALTH.UNHEALTHY);
+      } finally {
+        restore();
+        await syncthingService.stopSyncthingSentinel();
+        await started.catch(() => {});
+      }
+    });
+
+    // Boot asks more than once: startFluxFunctions retries itself every 15s
+    // after a throw. A second declaration would restart the window each time,
+    // so a node whose syncthing never answered would sit in unmeasured - which
+    // refuses nobody - for as long as boot kept failing.
+    it('takes the question on once, so a retrying boot cannot restart the window', async function () {
+      // The first start runs a full sentinel pass, whose repair path sleeps.
+      this.timeout(30000);
+      syncthingService.setSyncthingUnmeasured();
+
+      const started = syncthingService.startSyncthingSentinel();
+
+      const restore = advanceMonotonic(5 * 60 * 1000 + 1);
+      try {
+        const retried = syncthingService.startSyncthingSentinel();
+
+        expect(
+          syncthingService.healthState(),
+          'boot asked again and the window started over, so silence never became a fault',
+        ).to.equal(syncthingService.SYNCTHING_HEALTH.UNHEALTHY);
+
+        await retried.catch(() => {});
+      } finally {
+        restore();
+        await syncthingService.stopSyncthingSentinel();
+        await started.catch(() => {});
+      }
+    });
+
     it('never asks syncthing whether a restart is required', async () => {
       // requiresRestart is a one-way latch FluxOS cannot set: it is written only
       // for auditEnabled/auditFile, which FluxOS never touches. So a true here is
@@ -775,7 +1070,7 @@ describe('syncthingService tests', () => {
     it('should spawn a new syncthing process if there is a problem with the service', async () => {
       const clock = sinon.useFakeTimers();
 
-      const expected = 'sudo nohup syncthing --logfile /home/testuser/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home /home/testuser/.config/syncthing >/dev/null 2>&1 </dev/null &';
+      const expected = "sudo nohup syncthing --logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
       // const expectedParams = [
       //   'syncthing',
       //   '--logfile',
@@ -811,6 +1106,52 @@ describe('syncthingService tests', () => {
 
       sinon.assert.calledWithExactly(spawnStub, expected, expectedOptions);
       // sinon.assert.calledOnce(unrefStub);
+
+      expect(
+        chownedPaths(runCmdStub),
+        'the user has to own ~/.config to create the syncthing dir inside it',
+      ).to.include('/home/testuser/.config');
+    });
+
+    // SYNCTHING_PATH relocates syncthing's home, and every step of the repair
+    // path has to agree with the config read about where that is. They did not:
+    // the read honoured the variable while mkdir and the spawn built
+    // ~/.config/syncthing directly, so an operator who set it had FluxOS start a
+    // daemon in one directory and take the api key out of another install's
+    // config.xml. Every authenticated call to its own syncthing then fails, and
+    // the repair path cannot fix it because repairing means spawning into the
+    // same wrong directory again.
+    it('creates, spawns into and reads one directory when syncthing is relocated', async () => {
+      const relocated = '/dat/usr/lib/syncthing';
+      process.env.SYNCTHING_PATH = relocated;
+      const clock = sinon.useFakeTimers();
+
+      fakeMeta.rejects(Error('Fake Meta Error'));
+      runCmdStub.callsFake(async (cmd) => {
+        if (cmd === 'pgrep') return { stdout: '' };
+        if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+        return { error: null };
+      });
+
+      try {
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', relocated] });
+        sinon.assert.calledWithMatch(spawnStub, `--home '${relocated}' `);
+        sinon.assert.calledWithMatch(fs.readFile, `${relocated}/config.xml`);
+
+        const chowned = chownedPaths(runCmdStub);
+        expect(chowned, 'the relocated dir is the one the user has to own').to.include(relocated);
+        expect(
+          chowned,
+          'nothing is created in ~/.config now, and following the path to its parent would chown whatever the operator named',
+        ).to.not.include('/home/testuser/.config');
+      } finally {
+        delete process.env.SYNCTHING_PATH;
+        clock.restore();
+      }
     });
   });
 

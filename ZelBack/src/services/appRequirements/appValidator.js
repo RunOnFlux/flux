@@ -9,7 +9,9 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const signatureVerifier = require('../signatureVerifier');
+const fluxStorage = require('../utils/fluxStorage');
 const imageManager = require('../appSecurity/imageManager');
+const globalState = require('../utils/globalState');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 // eslint-disable-next-line no-unused-vars
 const {
@@ -542,12 +544,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   if (version >= 8) {
     if (datacenter !== undefined && typeof datacenter !== 'boolean') {
       throw new Error('Invalid datacenter value obtained. Only undefined, true, or false allowed.');
-    }
-    // datacenter=true is only allowed for enterprise app owners
-    if (datacenter === true) {
-      if (!enterpriseConfig.getEnterpriseAppOwners().includes(owner)) {
-        throw new Error('Datacenter requirement is only available for enterprise app owners.');
-      }
     }
   }
 
@@ -1215,6 +1211,37 @@ function checkComposeHWParameters(appSpecsComposed) {
 }
 
 /**
+ * Refuses a storage link that does not address Flux storage.
+ *
+ * Held to live submissions. The links already on chain were accepted under no
+ * rule at all, and a node replaying them has to reach the same verdict as every
+ * other node or the fleet builds different app lists from the same chain. What
+ * a node will actually fetch is decided at the fetch instead, where it binds to
+ * every app whatever height it was registered at.
+ *
+ * This reads the parameters the specification carries in the clear, which is
+ * all a validating node has: a v7 app's `secrets` are encrypted to the nodes
+ * that will run it, so a link inside one is not readable here and is refused
+ * at the fetch on each of those nodes instead. The fetch is what decides; this
+ * is what lets an owner be told at submission for the links it can see.
+ * @param {object} appSpecifications - Application specifications to validate.
+ * @throws {Error} If a storage link addresses anything else.
+ */
+function verifyStorageLinksOfApp(appSpecifications) {
+  const components = appSpecifications.version <= 3 ? [appSpecifications] : appSpecifications.compose;
+  components.forEach((component) => {
+    const parameters = (component.environmentParameters || component.enviromentParameters || [])
+      .concat(component.commands || []);
+    parameters.forEach((parameter) => {
+      const link = fluxStorage.storageLinkOf(parameter);
+      if (link !== null && !fluxStorage.isFluxStorageUrl(link)) {
+        throw new Error(`Storage link for Flux App ${component.name || appSpecifications.name} must address Flux storage over https`);
+      }
+    });
+  });
+}
+
+/**
  * Main validation function for application specifications
  * Validates specs including hardware requirements, architecture compatibility, and Docker compliance
  * @param {object} appSpecifications - Application specifications to validate
@@ -1246,6 +1273,101 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
     throw new Error('Invalid Flux App owner. Must be a Flux ID or an Ethereum address');
   }
 
+  // NODE PINNING ELIGIBILITY
+  // What this app was last registered as, read at most once however many privileges ask.
+  // From the permanent history rather than the live spec, because an app that has already
+  // expired still has to be renewable. A lookup that fails reads as no previous spec: these
+  // grant privileges, so they fail closed.
+  //
+  // ONLY THIS OWNER'S OWN HISTORY GRANTS ANYTHING. The lookup is by name, the permanent
+  // message log keeps a spec after its app has gone, and a name is released once the app
+  // expires - so without the owner test, registering the name of an expired enterprise app
+  // inherits what that app held. The test lives here rather than in each privilege so that
+  // a third one cannot be added without it.
+  let previousSpec = null;
+  let previousLookedUp = false;
+  const previousSpecOfSameOwner = async () => {
+    if (!previousLookedUp) {
+      previousLookedUp = true;
+      const found = await registryManager
+        .getPreviousAppSpecifications(appSpecifications, Date.now())
+        .catch(() => null);
+      previousSpec = found
+        && signatureVerifier.sameSigningIdentity(found.owner, appSpecifications.owner)
+        ? found : null;
+    }
+    return previousSpec;
+  };
+
+  // Pinning a v8+ spec to named nodes is an enterprise-owner privilege. The frontend has
+  // always gated its node picker this way; nothing enforced it, so a spec posted straight
+  // to the API pinned regardless and the restriction was decoration.
+  //
+  // Live submissions only, for the same reason as the owner check above: a rule applied to
+  // replay would have upgraded nodes rejecting messages already on chain that their peers
+  // accept, which is a disagreement about the past rather than a rule about the present.
+  // That is also what makes a fork height unnecessary here.
+  //
+  // v7 is untouched. There, nodes[] is what MAKES a spec enterprise -- it carries the
+  // per-node encrypted secrets -- so the same rule would invalidate every v7 enterprise
+  // app on the network.
+  if (liveSubmission && appSpecifications.version >= 8 && appSpecifications.nodes.length) {
+    // HOLDING THE LIST AND BEING ALLOWED TO ACT ON IT ARE DIFFERENT, and this reads both.
+    // A bundle restored from disk answers this question without anything having established
+    // that it is still the network's, so an owner the network has since granted reads here
+    // as ineligible and a live submission is refused for the wrong reason. Unconfirmed is
+    // folded into the null the rest of this module already means by it: not known yet.
+    const enterpriseOwners = globalState.policyReady
+      ? enterpriseConfig.getEnterpriseAppOwners()
+      : null;
+    // A node that has not obtained the policy refuses rather than waving through a
+    // privilege it cannot verify.
+    if (enterpriseOwners === null) {
+      throw new Error('Cannot verify node pinning eligibility: network policy not yet obtained.');
+    }
+    if (!signatureVerifier.includesSigningIdentity(enterpriseOwners, appSpecifications.owner)) {
+      // An ineligible owner may carry an EXISTING pin forward, but not acquire a new one
+      // or redirect the one they have. The frontend grandfathers the same way
+      // (`if (!newApp && appHasExistingNodes) return true`), and without it an app pinned
+      // before this rule existed becomes unupdatable -- renewal is an update, so the app
+      // would expire with the owner given no way to keep it other than guessing that
+      // emptying nodes[] is the escape.
+      const previous = await previousSpecOfSameOwner();
+      const previousNodes = (previous && previous.nodes) || [];
+      const carriedForward = previousNodes.length === appSpecifications.nodes.length
+        && [...previousNodes].sort().join('\u0000') === [...appSpecifications.nodes].sort().join('\u0000');
+      if (!carriedForward) {
+        throw new Error('Pinning an application to specific nodes is only available for enterprise app owners.');
+      }
+    }
+  }
+
+  // datacenter=true is the same kind of privilege as the pin above, held to the same rules.
+  // Granting one that cannot be checked is the worse of the two mistakes, so a node without
+  // the policy refuses; the refusal is transient and app sync re-offers the message.
+  if (liveSubmission && appSpecifications.version >= 8 && appSpecifications.datacenter === true) {
+    // Read on the same terms as the pin above: a held bundle is not a confirmed one.
+    const enterpriseOwners = globalState.policyReady
+      ? enterpriseConfig.getEnterpriseAppOwners()
+      : null;
+    if (enterpriseOwners === null) {
+      throw new Error('Cannot verify datacenter eligibility: network policy not yet obtained.');
+    }
+    if (!signatureVerifier.includesSigningIdentity(enterpriseOwners, appSpecifications.owner)) {
+      // Carried forward, not acquired: renewal is an update, so refusing every update to an
+      // ineligible owner expires the app rather than restricting it.
+      const previous = await previousSpecOfSameOwner();
+      if (!previous || previous.datacenter !== true) {
+        throw new Error('Datacenter requirement is only available for enterprise app owners.');
+      }
+    }
+  }
+
+  // STORAGE LINKS
+  if (liveSubmission) {
+    verifyStorageLinksOfApp(appSpecifications);
+  }
+
   // RESTRICTION CHECKS
   verifyRestrictionCorrectnessOfApp(appSpecifications, height);
 
@@ -1270,6 +1392,19 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
 
   // Whitelist, repository checks
   if (liveSubmission) {
+    // POLICY IS A PRECONDITION OF ANSWERING AT ALL, asked here rather than discovered
+    // below. The blocked-repository list is part of the signed bundle, so without one this
+    // node cannot establish that an image is not banned - and the checks after it read the
+    // same bundle for enterprise ownership. A node in that state is not refusing this app;
+    // it is not yet in a position to judge any app, which is a fact about the node and is
+    // what the caller needs told so it can retry or ask a node that is ready.
+    //
+    // The same bar the spawner holds acquisition to (appSpawner.js), so a node is inert for
+    // apps in both directions on one condition rather than two that can disagree.
+    if (!globalState.policyReady) {
+      throw new Error('Cannot verify application images: network policy not yet obtained.');
+    }
+
     // check blacklist
     await imageManager.checkApplicationImagesCompliance(appSpecifications);
 

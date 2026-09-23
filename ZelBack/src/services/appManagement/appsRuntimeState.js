@@ -457,6 +457,51 @@ async function recordExit(identifier, exitCode) {
 }
 
 /**
+ * What survives a component being taken down without its volume.
+ *
+ * Named as what is KEPT rather than what is cleared, so a controller field
+ * added later is dropped by a soft removal without anyone remembering to name
+ * it here. Everything in this list is the node's account of its own storage,
+ * which the removal is not touching.
+ */
+const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid'];
+
+/**
+ * Drops the controller state for a component whose volume stays where it is.
+ *
+ * A soft removal leaves the image on disk and the volume mounted, so the
+ * record of which image that is describes something that still exists. Losing
+ * it sends the next boot back to searching the disks by filename, and stamps
+ * whatever that search turns up as this node's own.
+ *
+ * THROWS rather than reporting a clear it did not make.
+ *
+ * @param {string} identifier
+ * @throws When the state cannot be read or replaced.
+ */
+async function removeControllerState(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const database = collection();
+  // Read without the swallow: a document that could not be READ is not a
+  // document that is absent, and the difference is the operator stop lock.
+  // Answering "nothing here" for a database that would not speak leaves the
+  // lock in place and reports the redeploy done, so the component the operator
+  // asked to run stays down and nothing says why.
+  const state = await dbHelper.findOneInDatabase(
+    database,
+    appsRuntimeState,
+    { identifier },
+    { projection: { _id: 0 } },
+  );
+  if (!state) return;
+  const kept = { identifier, updatedAt: Date.now() };
+  SURVIVES_SOFT_REMOVAL.forEach((field) => {
+    if (state[field] !== undefined) kept[field] = state[field];
+  });
+  await dbHelper.replaceOneInDatabase(database, appsRuntimeState, { identifier }, kept);
+}
+
+/**
  * Drops all runtime state for a component (on uninstall).
  *
  * @param {string} identifier
@@ -469,6 +514,50 @@ async function remove(rawIdentifier) {
   } catch (err) {
     log.error(`appsRuntimeState - failed to remove state for ${identifier}: ${err.message}`);
   }
+}
+
+/**
+ * Records where this node put a component's volume image and the filesystem
+ * UUID it stamped that image with.
+ *
+ * The node chooses the path and the UUID, so this is the node's own account of
+ * its storage: what it made, and where. It belongs beside the other facts this
+ * node observed about the component rather than on the installed-apps row,
+ * which is the owner's signed specification.
+ *
+ * @param {string} identifier Component identifier or docker app id.
+ * @param {string} volumeImagePath Absolute path of the image.
+ * @param {string|null} volumeFsUuid Filesystem UUID inside the image.
+ */
+async function setVolumeImage(identifier, volumeImagePath, volumeFsUuid) {
+  await setFields(identifier, { volumeImagePath, volumeFsUuid: volumeFsUuid || null });
+}
+
+/**
+ * The volume image this node recorded for a component, or null when it has
+ * none - every component installed before the record existed.
+ *
+ * THROWS when the record cannot be read. Null is "this node recorded no
+ * image", and a caller acts on that by searching the disks and trusting what
+ * it finds; a database that would not answer has not established that, and
+ * answering null for it hands an unverified image the standing of a recorded
+ * one. This does not go through getState for that reason.
+ *
+ * @param {string} rawIdentifier Component identifier or docker app id.
+ * @returns {Promise<{path: string, fsUuid: string|null}|null>}
+ * @throws When the state cannot be read.
+ */
+async function getVolumeImage(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const database = collection();
+  const state = await dbHelper.findOneInDatabase(
+    database,
+    appsRuntimeState,
+    { identifier },
+    { projection: { _id: 0 } },
+  );
+  if (!state || !state.volumeImagePath) return null;
+  return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null };
 }
 
 /**
@@ -496,7 +585,24 @@ async function prepareCollection() {
     // eslint-disable-next-line no-restricted-syntax
     for (const [identifier, twins] of byIdentifier) {
       if (twins.length > 1) {
+        // Oldest first, so every field any twin carries survives and the newest
+        // value of each wins. Fields scatter across twins - that is the whole
+        // reason this merge exists - so taking them from one document would
+        // drop exactly what the scatter put on the other, and a field added to
+        // this document later would be lost without ever being named here.
+        // What follows overrides the ones whose correct value is not simply
+        // "whichever was written last".
+        const oldestFirst = [...twins].sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+        // The image record is one claim - that the file at this path carries
+        // this UUID - so it moves as a pair. Merged field-wise it could take
+        // the path from one twin and the stamp from another, and a record
+        // saying an image carries a UUID it never carried refuses that volume
+        // for good: the refusal returns before the line that would replace it.
+        const withImage = oldestFirst.filter((t) => t.volumeImagePath);
+        const image = withImage.length ? withImage[withImage.length - 1] : null;
         const merged = {
+          ...Object.assign({}, ...oldestFirst),
+          ...(image ? { volumeImagePath: image.volumeImagePath, volumeFsUuid: image.volumeFsUuid || null } : {}),
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
@@ -515,6 +621,9 @@ async function prepareCollection() {
           autoRestartWindow: [...new Set(twins.flatMap((t) => t.autoRestartWindow || []))].sort((a, b) => a - b).slice(-RESTART_BURST_COUNT),
           updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
         };
+        // the read projects _id away, but a spread of whatever the documents
+        // carry must not be the thing that reintroduces it into a $set
+        delete merged._id;
         const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
         if (newestExit) {
           merged.lastExitCode = newestExit.lastExitCode;
@@ -550,6 +659,9 @@ module.exports = {
   networkHealWaitMs,
   clearNetworkHeal,
   recordExit,
+  setVolumeImage,
+  getVolumeImage,
+  removeControllerState,
   remove,
   BACKOFF_DELAYS_MS,
   STABLE_RUN_MS,

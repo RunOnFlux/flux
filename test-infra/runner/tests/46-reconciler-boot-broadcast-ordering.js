@@ -12,10 +12,14 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //      empty snapshot, which wiped every row network-wide);
 //  (b) NO empty v2 fluxapprunning is ever emitted - including by a node with
 //      nothing installed (the wiped-node shape the bypass existed for);
-//  (c) the first broadcast after boot is COMPLETE: it contains the app, i.e. it
-//      waited for the reconciler's boot drain instead of racing the boot starts.
-// (d - light) the started component reaches the peer as a fresh broadcast
-//      shortly after boot, well inside the sigterm TTL window.
+//  (c) the first broadcast after boot is COMPLETE: it contains the app. The
+//      snapshot is the set of apps INSTALLED on the node, so a container the
+//      reconciler has not started yet cannot leave the app out of it - what
+//      this proves is that a rebooting node reclaims everything it holds, in
+//      one message, rather than announcing a subset and letting the remainder
+//      expire on the sigterm TTL.
+// (d - light) the app reaches the peer as a fresh broadcast shortly after boot,
+//      well inside the sigterm TTL window.
 
 describe('first post-boot broadcast: complete, never empty, never destructive', function () {
   let env;
@@ -55,8 +59,8 @@ describe('first post-boot broadcast: complete, never empty, never destructive', 
     const client = env.clients[idx];
 
     // (c)+(d): the first apprunning that mentions our node's app set after the
-    // reboot must CONTAIN the app - a complete post-drain snapshot, arriving
-    // well inside the TTL window
+    // reboot must CONTAIN the app - a complete snapshot of what the node holds,
+    // arriving well inside the TTL window
     await peerClient.waitForEvent(
       'network:apprunning',
       (d) => d.apps?.some((a) => a.name === appName),

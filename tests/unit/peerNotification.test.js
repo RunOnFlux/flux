@@ -12,7 +12,13 @@ describe('peerNotification tests', () => {
   let broadcastMessageToAllStub;
   let nodeSignerStub;
   let installedAppsStub;
-  let listRunningAppsStub;
+  // A fresh copy of globalState per test, handed to the module under test as
+  // its own stub, so a mark set here and the one the module resolves are the
+  // same object.
+  let departingApps;
+  let testInstallingApps;
+  let announceCycle;
+  let findOneInDatabaseStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -32,7 +38,7 @@ describe('peerNotification tests', () => {
     },
     '../dbHelper': {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
-      findOneInDatabase: sinon.stub().resolves(null),
+      findOneInDatabase: findOneInDatabaseStub,
       findInDatabase: sinon.stub().resolves([]),
       updateOneInDatabase: sinon.stub().resolves(),
     },
@@ -82,8 +88,7 @@ describe('peerNotification tests', () => {
       waitForBootDrainSettled: waitForBootDrainSettledStub,
     },
     '../appQuery/appQueryService': {
-      installedApps: installedAppsStub,
-      listRunningApps: opts.listRunningApps ?? listRunningAppsStub,
+      installedApps: opts.installedApps ?? installedAppsStub,
       decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
     },
     '../appTamperingDetectionService': {
@@ -101,6 +106,12 @@ describe('peerNotification tests', () => {
       canSendMessages: sinon.stub().returns(true),
       onMessageCapabilityChange: sinon.stub(),
     },
+    '../utils/globalState': {
+      departingApps,
+      testInstallingApps,
+      announceCycle,
+      runningAppsCache: new Set(),
+    },
     '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
     '../../lib/log': logStub,
   });
@@ -112,6 +123,7 @@ describe('peerNotification tests', () => {
       warn: sinon.stub(),
     };
 
+    findOneInDatabaseStub = sinon.stub().resolves(null);
     enqueueAllStub = sinon.stub().resolves();
     waitForBootDrainSettledStub = sinon.stub().resolves();
     storeAppRunningMessageStub = sinon.stub().resolves();
@@ -122,10 +134,14 @@ describe('peerNotification tests', () => {
       status: 'success',
       data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
     });
-    listRunningAppsStub = sinon.stub().resolves({
-      status: 'success',
-      data: [{ Names: ['/fluxc1_app1'] }],
-    });
+    // The REAL departing tracker, taken fresh per test rather than
+    // reimplemented here: a fake that counts differently from the module would
+    // pass this suite over the defect the counting exists to prevent.
+    // proxyquire restores the require cache after loading, so the fresh copy is
+    // this suite's alone - evicting the entry instead would hand another object
+    // to every module loaded after it, and globalState is a singleton whose
+    // flags decide whether an operation may start at all.
+    ({ departingApps, testInstallingApps, announceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {}));
 
     peerNotification = loadPeerNotification();
   });
@@ -169,7 +185,11 @@ describe('peerNotification tests', () => {
       expect(logStub.warn.calledWith(sinon.match('cannot sign'))).to.be.true;
     });
 
-    it('does not broadcast a plain app with a stopped component', async () => {
+    // The message says which apps this node holds, which is what the spawner
+    // counts against an app's instance target. Announcing only what was running
+    // meant a component that could never start silenced the node, the app never
+    // reached its target, and it was placed again on node after node.
+    it('announces an app whose component is stopped - the message is a claim, not a health report', async () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
@@ -180,7 +200,125 @@ describe('peerNotification tests', () => {
       // only app1's container is running
       await peerNotification.checkAndNotifyPeersOfRunningApps();
       const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name).sort()).to.deep.equal(['app1', 'app2']);
+    });
+
+    // A removal tells the network the app is gone, and the app stays installed
+    // until that removal finishes. An announcement built in between names an app
+    // the node has given up, and because peers apply the two messages in arrival
+    // order it re-creates the location row the removal had just cleared.
+    it('does not announce an app whose removal it has broadcast', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+        ],
+      });
+      departingApps.enter('app2');
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.apps.map((a) => a.name),
+        'the departing app is excluded and the rest still announced',
+      ).to.deep.equal(['app1']);
+    });
+
+    // The claim returns on its own: the mark lives only for the removal, so a
+    // removal that fails leaves the app announced rather than silently unplaced.
+    it('announces the app again once the removal has finished', async () => {
+      departingApps.enter('app1');
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+      expect(storeAppRunningMessageStub.called, 'announced while departing').to.be.false;
+
+      departingApps.leave('app1');
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
+    });
+
+    it('announces nothing when every installed app is departing', async () => {
+      departingApps.enter('app1');
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.called, 'wrote its own location').to.be.false;
+      expect(broadcastMessageToAllStub.called, 'sent an announcement').to.be.false;
+    });
+
+    it('announces an app with no container running at all', async () => {
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.apps.map((a) => a.name),
+        'an installed app keeps its claim while its containers are down',
+      ).to.deep.equal(['app1']);
+    });
+
+    // An app's name and hash sit outside the enterprise envelope, so a spec this
+    // node cannot decrypt still states its claim. Dropping it would cost the node
+    // that app's row and have the network place the app somewhere else.
+    it('announces an enterprise app whose spec cannot be decrypted', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'sealed', version: 8, enterprise: 'encrypted-blob', compose: [], hash: 'h2' },
+        ],
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name).sort()).to.deep.equal(['app1', 'sealed']);
+    });
+
+    // broadcastedAt says when these apps were installed here, and every consumer
+    // compares it against other nodes' messages - so a stamp taken after the per-app
+    // reads would out-rank a removal that happened while they ran.
+    it('stamps the announcement when the list is taken, not when it is sent', async () => {
+      let now = 1000;
+      sinon.stub(Date, 'now').callsFake(() => now);
+      // Time passes in the per-app reads between the snapshot and the message, as
+      // it does on a real node.
+      findOneInDatabaseStub.callsFake(async () => {
+        now += 5000;
+        return null;
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.broadcastedAt,
+        'stamped at the send, so the message claims to be newer than it is',
+      ).to.equal(1000);
+    });
+
+    // A test install writes the app's row like any other install and throws it away
+    // at the end, and its teardown tells the network nothing - so naming it here
+    // would hold a placement for an app this node never took on.
+    it('does not announce an app this node is only test installing', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'trialapp', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+        ],
+      });
+      testInstallingApps.add('trialapp');
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.apps.map((a) => a.name),
+        'claimed a placement for an app it is only trying out',
+      ).to.deep.equal(['app1']);
     });
 
     // An empty snapshot must NEVER be broadcast: on the receive side an empty v2
@@ -188,16 +326,18 @@ describe('peerNotification tests', () => {
     // stores its own message first, so it erases its own network presence. The
     // legitimate corrections all have targeted mechanisms (fluxappremoved on
     // uninstall, sigterm/TTL row expiry for wiped or dead nodes).
-    it('never broadcasts an empty snapshot - reboot-race shape (installed apps, none running yet)', async () => {
-      listRunningAppsStub.resolves({ status: 'success', data: [] }); // containers not started yet
-      await peerNotification.checkAndNotifyPeersOfRunningApps(); // first run after boot
-      expect(storeAppRunningMessageStub.called, 'must not store an empty snapshot (self-wipe)').to.be.false;
-      expect(broadcastMessageToAllStub.called, 'must not broadcast an empty snapshot').to.be.false;
+    // A node with apps installed can no longer produce an empty snapshot: the set
+    // comes from what is installed, so containers not started yet do not empty it.
+    it('announces its installed apps on the first run after boot, containers not started yet', async () => {
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.calledOnce, 'the node announces what it holds').to.be.true;
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
     });
 
     it('never broadcasts an empty snapshot - wiped-node shape (nothing installed)', async () => {
       installedAppsStub.resolves({ status: 'success', data: [] });
-      listRunningAppsStub.resolves({ status: 'success', data: [] });
       await peerNotification.checkAndNotifyPeersOfRunningApps(); // first run after boot
       expect(storeAppRunningMessageStub.called, 'must not store an empty snapshot (self-wipe)').to.be.false;
       expect(broadcastMessageToAllStub.called, 'must not broadcast an empty snapshot').to.be.false;
@@ -225,9 +365,9 @@ describe('peerNotification tests', () => {
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
     });
 
-    it('still broadcasts a g:/r: app with stopped components (derived from specs, not run-state)', async () => {
-      // a masterSlave-managed app intentionally stops slave components, so the
-      // broadcast set must come from the spec, not from container run-state
+    // g:/r: apps needed a carve-out while the set came from run-state, because a
+    // masterSlave app stops its slave components deliberately. They need none now.
+    it('announces g:/r: apps with stopped components, without a carve-out', async () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
@@ -262,12 +402,17 @@ describe('peerNotification tests', () => {
     const runOneCycle = async (opts) => {
       clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'hrtime'] });
       let cycles = 0;
-      const listRunningApps = sinon.stub().callsFake(async () => {
+      // The elapsed time is injected through a call the cycle actually makes.
+      // Reading the installed set is that call; container state is not consulted.
+      const installedApps = sinon.stub().callsFake(async () => {
         cycles += 1;
         if (opts.cycleMs && cycles <= (opts.slowCycles ?? 1)) clock.tick(opts.cycleMs);
-        return { status: 'success', data: [{ Names: ['/fluxc1_app1'] }] };
+        return {
+          status: 'success',
+          data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
+        };
       });
-      const mod = loadPeerNotification({ ...opts, listRunningApps });
+      const mod = loadPeerNotification({ ...opts, installedApps });
       // Through the lifecycle rather than a bare announcement: an announcement
       // asked for on its own does not arm the loop, which is what makes a stop
       // taken during one final.

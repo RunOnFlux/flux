@@ -13,6 +13,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import {
   volumeRoot, resetVolume, seedVolumeTree, treeOf, contentOf, exists,
+  stagingEntries,
 } from '../framework/volume-fixture.js';
 
 // Uploading, over HTTP, onto a real volume.
@@ -94,9 +95,13 @@ describe('app volume file upload', function () {
     return after;
   };
 
+  // `.flux-old-<id>` was the second name an interrupted two-rename publish left
+  // behind. There is no such state since the publish became one atomic exchange,
+  // so nothing is ever called that - the term is kept only because a name that
+  // cannot appear costs nothing to look for and would be worth seeing if it did.
   const artefacts = async () => {
     const tree = await treeOf(node.container, root);
-    return tree.filter((entry) => entry.includes('.flux-op-') || entry.includes('.flux-old-'));
+    return [...stagingEntries(tree), ...tree.filter((entry) => entry.includes('.flux-old-'))];
   };
 
   const executorContainers = async () => {

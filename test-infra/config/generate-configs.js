@@ -15,8 +15,6 @@ function databaseConfig(prefix) {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
-        activePaymentRequests: 'activepaymentrequests',
-        completedPayments: 'completedpayments',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',
@@ -58,12 +56,6 @@ function databaseConfig(prefix) {
       database: `${prefix}chainparams`,
       collections: {
         chainMessages: 'chainmessages',
-      },
-    },
-    fluxshare: {
-      database: `${prefix}zelshare`,
-      collections: {
-        shared: 'shared',
       },
     },
   };

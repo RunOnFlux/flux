@@ -61,7 +61,7 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
 
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.DECLINED);
       expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
     });
 
@@ -70,7 +70,7 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
 
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.DECLINED);
       expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
     });
 
@@ -82,7 +82,7 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
 
-      expect(result).to.equal(InstallOutcome.REFUSED);
+      expect(result).to.equal(InstallOutcome.BUSY);
       expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
       expect(globalState.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
     });
@@ -281,6 +281,10 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
       resetGlobalState();
+      // A node past its acquisition window, which is what every redeploy below is
+      // about. mayTearDownToRebuild declines while the gate is shut, and afterEach
+      // closes it again.
+      globalState.policyReady = true;
 
       res = {
         write: sinon.stub(),
@@ -413,6 +417,10 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
       resetGlobalState();
+      // A node past its acquisition window, which is what every redeploy below is
+      // about. mayTearDownToRebuild declines while the gate is shut, and afterEach
+      // closes it again.
+      globalState.policyReady = true;
 
       res = {
         write: sinon.stub(),
@@ -2672,6 +2680,10 @@ describe('advancedWorkflows tests', () => {
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+      // A node past its acquisition window, which is what every redeploy below is
+      // about. mayTearDownToRebuild declines while the gate is shut, and afterEach
+      // closes it again.
+      globalState.policyReady = true;
 
       // Setup database connection stub
       sinon.stub(dbHelper, 'databaseConnection').returns({
@@ -2959,9 +2971,19 @@ describe('advancedWorkflows tests', () => {
       });
     };
 
+    // What this node publishes about the volume being replaced. Peers rank a seed
+    // on it, so it describes one incarnation and must not outlive it.
+    const armHolding = () => {
+      volGlobalState.folderHoldings = new Map([
+        [identifier, { bytes: 5821604997, newestModified: 200 }],
+        ['fluxother_TestApp', { bytes: 4096, newestModified: 100 }],
+      ]);
+    };
+
     beforeEach(() => {
       volGlobalState = require('../../ZelBack/src/services/utils/globalState');
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
+      volGlobalState.folderHoldings = null;
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
@@ -2969,15 +2991,49 @@ describe('advancedWorkflows tests', () => {
       // disks the machine running the suite happens to have.
       // eslint-disable-next-line global-require
       const volumeService = require('../../ZelBack/src/services/utils/volumeService');
-      sinon.stub(volumeService, 'capacityVolumesInGib').resolves([
+      const oneDisk = [
         {
           filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: 900,
         },
-      ]);
+      ];
+      sinon.stub(volumeService, 'placementVolumesInGib').resolves(oneDisk);
     });
 
     afterEach(() => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
+    });
+
+    it('seeds .stignore from the spec, at volume creation', async () => {
+      // The seed is what closes the window the converge pass cannot: syncthing indexes
+      // whatever it finds on its first scan, so an ml: directory populated before the
+      // first converge would replicate once and need a db/revert to unwind. A fleet
+      // test cannot pin this - the converge repairs .stignore within a monitor pass, so
+      // by the time any assertion runs the two are indistinguishable.
+      const syncComponent = { name: 'frontend', hdd: 1, containerData: 'g:/appdata|ml:cache:/var/cache' };
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').resolves({});
+      // The new volume is recorded against the component before the folder is seeded,
+      // and that is a database write this case has no opinion about.
+      // eslint-disable-next-line global-require
+      const volSvc = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volSvc, 'recordNewVolumeImage').resolves();
+      const writes = [];
+      // eslint-disable-next-line global-require
+      const nodeFs = require('node:fs');
+      sinon.stub(nodeFs.promises, 'writeFile').callsFake(async (target, body) => {
+        writes.push({ target: String(target), body: String(body) });
+      });
+
+      await advancedWorkflows.createAppVolume(syncComponent, 'TestApp', true, null).catch(() => {});
+
+      const stignore = writes.find((write) => write.target.endsWith('.stignore'));
+      expect(stignore, 'volume creation wrote no .stignore').to.not.equal(undefined);
+      expect(
+        stignore.body.split('\n').filter(Boolean),
+        'the seeded ignores must already carry the spec-declared directory',
+      ).to.deep.equal(['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/cache']);
     });
 
     it('preserves the synced-mark when the pre-flight aborts before any volume is touched', async () => {
@@ -3001,6 +3057,62 @@ describe('advancedWorkflows tests', () => {
         volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
         'an aborted pre-flight stripped the synced-mark of an app whose data is intact',
       ).to.equal(true);
+    });
+
+    // The node decides the UUID rather than reading one back, so the pair it
+    // records is known before anything can be substituted for the image.
+    it('stamps the filesystem and records the pair against the component', async () => {
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      const record = sinon.stub(volumeService, 'recordNewVolumeImage').resolves();
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      // let the filesystem be made, then stop before anything mounts it
+      const runCommand = sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'mkdir' ? { error: new Error('stopped after the filesystem') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      // as above: on a low-disk host the pre-flight throws first, and that
+      // reads as "never reached the filesystem", not as a regression
+      expect(thrown, 'the flow never reached the filesystem creation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the filesystem').to.equal('stopped after the filesystem');
+
+      const mke2fs = runCommand.getCalls().find((call) => call.args[0] === 'mke2fs');
+      expect(mke2fs, 'no filesystem was created').to.not.equal(undefined);
+      const { params } = mke2fs.args[1];
+      const stampAt = params.indexOf('-U');
+      expect(stampAt, 'the filesystem was created without a stamp').to.be.greaterThan(-1);
+      const uuid = params[stampAt + 1];
+      expect(uuid).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      // the image path is the last argument to mke2fs, and it is what is recorded
+      sinon.assert.calledWith(record, identifier, params[params.length - 1], uuid);
+    });
+
+    // The volume has been reformatted under a new stamp by this point, so a
+    // record that cannot be written now describes an image that no longer
+    // exists - and left there it refuses the real volume at every mount, for
+    // good. The install fails instead, where it still rolls back.
+    it('fails the install when the new volume cannot be recorded', async () => {
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volumeService, 'recordNewVolumeImage').rejects(new Error('mongo unavailable'));
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'a volume whose record could not be written was accepted').to.not.equal(null);
+      expect(thrown.message).to.equal('mongo unavailable');
     });
 
     it('drops a stale synced-mark at the point of no return', async () => {
@@ -3032,6 +3144,103 @@ describe('advancedWorkflows tests', () => {
         volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
         'the point of no return left a stale synced-mark in place',
       ).to.equal(false);
+    });
+
+    it('preserves the published holding when the pre-flight aborts', async () => {
+      // Same reasoning as the synced-mark above: the existing volume and its data
+      // are untouched, so what this node says it holds is still true.
+      armHolding();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'error' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
+      expect(
+        volGlobalState.folderHoldings.has(identifier),
+        'an aborted pre-flight withdrew a claim whose data is intact',
+      ).to.equal(true);
+    });
+
+    it('drops the published holding at the point of no return', async () => {
+      // Once the allocation runs the volume is empty. A claim surviving from the
+      // previous incarnation describes data this node no longer has, and peers rank
+      // the seed on it - so it outranks a node that still holds the app and seeds
+      // an empty folder over the owner's world.
+      armHolding();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('fallocate blocked by test') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
+      expect(
+        volGlobalState.folderHoldings.has(identifier),
+        'the point of no return left a claim for a volume that is now empty',
+      ).to.equal(false);
+      // Scoped to the volume being replaced, not a clear of every answer the node holds.
+      expect(volGlobalState.folderHoldings.has('fluxother_TestApp')).to.equal(true);
+    });
+  });
+
+  describe('createAppVolume space refusal tests', () => {
+    // The per-volume check is the only thing standing between an app and a
+    // disk too small for it. Every term: config.lockedSystemResources.hdd is
+    // 60 and extrahdd is 20, so with 100 GiB already used the reserve floors
+    // at extrahdd, 20. An app asking for 1 GiB is placed on a volume only
+    // where available > 1 + 20.
+    const component = { name: 'frontend', hdd: 1 };
+
+    const withVolume = (availableGib) => {
+      // eslint-disable-next-line global-require
+      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
+      // eslint-disable-next-line global-require
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volumeService, 'placementVolumesInGib').resolves([{
+        filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: availableGib,
+      }]);
+      // eslint-disable-next-line global-require
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('reached the allocation') } : {}));
+    };
+
+    const attempt = async () => {
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+      return thrown;
+    };
+
+    it('refuses an app the only volume has no room for', async () => {
+      withVolume(21);
+      const thrown = await attempt();
+      expect(thrown, 'a volume with too little room was accepted').to.not.equal(null);
+      expect(thrown.message).to.equal('Insufficient space on Flux Node. No useable volume found.');
+    });
+
+    it('places the app one GiB the other side of that bound', async () => {
+      withVolume(22);
+      const thrown = await attempt();
+      // Reaching the allocation is the proof it was placed - the volume is a
+      // stub, so the allocation itself has nowhere real to go.
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message).to.equal('reached the allocation');
     });
   });
 
@@ -4194,6 +4403,10 @@ describe('advancedWorkflows tests', () => {
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+      // A node past its acquisition window, which is what every redeploy below is
+      // about. mayTearDownToRebuild declines while the gate is shut, and afterEach
+      // closes it again.
+      globalState.policyReady = true;
 
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
       sinon.stub(serviceHelper, 'delay').resolves();
@@ -4321,6 +4534,10 @@ describe('advancedWorkflows tests', () => {
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+      // A node past its acquisition window, which is what every redeploy below is
+      // about. mayTearDownToRebuild declines while the gate is shut, and afterEach
+      // closes it again.
+      globalState.policyReady = true;
 
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(composedSpec);
@@ -4489,6 +4706,10 @@ describe('advancedWorkflows tests', () => {
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+      // A node past its acquisition window, which is what every redeploy below is
+      // about. mayTearDownToRebuild declines while the gate is shut, and afterEach
+      // closes it again.
+      globalState.policyReady = true;
       globalState.restoreInProgress = [];
 
       req = { params: { appname: 'myapp', component: 'web' }, query: {}, headers: {} };
@@ -4745,6 +4966,8 @@ describe('advancedWorkflows tests', () => {
     let generalService;
     let serviceHelper;
     let globalState;
+    let imageManager;
+    let policyBefore;
 
     beforeEach(() => {
       /* eslint-disable global-require */
@@ -4752,8 +4975,13 @@ describe('advancedWorkflows tests', () => {
       generalService = require('../../ZelBack/src/services/generalService');
       serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       globalState = require('../../ZelBack/src/services/utils/globalState');
+      imageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
       /* eslint-enable global-require */
       globalState.reinstallationOfOldAppsInProgress = false;
+      // These are about the pass lock and the teardown arguments, so the node has
+      // the policy the redeploy needs. The gate itself is exercised below.
+      policyBefore = globalState.policyReady;
+      globalState.policyReady = true;
 
       sinon.stub(generalService, 'checkSynced').resolves(true);
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
@@ -4769,6 +4997,234 @@ describe('advancedWorkflows tests', () => {
     afterEach(() => {
       sinon.restore();
       globalState.reinstallationOfOldAppsInProgress = false;
+      globalState.policyReady = policyBefore;
+    });
+
+    // TWO PASSES ON ONE APP DESTROY IT. The scanner starts this fire-and-forget
+    // on a block, so a pass that outlives the gap between blocks is run again on
+    // top of itself. Observed on a node: the first pass had soft-uninstalled the
+    // component and was sleeping out composedDelay; the second asked docker to
+    // remove the container the first was already removing, got `(HTTP code 409)
+    // removal of container ... is already in progress`, and its error cleanup
+    // force-removed the whole app - so the first pass woke to "Another
+    // application is undergoing removal" and the app stayed deleted.
+    //
+    // Every neighbour already stands aside on reinstallationOfOldAppsInProgress
+    // (forceAppRemovals does); the gap was this function not standing aside for
+    // itself, and that flag cannot close it. It is raised late, deep inside the
+    // loop, because it also tells the spawner and forceAppRemovals to stand
+    // aside - raised at the door it would hold them off for every scan. So the
+    // overlap is driven here, rather than by pre-setting a flag: a test that
+    // sets the flag and calls once proves only that some guard reads it, and
+    // would pass just as happily against the window that is actually open.
+    // AN OWNER TRANSFER CHANGES NOTHING THE SPEC COMPARISON LOOKS AT - owner is deleted
+    // from both sides of it - so it takes the branch that writes the record and
+    // redeploys nothing. Nothing on that branch judges what it wrote: the installer
+    // judges what it installs, and this installs nothing, so an owner the network
+    // refuses holds the application until something unrelated sweeps the node.
+    it('asks the sweep about an application whose record it rewrote without redeploying', async () => {
+      const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT',
+      });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(requestComplianceSweep);
+      expect([...requestComplianceSweep.firstCall.args[0]]).to.deep.equal(['myapp']);
+    });
+
+    // The canary for it: an application this pass redeploys is judged by the installer
+    // that rebuilds it, so asking for it again buys a walk of the whole app table.
+    it('does not ask the sweep about an application it redeployed', async () => {
+      const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.called,
+        'the fixture is wrong: this pass never reached the redeployment it is about',
+      ).to.be.true;
+      expect(
+        requestComplianceSweep.called,
+        'a redeployed application was swept for as though nothing had judged it',
+      ).to.be.false;
+    });
+
+    it('declines a second pass that starts before the first has announced itself', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      // Park the first pass in checkSynced - the start of the setup it has to
+      // get through (a daemon call, a database read and one spec lookup per
+      // installed app) before it reaches the line that raises the flag.
+      let releaseSync;
+      const syncGate = new Promise((resolve) => { releaseSync = resolve; });
+      generalService.checkSynced.returns(syncGate);
+
+      const first = advancedWorkflows.reinstallOldApplications();
+      const second = advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        globalState.reinstallationOfOldAppsInProgress,
+        'the fixture is wrong: the first pass has already announced itself, so this is not the window under test',
+      ).to.be.false;
+
+      releaseSync(true);
+      await Promise.all([first, second]);
+
+      expect(
+        softUninstallComponent.calledOnce,
+        'a second reinstall pass tore down a component the running pass owns',
+      ).to.be.true;
+    });
+
+    // THE LOCAL ROW IS WHERE EVERY READER TAKES THE APP'S CURRENT SPECIFICATION FROM,
+    // and a legacy app's redeploy is the one path that reaches the installers directly
+    // rather than through softRegisterAppLocally, which is what writes it everywhere
+    // else. Left unwritten, the containers run the new specification while the row
+    // describes the old one for as long as the app is installed - so the monitor keeps
+    // deriving this app's syncthing ignores, and this node keeps reporting it, from a
+    // specification that is no longer what it runs.
+    it('writes the local row before a legacy app is redeployed', async () => {
+      const legacy = {
+        version: 3,
+        name: 'oldapp',
+        hash: 'oldhash',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        repotag: 'nginx:1.0',
+        ports: ['31000'],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: ['80'],
+        containerData: '/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+      };
+      // Same hdd, so this is the soft branch; the repotag is what makes it a change.
+      const updated = { ...legacy, hash: 'newhash', repotag: 'nginx:2.0' };
+      dbHelper.findInDatabase.resolves([legacy]);
+      dbHelper.findOneInDatabase.resolves(updated);
+      const softUninstall = sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      const softInstall = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledWith(
+        dbHelper.updateOneInDatabase,
+        sinon.match.any,
+        sinon.match.any,
+        { name: 'oldapp' },
+        { $set: updated },
+        { upsert: true },
+      );
+      // Before the rebuild, so a pass reading it mid-redeploy is owed the specification
+      // the containers are being built from.
+      sinon.assert.callOrder(dbHelper.updateOneInDatabase, softUninstall, softInstall);
+    });
+
+    // A REDEPLOY DESTROYS BEFORE IT REBUILDS, and only the rebuild needs the policy:
+    // verifyAndPullImage reads the blocked-repository list to judge the image, and the
+    // uninstall has already happened by the time it refuses. Only a successful install
+    // writes the local row back and nothing reconciles an app without one, so a pass
+    // that starts without policy costs this node the app outright.
+    //
+    // Declined at the door rather than deferred: the scanner runs this again in a few
+    // blocks and the app is still obsolete then, so nothing is lost by refusing now.
+    it('leaves an obsolete app alone when this node has no policy to judge its image', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.policyReady = false;
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.called,
+        'the pass tore a component down on a node that could not have reinstalled it',
+      ).to.be.false;
+    });
+
+    // The canary for the test above: with the same fixture and the gate open the pass
+    // DOES tear the component down, so the refusal is the gate acting and not the
+    // fixture failing to reach the teardown at all.
+    it('tears it down once the node holds policy, so the refusal above is the gate', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.policyReady = true;
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(softUninstallComponent.called, 'the fixture never reaches the teardown').to.be.true;
+    });
+
+    // An owner re-pointing a `nodes` list reaches the fleet as a spec change, so
+    // this pass is where a node the list no longer names finds out. Tearing the
+    // app down first and reading the pin afterwards leaves it with no containers
+    // and no local row, and never tells the peers still holding a location for it.
+    it('hands back an app the new spec pins to other nodes, instead of redeploying it', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // eslint-disable-next-line global-require
+      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.5:16127');
+      // Both identifiers resolve: a node that cannot form one of them can no longer rule
+      // itself out of a pin written in that form, and defers instead of handing back.
+      sinon.stub(generalService, 'obtainNodeCollateralInformation').resolves({ txhash: 'bb'.repeat(32), txindex: 0 });
+      dbHelper.findOneInDatabase.resolves({ ...newSpec, nodes: ['10.0.0.9:16127'] });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(softUninstallComponent.called, 'the app was torn down to be rebuilt where it may not be').to.be.false;
+      sinon.assert.calledOnce(removeAppLocally);
+      const [name, , , , sendMessage] = removeAppLocally.firstCall.args;
+      expect(name).to.equal(installedApp.name);
+      expect(sendMessage, 'the peers holding a location for it have to be told').to.be.true;
+    });
+
+    // The canary for the test above: the same fixture with the pin naming THIS node
+    // redeploys as it always did, so the hand-back is the pin and not the fixture.
+    it('redeploys when the same new spec names this node', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // eslint-disable-next-line global-require
+      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.5:16127');
+      // Both identifiers resolve: a node that cannot form one of them can no longer rule
+      // itself out of a pin written in that form, and defers instead of handing back.
+      sinon.stub(generalService, 'obtainNodeCollateralInformation').resolves({ txhash: 'bb'.repeat(32), txindex: 0 });
+      dbHelper.findOneInDatabase.resolves({ ...newSpec, nodes: ['192.168.1.5:16127'] });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(softUninstallComponent.called, 'the fixture never reaches the teardown').to.be.true;
+    });
+
+    it('runs when no other pass holds the lock', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.calledOnce,
+        'the guard refused a pass that was the only one running',
+      ).to.be.true;
+    });
+
+    // The lock outlives the call, so a pass that fails to release it declines
+    // every later block for the life of the process - a quieter failure than the
+    // one it is there to prevent, and one no single-call test can see.
+    it('releases the lock, so a later block gets its own pass', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(
+        softUninstallComponent.calledTwice,
+        'the lock was not released, so every pass after the first is declined',
+      ).to.be.true;
     });
 
     it('tears the component down under the bare app name', async () => {
@@ -5550,6 +6006,172 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       await advancedWorkflows.checkAndRemoveApplicationInstance();
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+  });
+});
+
+describe('a redeploy asks what it may rebuild before it takes anything down', () => {
+  // A redeploy is an uninstall followed by an install. Both of the conditions
+  // below are read only by the installer, so reached in their own time they are
+  // reached after the app is already down - with no containers, no local row, and
+  // nothing that reconciles an app with no row.
+  const pinnedSpec = (nodes) => ({
+    version: 8, name: 'pinnedapp', owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', nodes,
+  });
+
+  let appUninstaller;
+  let fluxNetworkHelper;
+  let generalService;
+  let globalState;
+  let serviceHelper;
+  let res;
+
+  beforeEach(() => {
+    /* eslint-disable global-require */
+    appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+    fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+    generalService = require('../../ZelBack/src/services/generalService');
+    globalState = require('../../ZelBack/src/services/utils/globalState');
+    serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+    /* eslint-enable global-require */
+    resetGlobalState();
+    globalState.policyReady = true;
+    sinon.stub(serviceHelper, 'delay').resolves();
+    sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.5:16127');
+    sinon.stub(generalService, 'obtainNodeCollateralInformation').resolves({ txhash: 'aa'.repeat(32), txindex: 0 });
+    res = { write: sinon.stub(), flush: sinon.stub() };
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    resetGlobalState();
+  });
+
+  it('lets an unpinned app through when the policy is in hand', async () => {
+    const proceed = await advancedWorkflows.mayTearDownToRebuild({ name: 'plainapp', nodes: [] }, res);
+
+    expect(proceed).to.be.true;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+  });
+
+  it('declines while the policy is unobtained, and leaves the app where it is', async () => {
+    globalState.policyReady = false;
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild({ name: 'plainapp', nodes: [] }, res);
+
+    expect(proceed, 'the teardown must not start').to.be.false;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    expect(res.write.firstCall.args[0]).to.match(/policy/i);
+  });
+
+  it('hands back an app whose spec names other nodes, and tells the network', async () => {
+    const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec(['10.0.0.9:16127']), res);
+
+    expect(proceed, 'the redeploy must not continue past the hand-back').to.be.false;
+    sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+    const [name, , force, endResponse, sendMessage] = appUninstaller.removeAppLocally.firstCall.args;
+    expect(name).to.equal('pinnedapp');
+    expect(force, 'the hand-back is not optional').to.be.true;
+    expect(endResponse, 'the endpoint that opened the response closes it').to.be.false;
+    expect(sendMessage, 'the network has to stop holding a location for it').to.be.true;
+  });
+
+  it('proceeds when the spec names this node by address', async () => {
+    const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec(['192.168.1.5:16127']), res);
+
+    expect(proceed).to.be.true;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+  });
+
+  it('proceeds when the spec names this node by collateral outpoint', async () => {
+    const outpoint = `${'aa'.repeat(32)}:0`;
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec([outpoint]), res);
+
+    expect(proceed).to.be.true;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+  });
+
+  it('defers rather than handing back an app it cannot place itself against', async () => {
+    // Neither identifier resolved, so whether the spec names this node is unknown.
+    // Unknown read as "not named" deletes an app that belongs here.
+    fluxNetworkHelper.getLocalSocketAddress.resolves(null);
+    generalService.obtainNodeCollateralInformation.rejects(new Error('daemon unreachable'));
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec(['10.0.0.9:16127']), res);
+
+    expect(proceed).to.be.false;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    expect(res.write.firstCall.args[0]).to.match(/names this node/i);
+  });
+
+  // AN ENTRY NAMES A NODE BY ONE OF TWO FORMS, so an identifier this node cannot form is not
+  // a narrower answer - it is the loss of its ability to recognise that whole form. Read as
+  // "not named", these two delete an app the spec names.
+  it('defers rather than handing back an outpoint pin it cannot resolve its collateral for', async () => {
+    generalService.obtainNodeCollateralInformation.rejects(new Error('daemon unreachable'));
+    const outpoint = `${'aa'.repeat(32)}:0`;
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec([outpoint]), res);
+
+    expect(proceed).to.be.false;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    expect(res.write.firstCall.args[0]).to.match(/names this node/i);
+  });
+
+  it('defers rather than handing back an address pin it cannot resolve its address for', async () => {
+    fluxNetworkHelper.getLocalSocketAddress.resolves(null);
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec(['192.168.1.5:16127']), res);
+
+    expect(proceed).to.be.false;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+  });
+
+  it('hands back a pin without the policy, which a removal does not need', async () => {
+    globalState.policyReady = false;
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec(['10.0.0.9:16127']), res);
+
+    expect(proceed).to.be.false;
+    sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+  });
+
+  describe('the callers stop at it', () => {
+    // The soft path tears down through softRemoveAppLocally rather than
+    // removeAppLocally, so what separates a refused redeploy from one that ran is
+    // what reached the caller: a refusal is the only thing written, where a
+    // teardown reports its own progress before anything else can go wrong.
+    it('softRedeploy takes nothing down while the gate is shut', async () => {
+      globalState.policyReady = false;
+
+      await advancedWorkflows.softRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
+
+      expect(res.write.callCount, 'the refusal is the whole of the answer').to.equal(1);
+      expect(res.write.firstCall.args[0]).to.match(/policy/i);
+      expect(globalState.softRedeployInProgress, 'the flag belongs to a redeploy that started').to.be.false;
+    });
+
+    it('a canary: softRedeploy with the gate open reaches the teardown', async () => {
+      await advancedWorkflows.softRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
+
+      expect(res.write.firstCall.args[0], 'the same call must reach softRemoveAppLocally').to.match(/during removal/i);
+    });
+
+    it('hardRedeploy takes nothing down while the gate is shut', async () => {
+      globalState.policyReady = false;
+
+      await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(globalState.hardRedeployInProgress).to.be.false;
+    });
+
+    it('a canary: hardRedeploy with the gate open reaches the teardown', async () => {
+      await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
+
+      sinon.assert.called(appUninstaller.removeAppLocally);
     });
   });
 });

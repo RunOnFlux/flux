@@ -120,7 +120,7 @@ describe('fileSystemManager tests', () => {
       '../serviceHelper': serviceHelperStub,
       '../IOUtils': { getVolumeInfo: sinon.stub() },
       '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
-      '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPath: sinon.stub() },
+      '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPathOfExistingPath: sinon.stub() },
       './volumeSession': volumeSessionStub,
       './volumeExecutor': executorStub,
       '../utils/jobRegistry': jobRegistry,
@@ -716,6 +716,60 @@ describe('fileSystemManager tests', () => {
     });
   });
 
+  // Both downloads resolve the path before touching it, and resolution is held
+  // to the deepest part that exists: a name that has not been created yet
+  // cannot be resolved, and a check that reads "cannot resolve" as "nothing to
+  // verify" never sees the directory above it leading out of the volume.
+  //
+  // The real pathSecurity, because a stubbed one proves only that something was
+  // called - and each handler asserted separately, because each resolves for
+  // itself.
+  describe('a download whose existing parent leads out of the volume is refused', () => {
+    const parent = `${MOUNT}/parent`;
+    const missing = `${parent}/missing`;
+
+    const subjectWithRealChecks = (getVolumeInfo) => proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+      '../messageHelper': messageHelperStub,
+      '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+      '../serviceHelper': serviceHelperStub,
+      '../IOUtils': { getVolumeInfo },
+      '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+      '../utils/pathSecurity': require('../../ZelBack/src/services/utils/pathSecurity'),
+      './volumeSession': volumeSessionStub,
+      './volumeExecutor': executorStub,
+      '../utils/jobRegistry': jobRegistry,
+      archiver: sinon.stub(),
+      stream: { PassThrough: sinon.stub() },
+    });
+
+    const linkOutOfVolume = () => {
+      const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      // eslint-disable-next-line global-require
+      const realFs = require('fs');
+      sinon.stub(realFs.promises, 'lstat').callsFake(async (target) => {
+        if (target === missing) throw enoent;
+        return { isSymbolicLink: () => target === parent };
+      });
+      sinon.stub(realFs.promises, 'realpath').callsFake(async (target) => (target === parent ? '/test/apps/folder/fluxcomp_other' : target));
+    };
+
+    ['downloadAppsFolder', 'downloadAppsFile'].forEach((handler) => {
+      it(`${handler} refuses it`, async () => {
+        const getVolumeInfo = sinon.stub().resolves({ error: null, mounts: [{ mount: MOUNT }] });
+        linkOutOfVolume();
+        const subject = subjectWithRealChecks(getVolumeInfo);
+        const target = { params: { appname: 'myapp', component: 'comp', folder: 'parent/missing', file: 'parent/missing' }, query: {} };
+
+        await subject[handler](target, res);
+
+        // These two answer by writing the body rather than through res.json,
+        // so the refusal is observed where it is built.
+        expect(messageHelperStub.createErrorMessage.firstCall.args[0])
+          .to.match(/outside allowed directory|does not resolve on the host/);
+      });
+    });
+  });
+
   // The eight operations above are gated by openVolume's default privilege, which
   // volumeSession.test.js pins in one place. These two ask for themselves, so they
   // are pinned here: taking a customer's files off the node is not their host's to
@@ -731,7 +785,7 @@ describe('fileSystemManager tests', () => {
           '../serviceHelper': serviceHelperStub,
           '../IOUtils': { getVolumeInfo: sinon.stub() },
           '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
-          '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPath: sinon.stub() },
+          '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPathOfExistingPath: sinon.stub() },
           './volumeSession': volumeSessionStub,
           './volumeExecutor': executorStub,
           '../utils/jobRegistry': jobRegistry,
@@ -743,6 +797,159 @@ describe('fileSystemManager tests', () => {
 
         sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
       });
+    });
+  });
+
+  // downloadAppsFolder streams one archive and names it through the response's
+  // own attachment(): a folder whose name carries a byte the header grammar
+  // forbids reaches res.writeHead as a raw interpolation and throws from a
+  // stream callback the handler's catch cannot see, which exits the process.
+  describe('downloadAppsFolder streams safely', () => {
+    const http = require('http');
+    const stream = require('stream');
+    const os = require('os');
+    const fs = require('fs');
+    const nodePath = require('path');
+
+    let tmpBase;
+    afterEach(() => {
+      if (tmpBase) fs.rmSync(tmpBase, { recursive: true, force: true });
+      tmpBase = undefined;
+    });
+
+    // A response that validates a header value the way Node does, so a name the
+    // grammar forbids is caught here rather than silently accepted, and records
+    // the attachment() call the fix routes the name through.
+    const validatingRes = () => {
+      const res = new stream.PassThrough();
+      res.headersSent = false;
+      res.statusCode = 200;
+      res.setHeader = (name, value) => { http.validateHeaderValue(name, String(value)); return res; };
+      res.writeHead = (code, hdrs) => {
+        res.statusCode = code;
+        if (hdrs) Object.entries(hdrs).forEach(([k, v]) => http.validateHeaderValue(k, String(v)));
+        res.headersSent = true;
+        return res;
+      };
+      res.attachment = sinon.stub();
+      res.status = (code) => { res.statusCode = code; return res; };
+      res.json = sinon.stub();
+      res.destroyedByHandler = false;
+      const realDestroy = res.destroy.bind(res);
+      res.destroy = (err) => { res.destroyedByHandler = true; return realDestroy(err); };
+      return res;
+    };
+
+    const subjectWith = (overrides) => proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+      '../messageHelper': messageHelperStub,
+      '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+      '../serviceHelper': serviceHelperStub,
+      '../IOUtils': { getVolumeInfo: sinon.stub().resolves({ error: null, mounts: [{ mount: MOUNT }] }) },
+      '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+      '../utils/pathSecurity': { sanitizePath: (f, base) => `${base}/${f}`, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
+      './volumeSession': volumeSessionStub,
+      './volumeExecutor': executorStub,
+      '../utils/jobRegistry': jobRegistry,
+      ...overrides,
+    });
+
+    it('names a non-ascii folder through attachment, so no raw header is built and nothing throws', async () => {
+      // A real directory with a non-ascii name and the real archiver, so the
+      // whole stream runs: the header the buggy path builds from this name is
+      // exactly the one Node refuses.
+      tmpBase = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'flux-dl-'));
+      const realDir = nodePath.join(tmpBase, '文書');
+      fs.mkdirSync(realDir);
+      fs.writeFileSync(nodePath.join(realDir, 'a.txt'), 'hello');
+
+      const subject = subjectWith({
+        archiver: require('archiver'),
+        stream,
+        '../utils/pathSecurity': { sanitizePath: () => realDir, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
+      });
+      const res = validatingRes();
+      const finished = new Promise((resolve) => { res.on('finish', resolve); res.on('close', resolve); });
+      const target = { params: {}, query: { appname: 'myapp', component: 'comp', folder: '文書' } };
+
+      await subject.downloadAppsFolder(target, res);
+      await finished;
+
+      expect(res.destroyedByHandler).to.equal(false);
+      sinon.assert.calledOnceWithExactly(res.attachment, '文書.zip');
+    });
+
+    it('handles an archiver error instead of letting it reach the process', async () => {
+      const EventEmitter = require('events');
+      const zip = new EventEmitter();
+      zip.pipe = sinon.stub();
+      zip.directory = sinon.stub();
+      zip.destroy = sinon.stub();
+      // The error a folder-that-is-a-file produces arrives after the handler has
+      // returned, so it is raised on a later tick, off the try/catch.
+      zip.finalize = sinon.stub().callsFake(() => {
+        setImmediate(() => zip.emit('error', Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' })));
+      });
+      const logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
+      const subject = subjectWith({ archiver: () => zip, stream, '../../lib/log': logStub });
+      const res = {
+        attachment: sinon.stub(), destroy: sinon.stub(), on: sinon.stub(), json: sinon.stub(), write: sinon.stub(), end: sinon.stub(),
+      };
+      const target = { params: {}, query: { appname: 'myapp', component: 'comp', folder: 'notadir' } };
+
+      await subject.downloadAppsFolder(target, res);
+      // The listener is what keeps the emit below from reaching the process.
+      expect(zip.listenerCount('error')).to.equal(1);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      sinon.assert.calledOnce(res.destroy);
+      sinon.assert.calledWith(logStub.error, sinon.match.instanceOf(Error));
+    });
+
+    // A fake archiver that records what directory() was asked to add, so the
+    // reserved-name filter can be inspected without unzipping.
+    const EventEmitter = require('events');
+    const capturingZip = () => {
+      const z = new EventEmitter();
+      z.calls = [];
+      z.pipe = sinon.stub();
+      z.destroy = sinon.stub();
+      z.finalize = sinon.stub();
+      z.directory = sinon.stub().callsFake((dir, dest, data) => { z.calls.push({ dir, dest, data }); });
+      return z;
+    };
+
+    // The volume root holds entries that are not the owner's data and that the
+    // browse endpoint hides; a root download excludes them too.
+    it('excludes reserved root entries from a root download', async () => {
+      const zip = capturingZip();
+      const subject = subjectWith({
+        archiver: () => zip,
+        stream,
+        '../utils/pathSecurity': { sanitizePath: () => MOUNT, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
+      });
+
+      await subject.downloadAppsFolder({ params: {}, query: { appname: 'myapp', component: 'comp', folder: '.' } }, validatingRes());
+
+      const filter = zip.calls[0].data;
+      expect(filter, 'a root download passed no filter').to.be.a('function');
+      expect(filter({ name: '.stfolder' })).to.equal(false);
+      expect(filter({ name: '.stfolder/config.xml' })).to.equal(false);
+      expect(filter({ name: 'keep.txt' })).to.deep.equal({ name: 'keep.txt' });
+    });
+
+    // Reserved at the root only: a file with one of these names inside a
+    // subfolder is the owner's, so a subfolder download filters nothing.
+    it('does not filter a subfolder download', async () => {
+      const zip = capturingZip();
+      const subject = subjectWith({
+        archiver: () => zip,
+        stream,
+        '../utils/pathSecurity': { sanitizePath: () => `${MOUNT}/photos`, verifyRealPathOfExistingPath: sinon.stub().callsFake(async (target) => target) },
+      });
+
+      await subject.downloadAppsFolder({ params: {}, query: { appname: 'myapp', component: 'comp', folder: 'photos' } }, validatingRes());
+
+      expect(zip.calls[0].data, 'a subfolder download must not filter').to.equal(undefined);
     });
   });
 });

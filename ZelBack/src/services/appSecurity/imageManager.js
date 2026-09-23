@@ -1,5 +1,4 @@
 const config = require('config');
-const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
@@ -8,12 +7,12 @@ const dbHelper = require('../dbHelper');
 const verificationHelper = require('../verificationHelper');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
+const policyStore = require('../policyStore');
+const globalState = require('../utils/globalState');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
-
-// Cache for blocked repositories
-let cacheUserBlockedRepos = null;
+const { RemovalOutcome } = require('../utils/removalOutcome');
 
 /**
  * Classify error type and determine appropriate cache TTL
@@ -173,147 +172,164 @@ async function verifyRepository(repotag, options = {}) {
  * Get blocked repositories from official source
  * @returns {Promise<Array|null>} List of blocked repositories
  */
-async function getBlockedRepositores() {
-  try {
-    const cachedResponse = fluxCaching.blockedRepositoriesCache.get('blockedRepositories');
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-    const resBlockedRepo = await serviceHelper.axiosGet(`${config.policy.baseUrl}/blockedrepositories.json`);
-    if (resBlockedRepo.data) {
-      fluxCaching.blockedRepositoriesCache.set('blockedRepositories', resBlockedRepo.data);
-      return resBlockedRepo.data;
-    }
-    return null;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
+function getBlockedRepositores() {
+  // Read from the signed bundle policyStore holds, not fetched here - so what arrives is
+  // bytes a signature has vouched for, rather than whatever a response body contained. An
+  // error page is truthy and shaped like nothing; a signed document cannot be.
+  //
+  // Still null for "not obtained", which callers already distinguish from an empty list.
+  return policyStore.getDocument('blockedrepositories');
 }
 
 /**
- * Get vetted repositories from official source
- * These apps bypass user-defined blocked repositories and ports
- * @returns {Promise<Array|null>} List of vetted repositories
+ * A repository reference with any tag or digest removed. Entries are compared
+ * against this form, never against the raw repotag.
+ * @param {string} repotag
+ * @returns {string}
  */
-async function getVettedRepositories() {
-  try {
-    const cachedResponse = fluxCaching.blockedRepositoriesCache.get('vettedRepositories');
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-    const resVettedRepo = await serviceHelper.axiosGet(`${config.policy.baseUrl}/vettedrepositories.json`);
-    if (resVettedRepo.data) {
-      fluxCaching.blockedRepositoriesCache.set('vettedRepositories', resVettedRepo.data);
-      return resVettedRepo.data;
-    }
-    return null;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
+function repositoryOf(repotag) {
+  const separator = repotag.lastIndexOf(':');
+  return separator > -1 ? repotag.substring(0, separator) : repotag;
 }
 
 /**
- * Check if an application is vetted (bypasses user blocks)
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} True if app is vetted
+ * The namespace an image is published under. An image with no namespace is its
+ * own, which is how a bare entry reaches an official library image.
+ * @param {string} repository
+ * @returns {string}
  */
-async function isAppVetted(appSpecs) {
-  const vettedRepos = await getVettedRepositories();
-  if (!vettedRepos || vettedRepos.length === 0) {
-    return false;
-  }
-
-  const pureVettedRepos = [];
-  vettedRepos.forEach((repo) => {
-    pureVettedRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
-
-  // Check if app owner is vetted
-  if (pureVettedRepos.includes(appSpecs.owner)) {
-    return true;
-  }
-
-  // Check if app hash is vetted
-  if (pureVettedRepos.includes(appSpecs.hash)) {
-    return true;
-  }
-
-  // Check images and organizations
-  const images = [];
-  const organisations = [];
-
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-
-  // Check if any image is vetted
-  for (const image of images) {
-    if (pureVettedRepos.includes(image) || pureVettedRepos.includes(image.toLowerCase())) {
-      return true;
-    }
-  }
-
-  // Check if any organisation is vetted
-  for (const org of organisations) {
-    if (pureVettedRepos.includes(org) || pureVettedRepos.includes(org.toLowerCase())) {
-      return true;
-    }
-  }
-
-  return false;
+function namespaceOf(repository) {
+  const separator = repository.lastIndexOf('/');
+  return separator > -1 ? repository.substring(0, separator) : repository;
 }
 
 /**
- * Get user-defined blocked repositories from configuration
- * @returns {Promise<Array>} List of user blocked repositories
+ * The blocklist, as typed entries.
+ *
+ * `blocklist.json` states what each entry refuses - an application hash, an
+ * application name, an owner, an image or a namespace - so an entry is compared
+ * against exactly one field. `blockedrepositories.json` cannot: there an entry is
+ * a bare string tested against all of them, so `grafana` refuses both the
+ * application called grafana and every image under the grafana namespace, and
+ * whoever wrote it had no way to say which was meant.
+ *
+ * The flat document is the fallback, and its entries keep that older meaning -
+ * they are marked `legacy` rather than guessed at, because guessing a kind is the
+ * ambiguity this reader exists to remove.
+ *
+ * Null means the list could not be obtained from either document. That is not
+ * "nothing is blocked": callers refuse or defer on it.
+ * @returns {Array<{kind: string, value: string}>|null}
  */
-async function getUserBlockedRepositores() {
-  try {
-    if (cacheUserBlockedRepos) {
-      return cacheUserBlockedRepos;
+function getBlocklist() {
+  // PRECEDENCE, NOT A COMBINE. The typed document wins outright when it is usable, and
+  // the flat one is then never read; otherwise the flat one decides alone, its bare
+  // strings marked `legacy` rather than guessed at, because guessing a kind is the
+  // ambiguity this reader exists to remove.
+  //
+  // Usable means every element is a typed entry. An EMPTY typed document is usable and
+  // returns [] - from a signed bundle that genuinely means "published, and nothing is
+  // blocked". The fetch version fell through on empty, which was right for a fetch: a
+  // 200 carrying [] from a host that does not have the file must not silently skip the
+  // flat list. A bundle cannot be uncertain in that way.
+  //
+  // A MALFORMED typed document refuses rather than falling through, for the same reason
+  // in reverse. The fetch version fell through because the ways a fetch lies - a CDN
+  // serving 404-as-200, an error page with a 200 - are indistinguishable from an absent
+  // document. Neither is reachable through signature-verified bytes: a document of the
+  // wrong shape inside a validly signed bundle means the bundle is internally
+  // inconsistent, and that is exactly when refusing beats guessing. Suite 1501 asserts
+  // the same rule from the other end.
+  //
+  // Null means "could not ask", never "nothing is blocked", and callers refuse or defer
+  // on it.
+  const typed = policyStore.getDocument('blocklist');
+  if (typed !== null && typed !== undefined) {
+    if (!Array.isArray(typed)) return null;
+    if (typed.every((entry) => entry && typeof entry.kind === 'string' && typeof entry.value === 'string')) {
+      return typed;
     }
+    return null;
+  }
 
-    const { userconfig } = globalThis;
-    const userBlockedRepos = userconfig.initial.blockedRepositories || [];
-    if (userBlockedRepos.length === 0) {
-      return userBlockedRepos;
-    }
-    const usableUserBlockedRepos = [];
-    const marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
-    const response = await axios.get(marketPlaceUrl);
-    console.log(response);
-    if (response && response.data && response.data.status === 'success') {
-      const visibleApps = response.data.data.filter((val) => val.visible);
-      for (let i = 0; i < userBlockedRepos.length; i += 1) {
-        const userRepo = userBlockedRepos[i];
-        userRepo.substring(0, userRepo.lastIndexOf(':') > -1 ? userRepo.lastIndexOf(':') : userRepo.length);
-        const exist = visibleApps.find((app) => app.compose.find((compose) => compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length).toLowerCase() === userRepo.toLowerCase()));
-        if (!exist) {
-          usableUserBlockedRepos.push(userRepo);
-        } else {
-          log.info(`${userRepo} is part of marketplace offer and despite being on blockedRepositories it will not be take in consideration`);
-        }
+  const repos = getBlockedRepositores();
+  if (!Array.isArray(repos)) return null;
+  return repos.map((value) => ({ kind: 'legacy', value }));
+}
+
+/**
+ * Why this application is blocked, or null.
+ *
+ * `images` may be null, which asks only the questions that need no components:
+ * an application's name, owner and hash are plaintext on the stored record, so
+ * they can be answered for an application whose specification cannot be read.
+ * @param {Array<{kind: string, value: string}>} entries From getBlocklist
+ * @param {{name: string, owner: string, hash: string, images: string[]|null}} subject
+ * @returns {string|null}
+ */
+function blockedReasonFor(entries, subject) {
+  const repositories = (subject.images ?? []).map(repositoryOf);
+  const namespaces = repositories.map(namespaceOf);
+
+  const matchedImage = (value) => repositories.find((repository) => repository === value);
+  const matchedNamespace = (value) => namespaces.find((namespace) => namespace === value);
+
+  // One entry's verdict. Named rather than inlined so the loop below can stop at
+  // the first refusal: a subject is refused for ONE stated reason, and the entries
+  // after it decide nothing.
+  const reasonFor = (entry) => {
+    const { value } = entry;
+    switch (entry.kind) {
+      case 'hash':
+        return subject.hash && value === subject.hash ? `${value} is not allowed to be spawned` : null;
+      case 'name':
+        return subject.name && value === subject.name ? `Application ${value} is not allowed to run` : null;
+      case 'owner':
+        return subject.owner && value === subject.owner ? `${value} is not allowed to run applications` : null;
+      case 'image':
+        return matchedImage(value) ? `Image ${value} is blocked. Application ${subject.name} cannot be spawned.` : null;
+      case 'org':
+        return matchedNamespace(value) ? `Organisation ${value} is blocked. Application ${subject.name} cannot be spawned.` : null;
+      case 'legacy': {
+        // One string against four fields, which is what the flat document means
+        // and the reason the typed one exists. Order follows the reader it
+        // replaces, so a legacy entry refuses for the same stated reason it
+        // always did.
+        const pure = repositoryOf(value);
+        if (subject.hash && pure === subject.hash) return `${pure} is not allowed to be spawned`;
+        if (subject.owner && pure === subject.owner) return `${pure} is not allowed to run applications`;
+        if (matchedImage(pure)) return `Image ${pure} is blocked. Application ${subject.name} cannot be spawned.`;
+        if (matchedNamespace(pure)) return `Organisation ${pure} is blocked. Application ${subject.name} cannot be spawned.`;
+        return null;
       }
-      cacheUserBlockedRepos = usableUserBlockedRepos;
-      return cacheUserBlockedRepos;
+      default:
+        // A kind this release does not know refuses nothing. A newer document can
+        // then ship before the reader that understands it, which is how the
+        // signed bundle is designed to roll out.
+        return null;
     }
-    return [];
-  } catch (error) {
-    log.error(error);
-    return [];
+  };
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const entry of entries) {
+    const reason = reasonFor(entry);
+    if (reason) return reason;
   }
+  return null;
+}
+
+/**
+ * The repositories an application's components run, or null when they cannot be
+ * read - an enterprise specification carries them inside its encrypted blob.
+ * @param {object} appSpecs
+ * @returns {string[]|null}
+ */
+function imagesOf(appSpecs) {
+  if (appSpecs.version <= 3) {
+    return appSpecs.repotag ? [appSpecs.repotag] : null;
+  }
+  if (!Array.isArray(appSpecs.compose) || !appSpecs.compose.length) return null;
+  return appSpecs.compose.map((component) => component.repotag).filter((repotag) => repotag);
 }
 
 /**
@@ -418,161 +434,33 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
  * @returns {Promise<boolean>} True if images are compliant
  */
 async function checkApplicationImagesCompliance(appSpecs) {
-  const repos = await getBlockedRepositores();
-  const userBlockedRepos = await getUserBlockedRepositores();
+  const entries = getBlocklist();
 
-  if (!repos) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  if (!entries) {
+    // AN INVARIANT, NOT A CONDITION TO HANDLE. Every caller holds its work shut until the
+    // node has policy - the spawner before acquiring, the validator before answering a live
+    // submission, the installer before pulling - so reaching here means one of them asked
+    // without checking, which is a wiring fault rather than a node that is still catching up.
+    //
+    // Named for that. The message said the node could not reach Flux Services, which was
+    // never what this was: the node had spoken to nobody and did not need to, it simply had
+    // no blocklist yet. A caller cannot act on a diagnosis of the wrong thing, and one of
+    // them used to tell the two apart by comparing this sentence.
+    throw new Error('checkApplicationImagesCompliance called before network policy was obtained');
   }
 
-  const pureImagesOrOrganisationsRepos = [];
-  repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
+  const repotags = imagesOf(appSpecs);
+  const networkReason = blockedReasonFor(entries, {
+    name: appSpecs.name,
+    owner: appSpecs.owner,
+    hash: appSpecs.hash,
+    images: repotags,
   });
-
-  // userBlockedRepos handling will be done separately below
-
-  // Check if app hash is blocked
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
-  }
-
-  // Check if app owner is blocked
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
-  }
-
-  const images = [];
-  const organisations = [];
-
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-
-  images.forEach((image) => {
-    if (pureImagesOrOrganisationsRepos.includes(image)) {
-      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`);
-    }
-  });
-  organisations.forEach((org) => {
-    if (pureImagesOrOrganisationsRepos.includes(org)) {
-      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`);
-    }
-  });
-  // Check if app is vetted - vetted apps bypass user blocks
-  const appIsVetted = await isAppVetted(appSpecs);
-  if (appIsVetted) {
-    log.info(`Application ${appSpecs.name} is vetted. Bypassing user-blocked repositories check.`);
-  }
-
-  if (userBlockedRepos && !appIsVetted) {
-    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    organisations.forEach((org) => {
-      if (userBlockedRepos.includes(org.toLowerCase())) {
-        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
-      }
-    });
-    images.forEach((image) => {
-      if (userBlockedRepos.includes(image.toLowerCase())) {
-        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
-      }
-    });
+  if (networkReason) {
+    throw new Error(networkReason);
   }
 
   return true;
-}
-
-/**
- * Check if application images are blocked (non-throwing version)
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} True if blocked
- */
-async function checkApplicationImagesBlocked(appSpecs) {
-  const repos = await getBlockedRepositores();
-  const userBlockedRepos = await getUserBlockedRepositores();
-  let isBlocked = false;
-  if (!repos && !userBlockedRepos) {
-    return isBlocked;
-  }
-  const images = [];
-  const organisations = [];
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-  if (repos) {
-    // Check if app hash or owner is directly in the blocked repositories list
-    if (repos.includes(appSpecs.hash)) {
-      return `${appSpecs.hash} is not allowed to be spawned`;
-    }
-    if (repos.includes(appSpecs.owner)) {
-      return `${appSpecs.owner} is not allowed to run applications`;
-    }
-
-    const pureImagesOrOrganisationsRepos = [];
-    repos.forEach((repo) => {
-      pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-    });
-
-    // blacklist works also for zelid and app hash (check processed list too)
-    if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-      return `${appSpecs.hash} is not allowed to be spawned`;
-    }
-    if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-      return `${appSpecs.owner} is not allowed to run applications`;
-    }
-
-    images.forEach((image) => {
-      if (pureImagesOrOrganisationsRepos.includes(image)) {
-        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`;
-      }
-    });
-    organisations.forEach((org) => {
-      if (pureImagesOrOrganisationsRepos.includes(org)) {
-        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`;
-      }
-    });
-  }
-
-  // Check if app is vetted - vetted apps bypass user blocks
-  const appIsVetted = await isAppVetted(appSpecs);
-
-  if (!isBlocked && userBlockedRepos && !appIsVetted) {
-    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    organisations.forEach((org) => {
-      if (userBlockedRepos.includes(org.toLowerCase())) {
-        isBlocked = `Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
-      }
-    });
-    if (!isBlocked) {
-      images.forEach((image) => {
-        if (userBlockedRepos.includes(image.toLowerCase())) {
-          isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
-        }
-      });
-    }
-  }
-
-  return isBlocked;
 }
 
 /**
@@ -617,60 +505,502 @@ async function checkDockerAccessibility(req, res) {
 }
 
 /**
- * Check applications compliance and remove blacklisted apps
- * @param {Function} installedApps - Function to get installed apps
- * @param {Function} removeAppLocally - Function to remove app locally
- * @returns {Promise<void>}
+ * The node's compliance sweeper: what removes an application the network's blocklist
+ * names, once it is already installed.
+ *
+ * EVERY OTHER PATH GATES ON THE WAY IN. The spawner will not acquire a blocked
+ * application, the validator will not answer for one and the installer will not pull
+ * it - so this exists for the case none of them can answer: an application that was
+ * permitted when it was installed and is not any more.
+ *
+ * ONE OBJECT HOLDING ITS OWN STATE. The set of applications still owed a pass, the
+ * pass in flight, and the two timers are one another's invariants - what may be
+ * dropped from the held set depends on what the pass in flight has reached. As file
+ * scope they were reachable from two entry points that disagreed about them, and a
+ * test could only get a clean one by deleting the module from the require cache.
+ *
+ * WHAT IT DEPENDS ON IS PASSED IN, including the clock and the knobs. A pass is
+ * entirely about timing - when it starts, how long it holds itself open, when it
+ * asks again - so a test that cannot control time can only assert the parts that are
+ * not the point.
+ *
+ * @param {object} deps
+ * @param {Function} deps.installedApps Whole table with no argument, one row with a name
+ * @param {Function} deps.removeAppLocally Answers a RemovalOutcome
+ * @param {Function} [deps.blocklist] The typed blocklist, or null when it cannot be read
+ * @param {Function} [deps.decryptApps] Splits installed apps into readable and unreadable
+ * @param {object} [deps.policy] Carries policyReady and waitForPolicyReady
+ * @param {object} [deps.bundle] Carries onBundleChanged
+ * @param {object} [deps.knobs] Read once: the sweeper's timings do not change under it
+ * @param {object} [deps.timers] set and clear, for a test that owns time
+ * @param {Function} [deps.wait] Holds the pass open between removals
+ * @returns {{runPass: Function, request: Function, start: Function, stop: Function}}
  */
-async function checkApplicationsCompliance(installedApps, removeAppLocally) {
-  try {
-    // get list of locally installed apps.
-    const installedAppsRes = await installedApps();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
+function createComplianceSweeper({
+  installedApps,
+  removeAppLocally,
+  blocklist = getBlocklist,
+  decryptApps = decryptEnterpriseApps,
+  policy = globalState,
+  bundle = policyStore,
+  knobs = config.fluxapps,
+  timers = { set: setTimeout, clear: clearTimeout },
+  wait = serviceHelper.delay,
+} = {}) {
+  const {
+    complianceSweepStaggerMs: staggerMs,
+    complianceRemovalSpacingMs: spacingMs,
+    complianceRetryBaseMs: retryBaseMs,
+    complianceRetryMaxMs: retryMaxMs,
+  } = knobs;
+
+  // Applications this node still owes a pass, by name, and why it owes them.
+  //
+  //   deferred    an enterprise specification that did not decrypt, so its images were
+  //               never judged. Nothing announces that it has become readable.
+  //   busy        the node was installing or removing something else, so the removal
+  //               was refused. It says nothing about the application.
+  //   failed      the removal was attempted and did not complete.
+  //   unread      the stored record could not be read, so nothing was established
+  //               about the application either way.
+  //   unexamined  a pass stopped before reaching it.
+  //
+  // None of these has an event to wait on. Everything else this acts on does: the
+  // bundle changing, the gate opening, and the install and redeploy paths that judge an
+  // application before its record is ever written.
+  const owed = new Map();
+  // Whether what is owed is the whole node rather than named applications. A pass that
+  // stopped before it classified anything knows no names to owe, and the applications
+  // it never looked at are owed a pass all the same.
+  let owedWholeNode = false;
+
+  let inFlight = null;
+  let again = false;
+  let staggerTimer = null;
+  let retryTimer = null;
+  let retryDelayMs = retryBaseMs;
+  // What was owed the last time a wait was set, to compare the next one against. The
+  // whole node is not a list of names and never compares equal to one.
+  const EVERYTHING = Symbol('every installed application');
+  let owedWhenLastArmed = null;
+
+  /** Hold one application for a later pass. */
+  function hold(appName, reason) {
+    owed.set(appName, reason);
+  }
+
+  /** Hold the whole node, for a pass that stopped before it could name anything. */
+  function holdEverything() {
+    owedWholeNode = true;
+  }
+
+  /** What is owed, in a form two passes can be compared by. Null when nothing is. */
+  function owedNow() {
+    if (owedWholeNode) return EVERYTHING;
+    return owed.size ? [...owed.keys()].sort().join(' ') : null;
+  }
+
+  /**
+   * Set the wait for what is owed now, replacing one armed for anything else.
+   *
+   * SELF-CANCELLING: the timer exists for what is owed and ends with it, so a node
+   * owing nothing runs no timer. Decided once a pass is over, never while one runs - a
+   * pass spaces its removals over minutes and holds applications as it goes, so a timer
+   * armed at the moment of holding fires inside the pass that armed it.
+   */
+  function armRetry() {
+    // THE WAIT BELONGS TO A DEBT, and every pass decides it against the debt it ends
+    // with: one already running was armed for what was owed then, which is not always
+    // what is owed now. It doubles for as long as the same thing is owed and starts
+    // again when that changes - a node that resolved something has shown it can, and
+    // what is left of a debt that is moving is worth asking about sooner than one that
+    // is not. A debt discharged and owed again changed twice, so it is asked about at
+    // the base rate however long it was stuck before.
+    //
+    // Asked of the debt rather than of the act that recorded it, because the retry path
+    // clears what it is about to re-ask before the pass runs - a rule written at the
+    // point of holding reads that as a debt this node has never carried.
+    const owing = owedNow();
+    if (retryTimer && owing === owedWhenLastArmed) return;
+    if (retryTimer) timers.clear(retryTimer);
+    retryTimer = null;
+    const unchanged = owing !== null && owing === owedWhenLastArmed;
+    owedWhenLastArmed = owing;
+    if (owing === null) {
+      retryDelayMs = retryBaseMs;
+      return;
     }
-    // Decrypt enterprise apps (version 8 with encrypted content)
-    const { readable: appsInstalled, unreadable } = await decryptEnterpriseApps(installedAppsRes.data);
-    if (unreadable.length) {
-      // their repotags are inside the blob, so a blocked image in one cannot be
-      // seen here - it is not cleared, it is unexamined
-      log.warn(`Cannot check blocked images for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
+    retryDelayMs = unchanged ? Math.min(retryDelayMs * 2, retryMaxMs) : retryBaseMs;
+    const delayMs = retryDelayMs;
+    retryTimer = timers.set(() => {
+      retryTimer = null;
+      const wholeNode = owedWholeNode;
+      owedWholeNode = false;
+      const scope = wholeNode ? null : new Set(owed.keys());
+      if (!wholeNode && !scope.size) return;
+      log.info(`Asking again about ${wholeNode ? 'every installed application' : [...owed].map(([name, why]) => `${name} (${why})`).join(', ')}`);
+      // Returned, not discarded: setTimeout ignores it, and a scheduler that drives this
+      // deliberately - a test owning the clock - can wait for the pass it just started
+      // rather than guess at how many turns of the queue it takes to finish.
+      return request(scope);
+    }, delayMs);
+    if (retryTimer && retryTimer.unref) retryTimer.unref();
+  }
+
+  /**
+   * The application as the node holds it NOW, judged on the fields that are plaintext
+   * on the stored record.
+   *
+   * A pass spaces its removals, so minutes separate the decision from the act. The
+   * record can move in between - a redeploy onto a different image, a specification
+   * update - and a verdict reached against the old one is a verdict about an
+   * application this node is no longer running.
+   *
+   * Images are the one field this cannot re-derive: reading them means decrypting an
+   * enterprise specification, which is the work the pass already did. They are carried
+   * forward only while the record they came from is unchanged, and dropped the moment
+   * its hash moves - a redeployed application is judged on what can still be read of
+   * it, and the next pass judges the rest.
+   *
+   * TWO FACTS, TWO FIELDS. A record that could not be read and a record that says the
+   * node does not hold it are different answers, and the second one ends a blocked
+   * application's claim on this pass. One value for both leaves a caller to guess.
+   *
+   * @returns {Promise<{answered: boolean, subject: object|null}>} answered is false when
+   *   the record could not be read, which carries no claim about the application. A null
+   *   subject is the record answering that the node does not hold it.
+   */
+  async function subjectNow(appName, decided) {
+    const installedAppsRes = await installedApps(appName).catch(() => null);
+    if (!installedAppsRes || installedAppsRes.status !== 'success' || !Array.isArray(installedAppsRes.data)) {
+      return { answered: false, subject: null };
     }
-    const appsToRemoveNames = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of appsInstalled) {
-      // eslint-disable-next-line no-await-in-loop
-      const isAppBlocked = await checkApplicationImagesBlocked(app);
-      if (isAppBlocked) {
-        if (!appsToRemoveNames.includes(app.name)) {
-          appsToRemoveNames.push(app.name);
+    const row = installedAppsRes.data.find((app) => app.name === appName);
+    if (!row) return { answered: true, subject: null };
+    return {
+      answered: true,
+      subject: {
+        name: row.name,
+        owner: row.owner,
+        hash: row.hash,
+        images: row.hash === decided.hash ? decided.images : imagesOf(row),
+      },
+    };
+  }
+
+  /**
+   * One pass: judge what the node holds and remove what the network refuses.
+   *
+   * @param {Set<string>} [scope] Only these applications. Every installed one when absent.
+   * @returns {Promise<void>}
+   */
+  async function runPass(scope = null) {
+    try {
+      // THE LIST THIS ACTS ON HAS TO BE THE NETWORK'S, not whatever this node last held.
+      // A bundle restored from disk answers the blocklist without anything having
+      // established that it is still current, so a ban lifted while this node was down
+      // still reads as a ban - and what follows is an uninstall, broadcast to the
+      // network, of an application that is now permitted.
+      //
+      // The same bar every other judgement is held to: the spawner will not acquire, the
+      // validator will not answer a live submission and the installer will not pull while
+      // this is shut. Removing an application is the most destructive of the four.
+      if (!policy.policyReady) {
+        log.info('Network policy not confirmed; leaving installed applications as they are this pass');
+        holdEverything();
+        return;
+      }
+      // A MESSAGE ENVELOPE, not rows: a status, and the applications under it.
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        holdEverything();
+        throw new Error('Failed to get installed Apps');
+      }
+      const entries = blocklist();
+      if (!entries) {
+        // Removing on this would tear down every application on the node the first time
+        // the document was unreadable.
+        log.warn('Blocklist unavailable; leaving installed applications as they are this pass');
+        holdEverything();
+        return;
+      }
+
+      const subjects = scope
+        ? installedAppsRes.data.filter((app) => scope.has(app.name))
+        : installedAppsRes.data;
+      // AN APPLICATION THE NODE NO LONGER HOLDS HAS NOTHING LEFT TO ANSWER FOR, whether
+      // this pass is about it or not: owing it buys a wakeup and a pass for something
+      // that is gone. Asked of the whole table, which every pass reads, rather than of
+      // the few names a scoped one narrows to.
+      const installed = new Set(installedAppsRes.data.map((app) => app.name));
+      [...owed.keys()].forEach((name) => { if (!installed.has(name)) owed.delete(name); });
+
+      const toRemove = new Map();
+
+      // Name, owner and hash are plaintext on the stored record, so a ban on any of them
+      // is answered for every installed application - including one whose specification
+      // this node cannot decrypt. They are asked before the decrypt for exactly that
+      // reason: an application dropped from the readable set must still be judged on
+      // what it is.
+      subjects.forEach((app) => {
+        const subject = {
+          name: app.name, owner: app.owner, hash: app.hash, images: null,
+        };
+        const reason = blockedReasonFor(entries, subject);
+        if (reason) toRemove.set(app.name, { reason, subject });
+      });
+
+      // Images are the part that genuinely needs the specification: an enterprise
+      // application carries its components inside the encrypted blob. One that cannot be
+      // read is owed a later pass, and says so - it is not cleared.
+      const { readable, unreadable } = await decryptApps(subjects);
+      if (unreadable.length) {
+        log.warn(`Cannot check blocked images for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
+      }
+      unreadable.forEach((app) => {
+        if (toRemove.has(app.name)) return;
+        hold(app.name, 'deferred');
+      });
+      readable.forEach((app) => {
+        if (toRemove.has(app.name)) return;
+        const subject = {
+          name: app.name, owner: app.owner, hash: app.hash, images: imagesOf(app),
+        };
+        const reason = blockedReasonFor(entries, subject);
+        if (reason) {
+          toRemove.set(app.name, { reason, subject });
+          return;
+        }
+        // Read, and answered on every field, with nothing owed. An application that IS
+        // blocked is answered for by its removal and not before.
+        owed.delete(app.name);
+      });
+
+      const removals = [...toRemove.entries()];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [index, [appName, decided]] of removals.entries()) {
+        // ASKED AGAIN FOR EACH ONE, against the list as it stands now and the record as
+        // it stands now. Spacing holds a pass open for minutes and neither half of what
+        // it decided at the top survives that: an entry lifted while the pass ran would
+        // otherwise still be acted on, and an application redeployed onto a different
+        // image would be judged on the one it no longer runs.
+        //
+        // WHAT IT COULD NOT ASK IS OWED, never assumed either way. A pass that stops
+        // here leaves the applications after this one unexamined.
+        if (!policy.policyReady) {
+          log.warn('Network policy no longer confirmed; ending this pass');
+          removals.slice(index).forEach(([name]) => hold(name, 'unexamined'));
+          return;
+        }
+        const current = blocklist();
+        if (!current) {
+          log.warn('Blocklist no longer available; ending this pass');
+          removals.slice(index).forEach(([name]) => hold(name, 'unexamined'));
+          return;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        const { answered, subject } = await subjectNow(appName, decided.subject);
+        if (!answered) {
+          // A RECORD THAT DID NOT ANSWER IS NOT A RECORD SAYING THE APPLICATION IS GONE.
+          // Taken as gone, a blocked application is struck off with nothing coming back
+          // for it.
+          log.warn(`Could not read the record for ${appName}; asking again`);
+          hold(appName, 'unread');
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        if (!subject) {
+          // The node no longer holds it, so there is nothing left to refuse.
+          owed.delete(appName);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const reason = blockedReasonFor(current, subject);
+        if (!reason) {
+          log.info(`Application ${appName} is no longer blocked, leaving it installed`);
+          owed.delete(appName);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        log.warn(`Application ${appName} is blacklisted, removing`);
+        log.warn(`REMOVAL REASON: Blocked by network policy - ${reason} (imageManager)`);
+        // eslint-disable-next-line no-await-in-loop
+        const outcome = await removeAppLocally(appName, null, false, true, true);
+        if (outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED) {
+          owed.delete(appName);
+        } else {
+          // BUSY says nothing about the application - the node was doing something else -
+          // and FAILED says it may still be here. Neither is a removal, and reading
+          // either as one leaves a blocked application running with nothing coming back
+          // for it.
+          log.warn(`Application ${appName} was not removed (${outcome}); asking again`);
+          hold(appName, outcome === RemovalOutcome.BUSY ? 'busy' : 'failed');
+        }
+        if (index < removals.length - 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await wait(spacingMs);
         }
       }
+    } catch (error) {
+      // EVERY WAY OUT OF A PASS OWES WHAT IT DID NOT JUDGE, this one included. What
+      // threw is not known to have been reached, let alone answered for, and a pass
+      // that leaves nothing owed arms no timer: the applications it never judged would
+      // wait for the next bundle change.
+      holdEverything();
+      log.error(error);
     }
-    // remove appsToRemoveNames apps from locally running
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appName of appsToRemoveNames) {
-      log.warn(`Application ${appName} is blacklisted, removing`);
-      log.warn(`REMOVAL REASON: Blacklisted image - ${appName} uses a blacklisted Docker image (imageManager)`);
-      // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName, null, false, true, true);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
-    }
-  } catch (error) {
-    log.error(error);
   }
+
+  /**
+   * Run a pass, and once more if anything asked for one while it ran.
+   *
+   * COALESCED RATHER THAN QUEUED. A pass is a function of the blocklist this node holds
+   * now, so requests arriving during one are all answered by a single further pass - a
+   * queue of them would each re-read the same final state and walk the whole local app
+   * table again. A scoped request coalesces into a full pass rather than narrowing it:
+   * the full pass answers everything the scoped one would have.
+   *
+   * @param {Set<string>} [scope] Only these applications. Every installed one when absent.
+   * @returns {Promise<void>} The run in progress, so a caller can wait for it.
+   */
+  function request(scope = null) {
+    if (inFlight) {
+      again = true;
+      return inFlight;
+    }
+    let mine = null;
+    mine = (async () => {
+      let next = scope;
+      do {
+        // Cleared BEFORE the pass, so a request arriving during it is not read as one
+        // this pass already accounted for.
+        again = false;
+        // eslint-disable-next-line no-await-in-loop
+        await runPass(next);
+        // Whatever asked for another pass did not say which applications it was about,
+        // so the pass it gets is the whole node.
+        next = null;
+      } while (again);
+      armRetry();
+    })().finally(() => { if (inFlight === mine) inFlight = null; });
+    inFlight = mine;
+    return mine;
+  }
+
+  /**
+   * Sweep whenever the policy this node enforces changes.
+   *
+   * TWO TRIGGERS, BECAUSE NEITHER COVERS THE OTHER. The gate opening is what makes the
+   * blocklist safe to act on at all, and it opens without the bundle changing - a node
+   * confirmed by its peers holds exactly what it restored. A bundle changing is what
+   * makes an already-safe blocklist say something different, and that happens for the
+   * rest of the node's life.
+   *
+   * BOTH ARE STAGGERED, because adopting a bundle fires both: policyStore.adopt opens
+   * the gate before it announces, and the gate drains its waiters synchronously, so an
+   * unstaggered gate trigger would run first and put the whole fleet's removals - and
+   * the broadcast of each one - into the same instant.
+   *
+   * NOTHING WAITS ON THIS. It uninstalls applications, so it runs only on policy this
+   * node has established is the network's, which may be a long time coming.
+   *
+   * @returns {Function} Ends the subscription.
+   */
+  function start() {
+    const stagger = () => {
+      // One is enough: a pass that has not started yet already reads whatever arrives
+      // before it does.
+      if (staggerTimer) return;
+      staggerTimer = timers.set(() => {
+        staggerTimer = null;
+        return request();
+      }, Math.floor(Math.random() * staggerMs));
+      if (staggerTimer && staggerTimer.unref) staggerTimer.unref();
+    };
+    const unsubscribe = bundle.onBundleChanged(() => {
+      // A bundle this node may not act on yet changes nothing it may do. The gate
+      // opening carries its own trigger.
+      if (!policy.policyReady) return;
+      stagger();
+    });
+    policy.waitForPolicyReady().then(stagger);
+    return unsubscribe;
+  }
+
+  /**
+   * Drop the timers and everything owed.
+   *
+   * A pass already running is not cancellable - it is awaiting a removal - so it is
+   * disowned rather than stopped: its handle is dropped, and it can no longer clear the
+   * handle of whatever starts next.
+   */
+  function stop() {
+    if (staggerTimer) timers.clear(staggerTimer);
+    if (retryTimer) timers.clear(retryTimer);
+    staggerTimer = null;
+    retryTimer = null;
+    retryDelayMs = retryBaseMs;
+    owedWhenLastArmed = null;
+    owedWholeNode = false;
+    inFlight = null;
+    again = false;
+    owed.clear();
+  }
+
+  return {
+    runPass, request, start, stop,
+  };
+}
+
+// The sweeper this node is running. A module-level reference rather than module-level
+// state: one object, created at boot, that the redeploy path can ask for a scoped pass
+// without building a second one over the same node.
+let activeSweeper = null;
+
+/**
+ * Start the node's compliance sweeper. Called once, at boot.
+ * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} removeAppLocally - Function to remove app locally
+ * @returns {Function} Ends the subscription.
+ */
+function startComplianceSweeps(installedApps, removeAppLocally) {
+  activeSweeper = createComplianceSweeper({ installedApps, removeAppLocally });
+  return activeSweeper.start();
+}
+
+/**
+ * Ask the running sweeper for a pass. Does nothing before boot has started one - there
+ * is no node state to act on, and building a sweeper here would make a second one.
+ * @param {Set<string>} [scope] Only these applications
+ * @returns {Promise<void>}
+ */
+function requestComplianceSweep(scope = null) {
+  if (!activeSweeper) return Promise.resolve();
+  return activeSweeper.request(scope);
+}
+
+/**
+ * One pass, now, with nothing scheduled. For a caller that wants the judgement without
+ * the sweeper that repeats it.
+ * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} removeAppLocally - Function to remove app locally
+ * @param {Set<string>} [scope] Only these applications
+ * @returns {Promise<void>}
+ */
+function checkApplicationsCompliance(installedApps, removeAppLocally, scope = null) {
+  return createComplianceSweeper({ installedApps, removeAppLocally }).runPass(scope);
 }
 
 module.exports = {
   verifyRepository,
   getBlockedRepositores,
-  getUserBlockedRepositores,
-  getVettedRepositories,
-  isAppVetted,
+  getBlocklist,
+  blockedReasonFor,
   checkAppSecrets,
   checkApplicationImagesCompliance,
-  checkApplicationImagesBlocked,
   checkDockerAccessibility,
   checkApplicationsCompliance,
+  createComplianceSweeper,
+  requestComplianceSweep,
+  startComplianceSweeps,
 };

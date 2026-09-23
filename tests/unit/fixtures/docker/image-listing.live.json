@@ -1,0 +1,19 @@
+{
+  "Containers": -1,
+  "Created": 1701569081,
+  "Id": "sha256:9762ba21a55bfb1cd28aab565306b6a75b6273e7208aa0776a9969a59cbb413a",
+  "Labels": {
+    "org.opencontainers.image.ref.name": "ubuntu",
+    "org.opencontainers.image.version": "22.04"
+  },
+  "ParentId": "",
+  "RepoDigests": [
+    "runonflux/website@sha256:192c894b942b5e73b70fdcdf72988083097499715d5a4e26935d51f0587b3c7d"
+  ],
+  "RepoTags": [
+    "runonflux/website:latest"
+  ],
+  "SharedSize": -1,
+  "Size": 447037019,
+  "VirtualSize": 447037019
+}

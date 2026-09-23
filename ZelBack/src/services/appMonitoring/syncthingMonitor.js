@@ -24,17 +24,19 @@ const {
 const { createMonitorAccelerator } = require('./syncthingMonitorAccelerator');
 const { createPeerFolderLiveness } = require('./peerFolderLiveness');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+const mountParser = require('../utils/mountParser');
 const {
   sortAndFilterLocations,
   buildDeviceConfiguration,
   createSyncthingFolderConfig,
   ensureStfolderExists,
-  ensureStignoreCovers,
   getContainerDataFlags,
   requiresSyncing,
   folderNeedsUpdate,
 } = require('./syncthingMonitorHelpers');
+const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const volumeService = require('../utils/volumeService');
+const appTamperingDetectionService = require('../appTamperingDetectionService');
 const appReconciler = require('./appReconciler');
 const {
   manageFolderSyncState,
@@ -70,16 +72,27 @@ const appsFolder = `${appsFolderPath}/`;
  * @param {string} appId - Docker app identifier
  * @param {string} appFolder - App folder path
  * @param {boolean} sending - Whether syncthing currently holds this folder sendreceive
+ * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
  * @returns {Promise<{isSafe: boolean, reason: string}>} Result after any repair
  */
-async function verifyAppFolderMountWithRepair(appId, appFolder, sending) {
+async function verifyAppFolderMountWithRepair(appId, appFolder, sending, unsyncedSubdirs = []) {
   const verify = sending ? verifySendReceiveFolderSafety : verifyFolderMountSafety;
-  let mountSafety = await verify(appId, appFolder);
+  let mountSafety = await verify(appId, appFolder, unsyncedSubdirs);
   if (!mountSafety.isSafe && !mountSafety.isMounted) {
     const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
     if (mountAttempt.mounted) {
+      // This pass replaces the record when it mounts from somewhere other than
+      // where the record puts it, so a later one cannot re-derive the fact -
+      // it has to be recorded by whichever pass mounted.
+      if (mountAttempt.imageMoved) {
+        await appTamperingDetectionService.recordEvent(
+          appId,
+          'volume_image_moved',
+          `Volume image for ${appId} was found somewhere other than where this node recorded it`,
+        );
+      }
       log.info(`checkAppFolderMounts - ${appId} volume was not mounted; mounted it`);
-      mountSafety = await verify(appId, appFolder);
+      mountSafety = await verify(appId, appFolder, unsyncedSubdirs);
     }
   }
   return mountSafety;
@@ -121,9 +134,9 @@ async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolder
   const unmountedApps = [];
   const verifiedSafeIds = [];
 
-  const verifyOne = async (appId, appName) => {
+  const verifyOne = async (appId, appName, unsyncedSubdirs = []) => {
     const appFolder = `${appsFolder}${appId}`;
-    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder, sendingFolderIds.has(appId));
+    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder, sendingFolderIds.has(appId), unsyncedSubdirs);
     if (mountSafety.isSafe) {
       verifiedSafeIds.push(appId);
     } else {
@@ -135,14 +148,16 @@ async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolder
   // eslint-disable-next-line no-restricted-syntax
   for (const installedApp of appsInstalled) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const { appId } of appComponents(installedApp)) {
+    for (const { appId, containerData } of appComponents(installedApp)) {
       // eslint-disable-next-line no-await-in-loop
-      await verifyOne(appId, installedApp.name);
+      await verifyOne(appId, installedApp.name, mountParser.getUnsyncedSubdirs(containerData));
     }
   }
 
   // The verdict derives entirely from the folder id, so a folder whose owning
-  // app cannot be read this pass is verified all the same.
+  // app cannot be read this pass is verified all the same - without the
+  // specification that says which directories are unsynced, so each of those counts
+  // as the owner's data and the phantom check can only be more reluctant to fire.
   // eslint-disable-next-line no-restricted-syntax
   for (const { appId, appName } of extraFolders) {
     // eslint-disable-next-line no-await-in-loop
@@ -294,7 +309,7 @@ async function processContainerData(params) {
   // the one pass where a fresh install is not yet configured. A converged
   // folder posts nothing and triggers no rescan.
   if (syncFolder) {
-    await ensureStignoreCovers(id);
+    await ensureStignoreCovers(id, mountParser.getUnsyncedSubdirs(containerData));
   }
 
   // Get and process app locations
@@ -322,6 +337,7 @@ async function processContainerData(params) {
       appId,
       syncFolder,
       containerDataFlags: primaryContainerDataFlags,
+      unsyncedSubdirs: mountParser.getUnsyncedSubdirs(containerData),
       syncthingAppsFirstRun: state.syncthingAppsFirstRun,
       receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
       appLocation,
@@ -865,6 +881,12 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       for (const folder of foldersToWrite) {
         if (folder.type === 'sendreceive') globalState.promotedFolderIds.add(folder.id);
         else globalState.promotedFolderIds.delete(folder.id);
+        // What a folder holds that the cluster's index does not is a receive-only
+        // question, and promotion answers it: everything this node holds is now
+        // published. Dropped rather than zeroed - absent is what a peer reads as
+        // "not a receive-only holder", where a figure left behind goes on being
+        // ranked after the folder it described has stopped being one.
+        if (folder.type === 'sendreceive') globalState.folderHoldings?.delete(folder.id);
       }
     }
 

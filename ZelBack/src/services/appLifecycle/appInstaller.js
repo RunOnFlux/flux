@@ -29,6 +29,8 @@ const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const mountParser = require('../utils/mountParser');
+const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
@@ -206,6 +208,14 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
 
+  // POLICY IS A PRECONDITION, as it is at registration. The blocked-repository list lives
+  // in the signed bundle, so a node without one cannot establish that an image is not
+  // banned - and installing on the assumption it is fine is the mistake that cannot be
+  // taken back, because the container is running by the time anything else notices.
+  if (!globalState.policyReady) {
+    throw new Error('Cannot verify application images: network policy not yet obtained.');
+  }
+
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
@@ -365,10 +375,13 @@ async function ensureAppDockerNetwork(appName, res) {
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
- * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
- * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
+ * @param {boolean} sendRemovalMessage whether the teardown broadcasts the removal.
+ *   True wherever this node does not already hold the app: an announcement landing
+ *   during the install claims it, and nothing else takes that claim back before it
+ *   expires. False for a rebuild, whose claim the node is keeping.
+ * @returns {Promise<string>} One of InstallOutcome.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -377,6 +390,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
   // someone else is holding the node, and a refusal must not release their hold
   // on its way out.
   let acquired = false;
+  // Whether this node's local table has named the app during this call. The
+  // announcement is built from that table, so the row is the claim, and the
+  // teardown below has one to take back only once it exists.
+  let claimed = false;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
@@ -385,7 +402,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
@@ -394,10 +411,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
     acquired = true;
+    // A test install holds nothing: it writes the app's row like any other install
+    // and throws it away, so the announcement must not read that row as a claim.
+    if (test) globalState.testInstallingApps.add(appSpecs.name);
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -406,7 +426,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.DECLINED;
     }
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
@@ -463,7 +483,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(rStatus);
         if (res.flush) res.flush();
       }
-      return InstallOutcome.REFUSED;
+      return InstallOutcome.ALREADY_INSTALLED;
     }
 
     // Lazy-load appQueryService to avoid circular dependency issues
@@ -546,6 +566,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         log.warn(`Found existing database entry for ${appSpecifications.name} during registration. Cleaning up stale entry.`);
         await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, cleanupQuery, {});
         log.info(`Stale database entry for ${appSpecifications.name} removed. Proceeding with fresh insert.`);
+        claimed = true;
       }
 
       const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
@@ -553,6 +574,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name}. Database insert returned undefined - likely duplicate key error or database failure. Aborting installation to prevent orphaned Docker containers.`);
       }
       log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
+      claimed = true;
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -670,45 +692,89 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       // true, this teardown's own "was successfuly removed" landed as the last
       // thing the caller saw, and the reinstall failure that caused it was
       // written into a response that had already closed.
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage);
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage && claimed);
       log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
 
     // The app is gone from this node - the teardown above removed it. A caller
     // that reads this as "nothing happened" leaves a half-removed app behind;
-    // one that reads REFUSED as this destroys a running app for a scheduling
+    // one that reads BUSY as this destroys a running app for a scheduling
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
-    // The one place the hold is released, so every way out of this function
-    // releases it. A tier lookup that failed used to return without releasing,
-    // and the node then refused every install, redeploy, spawn and reinstall
-    // pass it was offered until FluxOS restarted.
+    // THE ONE PLACE THE HOLD IS RELEASED, so every way out of this function releases
+    // it - including the early returns above. A path that leaves without releasing
+    // costs the node every install, redeploy, spawn and reinstall pass it is offered
+    // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
-    if (test) {
+    // Bound to the hold: a call that did not take it never wrote the app's row
+    // and never set the mark, so it has neither to take back. The mark is set
+    // under the hold with nothing awaited in between, so holding it is the same
+    // fact as having marked.
+    if (test && acquired) {
       try {
         await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
         log.info(`Test cleanup completed for ${appSpecs.name}`);
       } catch (cleanupError) {
         log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
       }
+      // Released after the teardown, not before: the row is what the announcement
+      // reads, and it exists until the teardown has deleted it.
+      globalState.testInstallingApps.delete(appSpecs.name);
     }
   }
 
-  // Announced with the node already released, which is what the finally above
-  // has just done. checkAndNotifyPeersOfRunningApps leans on
-  // containerHealthMonitor.monitorAndRecoverApps() to force-include syncthing
-  // apps whose components are not all simultaneously "running" at this instant
-  // (e.g. a component mid receive-only resync), and that recovery path bails out
-  // while globalState.isOperationInProgress() is true - so announcing from
-  // inside the hold left the app just installed out of its own announcement.
-  // Below the block rather than ordered by hand inside it, so the release
-  // cannot drift back after it. checkAndNotifyPeersOfRunningApps never throws.
+  // Announced once the finally above has released the install hold: a broadcast
+  // cycle takes as long as it takes, and every other install, removal and redeploy
+  // on this node refuses while the hold is up. Below the block rather than ordered
+  // by hand inside it, so the release cannot drift back after it.
+  // checkAndNotifyPeersOfRunningApps never throws.
   if (!test && onInstallComplete) {
     await onInstallComplete();
     fluxEventBus.publish('app:installed', { name: appSpecs.name, hash: appSpecs.hash });
   }
   return InstallOutcome.INSTALLED;
+}
+
+/**
+ * Register an app on this node, and publish what the attempt did.
+ *
+ * AN ATTEMPT THAT DOES NOT INSTALL IS AS MUCH A RESULT AS ONE THAT DOES. An install
+ * publishes `app:installed`; every other outcome publishes `app:installOutcome` carrying
+ * which one it was. The response stream cannot carry the difference: `already installed` is
+ * an error envelope and `another application is undergoing installation` is a warning in one
+ * place and an error in another, so a waiter reading the wording cannot tell the app being
+ * there from the node being busy.
+ *
+ * The outcomes are published as themselves rather than flattened into a failure, because
+ * they are not the same fact about the node. ALREADY_INSTALLED means the app is there, BUSY
+ * means ask again, DECLINED and FAILED mean it is not - and FAILED alone means this attempt
+ * is what took it away.
+ *
+ * A throw is reported under FAILED: the app is in whatever state the teardown reached, which
+ * is what FAILED means everywhere else.
+ * @param {object} appSpecs App specifications.
+ * @param {object} componentSpecs Component specifications, when one component is being installed.
+ * @param {object} res Response stream, when a caller holds one.
+ * @param {boolean} [test] A test install, torn down again on the way out.
+ * @param {boolean} [sendRemovalMessage] Whether a teardown announces itself.
+ * @returns {Promise<string>} One of InstallOutcome.
+ */
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+  // Published for every outcome but INSTALLED, which has app:installed of its own.
+  const announce = (outcome) => {
+    if (test || outcome === InstallOutcome.INSTALLED) return;
+    fluxEventBus.publish('app:installOutcome', { name: appSpecs?.name, outcome });
+  };
+  let outcome;
+  try {
+    outcome = await attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage);
+  } catch (error) {
+    announce(InstallOutcome.FAILED);
+    throw error;
+  }
+  announce(outcome);
+  return outcome;
 }
 
 /**
@@ -925,6 +991,23 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     if (res.flush) res.flush();
   }
 
+  // A DIRECTORY THE SPECIFICATION DECLARES LOCAL IS NOT CREATED BEFORE THE RULE THAT
+  // KEEPS IT OFF THE NETWORK. This path installs onto a volume that already exists, so
+  // nothing seeds .stignore - that is volume creation's, which only the hard path
+  // reaches. A name this specification adds would be covered by the monitor's next
+  // converge, while syncthing's watcher indexes a new directory within its own delay
+  // and the container is writing into it by then. What replicates in that window stays
+  // on every peer: an ignore stops a file syncing, it does not withdraw one already
+  // sent.
+  //
+  // Asked of the spec, so it costs nothing for a component that declares no such
+  // directory or whose volume is not replicated at all.
+  const unsyncedSubdirs = mountParser.getUnsyncedSubdirs(appSpecifications.containerData);
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  if (unsyncedSubdirs.length && mountParser.getComponentSyncMode(appSpecifications.containerData)) {
+    await ensureStignoreCovers(dockerService.getAppIdentifier(identifier), unsyncedSubdirs);
+  }
+
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
@@ -932,7 +1015,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   // Attach this component to the private network of every app it is linked with
   // so it can reach their components by docker DNS name.
-  const componentContainerName = dockerService.getAppIdentifier(isComponent ? `${appSpecifications.name}_${appName}` : appName);
+  const componentContainerName = dockerService.getAppIdentifier(identifier);
   await appNetworkLinker.connectComponentToLinkedApps(componentContainerName, fullAppSpecs);
 
   const startStatus = {
@@ -1093,7 +1176,9 @@ async function installAppLocally(req, res) {
       await checkAppRequirements(appSpecifications); // entire app
 
       res.setHeader('Content-Type', 'application/json');
-      await registerAppLocally(appSpecifications, undefined, res); // can throw
+      // A placement this node does not hold yet - refused above if it did - so a
+      // failed install retracts the claim rather than keeping it.
+      await registerAppLocally(appSpecifications, undefined, res, false, true); // can throw
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);

@@ -1,8 +1,39 @@
 FROM ubuntu:26.04 AS base
 
+# Where the base packages come from. Canonical by default, so an unset build changes
+# nothing; a box that cannot reach archive.ubuntu.com passes another mirror:
+#
+#   UBUNTU_MIRROR=http://mirrors.edge.kernel.org/ubuntu ./test-infra/build-images.sh
+#
+# This exists because a whole gate is one unreachable host away from impossible. On
+# 2026-09-11 both harness boxes could fetch github, npm and download.docker.com in under
+# a quarter-second each while every Canonical mirror refused TCP - ICMP to the same
+# address answered, at a second per round trip - and the node image cannot be built
+# without the archive. The three apt layers are normally cache hits, so the outage only
+# surfaced because `ubuntu:26.04` is a ROLLING tag: a fresh pull changed the base digest
+# and turned every cached layer into a live fetch.
+#
+# Security is redirected with it, and can be pointed somewhere else again: leaving it on
+# Canonical would stall the same build for the same reason, since apt-get update fetches
+# every configured source whether or not the install needs it.
+ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
+ARG UBUNTU_SECURITY_MIRROR=
+
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The rewrite rides along with the first install rather than taking a layer of its own -
+# a mirror is not a step, it is where this layer's bytes come from. 26.04 ships deb822
+# (`/etc/apt/sources.list.d/ubuntu.sources`), with archive and security as separate
+# stanzas, so both URIs are replaced and the trailing slash is normalised so a mirror
+# written either way works.
+RUN set -eu; \
+    sec="${UBUNTU_SECURITY_MIRROR:-$UBUNTU_MIRROR}"; \
+    sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu/|${UBUNTU_MIRROR%/}/|g" \
+      -e "s|http://security.ubuntu.com/ubuntu/|${sec%/}/|g" \
+      /etc/apt/sources.list.d/ubuntu.sources; \
+    grep -q '^URIs:' /etc/apt/sources.list.d/ubuntu.sources; \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     sudo \
@@ -105,16 +136,50 @@ RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list \
 # recent. Emptied, the index is then both absent and apparently current, and every
 # install fails with `Unable to locate package` before reaching the network at all.
 
+# The account a node runs FluxOS under when it is not root.
+#
+# FluxOS is root on Arcane and the user the operator installed it as everywhere
+# else, and the difference decides what it can read: syncthing is spawned with
+# sudo either way, so on an unprivileged node the index describes files the node
+# process itself may be refused - a container owns its mount point and sets the
+# mode. sudo without a password is what that node does every privileged thing
+# with, and membership of docker is how it reaches the daemon; both are the
+# unprivileged install's own arrangement, not a harness convenience.
+#
+# The container stays root - it has loop devices to make, cgroups to delegate and
+# a dockerd to supervise, which is the host's work on a real node. Only the
+# FluxOS process drops, and only where a fleet asks for it.
+#
+# The image's own uid 1000 goes so this account can hold it: an app container's
+# uid is what has to differ from FluxOS's, and 1000 is the one an operator gets.
+RUN set -eu; \
+    if id -u ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || userdel ubuntu; fi; \
+    groupadd -g 1000 fluxuser; \
+    useradd -u 1000 -g 1000 -G docker -m -s /bin/bash fluxuser; \
+    ln -s /flux /home/fluxuser/zelflux; \
+    printf 'fluxuser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/fluxuser; \
+    chmod 0440 /etc/sudoers.d/fluxuser; \
+    sudo -n -u fluxuser sudo -n id -u | grep -qx 0
+
 WORKDIR /flux
 
 COPY package.json ./
 RUN npm install --production
 
-COPY . .
+# The install belongs to the account that runs it, which is what an operator's own
+# install looks like and what lets FluxOS write its logs, its config and the TLS
+# key it generates at first boot. Carried by the copy rather than a chown of its
+# own: on an overlay filesystem a recursive chown copies every file it touches up
+# into the container's writable layer, which on this tree is minutes of boot and
+# reads as a node that never came up. node_modules keeps root's ownership - it is
+# .dockerignore'd here and installed above, and FluxOS only reads it. Root ignores
+# all of it, so the image is unchanged for a node that stays root.
+COPY --chown=fluxuser:fluxuser . .
 
-COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
+COPY --chown=fluxuser:fluxuser test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
 
 RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
+    && chown fluxuser:fluxuser /flux /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
     && ln -s /flux /root/zelflux
 
 ENV NODE_CONFIG_DIR=/flux/ZelBack/config

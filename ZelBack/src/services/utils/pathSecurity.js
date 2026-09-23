@@ -246,6 +246,13 @@ function sanitizePath(userPath, basePath, options = {}) {
  * This prevents symlink escape attacks where a symlink inside the allowed directory
  * points to a location outside it.
  *
+ * A path that cannot be resolved is returned unchanged rather than refused, so
+ * this answers "does this resolve outside" and not "is this contained": a leaf
+ * that does not exist yet passes even when a directory above it is a link out.
+ * Callers guarding containment want verifyRealPathOfExistingPath, which walks
+ * to the deepest part that does exist. This one is for comparing where two
+ * paths land, and is what that function is built on.
+ *
  * @param {string} targetPath - The path to verify (should already be sanitized)
  * @param {string} basePath - The allowed base directory
  * @returns {Promise<string>} The real path if safe
@@ -356,41 +363,6 @@ async function verifyRealPathOfExistingPath(targetPath, basePath) {
 }
 
 /**
- * Synchronous version of verifyRealPath.
- *
- * @param {string} targetPath - The path to verify
- * @param {string} basePath - The allowed base directory
- * @returns {string} The real path if safe
- * @throws {Error} If the real path escapes the base directory
- */
-function verifyRealPathSync(targetPath, basePath) {
-  const normalizedBase = path.resolve(basePath);
-  let realBasePath = normalizedBase;
-  try {
-    realBasePath = fs.realpathSync(normalizedBase);
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  try {
-    const realPath = fs.realpathSync(targetPath);
-
-    if (realPath !== realBasePath && !realPath.startsWith(realBasePath + path.sep)) {
-      throw new Error('Symlink escape: real path is outside allowed directory');
-    }
-
-    return realPath;
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return targetPath;
-    }
-    throw error;
-  }
-}
-
-/**
  * Validate that a filename/object name is safe (no path components).
  * Use this for parameters that should only be a single filename, not a path.
  *
@@ -431,25 +403,6 @@ function validateFilename(name) {
   }
 
   return name;
-}
-
-/**
- * Sanitize a path and verify it doesn't escape via symlinks.
- * This is the most secure option - combines lexical checks with symlink verification.
- *
- * @param {string} userPath - User-provided relative path
- * @param {string} basePath - The allowed base directory
- * @param {object} options - Optional configuration
- * @param {boolean} options.strict - If true, enforce strict allowlist (default: true)
- * @returns {Promise<string>} The verified real path
- * @throws {Error} If path is invalid or escapes base directory
- */
-async function sanitizeAndVerifyPath(userPath, basePath, options = {}) {
-  // First, sanitize the path lexically
-  const sanitizedPath = sanitizePath(userPath, basePath, options);
-
-  // Then verify the real path (after symlink resolution)
-  return verifyRealPath(sanitizedPath, basePath);
 }
 
 /**
@@ -502,10 +455,11 @@ async function openNoFollow(filePath) {
     // container, so following a link could hand back a file outside the volume.
     // Answer the app owner with what to do instead of an opaque errno: a link
     // an app legitimately keeps (latest.log -> dated.log) is served by naming
-    // its target, or by compressing the folder - which stores the link AND the
-    // real file - and downloading that archive.
+    // its target. The advice names only that, because this serves callers on
+    // both the app volume browser and the FluxShare routes, and compressing a
+    // folder is a route only the first of them has.
     if (error.code === 'ELOOP') {
-      throw new Error('A symbolic link cannot be downloaded directly; download the file it points to, or compress the folder and download the archive');
+      throw new Error('A symbolic link cannot be downloaded directly; name the file it points to instead');
     }
     throw error;
   }
@@ -533,7 +487,5 @@ module.exports = {
   isValidPathComponent,
   verifyRealPath,
   verifyRealPathOfExistingPath,
-  verifyRealPathSync,
-  sanitizeAndVerifyPath,
   rejectBackslashes,
 };

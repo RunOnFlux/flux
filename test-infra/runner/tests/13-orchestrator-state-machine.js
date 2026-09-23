@@ -5,22 +5,20 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
   waitForPeerThreshold, waitForPeersBelowThreshold,
-  waitForSpawnerResumed, waitForSpawnerPaused, waitFor,
+  waitForSpawnerResumed, waitForSpawnerPaused, waitFor, assertNoEvent,
 } from '../framework/wait.js';
 import {
   advanceBlock, advanceBlocks, startTicker, stopTicker,
   clearAllNodeStatus, setNodeStatus, disableAllRpcFailure,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { loadSharedConfig } from '../framework/coupled-knobs.js';
+import { loadSharedConfig, peerDeathMs, PARTITION_PEERS } from '../framework/coupled-knobs.js';
 
 // How long a node takes to notice a peer that has been unplugged rather than
-// disconnected. Derived, because it is the thing every DEGRADED wait below is
-// really waiting for: a missed pong per interval, and a socket is declared dead
-// after `wsMaxMissedPongs` of them, plus up to one more interval of phase
-// because the timer is not aligned to the moment the peer vanished.
-const PEERS = loadSharedConfig().peers ?? {};
-const PEER_DEATH_MS = (PEERS.wsPingIntervalMs ?? 15000) * ((PEERS.wsMaxMissedPongs ?? 3) + 1);
+// disconnected - the thing every DEGRADED wait below is really waiting for.
+// Derived once in coupled-knobs, because a block that overrides the peers config
+// must budget from ITS config and not from the shared fleet's.
+const PEER_DEATH_MS = peerDeathMs(loadSharedConfig().peers);
 
 /**
  * Take every peer away from node 0, WAIT FOR IT TO NOTICE, and only then ask
@@ -153,20 +151,40 @@ describe('Orchestrator: SYNCING to READY', function () {
     });
   });
 
-  describe('block timer fallback (insufficient peers)', function () {
+  // THE BLOCK FALLBACK IS TIME SPENT WITH PEERS, NOT UPTIME.
+  //
+  // This block used to assert the opposite, in those words: a 2-node fleet
+  // where "node 0 can never reach peer threshold of 2 by itself (it has at most
+  // 1 peer)" reaching READY on 260 blocks. That is the defect written down as a
+  // requirement - a node with one peer spawning apps for the whole network -
+  // and it is what #blocksSinceSyncStarted being gated on the peer level now
+  // stops. The two halves below are the same fleet shape and the opposite
+  // claim, plus the case that proves the timer still does its actual job.
+  describe('a node short of the peer threshold never reaches READY', function () {
     let env;
     dumpLogsOnFailure(() => env);
 
     before(async function () {
       this.timeout(300000);
-      // 2 nodes: node 0 can never reach peer threshold of 2 by itself
-      // (it has at most 1 peer), so ephemeral sync won't complete via peers.
-      // Block timer at 250 blocks (125 * 2) should kick in.
-      env = await createTestEnv({ hookCtx: this, nodes: 2, tickerAutostart: false });
+      // Declared rather than inherited: createTestEnv gives a fleet that cannot
+      // reach the threshold appSyncFallbackMinutes 0, because in such a fleet
+      // the budget is unreachable rather than slow. This suite is ABOUT the
+      // budget, so it asks for one and keeps it.
+      env = await createTestEnv({
+        hookCtx: this,
+        nodes: 2,
+        tickerAutostart: false,
+        configOverrides: { fluxapps: { appSyncFallbackMinutes: 5 } },
+      });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
       await waitForExplorerReady(env.clients[0]);
       await waitForOrchestratorStarted(env.clients[0]);
+      // Discovery ON, so node 0 genuinely holds a peer. Without it the fleet
+      // proves only that a node with nobody at all stays put, which is a weaker
+      // claim than the one this makes: a peer is not enough, the THRESHOLD is
+      // the condition.
+      await env.startDiscovery();
       await advanceBlock();
       await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
     });
@@ -176,9 +194,78 @@ describe('Orchestrator: SYNCING to READY', function () {
       await env?.teardown();
     });
 
-    it('should reach READY via block timer without peer sync completions', async function () {
+    it('stays SYNCING through twenty-six times the block budget', async function () {
       this.timeout(300000);
       await advanceBlocks(260);
+      // A settling window first, so the claim is not "it had not got there
+      // YET": the blocks are delivered before the orchestrator has acted on the
+      // last of them.
+      await assertNoEvent(
+        env.clients[0],
+        'orchestrator:stateChanged',
+        // The PAYLOAD, not the envelope: assertNoEvent calls predicate(e.data)
+        // while waitForEvent RESOLVES with the envelope. Reaching for .data here
+        // is a TypeError inside a find(), which reads as a broken assertion.
+        (d) => d.to === 'READY',
+        30000,
+      );
+      // Then the WHOLE run, not just that window. 10 blocks is the budget here,
+      // so 260 is not a margin, it is a different answer - and a node that
+      // reached READY and left it again must not read as a pass.
+      const everReady = env.clients[0].getEventBuffer()
+        .filter((e) => e.event === 'orchestrator:stateChanged' && e.data.to === 'READY');
+      expect(everReady, 'a node below the peer threshold reached spawning readiness').to.have.lengthOf(0);
+    });
+
+    it('never starts the spawner', async function () {
+      this.timeout(30000);
+      const resumed = env.clients[0].getEventBuffer().filter((e) => e.event === 'spawner:resumed');
+      expect(resumed, 'a node below the peer threshold started spawning').to.have.lengthOf(0);
+    });
+
+    // The premise, asserted last so a failure above reads as the product and a
+    // failure here reads as the fleet. A node with NO peers would also stay
+    // SYNCING, and would prove something much weaker.
+    it('held a peer the whole time, short of the threshold', async function () {
+      this.timeout(30000);
+      const out = await env.clients[0].getPeers();
+      const inb = await env.clients[0].getIncomingPeers();
+      const total = (out?.data?.length ?? 0) + (inb?.data?.length ?? 0);
+      expect(total, 'the fleet never peered, so the test proved nothing').to.be.greaterThan(0);
+      expect(total, 'the fleet reached the threshold, so the block above was not the case it names')
+        .to.be.lessThan(2);
+    });
+  });
+
+  // THE TIMER STILL DOES ITS ACTUAL JOB. It bounds a sync attempt that is not
+  // finishing; what it must no longer bound is having nobody to attempt with.
+  // Three nodes reach the threshold of 2, and syncedNodes: [] means nobody is
+  // authoritative, so no state sync can complete and the budget is the only
+  // road left.
+  describe('block timer fallback with the peer set up', function () {
+    let env;
+    dumpLogsOnFailure(() => env);
+
+    before(async function () {
+      this.timeout(300000);
+      env = await createTestEnv({
+        hookCtx: this,
+        nodes: 3,
+        tickerAutostart: false,
+        syncedNodes: [],
+        configOverrides: { fluxapps: { appSyncFallbackMinutes: 5 } },
+      });
+      await bootNodes(env, { discover: true });
+    });
+
+    after(async function () {
+      this.timeout(30000);
+      await env?.teardown();
+    });
+
+    it('should reach READY via block timer without peer sync completions', async function () {
+      this.timeout(300000);
+      await advanceBlocks(20);
       await waitForOrchestratorState(env.clients[0], 'READY', 120000);
     });
 
@@ -347,6 +434,79 @@ describe('Orchestrator: block timer during RESYNCING', function () {
     this.timeout(120000);
     await advanceBlocks(300);
     await waitForOrchestratorState(env.clients[0], 'READY', 30000);
+  });
+});
+
+// THE RESET, WHICH NOTHING ON A FLEET DISTINGUISHED. The two blocks above lose
+// every peer and get them back, and both then wait for READY - which arrives
+// whether or not the budget restarted, just sooner if it did not. So the fleet
+// has never separated "the counter went back to zero" from "the counter kept its
+// credit", and that credit is what a node with no peers would be spending.
+//
+// Held on the budget alone: appSyncMinCompletions is above the number of peers
+// this fleet can supply, so node 0's state sync can never complete and the block
+// timer is the only road to READY. createTestEnv makes nobody authoritative for
+// the same reason, without being asked.
+describe('Orchestrator: the block budget starts again after the peer set goes', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  // appSyncFallbackMinutes 5 at BLOCKS_PER_MINUTE 2.
+  const BUDGET_BLOCKS = 10;
+
+  before(async function () {
+    this.timeout(300000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 5,
+      tickerAutostart: false,
+      configOverrides: {
+        // dropEveryPeerAndAwaitDegraded waits out peer liveness here, so this
+        // block states BOTH halves of it - the interval alone would inherit the
+        // shared fleet's compressed miss count.
+        peers: PARTITION_PEERS,
+        fluxapps: { appSyncFallbackMinutes: 5, appSyncMinCompletions: 6 },
+      },
+    });
+    await bootNodes(env, { discover: true });
+    await stopTicker();
+    await advanceBlocks(BUDGET_BLOCKS);
+    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('needs a whole fresh budget after a recovery, not one more block', async function () {
+    this.timeout(300000);
+    await dropEveryPeerAndAwaitDegraded(env, { detectMs: 3 * peerDeathMs(PARTITION_PEERS) });
+    for (let i = 1; i < env.clients.length; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await env.reconnectNode(i);
+    }
+    await waitForOrchestratorState(env.clients[0], 'RESYNCING', 60000);
+
+    const anchor = env.clients[0].getLastEventId();
+    await advanceBlocks(BUDGET_BLOCKS - 1);
+
+    // THE ASSERTION. This node spent a full budget before the peer set went. If
+    // that credit survived the gap it is already past the bar, so the first
+    // block back would take it to READY and nine certainly would.
+    await assertNoEvent(
+      env.clients[0],
+      'orchestrator:stateChanged',
+      (d) => d.to === 'READY',
+      20000,
+      { afterId: anchor },
+    );
+
+    // And the discriminator: one more block, which is the budget met from zero.
+    // Without it the assertion above would also pass on a node that had stopped
+    // counting blocks altogether.
+    await advanceBlocks(1);
+    await waitForOrchestratorState(env.clients[0], 'READY', 60000);
   });
 });
 

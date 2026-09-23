@@ -63,6 +63,17 @@ class FluxPeerManager extends EventEmitter {
   #syncDegradedThreshold;
   /** @type {boolean} true when peer count is above syncPeerThreshold */
   #aboveThreshold;
+  /**
+   * Whether THIS NODE is the reason the peer set is emptying.
+   *
+   * disconnectAll() drops every peer when confirmation is lost, which crosses
+   * the degraded threshold exactly as a network failure does and is not one.
+   * The distinction cannot be inferred from acceptingConnections, which is also
+   * false before the node has ever been confirmed; it has to be stated. Read by
+   * the fall edge below, so a consumer counting peer-set collapses does not
+   * count this node's own teardown as one.
+   */
+  #deliberateTeardown = false;
   /** @type {Map<string, Set<string>>} reporter key → their peer keys */
   #peerTopology = new Map();
   /** @type {Array<function>} topology change listeners */
@@ -214,11 +225,6 @@ class FluxPeerManager extends EventEmitter {
     this.#schedulePeerUpdate();
     if (this.networkHealthMonitor) this.networkHealthMonitor.recordConnect();
     fluxEventBus.publish('peers:added', { ip, port: String(port), direction, outbound: this.#outboundKeys.size, inbound: this.#inboundKeys.size, total: this.#peers.size });
-    if (!this.#aboveThreshold && this.#peers.size >= this.#syncPeerThreshold) {
-      this.#aboveThreshold = true;
-      this.emit('peerThresholdReached', this.#peers.size);
-      fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
-    }
     // Every connection, not just the one that crosses the threshold. The
     // threshold is a latched edge and is cleared only below the DEGRADED level,
     // so once it has fired it says nothing further about a pool that has since
@@ -230,7 +236,18 @@ class FluxPeerManager extends EventEmitter {
     // no peer was added and the count did not move. Its counterpart is
     // peerDisconnected, and both name the connection rather than the address,
     // because a request lives in a connection.
+    //
+    // BEFORE the threshold edge below, so a listener reacting to the edge sees a
+    // set whose newest member has already been handled. The reverse order says
+    // "your peer set is complete" while withholding the peer that completed it,
+    // and a listener that starts work per connection then has one connection's
+    // worth of it unstarted at the moment it is told the set is full.
     this.emit('peerConnected', peer.key, peer.connectionId);
+    if (!this.#aboveThreshold && this.#peers.size >= this.#syncPeerThreshold) {
+      this.#aboveThreshold = true;
+      this.emit('peerThresholdReached', this.#peers.size);
+      fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
+    }
     return peer;
   }
 
@@ -286,8 +303,16 @@ class FluxPeerManager extends EventEmitter {
     fluxEventBus.publish('peers:removed', { ip: peer.ip, port: peer.port, direction: peer.direction, closeCode: closeCode || null, outbound: this.#outboundKeys.size, inbound: this.#inboundKeys.size, total: this.#peers.size });
     if (this.#aboveThreshold && this.#peers.size < this.#syncDegradedThreshold) {
       this.#aboveThreshold = false;
-      this.emit('peersBelowThreshold', this.#peers.size);
-      fluxEventBus.publish('peers:belowThreshold', { count: this.#peers.size, threshold: this.#syncDegradedThreshold });
+      // WHY it fell, not only that it did. Every listener needs the edge - the
+      // orchestrator's readiness budget has to reset whatever emptied the set -
+      // but a listener judging the node's stability must not count a teardown
+      // this node performed on itself.
+      this.emit('peersBelowThreshold', this.#peers.size, { deliberate: this.#deliberateTeardown });
+      fluxEventBus.publish('peers:belowThreshold', {
+        count: this.#peers.size,
+        threshold: this.#syncDegradedThreshold,
+        deliberate: this.#deliberateTeardown,
+      });
     }
     // The counterpart of peerConnected. A listener waiting on this peer for an
     // answer now knows the answer is never coming, which is a fact rather than
@@ -350,9 +375,17 @@ class FluxPeerManager extends EventEmitter {
   disconnectAll() {
     this.acceptingConnections = false;
     const count = this.#peers.size;
-    // Snapshot the keys: evict() deletes from the map being walked.
-    for (const key of [...this.#peers.keys()]) {
-      this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+    // Held across the whole loop, because the fall edge fires from inside it -
+    // on whichever eviction takes the count below the degraded threshold - and
+    // a flag set only around that one eviction would have to know which it is.
+    this.#deliberateTeardown = true;
+    try {
+      // Snapshot the keys: evict() deletes from the map being walked.
+      for (const key of [...this.#peers.keys()]) {
+        this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+      }
+    } finally {
+      this.#deliberateTeardown = false;
     }
     log.info(`Disconnected all ${count} peers, no longer accepting connections`);
   }
@@ -491,10 +524,14 @@ class FluxPeerManager extends EventEmitter {
 
   // Level accessor for the latched peerThresholdReached edge: a subscriber that
   // attaches after the threshold was crossed never sees the event, so it must
-  // be able to read the current state. Returns the peer count when the
-  // threshold has been reached, 0 otherwise.
-  peerCountIfAboveThreshold() {
-    return this.#aboveThreshold ? this.#peers.size : 0;
+  // be able to read the current state.
+  //
+  // A BOOLEAN, because that is the question every caller asks. A count that
+  // reported the size above the threshold and 0 below it would mean "no peers"
+  // and "eleven peers" with the same value, and a reader could not tell which.
+  // Anything wanting the number calls getNumberOfPeers.
+  isAboveThreshold() {
+    return this.#aboveThreshold;
   }
 
   get outboundCount() {
@@ -587,6 +624,29 @@ class FluxPeerManager extends EventEmitter {
       [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
     }
     return count ? eligible.slice(0, count) : eligible;
+  }
+
+  /**
+   * The peers that speak the policy bundle protocol.
+   *
+   * A peer without the capability is not silent, it is not listening: it has no handler
+   * for fluxpolicyrequest, so an ask to it can only end on its deadline, and an adoption
+   * announcement reaches it as an unrecognised type. Both are answered by not asking.
+   *
+   * THE EMPTY ANSWER IS MEANINGFUL AND IS NOT "the network holds nothing". It is this node
+   * having nobody to ask, which during a rollout is the ordinary state of the first node
+   * to upgrade - see policyStore.considerBackstopFetch, which treats the two differently.
+   * @returns {Array} peers.
+   */
+  getPolicyCapablePeers() {
+    const capable = [];
+    const ownKey = this.#ownSocketAddress;
+    for (const peer of this.#peers.values()) {
+      if (ownKey && peer.key === ownKey) continue;
+      if (!peer.remoteCapabilities.has('policyBundle')) continue;
+      capable.push(peer);
+    }
+    return capable;
   }
 
   /**

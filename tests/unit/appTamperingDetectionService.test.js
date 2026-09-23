@@ -202,6 +202,48 @@ describe('appTamperingDetectionService tests', () => {
       expect(update.$inc).to.deep.equal({ count: 1 });
     });
 
+    // The boot sweep walks docker component identifiers and the reconciler
+    // works in app names. Stored as given, the same fault on the same app
+    // lands in two rows, and getEvents - which matches the name exactly -
+    // finds one of them.
+    it('stores one app under one name however the caller addressed it', async () => {
+      await service.recordEvent('fluxwp_wordpress123', 'mount_vanished', 'from the boot sweep');
+      await service.recordEvent('wordpress123', 'mount_vanished', 'from the reconciler');
+
+      const names = eventUpserts().map((c) => c.query.appName);
+      expect(names).to.deep.equal(['wordpress123', 'wordpress123']);
+      expect(eventUpserts()[0].update.$setOnInsert.appName).to.equal('wordpress123');
+    });
+
+    // An event type absent from the table records at weight zero without
+    // saying so, so the weight is pinned where the event is: a substituted
+    // image counts for what a missing one counts for, and neither reaches the
+    // threshold on its own.
+    it('weighs a substituted image the same as a missing one', async () => {
+      await service.recordEvent('myapp', 'volume_image_unrecognised', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(1);
+      expect(service.EVENT_SEVERITY.volume_image_unrecognised)
+        .to.equal(service.EVENT_SEVERITY.volume_missing);
+    });
+
+    // An operator moving an image to a bigger disk by hand produces exactly
+    // this, and nobody has ever counted how often that happens - so it is
+    // recorded to be countable and weighs nothing until the fleet data says
+    // what it should weigh.
+    it('weighs an image that moved at nothing', async () => {
+      await service.recordEvent('myapp', 'volume_image_moved', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
+      expect(service.EVENT_SEVERITY.volume_image_moved).to.equal(0);
+    });
+
+    it('leaves a name that is already the app its own', async () => {
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      expect(eventUpserts()[0].query.appName).to.equal('myapp');
+    });
+
     it('stamps node and operator identity from the daemon status', async () => {
       await service.recordEvent('myapp', 'container_vanished', 'x');
 
@@ -332,6 +374,18 @@ describe('appTamperingDetectionService tests', () => {
 
       expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
       expect(eventUpserts()[1].update.$setOnInsert.severity).to.equal(0);
+    });
+
+    // A volume that would not mount for the host's own reasons is recorded so
+    // the population can be counted, and weighs nothing because none of it is
+    // the operator's doing. Given any weight it would accumulate in every
+    // hourly bucket for as long as the disk stays broken and DOS an honest
+    // node - which is exactly why it is recorded rather than acted on.
+    it('weighs a host fault at nothing, so a broken disk cannot DOS its operator', async () => {
+      await service.recordEvent('myapp', 'volume_host_fault', 'no loop device');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
+      expect(service.EVENT_SEVERITY.volume_host_fault).to.equal(0);
     });
 
     it('retries once when concurrent upserts race on the unique index', async () => {
@@ -783,6 +837,64 @@ describe('appTamperingDetectionService tests', () => {
 
       sinon.assert.calledOnce(logStub.error);
       expect(logStub.error.firstCall.args[0]).to.include('mongo mid-election');
+    });
+  });
+
+  describe('classifyVolumeFault', () => {
+    // The single mapping both the boot sweep and the reconciler classify a mount
+    // fault through. Each reason is pinned to its event and to the severity that
+    // decides whether it is laid at the operator, so a reason cannot quietly
+    // change class.
+    const cases = [
+      ['volume_file_missing', 'volume_missing', 1],
+      ['volume_image_unrecognised', 'volume_image_unrecognised', 1],
+      ['mount_failed: bad superblock', 'volume_image_unrecognised', 1],
+      ['mount_point_not_a_directory', 'mount_vanished', 1],
+      ['host_filesystem_readonly', 'volume_host_fault', 0],
+      ['mount_point_unavailable: EACCES', 'volume_host_fault', 0],
+      ['mount_table_unreadable', 'volume_host_fault', 0],
+      ['candidate_path_unreadable', 'volume_host_fault', 0],
+      ['record_unreadable', 'volume_host_fault', 0],
+      ['loop_unavailable', 'volume_host_fault', 0],
+      ['mount_host_refused: no free loop device', 'volume_host_fault', 0],
+      ['volume_incomplete_install: bad superblock', 'volume_host_fault', 0],
+    ];
+
+    cases.forEach(([reason, event, severity]) => {
+      it(`maps ${reason} to ${event} (severity ${severity})`, () => {
+        expect(service.classifyVolumeFault(reason)).to.equal(event);
+        expect(service.EVENT_SEVERITY[event]).to.equal(severity);
+      });
+    });
+
+    // A reason nobody has classified is the host's problem to prove, not the
+    // operator's; it must not default to an operator-weighted event.
+    it('defaults an unknown reason to mount_vanished', () => {
+      expect(service.classifyVolumeFault('a_reason_added_later')).to.equal('mount_vanished');
+    });
+
+    // Every reason ensureAppVolumeMounted can return is named above, so the two
+    // callers never meet one this does not classify. A new reason added to the
+    // mounter without a mapping is caught here, not in production.
+    it('names every mount fault reason the mounter can return', () => {
+      const src = require('fs').readFileSync('ZelBack/src/services/utils/volumeService.js', 'utf8');
+      const reasons = new Set();
+      const re = /reason: (?:`([a-z_]+)|'([a-z_]+)')/g;
+      let m = re.exec(src);
+      while (m) {
+        reasons.add(m[1] || m[2]);
+        m = re.exec(src);
+      }
+      // volume_file_missing and the blocked reasons are forwarded via variables.
+      ['volume_file_missing', 'record_unreadable', 'candidate_path_unreadable', 'mount_table_unreadable'].forEach((r) => reasons.add(r));
+      const classified = {
+        volume_file_missing: 1, volume_image_unrecognised: 1, mount_failed: 1, mount_point_not_a_directory: 1,
+        host_filesystem_readonly: 1, mount_point_unavailable: 1, mount_table_unreadable: 1,
+        candidate_path_unreadable: 1, record_unreadable: 1, loop_unavailable: 1, mount_host_refused: 1,
+        volume_incomplete_install: 1,
+      };
+      const unclassified = [...reasons].filter((r) => !(r in classified));
+      expect(unclassified, `unclassified reasons: ${unclassified.join(', ')}`).to.deep.equal([]);
     });
   });
 });

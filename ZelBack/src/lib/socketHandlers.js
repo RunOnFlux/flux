@@ -1,5 +1,5 @@
 const idService = require('../services/idService');
-const paymentService = require('../services/paymentService');
+const paymentRelayService = require('../services/paymentRelayService');
 const { peerManager } = require('../services/utils/peerState');
 
 // these need to be most specific first (on the same route)
@@ -8,7 +8,7 @@ const socketHandlers = {
   '/ws/flux': peerManager.validateAndAddInbound.bind(peerManager),
   '/ws/id/:loginphrase': idService.wsRespondLoginPhrase,
   '/ws/sign/:message': idService.wsRespondSignature,
-  '/ws/payment/:paymentid': paymentService.wsRespondPayment,
+  '/ws/payment/:paymentid': paymentRelayService.wsRespondPayment,
 };
 
 const FLUX_PEER_ROUTE = /^\/ws\/flux(\/|$)/;

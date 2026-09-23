@@ -85,26 +85,6 @@ function settleBootDrain(reason) {
   log.info(`appReconciler - boot drain settled (${reason})`);
 }
 
-// A container start is information the network wants immediately: a backoff
-// straggler that starts minutes after boot must refresh its appsLocations row
-// inside the sigterm TTL window, not at the next hourly broadcast.
-// serviceManager wires this to the peer broadcast (which coalesces bursts),
-// mirroring appInstaller.setOnInstallComplete.
-let onContainerStarted = null;
-
-function setOnContainerStarted(callback) {
-  onContainerStarted = callback;
-}
-
-function notifyContainerStarted(identifier) {
-  if (!onContainerStarted) return;
-  try {
-    onContainerStarted(identifier);
-  } catch (err) {
-    log.error(`appReconciler - onContainerStarted callback failed for ${identifier}: ${err.message}`);
-  }
-}
-
 // while an install/remove/redeploy/backup/restore or a deliberate stop owns a
 // container, defer and re-check shortly (the operation also re-enqueues on
 // completion, so this is just a backstop)
@@ -129,7 +109,11 @@ const VOLUME_MOUNT_RETRY_MS = 30 * 1000;
 
 // identifiers whose missing backing image was already recorded as a tampering
 // event, so the paced retries don't re-record it every cycle
-const volumeMissingNoted = new Set();
+// The volume fault already recorded for a component, so a retry every few
+// seconds does not re-record one a minute. Keyed by fault as well as
+// component: an image that goes missing and an image that is replaced are
+// different events, and noting one must not swallow the other.
+const volumeFaultNoted = new Map();
 
 // A running container attached to NO network (a stale libnetwork endpoint left
 // by an earlier failed start) is healed by recreating it (force-remove + fresh
@@ -151,10 +135,12 @@ const volumeMissingNoted = new Set();
 //     that happens to be crash-looping). A hard attempt cap would park the heal in
 //     a terminal state until the FluxOS process restarts, which is not level-based
 //     - a reconciler keeps trying at a bounded rate.
-//     Retrying forever is also convergent at the network level: while the
-//     container is broken or absent this node stops advertising it in apprunning,
-//     its location record expires on TTL and the app is re-placed elsewhere, all
-//     without destroying this node's bind-mounted data.
+//     The app stays placed here while that runs. apprunning states which apps this
+//     node holds, and a container that is broken or absent does not change that, so
+//     the heal is this node's only route back to a working instance - nowhere else
+//     picks the app up. Which is why the pacing is the bound and a cap is not: the
+//     retries cost a paced recreate each, and stopping them strands the app on a
+//     node that is still claiming it, with its bind-mounted data.
 //   - Never uninstalls: unlike the vanished path, a failed heal recreate does not
 //     escalate to removeAppLocally. The spec and image are fine; only the host
 //     networking hit a conflict.
@@ -462,7 +448,6 @@ async function recreateMissing(identifier) {
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
-    notifyContainerStarted(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     // Removal must be justified by the state of the world NOW, not at
@@ -509,7 +494,6 @@ async function recreateForNetworkHeal(identifier) {
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });
-    notifyContainerStarted(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     // Same diagnostics the vanished path emits - minus the uninstall escalation.
@@ -821,14 +805,25 @@ async function reconcile(rawIdentifier) {
     }
     log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
-    if (volumeMount.reason === 'volume_file_missing' && !volumeMissingNoted.has(identifier)) {
-      volumeMissingNoted.add(identifier);
-      await appTamperingDetectionService.recordEvent(mainAppName, 'volume_missing', `Backing volume image for ${identifier} not found on disk`);
+    // A mount fault is recorded under the same name the boot sweep uses, so a
+    // fleet query for an event sees a node whether the fault was there at boot
+    // or arose mid-run. Once per distinct reason per component, not every retry.
+    const faultKey = String(volumeMount.reason).split(':')[0];
+    if (volumeFaultNoted.get(identifier) !== faultKey) {
+      volumeFaultNoted.set(identifier, faultKey);
+      await appTamperingDetectionService.recordEvent(
+        mainAppName,
+        appTamperingDetectionService.classifyVolumeFault(volumeMount.reason),
+        `Volume for ${identifier} not mountable: ${volumeMount.reason}`,
+      );
     }
     scheduleRetry(identifier, VOLUME_MOUNT_RETRY_MS);
     return;
   }
-  volumeMissingNoted.delete(identifier);
+  volumeFaultNoted.delete(identifier);
+  if (volumeMount.imageMoved) {
+    await appTamperingDetectionService.recordEvent(mainAppName, 'volume_image_moved', `Volume image for ${identifier} was found somewhere other than where this node recorded it`);
+  }
   if (!volumeMount.alreadyMounted) {
     log.info(`appReconciler - mounted data volume for ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeMounted' });
@@ -999,13 +994,12 @@ async function reconcile(rawIdentifier) {
           return;
         }
         fluxEventBus.publish('reconciler:actuated', { identifier, action: 'restarted', reason: 'operatorRequested' });
-        notifyContainerStarted(identifier);
         // A restart is a start, so it can come up on a stale endpoint the same way.
         scheduleRetry(identifier, POST_START_VERIFY_MS);
         // Last, because it throws. The bounce above already happened, so a write
-        // failure must not also cost the event, the peer notification and the
-        // attachment check a successful restart is owed - it is the record that
-        // failed, not the restart.
+        // failure must not also cost the event and the attachment check a
+        // successful restart is owed - it is the record that failed, not the
+        // restart.
         //
         // The throw reaches the pass-level retry, which PACES it - a rate, not a
         // bound, and the difference matters. UNHANDLED_FAILURE_RETRIES clears only
@@ -1139,7 +1133,6 @@ async function reconcile(rawIdentifier) {
   const satisfiesRestart = pendingGeneration > ((startedState && startedState.actuatedRestartGeneration) || 0);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
-  notifyContainerStarted(identifier);
   // A start is exactly when a container can come up attached to no network (a stale
   // endpoint left by an earlier failed start). The attachment we hold was sampled
   // BEFORE this start, so verify the new one shortly - otherwise a detached-at-boot
@@ -1463,10 +1456,15 @@ function forgetDesiredState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   controllerDesired.delete(identifier);
   dataDesired.delete(identifier);
-  // A removed component keeps no failure history: the map is keyed by identifier
+  // A removed component keeps no failure history: these are keyed by identifier
   // and a reinstall under the same name would otherwise start part-way up the
-  // count and reach the sweep sooner than a first failure should.
+  // count and reach the sweep sooner than a first failure should - or, for the
+  // noted maps, have a new fault swallowed as one already recorded.
   unhandledFailures.delete(identifier);
+  volumeFaultNoted.delete(identifier);
+  networkDetachedNoted.delete(identifier);
+  networkPrunedNoted.delete(identifier);
+  detachedSince.delete(identifier);
 }
 
 /**
@@ -1554,7 +1552,6 @@ module.exports = {
   releaseStarting,
   committedIdentifiers,
   requestStopAndClearData,
-  setOnContainerStarted,
   waitForBootDrainSettled: () => bootDrainGate.wait(),
   start,
   stop,

@@ -44,7 +44,6 @@ async function deleteLoginPhrase(phrase) {
   }
 }
 
-let syncthingWorking = false;
 
 /**
  * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
@@ -121,91 +120,193 @@ async function confirmNodeTierHardware() {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-let firstLoginPhraseExecution = true;
-async function loginPhrase(req, res) {
+/**
+ * The verdict this node last reached, so a failure is logged when it HAPPENS
+ * rather than every time somebody asks.
+ *
+ * The condition is not the event. /id/loginphrase is uncached and fluxbench
+ * retries it on a 30s sleep while a node is failing, so logging at the point of
+ * refusal would put out a line every half minute for a state that has not moved
+ * - roughly 2,880 a day, burying the one line that says when it started under
+ * thousands of copies of itself. A level cannot fix that; it only decides who
+ * sees the flood.
+ *
+ * Keyed on the failing check and its message, never the DOS code: the code
+ * climbs as the score accrues (11, 13, 15), and keying on it would make every
+ * increment a fresh line. A message that genuinely changes IS news.
+ *
+ * The check prefix earns nothing today - all six failures carry distinct
+ * messages, so no test can tell the key with it from the key without it, and
+ * none pretends to. It is there so a check added later that reuses an existing
+ * message still reads as a change of verdict rather than as the same one.
+ *
+ * Starts at ok, so a node that boots fit says nothing and a node that boots
+ * unfit says so once.
+ */
+let lastFitnessVerdict = 'ok';
+
+/**
+ * Refuse the node, logging only if this is not what it was already refusing for.
+ * Every failing return goes through here so a check added later cannot be
+ * silent by omission.
+ */
+function unfit(check, error, checks) {
+  const verdict = `${check}:${error.message}`;
+  if (verdict !== lastFitnessVerdict) {
+    lastFitnessVerdict = verdict;
+    log.warn(`Node is not fit to serve the network: ${check} - ${error.message || error.name}`);
+  }
+  return { ok: false, error, checks };
+}
+
+/**
+ * Pass the node, saying so only if it was previously refusing.
+ */
+function fit(checks) {
+  if (lastFitnessVerdict !== 'ok') {
+    lastFitnessVerdict = 'ok';
+    log.info('Node is fit to serve the network again');
+  }
+  return { ok: true, error: null, checks };
+}
+
+/**
+ * Assess node fitness: the checks that decide whether this node can serve the
+ * network. Shared by loginPhrase and the health endpoint so both gate
+ * identically. Returns the first failing check; never throws. Logs a change of
+ * verdict, not the verdict - see lastFitnessVerdict.
+ * @returns {Promise<{ok: boolean, error: (object|null), checks: object}>}
+ */
+async function checkNodeFitness() {
+  const checks = {};
+
+  // db: a fast read proves the local database answers
   try {
-    // check db
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
-    const query = { loginPhrase: 'TestLoginPhraseForDBTest' };
-    const projection = {};
-    await dbHelper.findOneInDatabase(database, collection, query, projection); // fast find call for db test
+    await dbHelper.findOneInDatabase(database, collection, { loginPhrase: 'TestLoginPhraseForDBTest' }, {});
+    checks.db = 'ok';
+  } catch (error) {
+    return unfit('db', { message: error.message, name: error.name, code: error.code }, checks);
+  }
 
-    // check synthing availability
-    if (!syncthingService.isRunning() && !firstLoginPhraseExecution) {
-      if (syncthingWorking) {
-        syncthingWorking = false;
-      } else {
-        throw new Error('Syncthing is not running properly');
-      }
-    } else {
-      syncthingWorking = true;
-    }
-    firstLoginPhraseExecution = false;
-    // check docker availablility
+  // syncthing: measured everywhere, but it only decides fitness where FluxOS
+  // owns the daemon, and only once there is a measurement to decide on.
+  //
+  // This check exists because a legacy operator's syncthing may be absent,
+  // mis-installed, wrongly owned or simply killed - which is why the whole
+  // repair path (stop, install, configure, spawn) and the ownership dance are
+  // held to the same question. Where we do not own it - Arcane ships and
+  // supervises its own - FluxOS has no way to restart it, so failing the node
+  // here would take it off the network for a fault it neither caused nor can
+  // repair. Asked of syncthingService rather than re-derived from the node type,
+  // because the two are not the same question and answering it twice is how
+  // they drift. The app path is unaffected either way: mount-safety, folder
+  // state and the g: election each hold their own syncthing readiness and stand
+  // down on it without help from here.
+  //
+  // Unmeasured refuses nobody. Until the sentinel has started there is no
+  // reading, and a node that answers "Syncthing is not running properly" on the
+  // strength of a check it has not run is reporting its own startup as somebody
+  // else's fault - which is what a slow daemon at boot used to make it do.
+  const syncthingState = syncthingService.healthState();
+  const syncthingBroken = syncthingState === syncthingService.SYNCTHING_HEALTH.UNHEALTHY;
+  if (syncthingBroken && syncthingService.ownsSyncthing()) {
+    const error = new Error('Syncthing is not running properly');
+    return unfit('syncthing', { message: error.message, name: error.name, code: error.code }, checks);
+  }
+  checks.syncthing = syncthingBroken ? 'degraded' : syncthingState;
+
+  // docker: listing images proves the daemon answers
+  try {
     await dockerService.dockerListImages();
-    // check Node Hardware Requirements are ok.
-    const hwPassed = await confirmNodeTierHardware();
-    if (hwPassed === false) {
-      throw new Error('Node hardware requirements not met');
+    checks.docker = 'ok';
+  } catch (error) {
+    return unfit('docker', { message: error.message, name: error.name, code: error.code }, checks);
+  }
+
+  // hardware: the node must still meet its tier requirements
+  const hwPassed = await confirmNodeTierHardware();
+  if (hwPassed === false) {
+    const error = new Error('Node hardware requirements not met');
+    return unfit('hardware', { message: error.message, name: error.name, code: error.code }, checks);
+  }
+  checks.hardware = 'ok';
+
+  // DOS state (contains daemon checks). getDOSState answers with
+  // createDataMessage, which hardcodes status 'success', so there is no error
+  // shape to branch on and no success to test for.
+  //
+  // It answers with dosState and dosMessage and nothing else. The checks here
+  // used to also read nodeHardwareSpecsGood, a field no caller in this repo,
+  // fluxbench or the frontend has ever emitted - so `undefined === false` made
+  // both of its conditions permanently false, including the one that returned
+  // code 100. The hardware question it was reaching for is answered live four
+  // lines above, by confirmNodeTierHardware.
+  const { data: dos } = fluxNetworkHelper.getDOSState();
+  if (dos.dosState > 10 || dos.dosMessage !== null) {
+    let error = { message: dos.dosMessage, name: 'DOS', code: dos.dosState };
+    if (dos.dosMessage !== 'Flux IP detection failed' && dos.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
+      error = { message: dos.dosMessage, name: 'CONNERROR', code: dos.dosState };
     }
-    // check DOS state (contains daemon checks)
-    const dosState = fluxNetworkHelper.getDOSState();
-    if (dosState.status === 'error') {
-      const errorMessage = 'Unable to check DOS state';
-      const errMessage = messageHelper.createErrorMessage(errorMessage);
-      res.json(errMessage);
+    return unfit('dos', error, checks);
+  }
+  checks.dos = 'ok';
+
+  // Apps DOS state
+  const dosAppsState = appInspector.getAppsDOSState();
+  if (dosAppsState.status === 'success' && dosAppsState.data.dosState >= 100) {
+    return unfit('appsDos', { message: dosAppsState.data.dosMessage, name: 'DOS', code: dosAppsState.data.dosState }, checks);
+  }
+  checks.appsDos = 'ok';
+
+  return fit(checks);
+}
+
+/**
+ * Node health endpoint. Reports whether this node is fit to serve the network,
+ * using the same checks loginPhrase gates on. GET /flux/health.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function nodeHealth(_, res) {
+  try {
+    const fitness = await checkNodeFitness();
+    if (!fitness.ok) {
+      res.json(messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code));
       return;
     }
-    if (dosState.status === 'success') {
-      // nodeHardwareSpecsGood is not part of response yet
-      if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
-        let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-        if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
-          errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
-        }
-        if (dosState.data.nodeHardwareSpecsGood === false) {
-          errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
-        }
-        res.json(errMessage);
-        return;
-      }
+    res.json(messageHelper.createDataMessage(fitness.checks));
+  } catch (error) {
+    log.error(error);
+    res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+  }
+}
+
+async function loginPhrase(req, res) {
+  try {
+    const fitness = await checkNodeFitness();
+    if (!fitness.ok) {
+      res.json(messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code));
+      return;
     }
 
-    // check Apps DOS state
-    const dosAppsState = appInspector.getAppsDOSState();
-    if (dosAppsState.status === 'success') {
-      // nodeHardwareSpecsGood is not part of response yet
-      if (dosAppsState.data.dosState >= 100) {
-        const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
-        log.error(errMessage);
-        res.json(errMessage);
-        return;
-      }
-    }
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
 
     const timestamp = Date.now();
     const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
     const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-    /* const activeLoginPhrases = [
-       {
-         loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
-         createdAt: 2019-08-09T13:08:41.335Z,
-         expireAt: 2019-08-09T13:23:41.335Z
-       }
-    ] */
-    // insert to db
     const newLoginPhrase = {
       loginPhrase: phrase,
       createdAt: new Date(timestamp),
       expireAt: new Date(validTill),
     };
-    const value = newLoginPhrase;
-    await dbHelper.insertOneToDatabase(database, collection, value);
+    await dbHelper.insertOneToDatabase(database, collection, newLoginPhrase);
 
-    // all is ok
     const phraseResponse = messageHelper.createDataMessage(phrase);
     res.json(phraseResponse);
   } catch (error) {
@@ -894,6 +995,8 @@ async function checkLoggedUser(req, res) {
 module.exports = {
   PRIVILEGE_RESPONSE,
   loginPhrase,
+  nodeHealth,
+  checkNodeFitness,
   emergencyPhrase,
   verifyLogin,
   provideSign,

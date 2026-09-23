@@ -2,6 +2,9 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
+// The real classifier: both the reconciler and the boot sweep classify a mount
+// fault through this one function, so the mock borrows it rather than restating it.
+const { classifyVolumeFault } = require('../../ZelBack/src/services/appTamperingDetectionService');
 
 describe('appReconciler tests', () => {
   let appReconciler;
@@ -81,7 +84,7 @@ describe('appReconciler tests', () => {
       },
       containerHealthMonitor: { recreateMissingContainers: sinon.stub().resolves() },
       appUninstaller: { removeAppLocally: sinon.stub().resolves() },
-      appTamperingDetectionService: { recordEvent: sinon.stub().resolves(), isNetworkMissingError: () => false },
+      appTamperingDetectionService: { recordEvent: sinon.stub().resolves(), isNetworkMissingError: () => false, classifyVolumeFault },
       serviceHelper: { delay: sinon.stub().resolves() },
     };
 
@@ -285,8 +288,6 @@ describe('appReconciler tests', () => {
     // written LAST for the same reason: the bounce already happened, so a failed
     // record must not also cost the bookkeeping a successful restart is owed.
     it('a failed generation write keeps the bounce its bookkeeping, and fails the pass', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
       stubs.appsRuntimeState.getState.resolves({ restartGeneration: 3, actuatedRestartGeneration: 2 });
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
       stubs.appsRuntimeState.recordRestartGeneration.rejects(new Error('not enough disk space'));
@@ -299,18 +300,12 @@ describe('appReconciler tests', () => {
         'the bounce must have happened, or the assertions below prove nothing',
       ).to.be.true;
       expect(
-        onStarted.calledOnceWith('www_App'),
-        'the notification is owed to a restart that happened - it is the record that failed, not the restart',
-      ).to.be.true;
-      expect(
         thrown,
         'the pass must fail, so the retry paces and bounds it instead of looping every verify interval',
       ).to.be.an('error');
     });
 
     it('a failed generation write on the start path keeps the start notified, and fails the pass', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
       stubs.appsRuntimeState.getState.resolves({ restartGeneration: 4, actuatedRestartGeneration: 1 });
       stubs.appsRuntimeState.recordRestartGeneration.rejects(new Error('not enough disk space'));
 
@@ -318,7 +313,6 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App').catch((e) => { thrown = e; }); // stopped -> start
 
       expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
-      expect(onStarted.calledOnceWith('www_App')).to.be.true;
       expect(thrown).to.be.an('error');
     });
 
@@ -543,6 +537,100 @@ describe('appReconciler tests', () => {
         .filter((c) => c.args[1] === 'volume_missing');
       expect(volumeEvents).to.have.lengthOf(1);
       expect(volumeEvents[0].args[0]).to.equal('App');
+    });
+
+    // The stamp exists to catch exactly this, and a substitution found while
+    // the volume is unmounted otherwise scored nothing until the node next
+    // booted - the boot sweep being the only thing that recorded it.
+    it('records a tampering event when the image is not the one this node made', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_image_unrecognised' });
+      await appReconciler.reconcile('www_App');
+      await appReconciler.reconcile('www_App');
+      const volumeEvents = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_image_unrecognised');
+      expect(volumeEvents).to.have.lengthOf(1);
+      expect(volumeEvents[0].args[0]).to.equal('App');
+    });
+
+    // Noting one fault must not swallow the other: they are different events
+    // about the same component, and the second is the one that says an image
+    // was replaced.
+    it('records both volume faults when one follows the other', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      await appReconciler.reconcile('www_App');
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_image_unrecognised' });
+      await appReconciler.reconcile('www_App');
+      const types = stubs.appTamperingDetectionService.recordEvent.getCalls().map((c) => c.args[1]);
+      expect(types).to.include('volume_missing');
+      expect(types).to.include('volume_image_unrecognised');
+    });
+
+    // The file is there and holds no filesystem the kernel knows, which is an
+    // image written over. It went unattributed until the node next restarted,
+    // because the boot sweep was the only thing that named it.
+    it('records an image that no longer holds a filesystem', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_failed: bad superblock' });
+
+      await appReconciler.reconcile('www_App');
+
+      const events = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_image_unrecognised');
+      expect(events).to.have.lengthOf(1);
+    });
+
+    // A host fault - a read-only disk, no loop device, a refused mount - had no
+    // producer but the boot sweep, so a fault that arose after boot was invisible
+    // in the dataset that counts them until the node restarted. The reconciler
+    // now records it under the same name mid-run.
+    it('records a host fault mid-run, not only at boot', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'host_filesystem_readonly' });
+
+      await appReconciler.reconcile('www_App');
+
+      const events = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_host_fault');
+      expect(events).to.have.lengthOf(1);
+      expect(events[0].args[0]).to.equal('App');
+    });
+
+    // A removed component keeps no failure history. Keyed by identifier, a
+    // reinstall under the same name would otherwise have its first fault
+    // swallowed as one already recorded - and for the volume maps that fault
+    // is the record of somebody writing to the disk.
+    it('records a fault again for a component reinstalled under the same name', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      await appReconciler.reconcile('www_App');
+
+      appReconciler.forgetDesiredState('www_App');
+      await appReconciler.reconcile('www_App');
+
+      const volumeEvents = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_missing');
+      expect(volumeEvents, 'the reinstalled component\'s fault was swallowed').to.have.lengthOf(2);
+    });
+
+    // Deleting the image alone records volume_missing. Deleting it and leaving
+    // another where the search reaches would otherwise be the quieter of the
+    // two, which is the wrong way round.
+    it('records an image found somewhere other than where it was recorded', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false, imageMoved: true });
+
+      await appReconciler.reconcile('www_App');
+
+      const moved = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_image_moved');
+      expect(moved).to.have.lengthOf(1);
+      expect(moved[0].args[0]).to.equal('App');
+    });
+
+    it('records nothing when the image is where the record puts it', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false, imageMoved: false });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(
+        stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'volume_image_moved'),
+      ).to.equal(false);
     });
 
     it('ensures the volume is mounted before actuating a pending data wipe', async () => {
@@ -1355,40 +1443,6 @@ describe('appReconciler tests', () => {
       } finally {
         clock.restore();
       }
-    });
-  });
-
-  // The started-nudge: a container start is information the network wants NOW
-  // (a backoff straggler that starts minutes after boot must refresh its
-  // appsLocations row inside the ~7min sigterm TTL window, not at the hourly
-  // tick). serviceManager wires this callback to the peer broadcast, mirroring
-  // appInstaller.setOnInstallComplete; the broadcast layer coalesces bursts.
-  describe('container-started notification', () => {
-    it('notifies the registered callback after a successful start', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
-      await appReconciler.reconcile('www_App'); // stopped + always policy -> starts
-      expect(stubs.dockerService.appDockerStart.calledOnce).to.be.true;
-      expect(onStarted.calledOnceWith('www_App')).to.be.true;
-    });
-
-    it('does not notify on a stop or a failed start', async () => {
-      const onStarted = sinon.stub();
-      appReconciler.setOnContainerStarted(onStarted);
-
-      // reconcile that stops an operator-stopped running container
-      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
-      await appReconciler.reconcile('www_App');
-      expect(stubs.dockerService.appDockerStop.calledOnce).to.be.true;
-      expect(onStarted.called).to.be.false;
-
-      // reconcile whose docker start throws
-      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: false, force: false });
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 1 } });
-      stubs.dockerService.appDockerStart.rejects(new Error('boom'));
-      await appReconciler.reconcile('www_App').catch(() => {});
-      expect(onStarted.called).to.be.false;
     });
   });
 

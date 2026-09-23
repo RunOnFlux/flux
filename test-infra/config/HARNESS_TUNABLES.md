@@ -73,6 +73,10 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.appSyncMinPeerUptime` | 7500 | 0 | n/a |
 | `fluxapps.appSyncPeerThreshold` | 12 | 2 | 6.0x |
 | `fluxapps.bootDelayMultiplier` | 1 | 0.01 | 100.0x |
+| `fluxapps.complianceRemovalSpacingMs` | 180000 | 2000 | 90.0x |
+| `fluxapps.complianceRetryBaseMs` | 60000 | 2000 | 30.0x |
+| `fluxapps.complianceRetryMaxMs` | 3600000 | 20000 | 180.0x |
+| `fluxapps.complianceSweepStaggerMs` | 120000 | 1000 | 120.0x |
 | `fluxapps.cpuCheckIntervalMs` | 900000 | 30000 | 30.0x |
 | `fluxapps.daemonInfoIntervalMs` | 30000 | 5000 | 6.0x |
 | `fluxapps.defaultSwap` | 2 | 0 | n/a |
@@ -90,7 +94,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.hashSyncRetryMs` | 300000 | 10000 | 30.0x |
 | `fluxapps.hashSyncSettleMs` | 4000 | 2000 | 2.0x |
 | `fluxapps.hddFileSystemMinimum` | 10 | 2 | 5.0x |
-| `fluxapps.imageComplianceIntervalMs` | 3600000 | 60000 | 60.0x |
 | `fluxapps.imageUpdateCheckIntervalMs` | 21600000 | 5000 | 4320.0x |
 | `fluxapps.imageUpdateDelayAfterRedeployMs` | 120000 | 1000 | 120.0x |
 | `fluxapps.imageUpdateDelayBetweenAppsMs` | 5000 | 100 | 50.0x |
@@ -120,7 +123,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.portTestPeerTimeoutMs` | 30000 | 3000 | 10.0x |
 | `fluxapps.portTestPropagationDelayMs` | 10000 | 100 | 100.0x |
 | `fluxapps.redeploy.composedDelay` | 5 | 1 | 5.0x |
-| `fluxapps.redeploy.delay` | 30 | 1 | 30.0x |
 | `fluxapps.removal.delay` | 300 | 5 | 60.0x |
 | `fluxapps.spawnDeferrals.capacityGap.largeMs.enterprise` | 1800000 | 350 | 5142.9x |
 | `fluxapps.spawnDeferrals.capacityGap.largeMs.standard` | 7020000 | 700 | 10028.6x |
@@ -132,8 +134,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.spawnDeferrals.datacenterMs.standard` | 3420000 | 500 | 6840.0x |
 | `fluxapps.spawnDeferrals.staticIpMs.enterprise` | 1620000 | 200 | 8100.0x |
 | `fluxapps.spawnDeferrals.staticIpMs.standard` | 3420000 | 400 | 8550.0x |
-| `fluxapps.spawnDeferrals.targetedNodesMs.enterprise` | 1800000 | 150 | 12000.0x |
-| `fluxapps.spawnDeferrals.targetedNodesMs.standard` | 3420000 | 300 | 11400.0x |
 | `fluxapps.spawnDelayMultiplier` | 1 | 0.002 | 500.0x |
 | `fluxapps.spawnReconfirmDelayMs` | 7500000 | 30000 | 250.0x |
 | `fluxapps.syncResponseThrottleMs` | 300000 | 10000 | 30.0x |

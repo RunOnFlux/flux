@@ -8,7 +8,7 @@ const {
   sanitizePath, verifyRealPath, verifyRealPathOfExistingPath,
 } = require('../utils/pathSecurity');
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
-const { STAGING_PREFIX, isReservedName } = require('./volumeReservedNames');
+const { STAGING_ROOT, stagingRelative, isReservedName } = require('./volumeReservedNames');
 const { measureTree, BLOCK_UNIT } = require('../utils/treeSize');
 const { Privilege, authOf } = require('../utils/privileges');
 
@@ -223,16 +223,38 @@ class VolumeSession {
     // string never fires, and it resolves inside the mount, so containment is
     // satisfied. Both are true, and neither is the question being asked.
     //
-    // Only for a name that is reserved at all, so the ordinary path costs
-    // nothing. verifyRealPath returns a path it cannot resolve unchanged, so a
-    // name under a directory that does not exist yet compares as itself and
-    // stays the owner's.
-    if (!allowReserved && relative !== '' && isReservedName(path.basename(hostPath))) {
+    // verifyRealPath returns a path it cannot resolve unchanged, so a name under
+    // a directory that does not exist yet compares as itself - which is what
+    // refuses `.flux-op/<id>` on a volume that has never run an operation.
+    //
+    // This used to run only for a name that was reserved at all, so that the
+    // ordinary path cost nothing. It cannot: reaching into the staging subtree
+    // needs no reserved name anywhere in the path. The two realpath calls are
+    // now paid by every resolve, which is per file operation and never per
+    // directory entry - the listing filter tests names directly and does not
+    // come through here - and every one of those calls already spawns a
+    // container.
+    //
+    // STAGING IS A SUBTREE, NOT A NAME. The other reserved names are files the
+    // owner must not replace; the staging directory has children, and they are
+    // what a live operation is writing into. Refusing the name alone would leave
+    // `.flux-op/<id>` reachable - an unreserved basename under an unreserved
+    // parent - so the whole subtree is refused. It was enough to check the
+    // basename while staging was a flat `.flux-op-<id>` at the root, because
+    // then the name WAS the thing and it had no inside.
+    //
+    // Checked on where the path lands, like the rule above and for the same
+    // reason: an app can `ln -s .flux-op mine` and ask for `mine/<id>`, which
+    // names nothing reserved and arrives in the same place.
+    if (!allowReserved && relative !== '') {
       const [realParent, realMount] = await Promise.all([
         verifyRealPath(parent, this.#mount),
         verifyRealPath(this.#mount, this.#mount),
       ]);
-      if (realParent === realMount) {
+      const realStaging = path.join(realMount, STAGING_ROOT);
+      const insideStaging = realParent === realStaging
+        || realParent.startsWith(`${realStaging}${path.sep}`);
+      if (insideStaging || (realParent === realMount && isReservedName(path.basename(hostPath)))) {
         throw new Error(`${relative} is not an application's to write`);
       }
     }
@@ -328,8 +350,8 @@ class VolumeSession {
    * @returns {VolumePath}
    */
   staging() {
-    const name = `${STAGING_PREFIX}${crypto.randomUUID()}`;
-    return new VolumePath(path.join(this.#mount, name), name, VolumePath);
+    const relative = stagingRelative(crypto.randomUUID());
+    return new VolumePath(path.join(this.#mount, relative), relative, VolumePath);
   }
 
   /**
@@ -362,10 +384,10 @@ class VolumeSession {
     if (!(destination instanceof VolumePath)) {
       throw new Error('stagingDir must be given the destination VolumePath to name its result after');
     }
-    const name = `${STAGING_PREFIX}${crypto.randomUUID()}`;
-    const relative = path.posix.join(name, path.posix.basename(destination.relative));
+    const directory = stagingRelative(crypto.randomUUID());
+    const relative = path.posix.join(directory, path.posix.basename(destination.relative));
     return {
-      directory: new VolumePath(path.join(this.#mount, name), name, VolumePath),
+      directory: new VolumePath(path.join(this.#mount, directory), directory, VolumePath),
       entry: new VolumePath(path.join(this.#mount, relative), relative, VolumePath),
     };
   }

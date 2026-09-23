@@ -47,14 +47,74 @@ const INCIDENT_BUCKET_MS = 60 * 60 * 1000;
 // host — fleet-wide they are dominated by persistent faults on broken nodes —
 // and a persistent fault re-records in every hourly bucket, so anything real
 // accumulates weight without needing a high per-incident severity.
+// volume_host_fault is the same class as recreation_failed: a volume that
+// could not be mounted for a reason that describes the HOST - no loop device,
+// a disk the kernel remounted read-only, a mount table that would not read.
+// Recorded so the population is visible and can be counted fleet-wide, and
+// weighted zero because none of it is the operator's doing. Nothing acts on
+// it today; whether a node that cannot mount volumes at all should be taken
+// out of service is a question this data is here to answer.
+//
+// volume_unreadable is that class too: it is recorded when no process on the
+// node, root included, could read a volume, which describes what this node can
+// SEE and not what anyone did to it. Weighted zero for the same reason, and
+// recorded for the same one - the population is worth counting.
 const EVENT_SEVERITY = {
   container_vanished: 3,
   network_pruned: 1,
   network_detached: 1,
   mount_vanished: 1,
   volume_missing: 1,
+  volume_image_unrecognised: 1,
+  // Not an oversight beside volume_image_unrecognised's 1: an image found away
+  // from its record is adopted rather than refused (refusing strands real
+  // data), and a legitimately re-created volume cannot be told from a
+  // substitution here - both arrive with a fresh UUID. Counted, not scored: a
+  // weight would fall on the re-creation too, and adoption makes it fire once
+  // regardless, not accumulate.
+  volume_image_moved: 0,
+  volume_unreadable: 0,
   recreation_failed: 0,
+  volume_host_fault: 0,
 };
+
+// The one mapping from a mount fault's reason to the event it is recorded as.
+// The startup sweep and the reconciler both classify through this, so a fault
+// reads the same whichever met it, and a fleet query for an event sees every
+// node rather than only those that met it at boot. A reason may carry a
+// ': detail' suffix; the stem before it selects the event.
+const VOLUME_FAULT_EVENTS = {
+  volume_file_missing: 'volume_missing',
+  volume_image_unrecognised: 'volume_image_unrecognised',
+  // No filesystem where a recorded image should be is that image overwritten.
+  mount_failed: 'volume_image_unrecognised',
+  // The mountpoint is a file, not a directory: something replaced it.
+  mount_point_not_a_directory: 'mount_vanished',
+  // The rest describe the host or this node's own state, not the operator's
+  // doing, so they weigh nothing: a read-only disk, no loop device, a refused
+  // mount, a mountpoint that could not be made, a mount table or record that
+  // would not read, an install that never finished formatting its volume.
+  host_filesystem_readonly: 'volume_host_fault',
+  mount_point_unavailable: 'volume_host_fault',
+  mount_table_unreadable: 'volume_host_fault',
+  candidate_path_unreadable: 'volume_host_fault',
+  record_unreadable: 'volume_host_fault',
+  loop_unavailable: 'volume_host_fault',
+  mount_host_refused: 'volume_host_fault',
+  volume_incomplete_install: 'volume_host_fault',
+};
+
+/**
+ * The tampering event a mount fault is recorded as, from its reason.
+ *
+ * @param {string} reason a reason from ensureAppVolumeMounted, with or without
+ *   a ': detail' suffix
+ * @returns {string} the event type; mount_vanished for a reason not named above
+ */
+function classifyVolumeFault(reason) {
+  const stem = String(reason).split(':')[0];
+  return VOLUME_FAULT_EVENTS[stem] || 'mount_vanished';
+}
 
 const EVENTS_DEFAULT_LIMIT = 500;
 const EVENTS_MAX_LIMIT = 1000;
@@ -258,7 +318,7 @@ async function getAppAttribution(appName) {
  * @param {string} eventType - One of the EVENT_SEVERITY keys
  * @param {string} details - Free-text context (stored once per incident)
  */
-async function recordEvent(appName, eventType, details) {
+async function recordEvent(rawAppName, eventType, details) {
   try {
     const db = dbHelper.databaseConnection();
     if (!db) {
@@ -268,6 +328,13 @@ async function recordEvent(appName, eventType, details) {
     const database = db.db(config.database.local.database);
     const now = new Date();
     const incidentKey = `${currentBootId ?? 'unknown'}:${Math.floor(now.getTime() / INCIDENT_BUCKET_MS)}`;
+    // Stored under the app's own name whatever a caller addressed it by. The
+    // boot sweep walks docker component identifiers and the reconciler works
+    // in app names, so without this the same fault on the same app lands in
+    // two rows and getEvents, which matches the name exactly, finds one of
+    // them. Idempotent: an app name carries neither the prefix nor the
+    // component part this strips.
+    const appName = deriveMainAppName(rawAppName);
     const [identity, attribution] = await Promise.all([
       getNodeIdentity(),
       getAppAttribution(appName),
@@ -532,6 +599,7 @@ async function prepareIncidentRollup() {
 
 module.exports = {
   recordEvent,
+  classifyVolumeFault,
   getEvents,
   isNetworkMissingError,
   checkNodeReboot,

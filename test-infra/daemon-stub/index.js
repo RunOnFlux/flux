@@ -40,6 +40,10 @@ let pendingBlocks = [];
 
 const nodeStatusOverrides = new Map();
 const rpcFailures = new Map();
+// ip -> Map(method -> Set(resolve)). A held method does not answer until the suite
+// releases it. Failing an RPC ends the operation waiting on it; holding one keeps
+// that operation open, which is how a suite decides when it is in flight.
+const rpcHolds = new Map();
 // ip -> false. Absent means ArcaneOS, which is what 85% of the real fleet runs
 // and what every suite that does not care about this should see: a node reading
 // systemsecure=true is never a residential-DOS target.
@@ -443,7 +447,7 @@ const benchHandlers = {
   stop: () => 'Flux benchmark stopping (stub)',
 };
 
-function handleRpc(handlers, req, res) {
+async function handleRpc(handlers, req, res) {
   const { method, params, id } = req.body;
   const sourceIp = req.ip;
   const cleanIp = sourceIp.replace('::ffff:', '');
@@ -460,6 +464,13 @@ function handleRpc(handlers, req, res) {
   }
 
   const lowerMethod = method.toLowerCase();
+
+  const heldMethods = rpcHolds.get(cleanIp);
+  const waiters = heldMethods && heldMethods.get(lowerMethod);
+  if (waiters) {
+    await new Promise((resolve) => { waiters.add(resolve); });
+  }
+
   const handler = handlers[lowerMethod];
 
   if (!handler) {
@@ -479,13 +490,13 @@ function handleRpc(handlers, req, res) {
 // -- Fluxd RPC server --
 const fluxd = express();
 fluxd.use(express.json());
-fluxd.post('/', (req, res) => handleRpc(rpcHandlers, req, res));
+fluxd.post('/', (req, res) => { handleRpc(rpcHandlers, req, res).catch((err) => { console.error('fluxd rpc:', err); }); });
 fluxd.listen(FLUXD_PORT, () => console.log(`Fluxd stub listening on port ${FLUXD_PORT}`));
 
 // -- Fluxbenchd RPC server --
 const benchd = express();
 benchd.use(express.json());
-benchd.post('/', (req, res) => handleRpc(benchHandlers, req, res));
+benchd.post('/', (req, res) => { handleRpc(benchHandlers, req, res).catch((err) => { console.error('benchd rpc:', err); }); });
 benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port ${BENCHD_PORT}`));
 
 // -- Block ticker --
@@ -714,18 +725,13 @@ control.delete('/pending-blocks', (req, res) => {
 });
 
 // -- Per-node status overrides --
-
-control.post('/node-status/:ip', (req, res) => {
-  const { status } = req.body;
-  if (!status) return res.status(400).json({ error: 'status required' });
-  nodeStatusOverrides.set(req.params.ip, { status });
-  return res.json({ ip: req.params.ip, status });
-});
-
-control.delete('/node-status/:ip', (req, res) => {
-  nodeStatusOverrides.delete(req.params.ip);
-  res.json({ ip: req.params.ip, cleared: true });
-});
+//
+// THE LITERAL ROUTES COME FIRST, and the parameterised ones refuse the word.
+// Express matches in registration order, so with '/:ip' first a DELETE of
+// '/node-status/all' reached it with ip='all' and deleted the key 'all' - a
+// no-op that answered { cleared: true }. Nothing failed, nothing logged, and
+// four suites had been calling a clear that never cleared anything. The guard
+// below is the half that makes a future reordering LOUD instead of silent.
 
 control.post('/node-status/all', (req, res) => {
   const { status } = req.body;
@@ -739,6 +745,20 @@ control.post('/node-status/all', (req, res) => {
 control.delete('/node-status/all', (req, res) => {
   nodeStatusOverrides.clear();
   res.json({ cleared: true });
+});
+
+control.post('/node-status/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /node-status/all must be registered first' });
+  const { status } = req.body;
+  if (!status) return res.status(400).json({ error: 'status required' });
+  nodeStatusOverrides.set(req.params.ip, { status });
+  return res.json({ ip: req.params.ip, status });
+});
+
+control.delete('/node-status/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /node-status/all must be registered first' });
+  nodeStatusOverrides.delete(req.params.ip);
+  return res.json({ ip: req.params.ip, cleared: true });
 });
 
 control.get('/node-status', (req, res) => {
@@ -801,16 +821,10 @@ control.delete('/system-secure', (req, res) => {
 });
 
 // -- RPC failure simulation --
-
-control.post('/rpc-fail/:ip', (req, res) => {
-  rpcFailures.set(req.params.ip, true);
-  res.json({ ip: req.params.ip, rpcFailing: true });
-});
-
-control.delete('/rpc-fail/:ip', (req, res) => {
-  rpcFailures.delete(req.params.ip);
-  res.json({ ip: req.params.ip, rpcFailing: false });
-});
+//
+// Literal before parameterised, and the guard, for the same reason as
+// /node-status above: enableAllRpcFailure and disableAllRpcFailure were both
+// reaching '/rpc-fail/:ip' with ip='all' and answering success.
 
 control.post('/rpc-fail/all', (req, res) => {
   for (const node of deterministicNodeList) {
@@ -822,6 +836,56 @@ control.post('/rpc-fail/all', (req, res) => {
 control.delete('/rpc-fail/all', (req, res) => {
   rpcFailures.clear();
   res.json({ rpcFailing: false, cleared: true });
+});
+
+control.post('/rpc-fail/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-fail/all must be registered first' });
+  rpcFailures.set(req.params.ip, true);
+  return res.json({ ip: req.params.ip, rpcFailing: true });
+});
+
+control.delete('/rpc-fail/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-fail/all must be registered first' });
+  rpcFailures.delete(req.params.ip);
+  return res.json({ ip: req.params.ip, rpcFailing: false });
+});
+
+function releaseHolds(ip) {
+  const heldMethods = rpcHolds.get(ip);
+  if (!heldMethods) return 0;
+  let released = 0;
+  for (const waiters of heldMethods.values()) {
+    for (const resolve of waiters) {
+      resolve();
+      released += 1;
+    }
+    waiters.clear();
+  }
+  rpcHolds.delete(ip);
+  return released;
+}
+
+control.delete('/rpc-hold/all', (req, res) => {
+  let released = 0;
+  for (const ip of [...rpcHolds.keys()]) released += releaseHolds(ip);
+  res.json({ held: false, released });
+});
+
+control.post('/rpc-hold/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-hold/all must be registered first' });
+  const { method } = req.body;
+  if (!method) return res.status(400).json({ error: 'method is required' });
+  const lower = String(method).toLowerCase();
+  if (!rpcHolds.has(req.params.ip)) rpcHolds.set(req.params.ip, new Map());
+  const heldMethods = rpcHolds.get(req.params.ip);
+  if (!heldMethods.has(lower)) heldMethods.set(lower, new Set());
+  return res.json({ ip: req.params.ip, method: lower, held: true });
+});
+
+control.delete('/rpc-hold/:ip', (req, res) => {
+  if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-hold/all must be registered first' });
+  const released = releaseHolds(req.params.ip);
+  return res.json({ ip: req.params.ip, held: false, released });
 });
 
 // -- Seeded RPC data --
@@ -861,6 +925,9 @@ control.post('/reset', (req, res) => {
   reportedAddresses.clear();
   hiddenFromPeers.clear();
   rpcFailures.clear();
+  // Answered, not dropped: a call left waiting on a hold outlives the reset and
+  // hangs whatever made it.
+  for (const ip of [...rpcHolds.keys()]) releaseHolds(ip);
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];
   pendingAppTxQueue.length = 0;

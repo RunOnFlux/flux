@@ -76,6 +76,16 @@ export async function getConnectedDevices(client) {
     .map(([id]) => id);
 }
 
+// Ask the daemon to look at the folder NOW. Without this a test that writes into a
+// volume waits on syncthing's own rescan interval, which is an hour by default - so
+// "the daemon has not noticed yet" reads identically to "the write never landed".
+export async function scanFolder(client, folderId) {
+  const key = await apiKey(client);
+  const r = await execInContainer(client.container,
+    `curl -sS -X POST -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/db/scan?folder=${encodeURIComponent(folderId)}"`);
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: scan of ${folderId} failed: ${r.stderr || r.output}`);
+}
+
 // What is actually on disk inside the folder, which is the only thing that
 // settles whether data moved. The index can describe files a node does not have.
 export async function listFolderFiles(client, path) {

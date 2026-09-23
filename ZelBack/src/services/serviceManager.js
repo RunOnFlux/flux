@@ -38,7 +38,8 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
-const enterpriseConfig = require('./utils/enterpriseConfig');
+const policyStore = require('./policyStore');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -57,6 +58,7 @@ const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
+const peerSetStabilityService = require('./peerSetStabilityService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -77,7 +79,6 @@ function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 const {
   portRestoreIntervalMs,
   cpuCheckIntervalMs,
-  imageComplianceIntervalMs,
   forceRemovalIntervalMs,
   tempMsgTtlS,
 } = config.fluxapps;
@@ -85,8 +86,6 @@ const {
 // State objects for monitoring services
 const dosState = {
   dosMessage: null,
-  dosMountMessage: null,
-  dosDuplicateAppMessage: null,
   get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
   set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
   testingPort: null,
@@ -258,12 +257,10 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    // Seed the enterprise node->owners map from helpers/enterprisenodes.json on disk
-    // and sync it from github (every 6h thereafter). Awaited so consumers (identity
-    // resolution, the spawn loop, app-spec validation) have data before they run; the
-    // disk read and github fetch are both bounded (10s fetch timeout) so boot is never
-    // stuck on this. A failed/invalid sync keeps the last-good value.
-    await enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
+    // Ahead of anything that might call a runtime API this NodeJS lacks. A
+    // below-floor node stays up holding a sticky DOS, so /flux/info names the
+    // version found and the version required.
+    fluxNetworkHelper.checkNodeJsVersionAllowed();
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
@@ -312,6 +309,16 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
+    // Named literally because they are no longer part of the schema: the payment
+    // request and receipt collections outlived the endpoint that wrote them, and
+    // a node's word was never the payment record - the chain is. Dropping is
+    // idempotent, so this costs one 'ns not found' per boot once they are gone.
+    await Promise.all(['activepaymentrequests', 'completedpayments'].map((orphan) => dbHelper
+      .dropCollection(database, orphan).catch((error) => {
+        if (error.message !== 'ns not found') {
+          log.error(error);
+        }
+      })));
     await ensureIndexes(database.collection(config.database.local.collections.loggedUsers), [
       { key: { createdAt: 1 }, expireAfterSeconds: 14 * 24 * 60 * 60 },
     ]);
@@ -320,13 +327,6 @@ async function startFluxFunctions() {
     ]);
     await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
       { key: { createdAt: 1 }, expireAfterSeconds: 900 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.activePaymentRequests), [
-      { key: { createdAt: 1 }, expireAfterSeconds: 3600 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.completedPayments), [
-      { key: { paymentId: 1 } },
-      { key: { createdAt: 1 }, expireAfterSeconds: 7 * 24 * 60 * 60 },
     ]);
     // legacy pre-incident-schema rows expire via detectedAt; current incident
     // documents expire via lastSeen. The tamper service purges pre-schema
@@ -434,8 +434,13 @@ async function startFluxFunctions() {
 
     // Check for apps with incorrect volume mounts (containing /flux/ path)
     log.info('Checking for apps with incorrect volume mounts...');
+    // BOTH CONDITIONS, because neither implies the other. The delay is for the host
+    // settling - docker, mounts, crontab - and the gate is for the policy the hard
+    // redeploy it performs needs to pull an image again. This pass runs ONCE per
+    // boot and has nothing that retries it, so firing it into a closed gate loses
+    // the fix until the node next restarts.
     setTimeout(() => {
-      volumeValidationService.checkAndFixIncorrectVolumeMounts().catch((error) => {
+      globalState.waitForPolicyReady().then(() => volumeValidationService.checkAndFixIncorrectVolumeMounts()).catch((error) => {
         log.error(`Volume validation service error: ${error.message}`);
       });
     }, bootDelay(45 * 1000)); // Run after 45 seconds to allow system to stabilize
@@ -470,6 +475,14 @@ async function startFluxFunctions() {
       log.error(`App startup manager error: ${error.message}`);
     });
 
+    // Above the daemon wait, because syncthing has nothing to do with the
+    // daemon: the sentinel talks to syncthing's own API and reads userconfig,
+    // and the webserver is already answering. Below it, a node whose fluxd is
+    // slow or dead never starts measuring syncthing at all, and a check nobody
+    // is making cannot report a fault - see syncthingService's health stamps.
+    syncthingService.startSyncthingSentinel();
+    log.info('Syncthing service started');
+
     // Wait for daemon RPC — manageAppsOnBoot (above) is fire-and-forget and gates
     // on waitForDaemonReady() internally with a 5-min timeout. It must be running
     // before daemonReady is set so its timeout/removal logic can trigger.
@@ -486,7 +499,7 @@ async function startFluxFunctions() {
         .map((p) => ({ key: p.key, connectionId: p.connectionId, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
-      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
       networkStateReady: () => networkStateService.waitStarted(),
       fluxVersion,
     });
@@ -494,14 +507,82 @@ async function startFluxFunctions() {
     // it is the only thing that knows whether an arriving answer is still
     // wanted. The peer manager asks rather than keeping its own copy.
     peerManager.syncResponseWanted = (peerSocket) => orchestrator.isSyncResponseWanted(peerSocket);
+
+    // The other half of the peer-gated fallback. The orchestrator stops a node
+    // whose peer set keeps collapsing from ever reaching READY, which is silent;
+    // this says so, and puts a node that does it repeatedly out of service. Same
+    // two edges, read for a different purpose, so it subscribes for itself
+    // rather than being another of the orchestrator's jobs.
+    peerSetStabilityService.start({
+      onPeerEvent: (event, cb) => peerManager.on(event, cb),
+      offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
+      isAboveThreshold: () => peerManager.isAboveThreshold(),
+    });
+
+    // Network policy, started here rather than at the top of boot because it needs both of
+    // the things that only exist by now: mongo, to restore and re-verify the bundle this
+    // node last held, and peers, to ask for anything newer. Its old position could reach
+    // neither, which is why it could only ever fetch from github.
+    //
+    // Not awaited. Boot does not wait on policy and never did: the node comes up, serves its
+    // API and keeps its containers running regardless. What waits is acquisition, through
+    // globalState.policyReady, which is the one decision that must not be made on a guess.
+    policyStore.setPeerTransport({
+      // The peers worth asking. One that does not advertise the capability has no handler
+      // for the ask, so including it would buy a deadline's wait and an unrecognised-type
+      // warning in its log.
+      capableKeys: () => peerManager.getPolicyCapablePeers().map((peer) => peer.key),
+      // The only ask. A key that no longer resolves is a peer that left between connecting
+      // and being asked, which is not an error.
+      requestFrom: (key, seq, correlationId) => {
+        const peer = peerManager.get(key);
+        if (!peer) return Promise.resolve();
+        return fluxCommunicationMessagesSender.requestPolicyFromPeer(peer, seq, correlationId);
+      },
+      announce: (seq) => fluxCommunicationMessagesSender.announcePolicySeq(seq),
+      // The latched level: peerManager already defines "enough peers to gossip with" with
+      // hysteresis (appSyncPeerThreshold 12 up, appSyncDegradedThreshold 4 down). A late
+      // subscriber cannot see the edge it missed, which is what this accessor exists for -
+      // and reading the level rather than keeping an edge of our own is why nothing here
+      // needs re-arming when a peer set collapses and rebuilds.
+      aboveThreshold: () => peerManager.isAboveThreshold(),
+    });
+    // Discovery has not started yet - it is fifty lines below - so the peer set is empty at
+    // this point on every node, always. Nothing here asks peers or the source; both are
+    // driven by the two subscriptions that follow, which is what makes peers-first true at
+    // boot rather than only at the 24-hour tick. It is the whole difference between a node
+    // that boots while github is down getting policy from the neighbour beside it and
+    // getting none for a day.
+    //
+    // PER JOIN for the ASK. peerThresholdReached fires when the count first crosses
+    // appSyncPeerThreshold and then never again unless the set has since fallen below
+    // appSyncDegradedThreshold, so as a prompt to ask peers it is the wrong signal: a node
+    // asks once, its peers have nothing either, and when one of them later obtains a bundle
+    // nothing tells this node to ask again - its peer set never collapsed, so the edge never
+    // re-arms. Measured on a three-node fleet: node 1 asked at 08:16:09, node 0 adopted at
+    // 08:16:54, and node 1 held nothing thereafter. Every join re-arms the ask, and the join
+    // that crosses the threshold is one of them.
+    //
+    // The key is the whole point: notePeerAvailable asks THAT peer and never the source.
+    // A broadcast would have to be rationed, and a rationed ask cannot serve a node that is
+    // merely behind.
+    //
+    // The orchestrator next door draws the same distinction for its sync pool, and for the
+    // same reason: a latched edge says nothing about a pool that has changed since it fired.
+    peerManager.on('peerConnected', (key) => policyStore.notePeerAvailable(key));
+    // Both edges, because the store's decision is about the peer SET. A peer leaving takes
+    // its answer with it, and a node waiting on one that has gone waits out a deadline for an
+    // answer that cannot come.
+    peerManager.on('peerDisconnected', (key) => policyStore.notePeerGone(key));
+    // AND the threshold itself, which is written one line after the arrival that crosses it.
+    // Without this the crossing arrival decides while the level still reads false, and a set
+    // that stops exactly at the threshold has nothing left to re-trigger the decision.
+    peerManager.on('peerThresholdReached', () => policyStore.noteThresholdReached());
+    policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
     appSpawner.initialize();
     appInstaller.setOnInstallComplete(() => peerNotification.checkAndNotifyPeersOfRunningApps());
-    // a reconciler start (incl. a backoff straggler after boot) must refresh the
-    // app's network presence inside the sigterm TTL window, not at the hourly tick;
-    // checkAndNotifyPeersOfRunningApps coalesces bursts
-    appReconciler.setOnContainerStarted(() => peerNotification.checkAndNotifyPeersOfRunningApps());
     // a removed component's in-memory controller verdict dies with it - a
     // reinstalled g:/r: app must await a fresh election, not inherit a stale one
     appUninstaller.setOnComponentRemoved((id) => appReconciler.forgetDesiredState(id));
@@ -522,14 +603,27 @@ async function startFluxFunctions() {
     // Remove existing watchtower container (replaced by native image update service)
     imageUpdateService.removeWatchtowerContainer();
     // Start native image update service (delayed start)
+    // A check that lands before the policy gate opens refuses, and the next one is
+    // six hours away - so the app runs on the image it has for that long over a
+    // window measured in minutes. The interval is the fallback; the gate is when
+    // the first check is actually able to do its work.
     setTimeout(() => {
-      imageUpdateService.startImageUpdateService();
-      log.info('Native image update service started');
+      globalState.waitForPolicyReady().then(() => {
+        imageUpdateService.startImageUpdateService();
+        log.info('Native image update service started');
+      }).catch((error) => log.error(`Image update service start error: ${error.message}`));
     }, bootDelay(10 * 60 * 1000)); // 10 minutes after startup
     fluxNetworkHelper.checkDeterministicNodesCollisions();
-    appTamperingBlocklistService.start().catch((err) => {
-      log.error(`appTamperingBlocklist start error: ${err.message}`);
-    });
+    // STARTED ON THE POLICY, NOT ON BOOT. The blocklist this enforces is a document in the
+    // signed bundle, and the bundle is not resolved by the time this line runs. Started
+    // here, its first tick reads nothing - and reading nothing is correctly refused rather
+    // than taken for an empty list, because an unreadable blocklist releasing a node the
+    // network deliberately DOSed is the failure that contract was written for. What it
+    // costs is the interval: the next tick is twelve hours away and nothing brings it
+    // forward, so a node on the blocklist goes unenforced for twelve hours per restart.
+    globalState.waitForPolicyReady()
+      .then(() => appTamperingBlocklistService.start())
+      .catch((err) => log.error(`appTamperingBlocklist start error: ${err.message}`));
     // Not awaited, and started ahead of setNodeGeolocation below on purpose: the
     // first tick reads geolocation from the db when there is one, and otherwise
     // decides nothing and retries until the lookup this boot has landed.
@@ -593,8 +687,6 @@ async function startFluxFunctions() {
     // in progress: at boot the expected names are simply what the database
     // holds, with no window in which an app has a network and no record yet.
     await networkRecovery.reclaimOrphanedAppNetworks();
-    syncthingService.startSyncthingSentinel();
-    log.info('Syncthing service started');
     // Awaited: generating an identity rewrites config/userconfig.js, and that
     // write is not atomic - a reload landing inside it leaves the process with
     // no userconfig.initial at all. A node that already has an identity returns
@@ -635,7 +727,6 @@ async function startFluxFunctions() {
       await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
-      advancedWorkflows.testAppMount(); // test if our node can mount a volume
     }, bootDelay(30 * 1000));
     setTimeout(() => {
       appController.stopAllNonFluxRunningApps();
@@ -643,11 +734,12 @@ async function startFluxFunctions() {
       monitoringOrchestrator.startMonitoringOfApps(null).catch((error) => log.error(error));
       portManager.restoreAppsPortsSupport();
     }, bootDelay(1 * 60 * 1000));
-    // Resolve this node's enterprise identity once, up front. Self-reschedules
-    // every 5 minutes until the pubkey resolves (daemon/benchmark may still be
-    // coming up). Once cached, hot paths (spawn loop) read it synchronously
-    // via getCachedEnterpriseIdentity() with no network call and no throws.
-    const identityReady = enterpriseNetwork.scheduleIdentityResolution();
+    // Resolve this node's enterprise identity once, up front. The key comes off disk and
+    // policy arrives on an event, so this settles at boot rather than on a timer; the
+    // interval is the fallback for a config that cannot be read at all. Once cached, hot
+    // paths (spawn loop) read it synchronously via getCachedEnterpriseIdentity() with no
+    // network call and no throws.
+    enterpriseNetwork.scheduleIdentityResolution();
 
     // Services that read from zelappsinformation wait for the orchestrator
     // to finish rebuilding it rather than guessing a setTimeout delay.
@@ -662,13 +754,20 @@ async function startFluxFunctions() {
       // degrades to /16 arithmetic without a table.
       ipLocationSync.startSync().catch((err) => log.error(`ipLocationSync start error: ${err.message}`));
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
-      await identityReady;
-      try {
-        await enterpriseNetwork.cleanupOwnershipViolations();
-        log.info('Enterprise network cleanup completed');
-      } catch (error) {
-        log.error(`Enterprise network cleanup failed: ${error.message || error}`);
-      }
+      // Detached. The sweep uninstalls apps, so it waits for policy this node has confirmed
+      // is the network's, and everything below here starts whether or not that ever arrives.
+      enterpriseNetwork.startOwnershipSweeps();
+      // STARTED ON THE POLICY, NOT ON A CLOCK. What this removes is decided by the
+      // blocklist in the signed bundle, so it runs when that changes and when the gate
+      // opens on it. An application arriving afterwards is judged by the installer
+      // before it is written, and what has neither - a specification that did not
+      // decrypt, a removal the node was too busy to take, a pass that stopped part way
+      // - is held by name and asked again on its own timer.
+      //
+      // Here rather than beside the other app services: the first thing a pass does is
+      // read the local app table, so it waits on the same db the sweep beside it waits
+      // on.
+      imageManager.startComplianceSweeps(appQueryService.installedApps, appUninstaller.removeAppLocally);
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);
@@ -742,9 +841,6 @@ async function startFluxFunctions() {
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)
     orchestrator.start(bootContext);
     log.info('AppSyncOrchestrator started');
-    setInterval(() => {
-      imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
-    }, imageComplianceIntervalMs);
     setTimeout(() => {
       advancedWorkflows.forceAppRemovals();
       setInterval(() => {
@@ -758,13 +854,17 @@ async function startFluxFunctions() {
         daemonHealthMonitor.checkDaemonHealthAndCleanup();
       }, bootDelay(15 * 60 * 1000));
     }, bootDelay(5 * 60 * 1000));
+    // Gated for the same reason as the image updater: this pass redeploys on a
+    // storage violation, and one that runs before policy refuses and re-arms
+    // thirty minutes out. It re-arms itself from then on, so only the first run
+    // needs the gate.
     setTimeout(() => {
-      appInspector.checkStorageSpaceForApps(
+      globalState.waitForPolicyReady().then(() => appInspector.checkStorageSpaceForApps(
         appQueryService.installedApps,
         appUninstaller.removeAppLocally,
         advancedWorkflows.softRedeploy,
         appsStorageViolations,
-      );
+      )).catch((error) => log.error(`Storage space check error: ${error.message}`));
     }, bootDelay(20 * 60 * 1000));
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();

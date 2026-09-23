@@ -1,32 +1,43 @@
 /**
- * What an install attempt did, for a caller that has to decide what to clean up.
+ * What an install attempt did, for a caller that has to decide what to do next.
  *
- * A boolean cannot carry this. `false` meant both "another operation holds the
- * node, I touched nothing" and "I got part way, it failed, and I have already
- * torn the app down" - and a redeploy reading the first as the second answered a
- * five-second scheduling collision by force-uninstalling a running application
- * and broadcasting its removal to the network.
+ * Four different situations end an attempt without it installing the app, and they
+ * demand four different reactions: the app is already there, the node is busy with
+ * something else, the node will not take the app, or the install got part way and
+ * tore it down. A caller given one value for all of them has only the wording of
+ * the response stream left to tell them apart.
  *
- * The distinction is the whole point: REFUSED means the app is exactly as it was,
- * FAILED means it is gone.
+ * INSTALLED and ALREADY_INSTALLED both mean the node holds the app. DECLINED and
+ * FAILED both mean it does not. BUSY says nothing about the app at all - only about
+ * the node at that instant.
  *
- * Internal only - nothing answers these to a client, so unlike Privilege the
- * values are ours as well as the names. They are strings rather than booleans so
- * a call site reads as the question it is asking.
+ * Every outcome except BUSY is returned after the install hold is acquired, so each
+ * is a true statement about the app whoever asked for it: concurrent attempts are
+ * serialised, and the ones that lose get BUSY. BUSY is therefore the only outcome a
+ * caller must keep waiting through rather than act on.
  *
- * All three are truthy, so a caller left on `if (!outcome)` reads a refusal as a
- * success. That is why every call site was changed with the return type rather
- * than left to be found later.
+ * Internal only - nothing answers these to a client, so unlike Privilege the values
+ * are ours as well as the names. They are strings rather than booleans so a call
+ * site reads as the question it is asking.
+ *
+ * Every value is truthy, so `if (!outcome)` is never true: compare against a named
+ * value.
  */
 const InstallOutcome = Object.freeze({
-  // The app is installed and running.
+  // This attempt installed the app, and it is running.
   INSTALLED: 'installed',
-  // Nothing was touched. Another operation holds the node, or the app is already
-  // installed. Whatever was running before is still running, and the caller has
-  // nothing to undo.
-  REFUSED: 'refused',
-  // The install got part way and cleaned up after itself, so the app is no longer
-  // on this node. The only outcome that justifies a caller acting on the loss.
+  // The node already held the app, so this attempt did nothing. The app is there,
+  // and a caller waiting for the node to hold it has its answer.
+  ALREADY_INSTALLED: 'alreadyInstalled',
+  // Another install or removal holds the node, so this attempt did nothing. Carries
+  // no claim about the app: the operation in the way may be an install of this very
+  // app, and the next attempt may install it.
+  BUSY: 'busy',
+  // The node will not take this app, and nothing was touched. Whatever was running
+  // before is still running.
+  DECLINED: 'declined',
+  // The install got part way and cleaned up after itself, so the app is no longer on
+  // this node. The only outcome that justifies a caller acting on the loss.
   FAILED: 'failed',
 });
 

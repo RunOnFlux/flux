@@ -252,6 +252,13 @@ export function dbClient(nodeNum) {
       await globalDb.collection('zelappsinformation').insertOne({ ...spec });
     },
 
+    // The specification row this node holds for one app. What a replayed
+    // message has to produce on a node that was never given the message.
+    async globalAppSpec(name) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').findOne({ name });
+    },
+
     // zelappsinformation holds one row per app - the CURRENT specification. An
     // update replaces it, the way hash sync does when the chain carries a newer
     // message; inserting a second row leaves the node reading whichever it finds
@@ -330,6 +337,28 @@ export function dbClient(nodeNum) {
         broadcastedAt: new Date(ts),
         expireAt: new Date(ts + 24 * 60 * 60 * 1000),
       });
+    },
+
+    // The signed policy bundle this node last verified, as policyArtifactRepository wrote
+    // it. Read from mongo rather than from an endpoint because it is the only surface that
+    // is neither cached nor derived: /flux/enterpriseappowners answers through apicache and
+    // remembers its first SUCCESSFUL answer for an hour, so a suite that changes policy and
+    // reads it twice is reading the first answer both times.
+    //
+    // THE PERSISTED COPY, AND IT LAGS ADOPTION. policyStore.adopt() writes memory, announces
+    // to peers and publishes policy:bundleChanged, then persists WITHOUT awaiting the write -
+    // deliberately, since a node already running on a bundle only loses it at the next boot.
+    // So this answers null for a node that has adopted and not yet stored. Poll it; a single
+    // sample compared across nodes reports a level fleet as out of step.
+    async policyBundle() {
+      const localDb = await db('local');
+      return localDb.collection('policydocuments').findOne({ _id: 'networkPolicy' });
+    },
+
+    // Forget the stored bundle, for the boot that has to resolve one from somewhere else.
+    async deletePolicyBundle() {
+      const localDb = await db('local');
+      await localDb.collection('policydocuments').deleteOne({ _id: 'networkPolicy' });
     },
 
     async failpointFind(collection, { times = 1, errorCode = 50 } = {}) {

@@ -12,10 +12,29 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
+// Docker's own answers, recorded by tests/unit/fixtures/docker/record.js. The functions
+// below resolve a container by name, send one request and return the response unchanged,
+// so what they do is which container they resolve and which options they send. The
+// recorded bodies carry docker's real shapes for the responses that get handed back.
+const websiteContainer = require('./fixtures/docker/container-listing.live.json');
+const websiteImage = require('./fixtures/docker/image-listing.live.json');
+const inspectResponse = require('./fixtures/docker/inspect.live.json');
+const statsResponse = require('./fixtures/docker/stats.live.json');
+const changesResponse = require('./fixtures/docker/changes.live.json');
+const topResponse = require('./fixtures/docker/top.live.json');
+const recordedLogFrames = require('./fixtures/docker/logs.live.json');
+
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('dockerService tests', () => {
+  // Everything that acts on a container reaches it through getDockerContainerByIdOrName,
+  // which asks docker for the listing and matches the name exactly. Stubbing the listing
+  // is what lets a test about start, stop, logs or top be about start, stop, logs or top.
+  function stubContainerListing() {
+    return sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
+  }
+
   describe('getDockerContainer tests', () => {
     it('should return a container with a proper ID', async () => {
       const dockerContainer = await dockerService.getDockerContainer('46274c58c9a969e93c1f91a057f0a371c7b952e31a7aec73839afe1433fdee94');
@@ -43,22 +62,13 @@ describe('dockerService tests', () => {
       expect(result).to.equal(appName);
     });
 
-    it('should add "zel" to app identifier if it is KadenaChainWebNode', async () => {
-      const appName = 'KadenaChainWebNode';
-      const expected = 'zelKadenaChainWebNode';
-
-      const result = dockerService.getAppIdentifier(appName);
-
-      expect(result).to.equal(expected);
-    });
-
-    it('should add "zel" to app identifier if it is FoldingAtHomeB', async () => {
-      const appName = 'FoldingAtHomeB';
-      const expected = 'zelFoldingAtHomeB';
-
-      const result = dockerService.getAppIdentifier(appName);
-
-      expect(result).to.equal(expected);
+    // KadenaChainWebNode and FoldingAtHomeB were once forced to a zel prefix;
+    // neither is registered anywhere and the volumes they named are long gone,
+    // so they take the flux prefix like every other name. This guards against
+    // the special-case being reintroduced.
+    it('gives the formerly zel-prefixed names the flux prefix like any other', async () => {
+      expect(dockerService.getAppIdentifier('KadenaChainWebNode')).to.equal('fluxKadenaChainWebNode');
+      expect(dockerService.getAppIdentifier('FoldingAtHomeB')).to.equal('fluxFoldingAtHomeB');
     });
 
     it('should add "flux" to app identifier with any other name', async () => {
@@ -93,7 +103,7 @@ describe('dockerService tests', () => {
       expect(dockerService.getBaseAppName('db_App')).to.equal('db_App');
     });
 
-    it('should round-trip getAppIdentifier for compose and zel-legacy names', async () => {
+    it('should round-trip getAppIdentifier for compose and plain names', async () => {
       ['db_App', 'testing1234', 'KadenaChainWebNode', 'FoldingAtHomeB'].forEach((bare) => {
         expect(dockerService.getBaseAppName(dockerService.getAppIdentifier(bare))).to.equal(bare);
       });
@@ -257,67 +267,75 @@ describe('dockerService tests', () => {
   });
 
   describe('dockerListContainers tests', () => {
-    it('should return a list of containers', async () => {
-      let fluxContainer;
-
-      const result = await dockerService.dockerListContainers();
-      result.forEach((container) => {
-        if (container.Image === 'runonflux/website') fluxContainer = container;
-      });
-
-      expect(fluxContainer.Id).to.be.a('string');
-      expect(fluxContainer.Image).to.equal('runonflux/website');
-      expect(fluxContainer.Names[0]).to.equal('/fluxwebsite');
-      expect(fluxContainer.State).to.equal('running');
+    afterEach(() => {
+      sinon.restore();
     });
 
-    it('should return a list of containers with an option all = true', async () => {
-      let fluxContainer;
+    it('returns the listing docker answered with', async () => {
+      const listing = [websiteContainer];
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves(listing);
 
-      const result = await dockerService.dockerListContainers(true);
-      result.forEach((container) => {
-        if (container.Image === 'runonflux/website') fluxContainer = container;
+      const result = await dockerService.dockerListContainers();
+
+      expect(result).to.equal(listing);
+    });
+
+    it('passes every listing option through to docker', async () => {
+      // `all` decides whether a stopped app container is visible at all, and a caller
+      // told there is none treats the app as gone.
+      const list = sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
+
+      await dockerService.dockerListContainers(true, 5, true, 'somefilter');
+
+      expect(list.firstCall.args[0]).to.deep.equal({
+        all: true, limit: 5, size: true, filter: 'somefilter',
       });
-
-      expect(fluxContainer.Id).to.be.a('string');
-      expect(fluxContainer.Image).to.equal('runonflux/website');
-      expect(fluxContainer.Names[0]).to.equal('/fluxwebsite');
-      expect(fluxContainer.State).to.equal('running');
     });
   });
 
   describe('dockerListImages tests', () => {
-    it('should return a list of containers', async () => {
-      let fluxImage;
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('returns the image list docker answered with', async () => {
+      const listing = [websiteImage];
+      sinon.stub(Dockerode.prototype, 'listImages').resolves(listing);
 
       const result = await dockerService.dockerListImages();
-      result.forEach((image) => {
-        if (image.RepoTags.length && image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
-      });
 
-      expect(fluxImage).to.exist;
-      expect(fluxImage.RepoDigests[0]).to.include('runonflux/website');
-      expect(fluxImage.Id).to.be.a('string');
+      expect(result).to.equal(listing);
     });
   });
 
   describe('dockerContainerInspect tests', () => {
-    it('should return a valid inspect object', async () => {
-      const containerName = 'website';
+    afterEach(() => {
+      sinon.restore();
+    });
 
-      const inspectResult = await dockerService.dockerContainerInspect(containerName);
+    it('inspects the container the name resolves to', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
+      const inspect = sinon.stub(Dockerode.Container.prototype, 'inspect').resolves(inspectResponse);
 
-      expect(inspectResult).to.exist;
-      expect(inspectResult.State.Status).to.equal('running');
-      expect(inspectResult.Id).to.be.a('string');
-      expect(inspectResult.Platform).to.equal('linux');
-      expect(inspectResult.Config.Image).to.equal('runonflux/website');
+      const result = await dockerService.dockerContainerInspect('website');
+
+      expect(inspect.thisValues[0].id, 'inspected a container other than the one named').to.equal(websiteContainer.Id);
+      expect(result).to.equal(inspectResponse);
+    });
+
+    it('forwards the inspect options it was given', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
+      const inspect = sinon.stub(Dockerode.Container.prototype, 'inspect').resolves(inspectResponse);
+
+      await dockerService.dockerContainerInspect('website', { size: true });
+
+      expect(inspect.firstCall.args[0]).to.deep.equal({ size: true });
     });
 
     it('should throw error if the container does not exist', async () => {
-      const containerName = 'testing1234';
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
 
-      await expect(dockerService.dockerContainerInspect(containerName)).to.eventually.be.rejectedWith('Container testing1234 not found');
+      await expect(dockerService.dockerContainerInspect('testing1234')).to.eventually.be.rejectedWith('Container testing1234 not found');
     });
   });
 
@@ -561,39 +579,49 @@ describe('dockerService tests', () => {
   });
 
   describe('dockerContainerStats tests', () => {
-    it('should return a valid stats object', async () => {
-      const containerName = 'website';
+    afterEach(() => {
+      sinon.restore();
+    });
 
-      const statsResult = await dockerService.dockerContainerStats(containerName);
+    it('asks for one sample rather than a stream', async () => {
+      // dockerode holds a stats stream open until the caller ends it, so a streaming
+      // request here never resolves and the endpoint answering it never replies.
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
+      const stats = sinon.stub(Dockerode.Container.prototype, 'stats').resolves(statsResponse);
 
-      expect(statsResult.name).to.equal('/fluxwebsite');
-      expect(statsResult.id).to.be.a('string');
-      expect(statsResult.memory_stats.stats).to.exist;
-      expect(statsResult.cpu_stats.cpu_usage).to.exist;
-      expect(statsResult.precpu_stats.cpu_usage).to.exist;
+      const result = await dockerService.dockerContainerStats('website');
+
+      expect(stats.firstCall.args[0]).to.deep.equal({ stream: false });
+      expect(stats.thisValues[0].id, 'sampled a container other than the one named').to.equal(websiteContainer.Id);
+      expect(result).to.equal(statsResponse);
     });
 
     it('should throw error if the container does not exist', async () => {
-      const containerName = 'test';
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
 
-      await expect(dockerService.dockerContainerStats(containerName)).to.eventually.be.rejectedWith('Container test not found');
+      await expect(dockerService.dockerContainerStats('test')).to.eventually.be.rejectedWith('Container test not found');
     });
   });
 
   describe('dockerContainerChanges tests', () => {
-    it('should return a valid stats object', async () => {
-      const containerName = 'website';
+    afterEach(() => {
+      sinon.restore();
+    });
 
-      const changesResult = await dockerService.dockerContainerChanges(containerName);
+    it('returns the changes for the container the name resolves to', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
+      const changes = sinon.stub(Dockerode.Container.prototype, 'changes').resolves(changesResponse);
 
-      expect(changesResult).to.be.an('array');
-      expect(changesResult[0].Path).to.exist;
+      const result = await dockerService.dockerContainerChanges('website');
+
+      expect(changes.thisValues[0].id, 'read changes from a container other than the one named').to.equal(websiteContainer.Id);
+      expect(result).to.equal(changesResponse);
     });
 
     it('should throw error if the container does not exist', async () => {
-      const containerName = 'test';
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
 
-      await expect(dockerService.dockerContainerChanges(containerName)).to.eventually.be.rejectedWith('Container test not found');
+      await expect(dockerService.dockerContainerChanges('test')).to.eventually.be.rejectedWith('Container test not found');
     });
   });
 
@@ -814,6 +842,8 @@ describe('dockerService tests', () => {
     function stubLogs(lines) {
       return sinon.stub(Dockerode.Container.prototype, 'logs').resolves(dockerFrame(lines));
     }
+
+    beforeEach(stubContainerListing);
 
     afterEach(() => {
       sinon.restore();
@@ -1215,6 +1245,7 @@ describe('dockerService tests', () => {
       expect(first.position.ms, 'the position never moves backwards').to.equal(1001);
 
       sinon.restore();
+      stubContainerListing();
       stubLogs([at(1001, 'a'), at(1000, 'b'), at(1002, 'c')]);
       const second = await dockerService.dockerContainerLogsPolling('website', {
         position: first.position, maxLines: 5,
@@ -1246,6 +1277,7 @@ describe('dockerService tests', () => {
         position: { ms: 1000, count: 0 }, maxLines: 5,
       });
       sinon.restore();
+      stubContainerListing();
 
       // What docker returns for the position just handed back: `since` is
       // inclusive, so the read starts at the line that position names and the
@@ -1264,18 +1296,30 @@ describe('dockerService tests', () => {
   });
 
   describe('dockerContainerLogs tests', () => {
-    it('should return a valid stats object', async () => {
-      const appName = 'website';
+    afterEach(() => {
+      sinon.restore();
+    });
 
-      const res = await dockerService.dockerContainerLogs(appName, 2);
-      expect(res).to.be.an.instanceOf(Buffer);
-      expect(res).to.exist;
+    it('asks for a finished read of both streams', async () => {
+      // `follow: true` leaves docker holding the connection open for as long as the
+      // container lives, and this call has to return to answer the caller.
+      const frames = Buffer.from(recordedLogFrames.base64, 'base64');
+      stubContainerListing();
+      const logs = sinon.stub(Dockerode.Container.prototype, 'logs').resolves(frames);
+
+      const res = await dockerService.dockerContainerLogs('website', 2);
+
+      expect(logs.firstCall.args[0]).to.deep.equal({
+        follow: false, stdout: true, stderr: true, tail: 2,
+      });
+      expect(logs.thisValues[0].id, 'read logs from a container other than the one named').to.equal(websiteContainer.Id);
+      expect(res).to.equal(frames);
     });
 
     it('should throw an error if container does not exist', async () => {
-      const appName = 'testing1234';
+      stubContainerListing();
 
-      await expect(dockerService.dockerContainerLogs(appName, 2)).to.eventually.be.rejectedWith('Container testing1234 not found');
+      await expect(dockerService.dockerContainerLogs('testing1234', 2)).to.eventually.be.rejectedWith('Container testing1234 not found');
     });
   });
 
@@ -1283,15 +1327,18 @@ describe('dockerService tests', () => {
     const appName = 'website';
     let dockerStub;
     let getContainerSpy;
+    let listContainersStub;
 
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.Container.prototype, 'start').returns(Promise.resolve('started'));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+      listContainersStub = stubContainerListing();
     });
 
     afterEach(() => {
       dockerStub.restore();
       getContainerSpy.restore();
+      listContainersStub.restore();
     });
 
     it('should call a docker start command', async () => {
@@ -1312,17 +1359,20 @@ describe('dockerService tests', () => {
     let dockerStopStub;
     let dockerInspectStub;
     let getContainerSpy;
+    let listContainersStub;
 
     beforeEach(() => {
       dockerStopStub = sinon.stub(Dockerode.Container.prototype, 'stop').returns(Promise.resolve('stopped'));
       dockerInspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').returns(Promise.resolve({ State: { Running: true } }));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+      listContainersStub = stubContainerListing();
     });
 
     afterEach(() => {
       dockerStopStub.restore();
       dockerInspectStub.restore();
       getContainerSpy.restore();
+      listContainersStub.restore();
     });
 
     it('should call a docker stop command when container is running', async () => {
@@ -1404,12 +1454,14 @@ describe('dockerService tests', () => {
     let dockerStartStub;
     let dockerInspectStub;
     let getContainerSpy;
+    let listContainersStub;
 
     beforeEach(() => {
       dockerRestartStub = sinon.stub(Dockerode.Container.prototype, 'restart').returns(Promise.resolve('restarted'));
       dockerStartStub = sinon.stub(Dockerode.Container.prototype, 'start').returns(Promise.resolve('started'));
       dockerInspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').returns(Promise.resolve({ State: { Running: true } }));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+      listContainersStub = stubContainerListing();
     });
 
     afterEach(() => {
@@ -1417,6 +1469,7 @@ describe('dockerService tests', () => {
       dockerStartStub.restore();
       dockerInspectStub.restore();
       getContainerSpy.restore();
+      listContainersStub.restore();
     });
 
     it('should call a docker restart command when container is running', async () => {
@@ -1483,15 +1536,18 @@ describe('dockerService tests', () => {
     const appName = 'website';
     let dockerStub;
     let getContainerSpy;
+    let listContainersStub;
 
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.Container.prototype, 'kill').returns(Promise.resolve('kiled'));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+      listContainersStub = stubContainerListing();
     });
 
     afterEach(() => {
       dockerStub.restore();
       getContainerSpy.restore();
+      listContainersStub.restore();
     });
 
     it('should call a docker kill command', async () => {
@@ -1527,15 +1583,18 @@ describe('dockerService tests', () => {
     const appName = 'website';
     let dockerStub;
     let getContainerSpy;
+    let listContainersStub;
 
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.Container.prototype, 'remove').returns(Promise.resolve('removed'));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+      listContainersStub = stubContainerListing();
     });
 
     afterEach(() => {
       dockerStub.restore();
       getContainerSpy.restore();
+      listContainersStub.restore();
     });
 
     it('should call a docker remove command', async () => {
@@ -1576,18 +1635,23 @@ describe('dockerService tests', () => {
   });
 
   describe('appDockerTop tests', () => {
-    const appName = 'website';
+    afterEach(() => {
+      sinon.restore();
+    });
 
-    it('should return processes running on docker', async () => {
-      const dockerTopResult = await dockerService.appDockerTop(appName);
+    it('lists processes for the container the name resolves to', async () => {
+      stubContainerListing();
+      const top = sinon.stub(Dockerode.Container.prototype, 'top').resolves(topResponse);
 
-      expect(dockerTopResult.Processes).to.be.an('array');
-      expect(dockerTopResult.Processes).to.be.not.empty;
-      expect(dockerTopResult.Titles).to.be.an('array');
-      expect(dockerTopResult.Titles).to.be.not.empty;
+      const result = await dockerService.appDockerTop('website');
+
+      expect(top.thisValues[0].id, 'listed processes for a container other than the one named').to.equal(websiteContainer.Id);
+      expect(result).to.equal(topResponse);
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
+      stubContainerListing();
+
       await expect(dockerService.appDockerTop('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
   });
@@ -1848,7 +1912,7 @@ describe('dockerService tests', () => {
       const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
       const nodeApp = {
         ...baseNodeApp,
-        enviromentParameters: ['F_S_ENV=https://storage.example/env'],
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io/v1/env/123'],
         containerPorts: [],
         ports: [],
         version: 3,
@@ -1859,6 +1923,131 @@ describe('dockerService tests', () => {
 
       sinon.assert.notCalled(fetch);
       sinon.assert.notCalled(dockerStub);
+    });
+
+    // The link decides where a node sends a request carrying its own signature,
+    // so it is checked before the request is built rather than trusted because
+    // the specification was signed by its owner. Anyone who can register an app
+    // writes this field.
+    it('refuses to fetch parameters from anywhere but Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=http://169.254.169.254/latest/meta-data/'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // The link the door approved is the link the fetch requests. Read by
+    // splitting on the marker, a second occurrence of it inside the query
+    // truncates the URL, and the node then asks for something nothing
+    // validated.
+    it('requests the whole link the marker carries', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const link = 'https://storage.runonflux.io/v1/env/123?x=F_S_ENV=y';
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: [`F_S_ENV=${link}`],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal(link);
+    });
+
+    // The command marker is fetched by the same rules as the environment one,
+    // and pinned separately: one reading them differently is how the two
+    // drifted apart.
+    it('requests the whole link the command marker carries', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['--chain'] });
+      const link = 'https://storage.runonflux.io/v1/cmd/123?x=F_S_CMD=y';
+      const nodeApp = {
+        ...baseNodeApp,
+        commands: [`F_S_CMD=${link}`],
+        enviromentParameters: [],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal(link);
+    });
+
+    it('refuses a command link that does not address Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['--chain'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        commands: ['F_S_CMD=https://storage.runonflux.io:8443/v1/cmd/123'],
+        enviromentParameters: [],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // An address is more than a host: another port on the same machine is
+    // another service, and the node signs whatever it sends there.
+    it('refuses a link naming another port on the storage host', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io:8443/v1/env/123'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('does not address Flux storage');
+
+      sinon.assert.notCalled(fetch);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    // The host is the whole of the check, so a storage answering 302 would
+    // otherwise choose the node's next request for it.
+    it('does not follow a redirect away from Flux storage', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'getFluxMessageSignature').resolves('signature');
+      const fetch = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: ['A=1'] });
+      const nodeApp = {
+        ...baseNodeApp,
+        enviromentParameters: ['F_S_ENV=https://storage.runonflux.io/v1/env/123'],
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(fetch);
+      expect(fetch.firstCall.args[0]).to.equal('https://storage.runonflux.io/v1/env/123');
+      expect(fetch.firstCall.args[1].maxRedirects).to.equal(0);
     });
 
     it('should create an app given proper parameters for specs version > 1', async () => {

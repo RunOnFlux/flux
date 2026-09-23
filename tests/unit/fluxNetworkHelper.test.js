@@ -10,8 +10,6 @@ globalThis.userconfig = {
     routerIP: '',
     pgpPrivateKey: '',
     pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
   },
 };
 
@@ -24,12 +22,12 @@ const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const os = require('os');
 const util = require('util');
+const config = require('config');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -230,6 +228,10 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(() => {
       benchStub = sinon.stub(benchmarkService, 'getBenchmarks');
+      // Reset the own-IP freshness cache so it never leaks across tests — a warm cache
+      // would make getLocalSocketAddress skip the benchmark stub a test set up. Setting
+      // null clears both the value and the freshness deadline.
+      fluxNetworkHelper.setLocalSocketAddress(null);
     });
 
     afterEach(() => {
@@ -310,6 +312,62 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.getLocalSocketAddress();
 
       expect(result).to.equal('85.159.213.248:16147');
+    });
+
+    it('serves the cached own-IP without a second benchmark RPC while fresh', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '85.159.213.248:16127' } });
+
+      const first = await fluxNetworkHelper.getLocalSocketAddress();
+      const second = await fluxNetworkHelper.getLocalSocketAddress();
+
+      expect(first).to.equal('85.159.213.248:16127');
+      expect(second).to.equal('85.159.213.248:16127');
+      // the freshness cache short-circuits the second call — a batch pays ONE RPC, not N
+      sinon.assert.calledOnce(benchStub);
+    });
+
+    // A CALLER READING THE ABSENCE OF AN ANSWER IS PROBING THE DAEMON, not asking
+    // this node's address, and the cache answers the second question only. Served
+    // from memory, a daemon that has died inside the window still produces the last
+    // address it ever gave, and the caller reads a dead daemon as a live one.
+    it('asks the daemon when the caller wants it fresh, cache or no cache', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '85.159.213.248:16127' } });
+      await fluxNetworkHelper.getLocalSocketAddress();
+
+      await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+
+      sinon.assert.calledTwice(benchStub);
+    });
+
+    it('reports a daemon that stops answering, even inside the freshness window', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '85.159.213.248:16127' } });
+      expect(await fluxNetworkHelper.getLocalSocketAddress()).to.equal('85.159.213.248:16127');
+
+      benchStub.resolves({ status: 'error' });
+
+      expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal(null);
+    });
+
+    it('re-benchmarks after the cache is invalidated (setLocalSocketAddress null)', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '85.159.213.248:16127' } });
+
+      await fluxNetworkHelper.getLocalSocketAddress();
+      fluxNetworkHelper.setLocalSocketAddress(null); // clears the value + the freshness deadline
+      await fluxNetworkHelper.getLocalSocketAddress();
+
+      sinon.assert.calledTwice(benchStub);
+    });
+
+    it('does not cache a null (unresolved) own-IP — keeps probing', async () => {
+      benchStub.resolves({ status: 'error' });
+
+      const first = await fluxNetworkHelper.getLocalSocketAddress();
+      const second = await fluxNetworkHelper.getLocalSocketAddress();
+
+      expect(first).to.be.null;
+      expect(second).to.be.null;
+      // a null result is never cached, so every call re-probes until fluxbench resolves
+      sinon.assert.calledTwice(benchStub);
     });
   });
 
@@ -436,9 +494,11 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('getFluxNodePrivateKey tests', () => {
     let daemonStub;
+    let ensureStub;
 
     beforeEach(() => {
       daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue');
+      ensureStub = sinon.stub(daemonServiceUtils, 'ensureConfigLoaded').resolves();
     });
 
     afterEach(() => {
@@ -462,6 +522,26 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(getKeyResult).to.equal(mockedPrivKey);
       sinon.assert.calledWithExactly(daemonStub, 'zelnodeprivkey');
+    });
+
+    it('reads flux.conf itself rather than waiting for something else to', async () => {
+      // The key is on disk and needs no daemon. Before this it was available only once some
+      // other code had made an RPC and parsed the config on the way past, so a node that had
+      // its key all along looked like a node whose daemon was down.
+      daemonStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+
+      await fluxNetworkHelper.getFluxNodePrivateKey();
+
+      sinon.assert.calledOnce(ensureStub);
+      expect(ensureStub.calledBefore(daemonStub), 'asked for the config before reading it')
+        .to.equal(true);
+    });
+
+    it('does not read the config when it was handed a key', async () => {
+      await fluxNetworkHelper.getFluxNodePrivateKey('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+
+      sinon.assert.notCalled(ensureStub);
+      sinon.assert.notCalled(daemonStub);
     });
   });
 
@@ -769,6 +849,155 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('checkNodeJsVersionAllowed tests', () => {
+    // minimumNodeJsAllowedVersion = '20.8.0'
+    const realNodeJsVersion = process.versions.node;
+    const { NODEJS_FLOOR, RESIDENTIAL_DOS } = fluxNetworkHelper.StickyDosOwner;
+
+    function runningOn(version) {
+      Object.defineProperty(process.versions, 'node', { value: version, configurable: true });
+    }
+
+    // node-config seals its values once the module graph has loaded, so the
+    // floor is varied by loading the helper over a config that carries a
+    // different one. The instance is its own, which is also what keeps its DOS
+    // state out of the tests either side.
+    function helperWithFloor(floor) {
+      return proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        config: { ...config, minimumNodeJsAllowedVersion: floor },
+      });
+    }
+
+    afterEach(() => {
+      runningOn(realNodeJsVersion);
+      fluxNetworkHelper.clearStickyDos(NODEJS_FLOOR);
+      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+    });
+
+    it('allows the runtime the fleet already runs', () => {
+      runningOn('24.14.1');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('allows the floor itself', () => {
+      runningOn('20.8.0');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node below the floor out of service, and says which version it found', () => {
+      // the last 16.x release, which left support in September 2023
+      runningOn('16.20.2');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('20.8.0');
+      expect(reported.dosMessage).to.include('16.20.2');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('refuses a version below the floor within the same major', () => {
+      runningOn('20.7.0');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
+    });
+
+    it('survives the clear a successful availability pass performs', () => {
+      // checkMyFluxAvailability ends a good pass with dosState = 0 and
+      // setDosMessage(null). The runtime verdict is asked once at startup, so if
+      // that clear reached it the node would return to service on a NodeJS that
+      // cannot run the code and nothing would ask again.
+      runningOn('16.20.2');
+      fluxNetworkHelper.checkNodeJsVersionAllowed();
+
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('16.20.2');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('allows when no floor is configured, on a runtime a floor would refuse', () => {
+      // Unsetting the key is how the floor comes off a live fleet. The check runs
+      // bare in startFluxFunctions, whose catch re-enters it after 15s, so a
+      // throw here is a boot loop - and a node held out of service by a missing
+      // floor has nothing left to tell it when to come back.
+      const helper = helperWithFloor(undefined);
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(helper.getStickyDosMessage()).to.equal(null);
+      expect(helper.getDOSState().data.dosState).to.equal(0);
+    });
+
+    it('allows when the configured floor is empty', () => {
+      const helper = helperWithFloor('');
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
+      expect(helper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('refuses on the loaded floor, so the instance is reading the one it was given', () => {
+      // The canary for the two above: a helper loaded the same way, with a floor
+      // present, must still take the node out of service. Without it, a config
+      // stub that silently failed to reach the module would pass both.
+      const helper = helperWithFloor('20.8.0');
+      runningOn('16.20.2');
+
+      expect(helper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(helper.getDOSState().data.dosState).to.equal(100);
+      helper.clearStickyDos(NODEJS_FLOOR);
+    });
+
+    it("records its verdict beside another owner's, and outlives that owner's release", () => {
+      // The verdict is asked once at startup. Recorded under another owner's
+      // identity - or not recorded at all - it leaves with that owner's release,
+      // and the node returns to service on a runtime that cannot run the code.
+      const theirs = 'Residential node not running ArcaneOS. Migrate this node to ArcaneOS or move it to a data center connection.';
+      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, theirs);
+      runningOn('16.20.2');
+
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      expect(fluxNetworkHelper.getStickyDosMessage(), 'overwrote a verdict it does not own').to.include(theirs);
+
+      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosState, 'returned to service on the other owner\'s release').to.equal(100);
+      expect(reported.dosMessage).to.include('16.20.2');
+    });
+
+    it('states its verdict once, however often startup re-enters the check', () => {
+      // startFluxFunctions catches any throw and re-enters itself after 15s, so
+      // this is asked again on every retry - and by then the other writers of
+      // the slot have started.
+      //
+      // Asserted on the LOG rather than on the message, because re-setting the
+      // slot to the same string leaves it equal to itself: the message alone
+      // cannot tell a second write from no second write.
+      const errorLog = sinon.spy(log, 'error');
+      try {
+        runningOn('16.20.2');
+        expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+        expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+
+        const stated = errorLog.getCalls().filter((call) => String(call.args[0]).includes('NodeJS Version Error'));
+        expect(stated).to.have.lengthOf(1);
+        expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
+      } finally {
+        errorLog.restore();
+      }
+    });
+  });
+
   describe('checkFluxbenchVersionAllowed tests', () => {
     // minimumFluxBenchAllowedVersion = '6.2.0';
     let benchmarkInfoResponseStub;
@@ -905,7 +1134,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       ];
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicFluxnodeListResponse);
-      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
+      sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       getRandomExternalObserver = sinon.stub(networkStateService, 'getRandomExternalObserver');
       // An IP change hands off to the geolocation service, which reschedules
@@ -1061,8 +1290,6 @@ describe('fluxNetworkHelper tests', () => {
           routerIP: '',
           pgpPrivateKey: '',
           pgpPublicKey: '',
-          blockedPorts: [],
-          blockedRepositories: [],
         },
       };
     });
@@ -1153,13 +1380,11 @@ describe('fluxNetworkHelper tests', () => {
           routerIP: '',
           pgpPrivateKey: '',
           pgpPublicKey: '',
-          blockedPorts: [],
-          blockedRepositories: [],
         },
       };
 
-      // Stub daemonServiceWalletRpcs
-      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').resolves({ status: 'success' });
+      // Stub the fluxnode confirmation transaction
+      sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').resolves({ status: 'success' });
 
       // Stub serviceHelper.delay
       sinon.stub(serviceHelper, 'delay').resolves();
@@ -1231,7 +1456,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1308,7 +1532,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1373,7 +1596,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1434,7 +1656,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1483,7 +1704,6 @@ describe('fluxNetworkHelper tests', () => {
         './utils/enterpriseHelper': enterpriseHelperStub,
         './geolocationService': geolocationServiceStub,
         './fluxCommunicationMessagesSender': fluxCommunicationMessagesSenderStub,
-        './daemonService/daemonServiceWalletRpcs': daemonServiceWalletRpcs,
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
@@ -1552,7 +1772,12 @@ describe('fluxNetworkHelper tests', () => {
       sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
       fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
-      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
+      // Each case here declares the node's own address through the benchmark stub, and
+      // the check reads it with getLocalSocketAddress - which serves the cached value
+      // while it is fresh. Cleared last, so the resolve happens against the answer the
+      // case set up rather than against the seed above it.
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       // The check defers and re-arms while the node list is unknown, the same
@@ -2053,52 +2278,108 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('sticky DOS tests', () => {
+    const { RESIDENTIAL_DOS, APP_TAMPERING } = fluxNetworkHelper.StickyDosOwner;
+
     beforeEach(() => {
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
-      fluxNetworkHelper.clearStickyDosMessage();
     });
 
     afterEach(() => {
-      fluxNetworkHelper.clearStickyDosMessage();
+      Object.values(fluxNetworkHelper.StickyDosOwner).forEach(fluxNetworkHelper.clearStickyDos);
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
 
-    it('getStickyDosMessage returns null when nothing set', () => {
+    it('reports no reason while no owner holds the node', () => {
       expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
     });
 
-    it('setStickyDosMessage / getStickyDosMessage roundtrips', () => {
-      fluxNetworkHelper.setStickyDosMessage('tampering flag');
+    it('reports the reason the owner gave', () => {
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
 
       expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('tampering flag');
     });
 
-    it('clearStickyDosMessage resets sticky state', () => {
-      fluxNetworkHelper.setStickyDosMessage('tampering flag');
-      fluxNetworkHelper.setStickyDosStateValue(100);
+    it('takes the node out of service on a hold alone, whatever the counted state is', () => {
+      // DOS >= 100 is what makes nodeStatusMonitor and appStartupManager remove
+      // every app on the box, so a hold that did not reach it would be a note.
+      fluxNetworkHelper.setDosStateValue(0);
 
-      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
 
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
     });
 
-    it('getDosMessage returns regular when sticky is null', () => {
+    it('releases the owner that let go', () => {
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+
+      fluxNetworkHelper.clearStickyDos(APP_TAMPERING);
+
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+    });
+
+    it('names every reason, because an operator has to lift all of them', () => {
+      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering');
+
+      const message = fluxNetworkHelper.getStickyDosMessage();
+
+      expect(message).to.contain('residential');
+      expect(message).to.contain('tampering');
+    });
+
+    // The reason this is a map keyed by owner and not a single slot. One slot
+    // could hold one of these two reasons: the second either overwrote the
+    // first, leaving an owner that can no longer recognise - and so never
+    // release - its own verdict, or was dropped, and the node returned to
+    // service on the first owner's release for a condition that never lifted.
+    it('keeps the node out of service while any other owner still holds it', () => {
+      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering');
+
+      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+
+      expect(fluxNetworkHelper.isNodeDos(), 'one owner released the node for both').to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('tampering');
+    });
+
+    it('does not release a verdict it does not own', () => {
+      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
+
+      fluxNetworkHelper.clearStickyDos(APP_TAMPERING);
+
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('residential');
+    });
+
+    it('refuses an owner it does not know, rather than minting one', () => {
+      // An unknown owner is a caller that was never given an identity. Accepted,
+      // it would hold the node under a name no release path knows about.
+      expect(() => fluxNetworkHelper.setStickyDos('someFeature', 'a reason')).to.throw('unknown owner');
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+    });
+
+    it('getDosMessage returns regular when no owner holds the node', () => {
       fluxNetworkHelper.setDosMessage('regular reason');
 
       expect(fluxNetworkHelper.getDosMessage()).to.equal('regular reason');
     });
 
-    it('getDosMessage prefers sticky over regular', () => {
+    it('getDosMessage prefers a held verdict over the regular one', () => {
       fluxNetworkHelper.setDosMessage('regular reason');
-      fluxNetworkHelper.setStickyDosMessage('sticky reason');
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'sticky reason');
 
       expect(fluxNetworkHelper.getDosMessage()).to.equal('sticky reason');
     });
 
-    it('setDosMessage(null) does NOT clear sticky message', () => {
-      fluxNetworkHelper.setStickyDosMessage('sticky reason');
+    it('setDosMessage(null) does NOT release a held verdict', () => {
+      // checkMyFluxAvailability ends a good pass this way. A verdict that went
+      // with it would let the node walk back into service with its condition
+      // still in place.
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'sticky reason');
       fluxNetworkHelper.setDosMessage('regular reason');
 
       fluxNetworkHelper.setDosMessage(null);
@@ -2107,11 +2388,10 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDosMessage()).to.equal('sticky reason');
     });
 
-    it('getDOSState returns sticky pair when sticky is set', () => {
+    it('getDOSState reports the held verdict over the counted one', () => {
       fluxNetworkHelper.setDosMessage('regular reason');
       fluxNetworkHelper.setDosStateValue(50);
-      fluxNetworkHelper.setStickyDosMessage('sticky reason');
-      fluxNetworkHelper.setStickyDosStateValue(100);
+      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'sticky reason');
 
       const result = fluxNetworkHelper.getDOSState();
 
@@ -2121,7 +2401,7 @@ describe('fluxNetworkHelper tests', () => {
       });
     });
 
-    it('getDOSState returns regular pair when sticky is null', () => {
+    it('getDOSState reports the counted pair when no owner holds the node', () => {
       fluxNetworkHelper.setDosMessage('regular reason');
       fluxNetworkHelper.setDosStateValue(50);
 
@@ -2587,7 +2867,10 @@ describe('fluxNetworkHelper tests', () => {
       const fluxUptime = fluxNetworkHelper.fluxUptime();
 
       expect(fluxUptime.status).to.equal('success');
-      expect(fluxUptime.data).to.be.gte(ut);
+      // fluxUptime floors process.uptime(); uptime only increases, so the floored value
+      // at the call is >= the floor of the uptime captured earlier and <= the raw uptime
+      // now. (Comparing to the un-floored earlier value flakes when uptime < 1s: floor->0.)
+      expect(fluxUptime.data).to.be.gte(Math.floor(ut));
       const utb = process.uptime();
       expect(fluxUptime.data).to.be.lte(utb);
     });
@@ -3063,7 +3346,7 @@ describe('fluxNetworkHelper tests', () => {
 
     afterEach(() => {
       fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
     });
 
     it('is not held by default', () => {
@@ -3115,13 +3398,12 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
     });
 
-    it('is independent of the sticky DOS slot in both directions', () => {
-      fluxNetworkHelper.setStickyDosMessage('someone else holds this');
-      fluxNetworkHelper.setStickyDosStateValue(100);
+    it('is independent of a sticky DOS in both directions', () => {
+      fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS, 'someone else holds this');
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
 
-      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
       fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);

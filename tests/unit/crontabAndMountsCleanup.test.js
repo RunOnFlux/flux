@@ -35,8 +35,12 @@ const enterpriseHelperMock = {
   checkAndDecryptAppSpecs: sinon.stub(),
 };
 
+// The real classifier: the boot sweep and the reconciler classify a mount fault
+// through this one function, so the mock borrows it rather than restating it.
+const { classifyVolumeFault } = require('../../ZelBack/src/services/appTamperingDetectionService');
 const appTamperingDetectionServiceMock = {
   recordEvent: sinon.stub(),
+  classifyVolumeFault,
 };
 
 // Load module with mocked dependencies
@@ -162,7 +166,7 @@ describe('crontabAndMountsCleanup tests', () => {
         name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
       }]);
       enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
-      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: true });
 
       const result = await crontabAndMountsCleanup.getInstalledAppIds();
 
@@ -175,11 +179,32 @@ describe('crontabAndMountsCleanup tests', () => {
         name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
       }]);
       enterpriseHelperMock.checkAndDecryptAppSpecs.resolvesArg(0);
-      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: true });
 
       const result = await crontabAndMountsCleanup.getInstalledAppIds();
 
       expect(result.has('fluxhermes_hermesagent123')).to.be.true;
+    });
+
+    // The boot pass is the only thing that mounts volumes before the
+    // reconciler reaches them, so one app whose components cannot be fully
+    // enumerated must not cost every other app on the node its mount.
+    it('keeps the other apps when one app\'s components cannot be fully enumerated', async () => {
+      stubInstalledApps([
+        { name: 'wordpress123', version: 4, compose: [{ name: 'wp' }] },
+        { name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob' },
+      ]);
+      dockerServiceMock.getAppIdentifier.withArgs('wp_wordpress123').returns('fluxwp_wordpress123');
+      enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123')
+        .resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: false });
+
+      const result = await crontabAndMountsCleanup.getInstalledAppIds();
+
+      expect(result.has('fluxwp_wordpress123')).to.be.true;
+      expect(result.has('fluxhermes_hermesagent123')).to.be.true;
+      // and it is not passed over in silence
+      expect(logMock.error.called).to.be.true;
     });
 
     it('should not attempt decryption for apps with plaintext compose', async () => {
@@ -242,7 +267,20 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(result.failed).to.have.lengthOf(0);
     });
 
-    it('should record a tampering event when a volume cannot be mounted', async () => {
+    // One fact, one name, whichever of the two found it: the reconciler calls a
+    // missing image `volume_missing`, and a boot that calls the same thing
+    // something else scores it twice and splits every fleet query in half.
+    it('records an image found somewhere other than where it was recorded', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false, imageMoved: true });
+
+      await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_moved')).to.be.true;
+    });
+
+    it('records a missing image under the name the reconciler uses', async () => {
       stubInstalledApps([{ name: 'app1', version: 3 }]);
       dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
@@ -250,7 +288,158 @@ describe('crontabAndMountsCleanup tests', () => {
       const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
 
       expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_file_missing' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_missing')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    // `mount_vanished` keeps the meaning its other producer gives it, so a
+    // reason that is about the mount point rather than the image still lands
+    // there and nothing else does.
+    it('keeps mount_vanished for a fault about the mount point', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_point_not_a_directory' });
+
+      await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
       expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.true;
+    });
+
+    // A disk coming up read-only is what startup catches, and the score these
+    // events feed is meant to weigh operator interference. The failure is
+    // still reported; it just does not accuse anyone.
+    it('records a host fault as one, not as something the operator did', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'host_filesystem_readonly' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'host_filesystem_readonly' }]);
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    // The reason that says an operator replaced the image is the one that must
+    // record, and the two that say the host could not mount are the ones that
+    // must not. All three are new, so all three are pinned.
+    it('records a tampering event when the image is not the one this node made', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_image_unrecognised' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_image_unrecognised' }]);
+      // named for what it is, and under the same name the reconciler uses
+      // mid-run, so one app's fault reads the same whichever found it
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.false;
+    });
+
+    it('records a missing loop device as a host fault', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'loop_unavailable' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'loop_unavailable' }]);
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    it('records a record this node could not read as a host fault', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'record_unreadable' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'record_unreadable' }]);
+      // a database this node could not read is this node's problem, not the
+      // operator's - recorded so it is countable, weighing nothing
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    it('records a host refusal over a mountable image as a host fault', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_host_refused: no free loop device' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_host_refused: no free loop device' }]);
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    it('records the unreadable mount table as a host fault', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_table_unreadable' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_table_unreadable' }]);
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    it('records a mountpoint that cannot be made as a host fault', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_point_unavailable: EACCES' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_point_unavailable: EACCES' }]);
+      // recorded, so the population is countable, but as the zero-weighted
+      // class - not as something the operator did
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    // An image written over with anything that is not a filesystem is still on
+    // disk, so it is never reported missing - the mount is where it shows up,
+    // and this sweep is the only thing that records it.
+    it('records a tampering event when the image will no longer mount', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_failed: wrong fs type, bad superblock' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'mount_failed: wrong fs type, bad superblock' }]);
+      // an image that holds no filesystem at all has been written over, the
+      // same fact as one that mounts and is not this node's - and the
+      // reconciler records it under this name mid-run
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'mount_vanished')).to.be.false;
+    });
+
+    // An install that died before formatting its volume is unfinished node work,
+    // not an image an owner overwrote: recorded at no weight, never scored.
+    it('records an incomplete install as a host fault, not as an overwritten image', async () => {
+      stubInstalledApps([{ name: 'app1', version: 3 }]);
+      dockerServiceMock.getAppIdentifier.withArgs('app1').returns('fluxapp1');
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_incomplete_install: bad superblock' });
+
+      const result = await crontabAndMountsCleanup.ensureInstalledAppVolumesMounted();
+
+      expect(result.failed).to.deep.equal([{ appId: 'fluxapp1', reason: 'volume_incomplete_install: bad superblock' }]);
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_host_fault')).to.be.true;
+      expect(appTamperingDetectionServiceMock.recordEvent.calledWith('fluxapp1', 'volume_image_unrecognised')).to.be.false;
     });
   });
 
@@ -384,7 +573,7 @@ describe('crontabAndMountsCleanup tests', () => {
         name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
       }]);
       enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
-      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves({ appIds: ['fluxhermes_hermesagent123'], conclusive: true });
       volumeServiceMock.ensureAppVolumeMounted.withArgs('fluxhermes_hermesagent123').resolves({ mounted: true, alreadyMounted: false });
 
       const result = await crontabAndMountsCleanup.cleanupCrontabAndMounts();

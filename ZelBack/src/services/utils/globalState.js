@@ -1,4 +1,5 @@
 const { AsyncGate } = require('./asyncGate');
+const { AsyncLock } = require('./asyncLock');
 
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
@@ -12,6 +13,7 @@ let masterSlaveAppsRunning = false;
 const daemonReadyGate = new AsyncGate();
 const bootContainerStateSettledGate = new AsyncGate();
 const dbReadyGate = new AsyncGate();
+const policyReadyGate = new AsyncGate();
 let appStateAuthoritative = false;
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
@@ -39,6 +41,86 @@ let pendingAppUpdatesCache = null;
 
 // Running apps cache - tracks app names that have been broadcasted as running
 const runningAppsCache = new Set();
+
+// Apps this node has told the network it is removing, by the name the removal
+// message carries. An announcement states which apps the node holds, and an app
+// whose removal has been broadcast is no longer one of them.
+//
+// Membership spans the removal: the message goes out before the app's local row is
+// deleted, so an announcement built in that window would still name the app and
+// re-create the location row the removal had just cleared. Peers apply the two
+// messages in arrival order and cannot tell which describes the later state.
+//
+// Only a removal that tells the network belongs here. A removal whose containers
+// are coming straight back - a redeploy - keeps announcing, or its row lapses and
+// the app is placed a second time.
+//
+// In-memory deliberately: a restart ends the removal that entered it, and an entry
+// that survived would silence an app nothing is removing any more.
+//
+// Counted, not a set. A forced removal skips the single-removal guard, so two of
+// them can run against one app at once - a surplus trim and an expiry removal, or
+// an app and one of its components, which share the name the message carries. The
+// first to finish would clear a set outright and hand the announcement back to the
+// removal still running.
+const departingCounts = new Map();
+
+// Apps this node is only trying out. A test install writes the app's row like any
+// other install, and the announcement is built from that table - so an announcement
+// landing inside one claims a placement for an app about to be thrown away, and the
+// test teardown tells the network nothing that would take the claim back.
+//
+// A set, not a count: the node admits one installation at a time, so a second test
+// install of the same app cannot start while this one holds the node.
+//
+// In-memory deliberately: a restart ends the test install that entered it.
+const testInstallingApps = new Set();
+
+// Held for the whole of an announcement cycle. It lives here rather than inside
+// peerNotification because a removal has to wait on it too, and peerNotification
+// already reaches appUninstaller through the reconciler - so the uninstaller
+// cannot reach back without a require cycle.
+const announceCycle = new AsyncLock();
+
+const departingApps = {
+  /**
+   * Record that a broadcast removal of this app has begun.
+   * @param {string} appName Name the removal message carries.
+   * @returns {void}
+   */
+  enter(appName) {
+    departingCounts.set(appName, (departingCounts.get(appName) || 0) + 1);
+  },
+
+  /**
+   * Record that one broadcast removal of this app has finished.
+   * @param {string} appName Name the removal message carries.
+   * @returns {void}
+   */
+  leave(appName) {
+    const held = departingCounts.get(appName);
+    if (!held) return;
+    if (held === 1) departingCounts.delete(appName);
+    else departingCounts.set(appName, held - 1);
+  },
+
+  /**
+   * Whether any broadcast removal of this app is in flight.
+   * @param {string} appName Name the removal message carries.
+   * @returns {boolean}
+   */
+  has(appName) {
+    return departingCounts.has(appName);
+  },
+
+  /**
+   * How many apps have a broadcast removal in flight.
+   * @returns {number}
+   */
+  get size() {
+    return departingCounts.size;
+  },
+};
 
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
@@ -81,6 +163,13 @@ const fluxRemovedContainers = new Set();
 // once. Same null-is-no-opinion convention appReconciler's controllerDesired uses.
 let promotedFolderIds = null;
 
+// What each receive-only folder on this node holds that the cluster's index does not:
+// folderId -> { bytes, newestModified }. Peers ask for it before promoting one of their
+// own, so that the node with the data wins rather than the node with the lowest address.
+// Null until the first monitor pass, for the same reason promotedFolderIds is: "I hold
+// nothing" and "I have not looked" are opposite answers to a peer about to seed.
+let folderHoldings = null;
+
 
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
@@ -117,11 +206,11 @@ module.exports = {
   // others, because a redeploy that asked without excluding itself would refuse
   // its own reinstall. Order is the order the guards asked in.
   //
-  // Every entry point that can START work asks this. The five flags used to be
-  // read as hand-picked subsets - forty-six guards, exactly one of which read
-  // reinstallationOfOldAppsInProgress - so the periodic reinstall pass announced
-  // itself and the spawner walked straight past it, took the node during the
-  // pass's own wait, and left an app torn down that could not be rebuilt.
+  // EVERY ENTRY POINT THAT CAN START WORK ASKS THIS, and asks it for all five flags
+  // rather than a subset it picked. A guard that reads only the flags it expects to
+  // meet walks past the one it did not: a spawner that ignores the reinstall pass takes
+  // the node during that pass's own wait and leaves an app torn down that cannot be
+  // rebuilt.
   operationHolding(except = null) {
     const held = [
       ['removal', removalInProgress],
@@ -151,6 +240,26 @@ module.exports = {
   get dbReady() { return dbReadyGate.ready; },
   set dbReady(value) { if (value) dbReadyGate.open(); else dbReadyGate.close(); },
   waitForDbReady() { return dbReadyGate.wait(); },
+
+  // Whether this node may act on the network policy: it holds a verified bundle AND has
+  // established that no peer it can reach is ahead of it. Written only by policyStore,
+  // which derives it from that pair.
+  //
+  // The distinction is the point: an unread policy and an empty one give every lookup the
+  // same answer, and acting on it is how a node fills itself with apps it must not host
+  // and then has them uninstalled from under it. Holding a bundle is not enough on its
+  // own - one off disk is whatever this node last had, and the documents in it decide who
+  // may host what.
+  //
+  // What waits on it is anything that would JUDGE an app - whether it may be hosted, run
+  // or pulled here - and anything that would destroy one it then has to rebuild. A node
+  // that cannot judge is not refusing a particular app; it is not yet in a position to
+  // answer about any of them, which is a fact about the node and is what the caller needs
+  // told. Nothing else waits: serving the API, keeping containers running and removing an
+  // app outright all work without it.
+  get policyReady() { return policyReadyGate.ready; },
+  set policyReady(value) { if (value) policyReadyGate.open(); else policyReadyGate.close(); },
+  waitForPolicyReady() { return policyReadyGate.wait(); },
 
   // Whether this node's ephemeral app-state store is worth another node's
   // survey: its own state sync completed, or it has spent the block timer
@@ -225,9 +334,14 @@ module.exports = {
   get receiveOnlySyncthingAppsCache() { return receiveOnlySyncthingAppsCache; },
   get promotedFolderIds() { return promotedFolderIds; },
   set promotedFolderIds(ids) { promotedFolderIds = ids; },
+  get folderHoldings() { return folderHoldings; },
+  set folderHoldings(map) { folderHoldings = map; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
+  get departingApps() { return departingApps; },
+  get testInstallingApps() { return testInstallingApps; },
+  get announceCycle() { return announceCycle; },
   get stoppingContainers() { return stoppingContainers; },
   get fluxRemovedContainers() { return fluxRemovedContainers; },
 

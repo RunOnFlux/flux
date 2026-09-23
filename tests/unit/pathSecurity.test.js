@@ -13,8 +13,6 @@ const {
   isValidPathComponent,
   verifyRealPath,
   verifyRealPathOfExistingPath,
-  verifyRealPathSync,
-  sanitizeAndVerifyPath,
   rejectBackslashes,
   openNoFollow,
 } = require('../../ZelBack/src/services/utils/pathSecurity');
@@ -399,57 +397,6 @@ describe('pathSecurity', () => {
     });
   });
 
-  describe('verifyRealPathSync', () => {
-    let tempDir;
-
-    before(async () => {
-      tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-sync-test-')));
-      await fs.mkdir(path.join(tempDir, 'subdir'));
-      await fs.writeFile(path.join(tempDir, 'subdir', 'file.txt'), 'test');
-    });
-
-    after(async () => {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    });
-
-    it('should return real path for existing paths within base', () => {
-      const result = verifyRealPathSync(path.join(tempDir, 'subdir'), tempDir);
-      expect(result).to.equal(path.join(tempDir, 'subdir'));
-    });
-
-    it('should return original path for non-existent paths', () => {
-      const nonExistent = path.join(tempDir, 'nonexistent');
-      const result = verifyRealPathSync(nonExistent, tempDir);
-      expect(result).to.equal(nonExistent);
-    });
-  });
-
-  describe('sanitizeAndVerifyPath', () => {
-    let tempDir;
-
-    before(async () => {
-      tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-combined-test-')));
-      await fs.mkdir(path.join(tempDir, 'subdir'));
-    });
-
-    after(async () => {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    });
-
-    it('should sanitize and verify valid paths', async () => {
-      const result = await sanitizeAndVerifyPath('subdir', tempDir);
-      expect(result).to.equal(path.join(tempDir, 'subdir'));
-    });
-
-    it('should throw for traversal attempts before symlink check', async () => {
-      await expect(sanitizeAndVerifyPath('..', tempDir)).to.be.rejectedWith('directory traversal');
-    });
-
-    it('should throw for null bytes before symlink check', async () => {
-      await expect(sanitizeAndVerifyPath('file\0name', tempDir)).to.be.rejectedWith('null bytes');
-    });
-  });
-
   describe('openNoFollow', () => {
     let tempDir;
 
@@ -474,12 +421,13 @@ describe('pathSecurity', () => {
     it('refuses a symlink with an actionable message, not an opaque errno', async () => {
       // O_NOFOLLOW fails ELOOP on a symlink at the final component; the download
       // reads on the host, so following it could serve a file outside the
-      // volume. The owner is told how to get the data instead of just "ELOOP".
+      // volume. The owner is told how to get the data instead of just "ELOOP",
+      // and only by a route every caller of this has.
       const linkPath = path.join(tempDir, 'latest.txt');
       try {
         await fs.symlink(path.join(tempDir, 'real.txt'), linkPath);
         await expect(openNoFollow(linkPath))
-          .to.be.rejectedWith(/symbolic link cannot be downloaded directly.*compress the folder/);
+          .to.be.rejectedWith(/symbolic link cannot be downloaded directly.*name the file it points to/);
       } catch (err) {
         if (err.code !== 'EPERM' && err.code !== 'EACCES') {
           throw err;

@@ -1,4 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildEnterpriseBlob } from './enterprise-helper.js';
 import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
@@ -8,6 +11,26 @@ import { allocatePortFor, assignPorts } from './port-allocator.js';
 import chainStart from './chain-start.cjs';
 
 const { DEFAULT_INITIAL_HEIGHT } = chainStart;
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const deterministicList = JSON.parse(
+  readFileSync(join(HERE, '..', '..', 'fixtures', 'deterministic-list.json'), 'utf-8'),
+);
+
+/**
+ * A node's collateral outpoint, in the form a spec's `nodes` array uses.
+ *
+ * The other half of how a pin can name a node. It reads from the same fixture the daemon
+ * stub answers getzelnodestatus from, so the value a suite pins with is the value the node
+ * will report for itself - restating it in a suite is how a pin silently matches nobody.
+ * @param {number} index Node index, 0-based, as env.clients is indexed.
+ * @returns {string} `<txhash>:<outidx>`
+ */
+export function nodeOutpoint(index) {
+  const node = deterministicList[index];
+  if (!node) throw new Error(`nodeOutpoint: no node at index ${index}`);
+  return `${node.txhash}:${node.outidx}`;
+}
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -41,6 +64,16 @@ export async function buildSeedableApp({
   // Two apps in a suite wanting one port is refused here by default. A suite
   // for which the collision IS the subject - 98 - says so.
   allowPortReuse = false,
+  // Pin the app to named nodes. An entry names a node EITHER by socket address
+  // ('198.18.1.0:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
+  // are live on the network, and nodeOutpoint() below builds the second form.
+  //
+  // Set HERE and nowhere else: the signature and the hash are taken over
+  // JSON.stringify(spec) a few lines down, so a suite that pins an app by
+  // writing to the returned spec gets a specification whose hash belongs to a
+  // different one. Nothing rejects that - the node simply decides the app is
+  // obsolete and reinstalls it forever.
+  nodes = [],
 }) {
   const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
@@ -72,7 +105,7 @@ export async function buildSeedableApp({
     contacts: [],
     geolocation: [],
     expire,
-    nodes: [],
+    nodes,
     staticip,
     enterprise,
   };
@@ -294,6 +327,14 @@ export async function buildSeedableLegacyApp({
  * state with framework/syncthing-control and its election with framework/fdm-control.
  * Pass `sibling: true` to add a plain (non-synced) component so a test can prove
  * the decider only acts on the g:/r: component and leaves siblings running.
+ *
+ * `extraMounts` appends mount segments after the primary, which is the only way to
+ * build the forms that put something of FluxOS's OWN on the volume: `f:` is touched
+ * as a zero-length file so docker cannot create a directory in its place, `m:` and
+ * `ml:` are mkdir'd. Every one of them lands inside the syncthing folder, so a suite
+ * that never uses them is testing sync against a volume real apps do not have -
+ * which is how a cold start could deadlock on every `g:`+`f:` app on the network
+ * while the suite written for exactly that standoff stayed green.
  */
 export async function buildSeedableSyncthingApp({
   name,
@@ -301,6 +342,7 @@ export async function buildSeedableSyncthingApp({
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
   containerPorts = [80],
   sibling = false,
+  extraMounts = [],
   ...rest
 }) {
   const compose = [{
@@ -312,7 +354,7 @@ export async function buildSeedableSyncthingApp({
     environmentParameters: [],
     commands: [],
     containerPorts,
-    containerData: `${mode}:/appdata`,
+    containerData: [`${mode}:/appdata`, ...extraMounts].join('|'),
     cpu: 0.1,
     ram: 100,
     hdd: 1,
@@ -348,10 +390,14 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, ...rest
+  name, exitCode = 0, exitAfterS = null, exitAfterMs = null, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
+  // Sub-second, for an app that must never be observed running: the install's
+  // own start still succeeds, so the node holds the app, but nothing that polls
+  // docker afterwards can catch the process alive.
+  if (exitAfterMs != null) environmentParameters.push(`EXIT_AFTER_MS=${exitAfterMs}`);
 
   const compose = [{
     name,

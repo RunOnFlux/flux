@@ -13,7 +13,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --production
 
-COPY index.js ./
+COPY index.js policy-signing.js ./
 
 COPY --from=nodeimage /opt/flux-apt-repo /repo
 

@@ -58,8 +58,15 @@ async function getInstalledAppIds() {
       }
       if (!compose || compose.length === 0) {
         // eslint-disable-next-line no-await-in-loop
-        const diskAppIds = await volumeService.getComponentAppIdsFromVolumeFiles(app.name);
-        diskAppIds.forEach((appId) => installedAppIds.add(appId));
+        const discovered = await volumeService.getComponentAppIdsFromVolumeFiles(app.name);
+        // Mount what was found either way: one unreadable directory must not
+        // cost every other app on the node its boot. The shortfall is said out
+        // loud instead, because a component missing from this list is one
+        // nothing downstream will ever ask about.
+        if (!discovered.conclusive) {
+          log.error(`getInstalledAppIds - ${app.name} components could not be enumerated in full; proceeding with the ${discovered.appIds.length} found on disk`);
+        }
+        discovered.appIds.forEach((appId) => installedAppIds.add(appId));
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -118,13 +125,31 @@ async function ensureInstalledAppVolumesMounted() {
     if (!mountResult.mounted) {
       log.error(`ensureInstalledAppVolumesMounted - ${appId} volume could not be mounted: ${mountResult.reason}`);
       results.failed.push({ appId, reason: mountResult.reason });
+      // A host fault weighs nothing - a node's score is a plain sum, and a host
+      // that cannot mount volumes is nobody's fault - but it is still recorded
+      // so the population is countable. The reason is classified the same way
+      // here and in the reconciler, so a fleet query for an event sees every
+      // node whether the fault was there at boot or arose mid-run.
+      const eventType = appTamperingDetectionService.classifyVolumeFault(mountResult.reason);
       // eslint-disable-next-line no-await-in-loop
-      await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Volume not mountable at startup: ${mountResult.reason}`);
+      await appTamperingDetectionService.recordEvent(
+        appId,
+        eventType,
+        `Volume not mountable at startup: ${mountResult.reason}`,
+      );
     } else if (mountResult.alreadyMounted) {
       results.alreadyMounted.push(appId);
     } else {
       log.info(`ensureInstalledAppVolumesMounted - mounted volume of ${appId}`);
       results.mounted.push(appId);
+      if (mountResult.imageMoved) {
+        // eslint-disable-next-line no-await-in-loop
+        await appTamperingDetectionService.recordEvent(
+          appId,
+          'volume_image_moved',
+          'Volume image was found somewhere other than where this node recorded it',
+        );
+      }
     }
   }
 

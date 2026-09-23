@@ -18,8 +18,6 @@ globalThis.userconfig = {
     routerIP: '',
     pgpPrivateKey: '',
     pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
   },
 };
 
