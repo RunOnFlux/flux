@@ -99,6 +99,21 @@ describe('FluxEventBus tests', () => {
       expect(statusCode).to.equal(404);
       expect(jsonBody.status).to.equal('error');
     });
+
+    it('should neither call nor serve a snapshot reader, and answer 404', () => {
+      let called = false;
+      fluxEventBus.snapshot('disabled:state', () => { called = true; return {}; });
+      let statusCode = null;
+      let jsonBody = null;
+      const res = {
+        status(code) { statusCode = code; return res; },
+        json(body) { jsonBody = body; },
+      };
+      fluxEventBus.snapshotHandler({ params: { name: 'disabled:state' } }, res);
+      expect(statusCode).to.equal(404);
+      expect(jsonBody.status).to.equal('error');
+      expect(called).to.equal(false);
+    });
   });
 
   describe('enabled instance', () => {
@@ -114,6 +129,38 @@ describe('FluxEventBus tests', () => {
 
     it('should report enabled', () => {
       expect(bus.enabled).to.equal(true);
+    });
+
+    // Drives snapshotHandler as express would.
+    const askState = (name) => {
+      const answer = { statusCode: 200, body: null };
+      const res = {
+        status(code) { answer.statusCode = code; return res; },
+        json(body) { answer.body = body; },
+      };
+      bus.snapshotHandler({ params: { name } }, res);
+      return answer;
+    };
+
+    it('should serve a snapshot read at the moment it is asked for', () => {
+      let held = ['1.2.3.4'];
+      bus.snapshot('peers', () => ({ held }));
+      expect(askState('peers')).to.deep.equal({ statusCode: 200, body: { status: 'success', data: { held: ['1.2.3.4'] } } });
+      held = [];
+      expect(askState('peers').body.data, 'the state as it is now, not as it was').to.deep.equal({ held: [] });
+    });
+
+    it('should answer 404 for a state nothing registered', () => {
+      const answer = askState('nothing:here');
+      expect(answer.statusCode).to.equal(404);
+      expect(answer.body.data.message).to.equal('No test state named nothing:here');
+    });
+
+    it('should answer 500 with the reason when a reader throws', () => {
+      bus.snapshot('broken', () => { throw new Error('reader failed'); });
+      const answer = askState('broken');
+      expect(answer.statusCode).to.equal(500);
+      expect(answer.body.data.message).to.equal('reader failed');
     });
 
     it('should emit events via publish', () => {
