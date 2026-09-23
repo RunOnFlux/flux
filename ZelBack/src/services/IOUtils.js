@@ -368,7 +368,9 @@ async function removeFile(filePath) {
 }
 
 /**
- * Check if a file exists at the specified filePath.
+ * Check if a file exists at the specified filePath. An absent file is an
+ * answer, not a failure, and is not logged; any other error reading the path
+ * is logged and answers false.
  * @param {string} filePath - The path to the file.
  * @returns {boolean} - True if the file exists, false otherwise.
  */
@@ -377,7 +379,7 @@ async function checkFileExists(filePath) {
     await fs.access(filePath);
     return true;
   } catch (error) {
-    log.error(error);
+    if (error.code !== 'ENOENT') log.error(error);
     return false;
   }
 }
