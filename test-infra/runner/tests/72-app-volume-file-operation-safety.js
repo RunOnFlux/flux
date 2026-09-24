@@ -474,6 +474,35 @@ describe('app volume file operations - safety and recovery', function () {
       const said = JSON.stringify(job.error);
       expect(said, `only a bare exit code: ${said}`).to.not.match(/"detail":"File operation failed with exit code \d+"/);
     });
+
+    it('stops an operation once the volume runs low, so the application keeps room', async function () {
+      this.timeout(600000);
+      // A large source that compresses to almost nothing, so the archive fits
+      // any ceiling and only the free-space floor can stop it.
+      const avail = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const leaveMb = 40;
+      const fillMb = Math.floor(parseInt(avail.stdout.trim(), 10) / (1024 * 1024)) - leaveMb;
+      const seed = await inNode(`dd if=/dev/zero of=${root}/zeros bs=1M count=${fillMb} 2>/dev/null`);
+      expect(seed.exitCode, seed.output).to.equal(0);
+
+      // FIXTURE: the volume must already be under the floor, or the operation
+      // runs to completion and this proves nothing about the floor.
+      const left = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const freeBytes = parseInt(left.stdout.trim(), 10);
+      expect(freeBytes).to.be.greaterThan(0);
+      expect(freeBytes).to.be.lessThan(64 * 1024 * 1024);
+
+      const { accepted, job } = await settle('/apps/compressobject', {
+        appname: appName, component: appName, source: 'zeros', destination: 'zeros.tar.gz',
+      });
+
+      expect(accepted.status, JSON.stringify(accepted.data)).to.equal(202);
+      expect(job.status).to.equal('Failed');
+      expect(JSON.stringify(job.error)).to.include('keep free space for the application');
+      expect(await exists(node.container, `${root}/zeros.tar.gz`)).to.equal(false);
+      const leftovers = await treeOf(node.container, root);
+      expect(stagingEntries(leftovers), 'staging was not reclaimed').to.deep.equal([]);
+    });
   });
 
   describe('boot recovery', () => {

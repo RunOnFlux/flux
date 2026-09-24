@@ -2092,11 +2092,24 @@ describe('volumeExecutor tests', () => {
     });
 
     it('keeps the exit code alongside it', async () => {
-      containerOutput = 'flux-op: result is 900 bytes, over the 500 limit\n';
+      containerOutput = 'unzip: cannot find zipfile directory\n';
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 9 });
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['unzip'])).to.be.rejectedWith('exit 9');
+    });
+
+    it('names a result stopped at its ceiling as out of space', async () => {
+      // Every caller's ceiling is the volume's free space, so this is the
+      // answer a caller acts on rather than a number.
+      containerOutput = 'flux-op: result reached the 500 byte limit\n';
       containerStub.wait = sinon.stub().resolves({ StatusCode: 3 });
       const vol = await openSession();
 
-      await expect(volumeExecutor.run(vol, ['unzip'])).to.be.rejectedWith('exit 3');
+      const error = await volumeExecutor.run(vol, ['zip']).catch((e) => e);
+      expect(error).to.be.an('error');
+      expect(error.code).to.equal('ENOSPC');
+      expect(error.message).to.equal('The result is larger than the free space on the volume');
     });
 
     it('attaches before the container starts, or a fast failure says nothing', async () => {
@@ -2222,6 +2235,66 @@ describe('volumeExecutor tests', () => {
       });
 
       expect(containerStub.stop.called, 'stopped because the image was slow to arrive').to.equal(false);
+    });
+  });
+
+  describe('run - the application keeps free space', () => {
+    const runsFor = (ms) => sinon.stub().returns(
+      new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
+    );
+    // bfree stays high throughout: the floor is what the application can still
+    // write, which is bavail.
+    const freeBytes = (bytes) => ({
+      bsize: 4096, blocks: 100000, bfree: 90000, bavail: bytes / 4096,
+    });
+    const writing = async (vol) => ({
+      staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }),
+      destination: await vol.resolve('out'),
+    });
+
+    beforeEach(() => {
+      configStub.fluxapps.volumeOperations.minFreeBytes = 64 * 4096;
+    });
+
+    afterEach(() => {
+      delete configStub.fluxapps.volumeOperations.minFreeBytes;
+    });
+
+    it('stops an operation writing into staging once free space falls under the floor', async () => {
+      const vol = await openSession();
+      containerStub.wait = runsFor(600);
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      const error = await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) }).catch((e) => e);
+
+      expect(error).to.be.an('error');
+      expect(error.code).to.equal('ENOSPC');
+      expect(error.message).to.include('keep free space for the application');
+      expect(containerStub.stop.called, 'the container was left running').to.equal(true);
+    });
+
+    it('leaves one alone while the volume has room', async () => {
+      const vol = await openSession();
+      containerStub.wait = runsFor(300);
+      fsStub.statfs = sinon.stub().resolves(freeBytes(1000 * 4096));
+
+      await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) });
+
+      expect(fsStub.statfs.called, 'nothing read the volume').to.equal(true);
+      expect(containerStub.stop.called, 'an operation with room was stopped').to.equal(false);
+    });
+
+    it('never stops one that writes nothing into staging', async () => {
+      // A removal gives space back; stopping it because the volume is full
+      // would keep the application short of the space it is freeing.
+      const vol = await openSession();
+      containerStub.wait = runsFor(300);
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      await volumeExecutor.run(vol, ['rm', '-rf', '/work/old']);
+
+      expect(fsStub.statfs.called, 'nothing read the volume').to.equal(true);
+      expect(containerStub.stop.called, 'an operation writing nothing was stopped').to.equal(false);
     });
   });
 
@@ -2427,7 +2500,7 @@ describe('volumeExecutor tests', () => {
       await new Promise((resolve) => { setTimeout(resolve, 20); });
       exit.finish(3);
 
-      await expect(running).to.be.rejectedWith(/over the 1000 byte limit/);
+      await expect(running).to.be.rejectedWith(/larger than the free space/);
       // Unpiped rather than destroyed: for an upload this stream belongs to the
       // multipart parser, and destroying it stops the parser consuming the
       // request - so a client still sending can never finish, and never reads

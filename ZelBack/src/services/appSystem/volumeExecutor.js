@@ -1147,6 +1147,9 @@ const OUTPUT_TAIL_BYTES = 2000;
  * than that it failed.
  */
 const REFUSAL_BY_STATUS = new Map([
+  // flux-op stopped a result at the ceiling it was given, which every caller
+  // sets from the volume's free space.
+  [3, { code: 'ENOSPC', message: 'The result is larger than the free space on the volume' }],
   [5, { code: 'EEXIST', message: 'Destination already exists' }],
   // flux-op refused because the only way to carry the request out was to delete
   // data it never named - a file put where a directory is, an entry moved onto
@@ -1220,7 +1223,7 @@ async function collectOutput(container) {
 }
 
 /**
- * Bytes in use on a volume, from the filesystem itself.
+ * Bytes in use on a volume, and bytes free to write, from the filesystem itself.
  *
  * One syscall, whatever the tree looks like. The alternative - walking the
  * staging directory on every tick - costs 179ms per 20,000 files, which for an
@@ -1241,14 +1244,22 @@ async function collectOutput(container) {
  * has got; the caller clamps it, and the figure a completed operation reports
  * is taken from what it actually published rather than from here.
  *
+ * Free is what an unprivileged writer can still use (bavail), which is what the
+ * application running on the volume has left.
+ *
  * @param {string} mount - host path of the app volume
  * @param {object} fsPromises
- * @returns {Promise<number|null>} bytes in use, or null if it cannot be read
+ * @returns {Promise<{used: number, free: number}|null>} null if it cannot be
+ *   read; `free` is NaN when the filesystem does not report it
  */
-async function volumeUsedBytes(mount, fsPromises) {
+async function volumeSpace(mount, fsPromises) {
   const stats = await fsPromises.statfs(mount).catch(() => null);
   if (!stats) return null;
-  return (Number(stats.blocks) - Number(stats.bfree)) * Number(stats.bsize);
+  const bsize = Number(stats.bsize);
+  return {
+    used: (Number(stats.blocks) - Number(stats.bfree)) * bsize,
+    free: Number(stats.bavail) * bsize,
+  };
 }
 
 /**
@@ -1640,6 +1651,13 @@ async function run(session, argv, options = {}) {
   let lastChangeAt = process.hrtime.bigint();
   let stalled = false;
   let stallReason = null;
+  // An operation writing into staging yields to the application when the
+  // volume runs low: it is stopped once free space falls under the floor,
+  // whoever is writing, and its staging reclaimed gives the space back. Read
+  // on the same tick as progress, so the floor needs to cover what can be
+  // written between two ticks, not the whole operation.
+  const yieldsSpace = Boolean(publish && publish.staging);
+  let starved = null;
   // What the caller had sent when the current liveness window opened. Bytes are
   // measured against this as a RATE, because "has a byte arrived" is a question
   // one byte per window answers forever.
@@ -1719,7 +1737,7 @@ async function run(session, argv, options = {}) {
     // Everything the volume held before this operation wrote anything. Progress
     // is the difference from here, so the app's existing data is not counted as
     // this copy's work.
-    if (measurable) baseline = await volumeUsedBytes(session.mount, fs);
+    if (measurable) baseline = (await volumeSpace(session.mount, fs))?.used ?? null;
     if (baseline === null) stopMeasuring();
     // Timed from here, not from when run() was entered: fetching the image can
     // take a minute on a cold node, and that is not the operation making no
@@ -1737,9 +1755,17 @@ async function run(session, argv, options = {}) {
     const readVolume = () => {
       if (measuring) return;
       measuring = true;
-      volumeUsedBytes(session.mount, fs)
-        .then((used) => {
-          if (used === null) return;
+      volumeSpace(session.mount, fs)
+        .then((space) => {
+          if (space === null) return;
+          const { used, free } = space;
+          const { minFreeBytes } = settings();
+          if (yieldsSpace && !starved && minFreeBytes > 0 && free < minFreeBytes) {
+            starved = new Error(`Stopped to keep free space for the application: ${free} bytes were left on the volume, under the ${minFreeBytes} it keeps`);
+            starved.code = 'ENOSPC';
+            log.error(`volumeExecutor - ${session.identifier} ${starved.message}; stopping it`);
+            stopContainer();
+          }
           if (used !== lastUsed) {
             lastUsed = used;
             openLivenessWindow();
@@ -1809,6 +1835,9 @@ async function run(session, argv, options = {}) {
 
     const result = await exited;
     settled = true;
+    if (starved) {
+      throw starved;
+    }
     if (stalled) {
       throw new Error(stallReason);
     }
