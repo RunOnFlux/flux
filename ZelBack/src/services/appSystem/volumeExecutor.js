@@ -1571,12 +1571,7 @@ async function run(session, argv, options = {}) {
     }
     params = [
       'flux-op',
-      // Names what an interrupted publish leaves behind, and where. Both are
-      // given rather than derived from the operand: a move's operand is the
-      // caller's own path at whatever depth they keep it, so a name derived
-      // from it collides with what a user might call a folder, and a location
-      // derived from it lands outside the one directory the sweep reads.
-      '--id', crypto.randomUUID(),
+      // flux-op refuses a publish whose operands are not both inside this.
       '--root', WORK_ROOT,
       ...(publish.staging ? ['--discard-staging'] : []),
       ...(mkdirStaging ? ['--mkdir'] : []),

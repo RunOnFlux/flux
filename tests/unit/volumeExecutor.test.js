@@ -1327,17 +1327,13 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - publish options', () => {
-    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-    // Everything up to the `--`, with --id's value replaced by a marker so a
-    // random uuid does not have to be threaded through every expectation.
+    // Everything up to the `--`.
     const flags = (cmd) => {
       const end = cmd.indexOf('--', 1);
-      return cmd.slice(0, end === -1 ? cmd.length : end)
-        .map((arg, i, all) => (all[i - 1] === '--id' ? '<uuid>' : arg));
+      return cmd.slice(0, end === -1 ? cmd.length : end);
     };
 
-    it('names the operation and the volume root for flux-op', async () => {
+    it('names the volume root for flux-op', async () => {
       const vol = await openSession();
       const staging = await vol.resolve('.flux-op/11111111-1111-1111-1111-111111111111', { allowReserved: true });
       const destination = await vol.resolve('out');
@@ -1345,10 +1341,8 @@ describe('volumeExecutor tests', () => {
       await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
-      expect(Cmd[1]).to.equal('--id');
-      expect(Cmd[2]).to.match(UUID);
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging',
+        'flux-op', '--root', '/work', '--discard-staging',
         '/work/.flux-op/11111111-1111-1111-1111-111111111111', '/work/out',
       ]);
     });
@@ -1381,7 +1375,7 @@ describe('volumeExecutor tests', () => {
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
+        'flux-op', '--root', '/work', '--discard-staging', '--mkdir',
         '--max-bytes', '1234', '--data-only', '/work/.flux-op/22222222-2222-2222-2222-222222222222', '/work/out',
       ]);
     });
@@ -1397,7 +1391,7 @@ describe('volumeExecutor tests', () => {
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
+        'flux-op', '--root', '/work', '--discard-staging', '--mkdir',
         '--merge', '/work/.flux-op/33333333-3333-3333-3333-333333333333', '/work/out',
       ]);
     });
@@ -1428,7 +1422,7 @@ describe('volumeExecutor tests', () => {
       expect(Cmd).to.not.include('--discard-staging');
       expect(Cmd[Cmd.length - 1]).to.equal('--');
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '/work/photos', '/work/out',
+        'flux-op', '--root', '/work', '/work/photos', '/work/out',
       ]);
     });
 
@@ -1684,7 +1678,7 @@ describe('volumeExecutor tests', () => {
     let sweeper;
     let logStub;
 
-    // flux-op names a staging directory with a randomUUID, so a fixture that is
+    // FluxOS names a staging directory with a randomUUID, so a fixture that is
     // not one is not a fixture for anything this ever sees.
     const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
     const OP = `.flux-op/${ID}`;
