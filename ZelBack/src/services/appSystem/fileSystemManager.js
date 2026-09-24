@@ -551,16 +551,7 @@ async function resolveArchiveOperands(req, volume) {
   // Each entry is paired with the destination, so every guard a single source
   // gets - it exists, the archive is not written over it or inside it - holds
   // for each of them.
-  //
-  // One at a time: resolving is filesystem work on the thread pool every other
-  // request shares, and a list resolved all at once queues the whole of it
-  // ahead of them.
-  const pairs = [];
-  // eslint-disable-next-line no-restricted-syntax
-  for (const entry of requested) {
-    // eslint-disable-next-line no-await-in-loop
-    pairs.push(await volume.pair(entry, destinationPath));
-  }
+  const pairs = await volume.pairAll(requested, destinationPath);
   const sources = pairs.map((pair) => pair.source);
 
   // The same entry twice, or one entry inside another, would be archived

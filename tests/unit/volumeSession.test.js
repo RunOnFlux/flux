@@ -322,6 +322,51 @@ describe('volumeSession tests', () => {
     });
   });
 
+  describe('pairAll', () => {
+    it('resolves the destination once for every source', async () => {
+      ['a.txt', 'b.txt', 'c.txt'].forEach((name) => existsAsFile(`${MOUNT}/${name}`));
+      const vol = await volumeSession.openVolume(reqFor());
+      const resolve = sinon.spy(vol, 'resolve');
+
+      const pairs = await vol.pairAll(['a.txt', 'b.txt', 'c.txt'], 'selection.zip');
+
+      expect(resolve.args.filter(([p]) => p === 'selection.zip')).to.have.length(1);
+      expect(pairs.map(({ source }) => source.relative)).to.deep.equal(['a.txt', 'b.txt', 'c.txt']);
+      expect(new Set(pairs.map(({ destination }) => destination))).to.have.property('size', 1);
+    });
+
+    it('applies every pair guard to each source', async () => {
+      existsAsFile(`${MOUNT}/a.txt`);
+      existsAsFile(`${MOUNT}/uploads`);
+      const vol = await volumeSession.openVolume(reqFor());
+
+      await expect(vol.pairAll(['a.txt', 'uploads'], 'uploads/backup.zip'))
+        .to.be.rejectedWith('Destination uploads/backup.zip is inside source uploads');
+    });
+
+    it('resolves the sources one at a time', async () => {
+      // Resolving is filesystem work on the thread pool every request shares,
+      // so a list must not queue all of it at once.
+      ['a.txt', 'b.txt', 'c.txt'].forEach((name) => existsAsFile(`${MOUNT}/${name}`));
+      const vol = await volumeSession.openVolume(reqFor());
+      const real = vol.resolve.bind(vol);
+      let inFlight = 0;
+      let mostInFlight = 0;
+      sinon.stub(vol, 'resolve').callsFake(async (userPath, options) => {
+        inFlight += 1;
+        mostInFlight = Math.max(mostInFlight, inFlight);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        inFlight -= 1;
+        return real(userPath, options);
+      });
+
+      await vol.pairAll(['a.txt', 'b.txt', 'c.txt'], 'selection.zip');
+
+      expect(vol.resolve.callCount).to.equal(4);
+      expect(mostInFlight).to.equal(1);
+    });
+  });
+
   describe('staging', () => {
     it('allocates a recognisable directory inside the volume', async () => {
       const vol = await volumeSession.openVolume(reqFor());

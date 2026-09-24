@@ -42,6 +42,10 @@ describe('fileSystemManager tests', () => {
         source: volumePath(source),
         destination: volumePath(destination),
       })),
+      pairAll: sinon.stub().callsFake(async (sources, destination) => sources.map((source) => ({
+        source: volumePath(source),
+        destination: volumePath(destination),
+      }))),
       staging: sinon.stub().returns(volumePath('.flux-op-abc')),
       // Names the staging entry after the destination's basename, so the tool
       // writes the exact name flux-op then inspects (zip appends .zip to an
@@ -562,14 +566,13 @@ describe('fileSystemManager tests', () => {
         req.body.source = ['data/saves', 'data/notes.txt'];
         await fileSystemManager.compressAppsObject(req, res);
 
-        expect(sessionStub.pair.args).to.deep.equal([
-          ['data/saves', 'data/selection.zip'],
-          ['data/notes.txt', 'data/selection.zip'],
+        expect(sessionStub.pairAll.args).to.deep.equal([
+          [['data/saves', 'data/notes.txt'], 'data/selection.zip'],
         ]);
       });
 
       it('refuses when any entry fails its pair guard', async () => {
-        sessionStub.pair.withArgs('data/notes.txt').rejects(new Error('data/notes.txt does not exist'));
+        sessionStub.pairAll.rejects(new Error('data/notes.txt does not exist'));
         req.body.source = ['data/saves', 'data/notes.txt'];
         await fileSystemManager.compressAppsObject(req, res);
 
@@ -656,7 +659,7 @@ describe('fileSystemManager tests', () => {
         req.body.source = Array.from({ length: 1000 }, (_, i) => `data/f${i}`);
         await fileSystemManager.compressAppsObject(req, res);
 
-        expect(sessionStub.pair.callCount).to.equal(1000);
+        expect(sessionStub.pairAll.firstCall.args[0]).to.have.length(1000);
         expect(executorStub.run.calledOnce).to.equal(true);
       });
 
@@ -664,28 +667,9 @@ describe('fileSystemManager tests', () => {
         req.body.source = Array.from({ length: 1001 }, (_, i) => `data/f${i}`);
         await fileSystemManager.compressAppsObject(req, res);
 
-        expect(sessionStub.pair.called).to.equal(false);
+        expect(sessionStub.pairAll.called).to.equal(false);
         expect(executorStub.run.called).to.equal(false);
         expect(res.json.firstCall.args[0].data.message).to.match(/at most 1000 entries/);
-      });
-
-      it('resolves the entries one at a time', async () => {
-        // Resolving is filesystem work on the thread pool every request shares,
-        // so a list must not queue all of it at once.
-        let inFlight = 0;
-        let mostInFlight = 0;
-        sessionStub.pair.callsFake(async (source, destination) => {
-          inFlight += 1;
-          mostInFlight = Math.max(mostInFlight, inFlight);
-          await new Promise((resolve) => { setImmediate(resolve); });
-          inFlight -= 1;
-          return { source: volumePath(source), destination: volumePath(destination) };
-        });
-        req.body.source = ['data/a', 'data/b', 'data/c'];
-        await fileSystemManager.compressAppsObject(req, res);
-
-        expect(sessionStub.pair.callCount).to.equal(3);
-        expect(mostInFlight).to.equal(1);
       });
 
       it('refuses an entry listed twice', async () => {
@@ -702,7 +686,7 @@ describe('fileSystemManager tests', () => {
           await fileSystemManager.compressAppsObject(req, res);
 
           expect(executorStub.run.called).to.equal(false);
-          expect(sessionStub.pair.called).to.equal(false);
+          expect(sessionStub.pairAll.called).to.equal(false);
           expect(res.json.firstCall.args[0].data.message).to.equal('source must be a path or a non-empty list of paths');
         });
       }

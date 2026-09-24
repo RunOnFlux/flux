@@ -281,8 +281,27 @@ class VolumeSession {
    * Resolve a source and destination together, applying every guard that only
    * makes sense for a pair.
    *
-   * All the two-operand endpoints go through here so the guard set stays in one
-   * reviewable place rather than being re-inlined per endpoint.
+   * @param {string} source
+   * @param {string} destination
+   * @returns {Promise<{source: VolumePath, destination: VolumePath}>}
+   */
+  async pair(source, destination) {
+    const [paired] = await this.pairAll([source], destination);
+    return paired;
+  }
+
+  /**
+   * Resolve several sources against one destination, applying every guard that
+   * only makes sense for a pair to each source.
+   *
+   * All the two-operand endpoints go through here, through pair() for a single
+   * source, so the guard set stays in one reviewable place rather than being
+   * re-inlined per endpoint. The destination is resolved once: it is the same
+   * path for every source, and the checks are made against that one answer.
+   *
+   * Sources are resolved one at a time. Resolving is filesystem work on the
+   * thread pool every other request shares, and a list resolved all at once
+   * queues the whole of it ahead of them.
    *
    * `destination` is the full target path INCLUDING the new name, not the
    * parent directory - which is what keeps -T semantics identical between copy
@@ -294,17 +313,12 @@ class VolumeSession {
    * throughout, so a verdict reached here is about a moment that has passed by
    * the time the container runs.
    *
-   * @param {string} source
+   * @param {string[]} sources
    * @param {string} destination
-   * @returns {Promise<{source: VolumePath, destination: VolumePath}>}
+   * @returns {Promise<Array<{source: VolumePath, destination: VolumePath}>>}
    */
-  async pair(source, destination) {
-    const from = await this.resolve(source, { mustExist: true });
+  async pairAll(sources, destination) {
     const to = await this.resolve(destination);
-
-    if (from.hostPath === to.hostPath) {
-      throw new Error(`${from.relative} is both the source and the destination`);
-    }
 
     // '' means identical; a '..'-prefixed or absolute result means the two sit
     // on separate branches. Anything else means one holds the other.
@@ -316,26 +330,37 @@ class VolumeSession {
       return Boolean(within) && !within.startsWith('..') && !path.isAbsolute(within);
     };
 
-    // For a directory copy this recurses until the volume fills.
-    if (holds(from, to)) {
-      throw new Error(`Destination ${to.relative} is inside source ${from.relative}`);
-    }
+    const paired = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const source of sources) {
+      // eslint-disable-next-line no-await-in-loop
+      const from = await this.resolve(source, { mustExist: true });
 
-    // The other direction, which only overwrite lets through: replacing photos
-    // with photos/2024. The executor cannot carry it out - displacing the
-    // destination takes the source away inside it, so the publish stops between
-    // its two renames and the caller's whole folder is parked under a name the
-    // reserved names hide from them until the next boot sweep. Completing it
-    // instead would delete everything else in photos, which they never named.
-    //
-    // Refused here as well as in the image so the caller is told in a sentence
-    // rather than through a container's exit code. The image refuses it too,
-    // because that invariant is not one it should hold on trust from a caller.
-    if (holds(to, from)) {
-      throw new Error(`Destination ${to.relative} contains source ${from.relative}`);
-    }
+      if (from.hostPath === to.hostPath) {
+        throw new Error(`${from.relative} is both the source and the destination`);
+      }
 
-    return { source: from, destination: to };
+      // For a directory copy this recurses until the volume fills.
+      if (holds(from, to)) {
+        throw new Error(`Destination ${to.relative} is inside source ${from.relative}`);
+      }
+
+      // The other direction, which only overwrite lets through: replacing
+      // photos with photos/2024. Displacing the destination takes the source
+      // inside it with it, and completing the operation any other way would
+      // delete everything else in photos, which the caller never named.
+      //
+      // Refused here as well as in the image so the caller is told in a
+      // sentence rather than through a container's exit code. The image refuses
+      // it too, because that invariant is not one it should hold on trust from
+      // a caller.
+      if (holds(to, from)) {
+        throw new Error(`Destination ${to.relative} contains source ${from.relative}`);
+      }
+
+      paired.push({ source: from, destination: to });
+    }
+    return paired;
   }
 
   /**
