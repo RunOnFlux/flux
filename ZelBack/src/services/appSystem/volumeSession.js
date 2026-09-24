@@ -268,7 +268,7 @@ class VolumeSession {
       isSymbolicLink = stats.isSymbolicLink();
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
-      if (mustExist) throw new Error('Source does not exist');
+      if (mustExist) throw new Error(`${relative} does not exist`);
     }
     if (!isSymbolicLink) {
       await verifyRealPath(hostPath, this.#mount);
@@ -303,7 +303,7 @@ class VolumeSession {
     const to = await this.resolve(destination);
 
     if (from.hostPath === to.hostPath) {
-      throw new Error('Source and destination are the same');
+      throw new Error(`${from.relative} is both the source and the destination`);
     }
 
     // '' means identical; a '..'-prefixed or absolute result means the two sit
@@ -318,7 +318,7 @@ class VolumeSession {
 
     // For a directory copy this recurses until the volume fills.
     if (holds(from, to)) {
-      throw new Error('Destination is inside the source');
+      throw new Error(`Destination ${to.relative} is inside source ${from.relative}`);
     }
 
     // The other direction, which only overwrite lets through: replacing photos
@@ -332,7 +332,7 @@ class VolumeSession {
     // rather than through a container's exit code. The image refuses it too,
     // because that invariant is not one it should hold on trust from a caller.
     if (holds(to, from)) {
-      throw new Error('Destination contains the source');
+      throw new Error(`Destination ${to.relative} contains source ${from.relative}`);
     }
 
     return { source: from, destination: to };
@@ -407,7 +407,7 @@ class VolumeSession {
       throw new Error('isDirectory requires a VolumePath');
     }
     const stats = await fs.lstat(volumePath.hostPath).catch((error) => {
-      if (error.code === 'ENOENT') throw new Error('Source does not exist');
+      if (error.code === 'ENOENT') throw new Error(`${volumePath.relative} does not exist`);
       throw error;
     });
     return stats.isDirectory();
@@ -455,7 +455,7 @@ class VolumeSession {
       throw new Error('measure requires a VolumePath');
     }
     const stats = await fs.lstat(volumePath.hostPath).catch((error) => {
-      if (error.code === 'ENOENT') throw new Error('Source does not exist');
+      if (error.code === 'ENOENT') throw new Error(`${volumePath.relative} does not exist`);
       throw error;
     });
     if (stats.isSymbolicLink()) return 0;

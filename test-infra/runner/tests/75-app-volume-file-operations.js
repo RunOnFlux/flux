@@ -237,7 +237,7 @@ describe('app volume file operations - the contract', function () {
       });
 
       expect(res.status).to.not.equal(202);
-      expect(JSON.stringify(res.data)).to.match(/inside the source/i);
+      expect(JSON.stringify(res.data)).to.include('Destination photos/inside is inside source photos');
       const leftovers = await treeOf(node.container, root);
       expect(stagingEntries(leftovers)).to.deep.equal([]);
     });

@@ -185,7 +185,7 @@ describe('volumeSession tests', () => {
     it('reports a missing source as such when the caller requires one', async () => {
       const vol = await volumeSession.openVolume(reqFor());
       await expect(vol.resolve('nope.txt', { mustExist: true }))
-        .to.be.rejectedWith('Source does not exist');
+        .to.be.rejectedWith('nope.txt does not exist');
     });
 
     it('refuses a name in the root that is not the application\'s', async () => {
@@ -269,14 +269,14 @@ describe('volumeSession tests', () => {
     it('rejects identical source and destination', async () => {
       existsAsFile(`${MOUNT}/a.txt`);
       const vol = await volumeSession.openVolume(reqFor());
-      await expect(vol.pair('a.txt', 'a.txt')).to.be.rejectedWith('Source and destination are the same');
+      await expect(vol.pair('a.txt', 'a.txt')).to.be.rejectedWith('a.txt is both the source and the destination');
     });
 
     it('rejects a destination nested inside the source', async () => {
       // A directory copied into itself recurses until the volume fills.
       existsAsFile(`${MOUNT}/uploads`);
       const vol = await volumeSession.openVolume(reqFor());
-      await expect(vol.pair('uploads', 'uploads/backup')).to.be.rejectedWith('Destination is inside the source');
+      await expect(vol.pair('uploads', 'uploads/backup')).to.be.rejectedWith('Destination uploads/backup is inside source uploads');
     });
 
     it('rejects a destination that contains the source', async () => {
@@ -291,7 +291,7 @@ describe('volumeSession tests', () => {
       const vol = await volumeSession.openVolume(reqFor());
 
       await expect(vol.pair('photos/2024', 'photos', { overwrite: true }))
-        .to.be.rejectedWith('Destination contains the source');
+        .to.be.rejectedWith('Destination photos contains source photos/2024');
     });
 
     it('still allows operands that merely share a prefix', async () => {

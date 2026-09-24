@@ -569,12 +569,12 @@ describe('fileSystemManager tests', () => {
       });
 
       it('refuses when any entry fails its pair guard', async () => {
-        sessionStub.pair.withArgs('data/notes.txt').rejects(new Error('Source does not exist'));
+        sessionStub.pair.withArgs('data/notes.txt').rejects(new Error('data/notes.txt does not exist'));
         req.body.source = ['data/saves', 'data/notes.txt'];
         await fileSystemManager.compressAppsObject(req, res);
 
         expect(executorStub.run.called).to.equal(false);
-        expect(res.json.firstCall.args[0].data.message).to.equal('Source does not exist');
+        expect(res.json.firstCall.args[0].data.message).to.equal('data/notes.txt does not exist');
       });
 
       it('measures none of the entries, and checks capacity once', async () => {
@@ -693,7 +693,7 @@ describe('fileSystemManager tests', () => {
         await fileSystemManager.compressAppsObject(req, res);
 
         expect(executorStub.run.called).to.equal(false);
-        expect(res.json.firstCall.args[0].data.message).to.equal('A source is listed more than once');
+        expect(res.json.firstCall.args[0].data.message).to.equal('data/saves is listed more than once');
       });
 
       for (const [label, source] of [['an empty list', []], ['an entry that is not a path', ['data/saves', 7]], ['an empty entry', ['data/saves', '']]]) {

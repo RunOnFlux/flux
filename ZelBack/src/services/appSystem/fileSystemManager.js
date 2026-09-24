@@ -566,9 +566,11 @@ async function resolveArchiveOperands(req, volume) {
   // The same entry twice, or one entry inside another, would be archived
   // twice: tar stores both copies, and an extraction then writes the one name
   // two times.
-  if (new Set(sources.map((source) => source.hostPath)).size !== sources.length) {
-    throw new Error('A source is listed more than once');
-  }
+  const seen = new Set();
+  sources.forEach((source) => {
+    if (seen.has(source.hostPath)) throw new Error(`${source.relative} is listed more than once`);
+    seen.add(source.hostPath);
+  });
   const listed = new Set(sources.map((source) => source.relative));
   sources.forEach((source) => {
     for (let dir = path.posix.dirname(source.relative); dir !== '.'; dir = path.posix.dirname(dir)) {
