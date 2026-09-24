@@ -779,6 +779,97 @@ describe('appSpecHelpers tests', () => {
     });
   });
 
+  describe('getAppFiatAndFluxPrice tests', () => {
+    // 2 vCPU, 5 GB, 30 GB on 3 instances (the test config's minimum): $6.12 at the rates below,
+    // and small enough for the Cumulus hardware discount (x0.8), so $4.90 before the rounding.
+    const buildSpec = (containerData, extra = {}) => ({
+      version: 4,
+      name: 'PriceTestApp',
+      description: 'price test',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      instances: 3,
+      compose: [{
+        name: 'server',
+        description: 'server',
+        repotag: 'runonflux/test:latest',
+        ports: [31000],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [8211],
+        containerData,
+        cpu: 2,
+        ram: 5000,
+        hdd: 30,
+        tiered: false,
+      }],
+      ...extra,
+    });
+
+    const quote = (spec) => new Promise((resolve) => {
+      // eslint-disable-next-line global-require
+      const { EventEmitter } = require('events');
+      const req = new EventEmitter();
+      const res = { json: (body) => resolve(body) };
+      appSpecHelpers.getAppFiatAndFluxPrice(req, res);
+      req.emit('data', JSON.stringify(spec));
+      req.emit('end');
+    });
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      require('../../ZelBack/src/services/utils/cacheManager').default.resetCaches();
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 2500000 } });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(null);
+      // eslint-disable-next-line global-require
+      const axios = require('axios');
+      sinon.stub(axios, 'get').callsFake(async (url) => {
+        if (url.includes('getappspecsusdprice')) {
+          return {
+            data: {
+              status: 'success',
+              data: {
+                height: -1, cpu: 0.15, ram: 0.05, hdd: 0.02, minPrice: 0.01, port: 2, scope: 4, staticip: 2, fluxmultiplier: 0.95, multiplier: 1, minUSDPrice: 0.99,
+              },
+            },
+          };
+        }
+        if (url.includes('listapps')) return { data: { status: 'success', data: [] } };
+        // 1 FLUX = 50000 USD/BTC x 0.0000002 BTC = $0.01, so the fiat-derived Flux price is well
+        // above the on-chain floor and is the one returned.
+        if (url.includes('/rates')) return { data: [[{ code: 'USD', rate: 50000 }], { FLUX: 0.0000002 }] };
+        throw new Error(`unexpected url ${url}`);
+      });
+    });
+
+    it('should quote a g: app the same as the same app without g:', async () => {
+      const synced = await quote(buildSpec('g:/data'));
+      const plain = await quote(buildSpec('/data'));
+      expect(synced.status).to.equal('success');
+      expect(plain.status).to.equal('success');
+      expect(synced.data.usd).to.equal(plain.data.usd);
+    });
+
+    it('should round the final usd price up to .49 or .99', async () => {
+      const response = await quote(buildSpec('g:/data'));
+      expect(response.data.usd).to.equal(4.99);
+    });
+
+    it('should derive the flux price from the rounded usd price', async () => {
+      const response = await quote(buildSpec('g:/data'));
+      // $4.99 / $0.01 per FLUX x 0.95 fluxmultiplier
+      expect(response.data.flux).to.equal(474.05);
+    });
+
+    it('should return a caller priceUSD as sent, without rounding it', async () => {
+      const response = await quote(buildSpec('g:/data', { priceUSD: 5.1 }));
+      expect(response.data.usd).to.equal(5.1);
+    });
+  });
+
   describe('module exports tests', () => {
     it('should export parseAppSpecification', () => {
       expect(appSpecHelpers.parseAppSpecification).to.be.a('function');

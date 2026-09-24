@@ -484,7 +484,11 @@ async function getAppFiatAndFluxPrice(req, res) {
 
       // Last step on purpose: anything applied after it would move the price off .49/.99.
       // The Flux price below is derived from this, so it follows the rounded figure.
-      actualPriceToPay = roundUpToCharmPrice(actualPriceToPay);
+      // A caller's own priceUSD is left alone: it has always come back exactly as sent, and a
+      // caller that charges that amount would otherwise be quoted up to $0.50 more than it took.
+      if (!appSpecification.priceUSD) {
+        actualPriceToPay = roundUpToCharmPrice(actualPriceToPay);
+      }
 
       let fiatRates;
       let fluxUSDRate;
