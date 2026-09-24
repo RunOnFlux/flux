@@ -754,6 +754,31 @@ describe('appSpecHelpers tests', () => {
     });
   });
 
+  describe('roundUpToCharmPrice tests', () => {
+    it('should round up to .49 when cents are at most 49', () => {
+      expect(appSpecHelpers.roundUpToCharmPrice(1.12)).to.equal('1.49');
+      expect(appSpecHelpers.roundUpToCharmPrice(7.01)).to.equal('7.49');
+      expect(appSpecHelpers.roundUpToCharmPrice(16.00)).to.equal('16.49');
+    });
+
+    it('should round up to .99 when cents are above 49', () => {
+      expect(appSpecHelpers.roundUpToCharmPrice(1.50)).to.equal('1.99');
+      expect(appSpecHelpers.roundUpToCharmPrice(4.81)).to.equal('4.99');
+      expect(appSpecHelpers.roundUpToCharmPrice(20.98)).to.equal('20.99');
+    });
+
+    it('should keep a price that already ends in .49 or .99', () => {
+      expect(appSpecHelpers.roundUpToCharmPrice(0.99)).to.equal('0.99');
+      expect(appSpecHelpers.roundUpToCharmPrice(4.49)).to.equal('4.49');
+      expect(appSpecHelpers.roundUpToCharmPrice(2.99)).to.equal('2.99');
+    });
+
+    it('should accept the two-decimal strings the price pipeline passes around', () => {
+      expect(appSpecHelpers.roundUpToCharmPrice('5.47')).to.equal('5.49');
+      expect(appSpecHelpers.roundUpToCharmPrice('10.69')).to.equal('10.99');
+    });
+  });
+
   describe('module exports tests', () => {
     it('should export parseAppSpecification', () => {
       expect(appSpecHelpers.parseAppSpecification).to.be.a('function');
