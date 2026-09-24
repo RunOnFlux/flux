@@ -380,7 +380,7 @@ describe('fileSystemManager tests', () => {
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/backup.zip', '--', '.']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/backup.zip', '--', '.']);
     });
 
     it('writes a tarball when the destination says .tar.gz', async () => {
@@ -433,7 +433,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().workingDir.containerPath).to.equal('/work');
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/backup.zip', '--', 'notes.txt']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/backup.zip', '--', 'notes.txt']);
     });
 
     it('bounds the archive by the byte ceiling, without measuring the source', async () => {
@@ -462,7 +462,7 @@ describe('fileSystemManager tests', () => {
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/backup.zip', '--', './-']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/backup.zip', '--', './-']);
     });
 
     it('hands a name beginning with a dash over as a name, not an option', async () => {
@@ -478,6 +478,18 @@ describe('fileSystemManager tests', () => {
       const args = argv();
       expect(args).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc/backup.tar.gz', '--', '-dashfile.txt']);
       expect(args.indexOf('--')).to.equal(args.indexOf('-dashfile.txt') - 1);
+    });
+
+    it('fails a zip whose named operand is missing, as tar does', async () => {
+      // zip skips an operand it cannot find, warns, and exits 0 - so a listed
+      // entry the application removed after it was resolved would be missing
+      // from an archive reported as a success.
+      req.body.source = ['uploads/a.txt', 'uploads/b.txt'];
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(argv()).to.include('-MM');
+      expect(argv().indexOf('-MM')).to.be.lessThan(argv().indexOf('--'));
     });
 
     it('stores a symlink as a symlink rather than the file it points at', async () => {
@@ -515,7 +527,7 @@ describe('fileSystemManager tests', () => {
         await fileSystemManager.compressAppsObject(req, res);
 
         expect(runOptions().workingDir.containerPath).to.equal('/work/data');
-        expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/selection.zip', '--', 'saves', 'notes.txt']);
+        expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/selection.zip', '--', 'saves', 'notes.txt']);
       });
 
       it('hands tar the same operands', async () => {

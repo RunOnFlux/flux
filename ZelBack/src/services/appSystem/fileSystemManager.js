@@ -841,8 +841,11 @@ async function compressAppsObject(req, res) {
     const argv = format === 'zip'
       // -r recurses, -q keeps the per-file listing out of the container's
       // output, -y stores a symlink as a symlink instead of the file it points
-      // at, which is what tar and cp -a already do.
-      ? ['zip', '-r', '-q', '-y', staging, '--', ...operands.map((operand) => (operand === '-' ? './-' : operand))]
+      // at, which is what tar and cp -a already do. -MM fails the archive when
+      // a named operand is missing - one the application removed after it was
+      // resolved - where zip would otherwise skip it and exit 0; tar fails on
+      // the same list already.
+      ? ['zip', '-r', '-q', '-y', '-MM', staging, '--', ...operands.map((operand) => (operand === '-' ? './-' : operand))]
       : ['tar', '-czf', staging, '--', ...operands];
 
     // Bytes written to the archive, with no total: how far a source of a known
