@@ -510,6 +510,10 @@ const MAX_ARCHIVE_SOURCES = 1000;
  * that directory, not as its contents, a list of one included. An entry inside
  * another listed entry is refused, because the archivers would store it twice.
  *
+ * So a client acting on a selection - a file browser - sends a list whatever
+ * its size: the archive then holds the selected entries by name for one item
+ * as for many, where a single path would archive a selected folder's contents.
+ *
  * Both archivers decide their layout from where they run and what they are
  * handed, and neither infers anything useful from an absolute operand: zip
  * stores the whole path minus its leading slash, which would put an internal
