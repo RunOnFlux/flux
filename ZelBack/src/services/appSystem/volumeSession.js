@@ -506,11 +506,11 @@ class VolumeSession {
    * Throw unless the volume has room for anything at all.
    *
    * For the operations whose size cannot be known in advance - an extraction,
-   * an upload - where the byte ceiling is the only bound and IS the volume's
-   * free space. A full volume makes that ceiling zero, and a ceiling of zero is
-   * how the executor and the image both spell "no ceiling was asked for", so
-   * the one operation with nothing else protecting it would run unbounded until
-   * the filesystem refused a write. Refused here instead, before a container
+   * an archive, an upload - where the byte ceiling is the only bound and IS
+   * the volume's free space. A full volume makes that ceiling zero, and a
+   * ceiling of zero is how the executor and the image both spell "no ceiling
+   * was asked for", so an operation with nothing else protecting it would run
+   * unbounded until the filesystem refused a write. Refused here instead, before a container
    * starts, which is also where the caller gets a sentence rather than whatever
    * tar says about ENOSPC.
    */

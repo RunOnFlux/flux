@@ -424,6 +424,56 @@ describe('app volume file operations - safety and recovery', function () {
       const said = JSON.stringify(job.error);
       expect(said, `only a bare exit code: ${said}`).to.not.match(/"detail":"File operation failed with exit code \d+"/);
     });
+
+    it('archives a selection larger than the free space when the archive fits', async function () {
+      this.timeout(600000);
+      const seed = await inNode(
+        `mkdir -p ${root}/big`
+        + ` && dd if=/dev/zero of=${root}/big/a bs=1M count=350 2>/dev/null`
+        + ` && dd if=/dev/zero of=${root}/big/b bs=1M count=350 2>/dev/null`,
+      );
+      expect(seed.exitCode, seed.output).to.equal(0);
+
+      // FIXTURE: the sources must be larger than the free space, or this is an
+      // ordinary compress and proves nothing about what bounds it.
+      const avail = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const freeBytes = parseInt(avail.stdout.trim(), 10);
+      expect(freeBytes).to.be.lessThan(700 * 1024 * 1024);
+
+      const { accepted, job } = await settle('/apps/compressobject', {
+        appname: appName, component: appName, source: ['big/a', 'big/b'], destination: 'big.zip',
+      });
+
+      expect(accepted.status, JSON.stringify(accepted.data)).to.equal(202);
+      expect(job.status, JSON.stringify(job.error)).to.equal('Succeeded');
+      const size = await inNode(`stat -c '%s' ${root}/big.zip`);
+      expect(parseInt(size.stdout.trim(), 10)).to.be.lessThan(10 * 1024 * 1024);
+    });
+
+    it('fails an archive that does not fit, and leaves nothing behind', async function () {
+      this.timeout(600000);
+      // Random bytes do not compress, so the archive is as large as its source.
+      const seed = await inNode(`dd if=/dev/urandom of=${root}/noise.bin bs=1M count=550 2>/dev/null`);
+      expect(seed.exitCode, seed.output).to.equal(0);
+
+      // FIXTURE: the archive must be larger than what the volume has left, or
+      // it fits and the failure below would be about something else.
+      const avail = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const freeBytes = parseInt(avail.stdout.trim(), 10);
+      expect(freeBytes).to.be.lessThan(550 * 1024 * 1024);
+
+      const { accepted, job } = await settle('/apps/compressobject', {
+        appname: appName, component: appName, source: 'noise.bin', destination: 'noise.zip',
+      });
+
+      expect(accepted.status, JSON.stringify(accepted.data)).to.equal(202);
+      expect(job.status).to.equal('Failed');
+      expect(await exists(node.container, `${root}/noise.zip`)).to.equal(false);
+      const leftovers = await treeOf(node.container, root);
+      expect(stagingEntries(leftovers), 'staging was not reclaimed').to.deep.equal([]);
+      const said = JSON.stringify(job.error);
+      expect(said, `only a bare exit code: ${said}`).to.not.match(/"detail":"File operation failed with exit code \d+"/);
+    });
   });
 
   describe('boot recovery', () => {

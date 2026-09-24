@@ -53,8 +53,9 @@ describe('fileSystemManager tests', () => {
       measure: sinon.stub().resolves(1000),
       requireSpace: sinon.stub(),
       // Defaults to a volume with room, which is what every other test needs.
-      // Left off, extract and upload would refuse before doing anything and the
-      // assertions below would be made against the error branch.
+      // Left off, extract, compress and upload would refuse before doing
+      // anything and the assertions below would be made against the error
+      // branch.
       requireCapacity: sinon.stub(),
       // Defaults to a directory because that is the common case; the
       // single-file tests below flip it. A stub's default is a coverage
@@ -435,11 +436,24 @@ describe('fileSystemManager tests', () => {
       expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/backup.zip', '--', 'notes.txt']);
     });
 
-    it('carries a ceiling as well, because the measurement can read low', async () => {
+    it('bounds the archive by the byte ceiling, without measuring the source', async () => {
+      // Walking the source would be work in the FluxOS process, ahead of any
+      // capacity slot, in proportion to a tree the app shapes.
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
+      expect(sessionStub.measure.called).to.equal(false);
+      expect(sessionStub.requireSpace.called).to.equal(false);
+    });
+
+    it('refuses on a full volume rather than running with a ceiling of nothing', async () => {
+      sessionStub.requireCapacity.throws(new Error('No free space on the application volume'));
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(executorStub.run.called).to.equal(false);
+      expect(res.json.firstCall.args[0].data.message).to.equal('No free space on the application volume');
     });
 
     it('names a single file called `-` to zip as ./-', async () => {
@@ -551,12 +565,14 @@ describe('fileSystemManager tests', () => {
         expect(res.json.firstCall.args[0].data.message).to.equal('Source does not exist');
       });
 
-      it('requires space for all the entries together', async () => {
-        sessionStub.measure.callsFake(async (p) => (p.relative === 'data/saves' ? 3000 : 500));
+      it('measures none of the entries, and checks capacity once', async () => {
         req.body.source = ['data/saves', 'data/notes.txt'];
         await fileSystemManager.compressAppsObject(req, res);
 
-        expect(sessionStub.requireSpace.calledOnceWithExactly(3500)).to.equal(true);
+        expect(executorStub.run.calledOnce).to.equal(true);
+        expect(sessionStub.measure.called).to.equal(false);
+        expect(sessionStub.requireCapacity.calledOnce).to.equal(true);
+        expect(sessionStub.requireCapacity.calledBefore(executorStub.run)).to.equal(true);
       });
 
       it('hands names beginning with a dash over after `--`', async () => {

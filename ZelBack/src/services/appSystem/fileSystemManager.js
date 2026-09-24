@@ -484,11 +484,12 @@ function overwriteRequested(req) {
 /**
  * The most entries one compressobject list may name.
  *
- * Every entry is resolved and measured by the FluxOS process before a container
- * starts - a handful of realpath and lstat calls each - so the list's length is
- * the multiplier on the work one request from an app owner asks of the node. A
- * thousand is past any selection made by hand in a file browser; a caller
- * archiving more archives the folder holding them.
+ * Every entry's path is checked by the FluxOS process before a container
+ * starts - a handful of realpath and lstat calls each, never a walk of what the
+ * entry holds - so the list's length is the multiplier on the work one request
+ * from an app owner asks of the node. A thousand is past any selection made by
+ * hand in a file browser; a caller archiving more archives the folder holding
+ * them.
  */
 const MAX_ARCHIVE_SOURCES = 1000;
 
@@ -522,8 +523,8 @@ const MAX_ARCHIVE_SOURCES = 1000;
  *
  * @param {object} req
  * @param {VolumeSession} volume
- * @returns {Promise<{sources: VolumePath[], destination: VolumePath,
- *   noReplace: boolean, workingDir: VolumePath, operands: string[]}>}
+ * @returns {Promise<{destination: VolumePath, noReplace: boolean,
+ *   workingDir: VolumePath, operands: string[]}>}
  */
 async function resolveArchiveOperands(req, volume) {
   const requested = requiredParam(req, 'source');
@@ -532,7 +533,6 @@ async function resolveArchiveOperands(req, volume) {
     const { source, destination, noReplace } = await resolveOperands(req, volume);
     const sourceIsDirectory = await volume.isDirectory(source);
     return {
-      sources: [source],
       destination,
       noReplace,
       workingDir: sourceIsDirectory ? source : volume.parent(source),
@@ -584,7 +584,6 @@ async function resolveArchiveOperands(req, volume) {
   const prefixLength = workingDir.relative === '' ? 0 : workingDir.relative.length + 1;
 
   return {
-    sources,
     destination: pairs[0].destination,
     noReplace: !overwriteRequested(req),
     workingDir,
@@ -808,7 +807,7 @@ async function compressAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const {
-      sources, destination, noReplace, workingDir, operands,
+      destination, noReplace, workingDir, operands,
     } = await resolveArchiveOperands(req, volume);
 
     const format = archiveFormat(destination.relative);
@@ -816,17 +815,11 @@ async function compressAppsObject(req, res) {
       throw new Error('Destination must end in .zip, .tar.gz or .tgz');
     }
 
-    // The archive cannot be larger than what goes into it by enough to matter,
-    // and compressed output is normally far smaller - so the sources' size is a
-    // safe over-estimate rather than a guess. Measured one at a time, as they
-    // were resolved.
-    let totalBytes = 0;
-    // eslint-disable-next-line no-restricted-syntax
-    for (const source of sources) {
-      // eslint-disable-next-line no-await-in-loop
-      totalBytes += await volume.measure(source);
-    }
-    volume.requireSpace(totalBytes);
+    // How large an archive is cannot be known until it has been written, so
+    // nothing here measures the sources: the ceiling below bounds what lands,
+    // and walking the sources would be work in this process, ahead of any
+    // capacity slot, in proportion to a tree the app shapes.
+    volume.requireCapacity();
 
     // The archive goes inside a minted DIRECTORY rather than at the root,
     // because the tool's scratch follows its output: Info-ZIP builds the
@@ -861,10 +854,7 @@ async function compressAppsObject(req, res) {
       workingDir,
       publish: { staging, destination },
       noReplace,
-      // As for copy: the measurement above refuses this early, the ceiling is
-      // what makes it safe. A source measured by a process that cannot open
-      // every directory in it reads low, and an archive is written by one that
-      // can read all of them.
+      // What stops an archive that does not fit, as it is written.
       maxBytes: volume.availableBytes / SPACE_HEADROOM,
     }));
   } catch (error) {
