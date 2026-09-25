@@ -18,6 +18,7 @@ describe('volumeSession tests', () => {
   let deviceHelperStub;
   let verificationHelperStub;
   let IOUtilsStub;
+  let syncthingServiceStub;
   let fsStub;
   let volumeSession;
 
@@ -39,6 +40,7 @@ describe('volumeSession tests', () => {
     fsStub = {
       lstat: sinon.stub().rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
     };
+    syncthingServiceStub = { getConfigFolders: sinon.stub().resolves([]) };
 
     volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
       '../deviceHelper': deviceHelperStub,
@@ -51,6 +53,7 @@ describe('volumeSession tests', () => {
         APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
       },
       'node:fs/promises': fsStub,
+      '../syncthingService': syncthingServiceStub,
     });
   });
 
@@ -118,6 +121,45 @@ describe('volumeSession tests', () => {
       const vol = await volumeSession.openVolume(reqFor());
       expect(vol.mount).to.equal(MOUNT);
       expect(vol.availableBytes).to.equal(1e9);
+    });
+
+    // A write to a copy that follows another node's is lost: syncthing never sends
+    // a receiveonly folder's changes and a single-writer standby reverts them.
+    describe('a copy that follows another node', () => {
+      it('refuses a volume whose folder is receiveonly, with a reason the owner can act on', async () => {
+        syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxcomp_myapp', type: 'receiveonly' }]);
+
+        const error = await volumeSession.openVolume(reqFor()).catch((e) => e);
+
+        expect(error.code).to.equal(409);
+        expect(error.name).to.equal('ReadOnlyCopy');
+        expect(error.message).to.include('Make changes on that node');
+      });
+
+      it('opens a volume whose folder is sendreceive', async () => {
+        syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxcomp_myapp', type: 'sendreceive' }]);
+
+        const vol = await volumeSession.openVolume(reqFor());
+
+        expect(vol.mount).to.equal(MOUNT);
+      });
+
+      it('opens a volume with no folder, whatever another volume\'s folder is', async () => {
+        syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxother_myapp', type: 'receiveonly' }]);
+
+        const vol = await volumeSession.openVolume(reqFor());
+
+        expect(vol.mount).to.equal(MOUNT);
+        sinon.assert.calledOnce(syncthingServiceStub.getConfigFolders);
+      });
+
+      it('opens the volume when syncthing cannot be asked', async () => {
+        syncthingServiceStub.getConfigFolders.rejects(new Error('ECONNREFUSED'));
+
+        const vol = await volumeSession.openVolume(reqFor());
+
+        expect(vol.mount).to.equal(MOUNT);
+      });
     });
 
     it('authorises before resolving anything', async () => {
