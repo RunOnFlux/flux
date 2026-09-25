@@ -21,6 +21,7 @@ const messageStore = require('../../ZelBack/src/services/appMessaging/messageSto
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
+const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
@@ -1858,6 +1859,9 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
       sinon.assert.calledOnce(updateInDatabaseStub);
+      // only rows broadcast before the sigterm, and only ever shortened
+      expect(updateInDatabaseStub.firstCall.args[2]).to.deep.equal({ ip: '192.168.1.100:16127', broadcastedAt: { $lt: new Date(broadcastedAt) } });
+      expect(updateInDatabaseStub.firstCall.args[3]).to.have.all.keys('$min');
       sinon.assert.calledOnce(broadcastHashSpy);
     }).timeout(10000);
 
@@ -1972,6 +1976,56 @@ describe('fluxCommunication tests', () => {
   // peer it came from cannot be counted at all. These handlers have had the key
   // in scope all along - they log it, and publish it on sync:chunkVerified two
   // lines earlier - and this is what makes them hand it on.
+  // A synced state event is applied to the location rows it speaks for, and the
+  // order it arrives in says nothing about when it was sent: a restart replays
+  // every unexpired event, so a node's old sigterm routinely lands after its
+  // newer apprunning. Which rows it may touch belongs to messageStore; the
+  // handler has to hand over the event's own broadcast time for that to work.
+  describe('a synced state event is applied by its own broadcast time', () => {
+    const PEER_SOCKET = { key: '10.0.0.9:16127', connectionId: 7 };
+    const SENDER = '203.0.113.7:16127';
+    const envelope = { version: 1, timestamp: 1, pubKey: 'PUB', signature: 'SIG' };
+    let expireStub;
+    let removeStub;
+
+    beforeEach(() => {
+      sinon.stub(peerManager, 'isSyncResponseWanted').returns(true);
+      sinon.stub(networkStateService, 'getFluxnodeBySocketAddress').resolves({ pubkey: 'PUB' });
+      sinon.stub(verifyPool, 'verify').callsFake(async (items) => items.map(() => true));
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'pruneAppRunningLocations').resolves();
+      expireStub = sinon.stub(messageStore, 'expireLocationsForSigterm').resolves();
+      removeStub = sinon.stub(messageStore, 'removeLocationForAppRemoved').resolves();
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({}) }) });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('hands a sigterm to messageStore with the time it was sent', async () => {
+      const broadcastedAt = Date.now() - 90 * 60 * 1000;
+      const data = { type: 'fluxnodesigterm', ip: SENDER, broadcastedAt };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'sigterm', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledOnceWithExactly(expireStub, SENDER, broadcastedAt);
+    });
+
+    it('hands an appremoved to messageStore with the app and the time it was sent', async () => {
+      const broadcastedAt = Date.now() - 30 * 60 * 1000;
+      const data = { type: 'fluxappremoved', version: 1, appName: 'app', ip: SENDER, broadcastedAt };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'appremoved', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledOnceWithExactly(removeStub, SENDER, 'app', broadcastedAt);
+    });
+  });
+
   describe('a sync response says which peer completed it, and whether it declined', () => {
     const PEER = '198.51.100.7:16127';
     // The handlers are given the SOCKET, because a response is an answer to a
