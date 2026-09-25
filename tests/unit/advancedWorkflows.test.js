@@ -5765,6 +5765,23 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       expect(await isComponentRunningLocally('server_someotherapp')).to.equal(false);
     });
 
+    it('names the devices of the nodes that have announced a shutdown', async () => {
+      // A peer shutting down still reads as a complete, connected copy until its
+      // syncthing stops; the safety check has to be told which peers those are.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      sinon.stub(registryManager, 'shuttingDownNodes').resolves(['5.6.7.8:16127']);
+      const syncthingService = require('../../ZelBack/src/services/syncthingService');
+      sinon.stub(syncthingService, 'getConfigDevices').resolves([
+        { name: '5.6.7.8:16127', deviceID: 'DEV-LEAVING' },
+        { name: '9.9.9.9:16127', deviceID: 'DEV-STAYING' },
+      ]);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { shuttingDownDevices } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect([...(await shuttingDownDevices())]).to.deep.equal(['DEV-LEAVING']);
+    });
+
     it('treats an unreadable container list as "running here" rather than "not running"', async () => {
       // Answering "not running" on a list this node could not read would route
       // every app straight past the primary check - the exact shape of the
