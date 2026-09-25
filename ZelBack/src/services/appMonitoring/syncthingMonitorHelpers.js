@@ -181,6 +181,20 @@ async function buildDeviceConfiguration(
 }
 
 /**
+ * The settings every folder FluxOS owns carries, on creation and on every write
+ * that changes its type. syncthing re-applies its own defaults to the fields a
+ * type or ownership change leaves out of the body, and its default of ten
+ * conflict copies puts renamed losers into a single-writer app's data.
+ * syncOwnership makes a synced file arrive owned by the uid that wrote it on
+ * the primary, so the same image writes it there without a permissions sweep.
+ */
+const OWNED_FOLDER_SETTINGS = Object.freeze({
+  rescanIntervalS: SYNCTHING_RESCAN_INTERVAL_SECONDS,
+  maxConflicts: SYNCTHING_MAX_CONFLICTS,
+  syncOwnership: true,
+});
+
+/**
  * Create Syncthing folder configuration
  * @param {string} id - Folder ID
  * @param {string} label - Folder label
@@ -197,8 +211,7 @@ function createSyncthingFolderConfig(id, label, path, devices, type = 'sendrecei
     devices,
     paused: false,
     type,
-    rescanIntervalS: SYNCTHING_RESCAN_INTERVAL_SECONDS,
-    maxConflicts: SYNCTHING_MAX_CONFLICTS,
+    ...OWNED_FOLDER_SETTINGS,
   };
 }
 
@@ -289,6 +302,7 @@ function folderNeedsUpdate(existingFolder, newFolder) {
 
   return (
     existingFolder.maxConflicts !== SYNCTHING_MAX_CONFLICTS
+    || existingFolder.syncOwnership !== newFolder.syncOwnership
     || existingFolder.paused
     || existingFolder.type !== newFolder.type
     || JSON.stringify(existingFolder.devices) !== JSON.stringify(newFolder.devices)
@@ -296,6 +310,7 @@ function folderNeedsUpdate(existingFolder, newFolder) {
 }
 
 module.exports = {
+  OWNED_FOLDER_SETTINGS,
   getDeviceID,
   getDeviceIDCached,
   sortAndFilterLocations,

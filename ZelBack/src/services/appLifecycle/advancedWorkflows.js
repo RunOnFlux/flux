@@ -1,12 +1,10 @@
 const config = require('config');
-const util = require('util');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const {
   SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, syncthingIgnoreLines,
 } = require('../appSystem/volumeReservedNames');
-const nodecmd = require('node-cmd');
 const axios = require('axios');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
@@ -44,7 +42,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
-const { getContainerDataFlags, requiresSyncing } = require('../appMonitoring/syncthingMonitorHelpers');
+const { getContainerDataFlags, requiresSyncing, OWNED_FOLDER_SETTINGS } = require('../appMonitoring/syncthingMonitorHelpers');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
@@ -138,7 +136,6 @@ const operatorStoppedNoted = new Set();
 const RESTORE_TYPES = ['local', 'remote', 'upload'];
 
 // Promisified functions
-const cmdAsync = util.promisify(nodecmd.run);
 
 /**
  * Runs a command as root via execFile (no shell, args passed as params) and
@@ -2239,7 +2236,7 @@ async function changeSyncthingFolderType(folderId, folderType) {
     }
 
     // Update folder type using PATCH
-    const patchData = { type: folderType };
+    const patchData = { type: folderType, ...OWNED_FOLDER_SETTINGS };
     const updateResponse = await syncthingService.adjustConfigFolders('patch', patchData, folder.id);
 
     if (updateResponse.status === 'success') {
@@ -2360,32 +2357,6 @@ function syncedComponentsOfApp(appDetails, appname) {
       componentName: comp.name,
       folderId: syncthingFolderIdForComponent(appname, comp.name),
     }));
-}
-
-/**
- * Helper function to apply permissions fix on persistent container data
- * Fixes permissions on appdata and all additional mount points
- * @param {string} appId - Application ID
- * @returns {Promise<boolean>} - true if successful, false otherwise
- */
-async function applyPermissionsFix(appId) {
-  try {
-    // Fix permissions on entire app directory to cover appdata and all additional mounts
-    const appPath = `${appsFolder}${appId}`;
-
-    log.info(`Applying permissions fix for app: ${appId}`);
-
-    // Apply 777 permissions to entire app directory recursively
-    // This covers both appdata (primary mount) and all additional mounts at the same level
-    const execPERM = `sudo chmod -R 777 ${appPath}`;
-    await cmdAsync(execPERM);
-
-    log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
-    return true;
-  } catch (error) {
-    log.error(`Error applying permissions fix for ${appId}: ${error.message}`);
-    return false;
-  }
 }
 
 /**
@@ -2619,18 +2590,17 @@ async function appDockerRestart(appname) {
 }
 
 /**
- * Helper function to restart app with permissions fix workflow for new primary
- * This is specifically for g: mode apps becoming primary
+ * Makes this node the primary of a single-writer component: the folder sends
+ * from now on, and the reconciler starts the container.
  * @param {string} appname - App name
  * @param {string} appId - Application ID for syncthing folder
  * @returns {Promise<void>}
  */
-async function requestMasterStartWithPermissionsFix(appname, appId) {
-  // Claimed before the ownership fix, not after it: the fix takes long enough
-  // that a peer probing "is anyone running this?" would otherwise get a truthful
-  // no from a node that has already committed, and start alongside it. Released
-  // in the finally - from a successful start the controllerDesired below carries
-  // the claim, and a failed one must stop claiming.
+async function requestMasterStart(appname, appId) {
+  // Claimed before the folder flip, not after it: a peer probing "is anyone
+  // running this?" must get a truthful yes from a node that has committed.
+  // Released in the finally - from a successful start the controllerDesired
+  // below carries the claim, and a failed one must stop claiming.
   appReconciler.claimStarting(appname);
   // A fact - this node has decided to become primary and is committing to it.
   // The cadence around this decision is a counter, not an event: see the rule at
@@ -2638,33 +2608,16 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
   fluxEventBus.publish('masterSlave:started', { identifier: appname });
   fluxEventBus.count('masterSlave:decision', appname, 'started');
   try {
-    log.info(`Preparing masterSlave primary ${appname}: fixing permissions before start`);
-
-    // sync must be paused while we fix ownership on the persistent data, or
-    // syncthing would propagate the changes mid-fix
-    const toReceiveOnly = await changeSyncthingFolderType(appId, 'receiveonly');
-    if (!toReceiveOnly) {
-      log.warn(`Failed to change syncthing folder to receiveonly for ${appname}, continuing anyway...`);
-    }
-
-    const permissionsApplied = await applyPermissionsFix(appId);
-    if (!permissionsApplied) {
-      log.error(`Failed to apply permissions fix for ${appname}, not requesting start`);
-      return;
-    }
-
     const toSendReceive = await changeSyncthingFolderType(appId, 'sendreceive');
     if (!toSendReceive) {
       log.error(`Failed to change syncthing folder to sendreceive for ${appname}, not requesting start - cannot become primary without sendreceive mode`);
       return;
     }
-
     // hand the run-state decision to the reconciler (the single container actuator)
-    appReconciler.setControllerDesired(appname, 'running', 'masterSlave primary (synced)');
+    appReconciler.setControllerDesired(appname, 'running', 'masterSlave primary');
     log.info(`Requested start for masterSlave primary ${appname}`);
   } catch (error) {
     log.error(`Error preparing masterSlave primary ${appname}: ${error.message}`);
-    // leave it stopped if the permissions-fix workflow failed
   } finally {
     appReconciler.releaseStarting(appname);
   }
@@ -5335,7 +5288,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   if (peerState !== PeerComponent.NOT_RUNNING) {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                   } else {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
+                    requestMasterStart(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                   }
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
@@ -5364,7 +5317,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
+                    requestMasterStart(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
@@ -5384,7 +5337,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // eslint-disable-next-line no-await-in-loop
                       const lowerNodeState = await checkLowerIndexNodesRunning();
                       if (lowerNodeState === PeerComponent.NOT_RUNNING) {
-                        requestMasterStartWithPermissionsFix(identifier, appId);
+                        requestMasterStart(identifier, appId);
                         log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                       } else {
                         log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a lower-index node ${lowerNodeState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
@@ -5399,7 +5352,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const lowerNodeState = await checkLowerIndexNodesRunning();
                   if (lowerNodeState === PeerComponent.NOT_RUNNING) {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
+                    requestMasterStart(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else if (lowerNodeState === PeerComponent.RUNNING) {
@@ -5438,7 +5391,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (peerState === PeerComponent.RUNNING) {
                       log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
                     } else {
-                      requestMasterStartWithPermissionsFix(identifier, appId);
+                      requestMasterStart(identifier, appId);
                       log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
                     }
                     // Any stagger already scheduled for this node is moot: the seed has
@@ -5476,11 +5429,23 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
                 timeTostartNewMasterApp.delete(identifier);
               }
-              if (!ipsMatch(localSocketAddr, ip) && runningAppsNames.includes(identifier)) {
-                // Stop only the g: component on this standby node. Non-g siblings (e.g. a DB
-                // cluster component that needs all instances running) must keep running.
-                appReconciler.setControllerDesired(identifier, 'stopped', 'masterSlave standby');
-                log.info(`masterSlaveApps: requesting stop of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
+              if (!ipsMatch(localSocketAddr, ip)) {
+                if (runningAppsNames.includes(identifier)) {
+                  // Stop only the g: component on this standby node. Non-g siblings (e.g. a DB
+                  // cluster component that needs all instances running) must keep running.
+                  appReconciler.setControllerDesired(identifier, 'stopped', 'masterSlave standby');
+                  log.info(`masterSlaveApps: requesting stop of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
+                }
+                // A standby's folder receives and never sends: what it holds is the
+                // primary's, and anything written here is a local change for the
+                // primary's copy to overwrite.
+                // eslint-disable-next-line no-await-in-loop
+                await changeSyncthingFolderType(appId, 'receiveonly');
+              } else if (runningAppsNames.includes(identifier)) {
+                // The primary runs here, so its folder sends - whatever demoted it
+                // while the container was down.
+                // eslint-disable-next-line no-await-in-loop
+                await changeSyncthingFolderType(appId, 'sendreceive');
               } else if (ipsMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
                 // Check if app is ready (syncthing data is synced) before starting
                 let isReady = globalStateParam.receiveOnlySyncthingAppsCache.has(appId) && globalStateParam.receiveOnlySyncthingAppsCache.get(appId).restarted;
@@ -5510,7 +5475,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (isReady) {
-                  requestMasterStartWithPermissionsFix(identifier, appId);
+                  requestMasterStart(identifier, appId);
                   log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 } else {
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
@@ -5533,6 +5498,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 }
 
 module.exports = {
+  changeSyncthingFolderType,
   createAppVolume,
   softRegisterAppLocally,
   softRemoveAppLocally,

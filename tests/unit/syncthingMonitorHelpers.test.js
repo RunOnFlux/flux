@@ -164,6 +164,7 @@ describe('syncthingMonitorHelpers tests', () => {
         type: 'sendreceive',
         rescanIntervalS: 900,
         maxConflicts: 0,
+        syncOwnership: true,
       });
       expect(result.devices).to.deep.equal(devices);
     });
@@ -187,6 +188,14 @@ describe('syncthingMonitorHelpers tests', () => {
       const newFolder = { type: 'sendreceive' };
       const result = helpers.folderNeedsUpdate(null, newFolder);
       expect(result).to.be.true;
+    });
+
+    it('should return true if syncOwnership differs', () => {
+      const existing = {
+        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [], syncOwnership: false,
+      };
+      const newFolder = { type: 'sendreceive', devices: [], syncOwnership: true };
+      expect(helpers.folderNeedsUpdate(existing, newFolder)).to.be.true;
     });
 
     it('should return true if maxConflicts differs', () => {

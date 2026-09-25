@@ -33,10 +33,15 @@ const globalState = require('./ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
+const syncthingService = require('./ZelBack/src/services/syncthingService');
 const dbHelper = require('./ZelBack/src/services/dbHelper');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
 const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
 const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
+
+// Arcane gives fluxos.service 90 s to stop. The container stop in handleSigterm
+// takes at most 9 s, so container stop plus this drain stays under half that budget.
+const SHUTDOWN_DRAIN_TIMEOUT_MS = 30000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -473,6 +478,18 @@ async function handleSigterm() {
     log.error(`Error stopping containers during shutdown: ${error.message}`);
   }
 
+  // The peers can only take over from what they hold, and syncthing is stopped
+  // right after this process exits.
+  try {
+    const incomplete = await syncthingService.drainFoldersToPeers(SHUTDOWN_DRAIN_TIMEOUT_MS);
+    if (incomplete.length) {
+      log.warn(`Shutdown drain reached its deadline with ${incomplete.length} folder(s) not yet complete on a peer: ${incomplete.join(', ')}`);
+    } else {
+      log.info('Shutdown drain complete: every sendreceive folder is complete on its connected peers');
+    }
+  } catch (error) {
+    log.warn(`Shutdown drain failed: ${error.message}`);
+  }
   // Give some time for the broadcast to complete
   await serviceHelper.delay(1000);
 
@@ -483,6 +500,8 @@ async function handleSigterm() {
 
 // Register SIGTERM handler for graceful shutdown on system reboot/shutdown
 process.on('SIGTERM', handleSigterm);
+// pm2 stops its processes with SIGINT, systemd with SIGTERM.
+process.on('SIGINT', handleSigterm);
 
 if (require.main === module) {
   initiate();

@@ -717,19 +717,8 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(volumeServiceMock.isPathMounted);
     });
 
-    // chmod resolves a symbolic link given as an ARGUMENT and ignores one met
-    // inside a traversal, so the whole property is which paths reach the argument
-    // list. Only the volume root does, and FluxOS created it: nothing inside the
-    // volume - where the owner's file API and syncthing both place links - is ever
-    // named. Asserted as the argument list itself, since a unit test cannot watch
-    // a real link's target change mode.
-    it('names the volume root and nothing inside it', async () => {
-      // The seed guard walks the folder and needs an empty disk to call a cold
-      // start safe; a listing of the volume root would be the argument list.
+    it('runs no permission sweep on promotion: synced files arrive owned by their writer', async () => {
       fsMock.promises.readdir.resolves([]);
-      fsMock.promises.readdir
-        .withArgs(sinon.match((p) => typeof p === 'string' && p.endsWith('test-app')))
-        .resolves(['appdata', 'cache', 'escape', '.flux-op']);
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
       });
@@ -739,22 +728,60 @@ describe('syncthingFolderStateMachine tests', () => {
       });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
-      expect(result.syncthingFolder.type, 'the fixture must reach a promotion, or nothing is chmodded').to.equal('sendreceive');
+      expect(result.syncthingFolder.type, 'the fixture must reach a promotion, or nothing could have been swept').to.equal('sendreceive');
 
-      const commands = serviceHelperMock.runCommand.getCalls();
-      // A walk that execs chmod over what it lists hands it every link it finds.
-      const walkers = commands.filter((call) => ['find', 'ls'].includes(call.args[0]));
-      expect(walkers, 'a path walk feeding chmod widens the targets of the links it lists').to.have.length(0);
+      const chmods = serviceHelperMock.runCommand.getCalls().filter((call) => call.args[0] === 'chmod');
+      expect(chmods, 'a mode sweep over a synced folder is a modification of every file in it').to.have.length(0);
+    });
 
-      const chmods = commands.filter((call) => call.args[0] === 'chmod');
-      expect(chmods, 'the app tree must still be widened').to.have.length(1);
-      expect(chmods[0].args[1].runAsRoot).to.equal(true);
+    it('demotes a single-writer folder found sendreceive with its container stopped', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      const notFound = new Error('no such container');
+      notFound.statusCode = 404;
+      dockerServiceMock.dockerContainerInspect.rejects(notFound);
 
-      const [flag, mode, ...targets] = chmods[0].args[1].params;
-      expect(flag).to.equal('-R');
-      expect(mode).to.equal('777');
-      expect(targets, 'every extra argument is a path inside the volume').to.have.length(1);
-      expect(targets[0].endsWith('test-app'), `${targets[0]} is not the volume root`).to.equal(true);
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 0 });
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    it('keeps a single-writer folder sendreceive while its container runs', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache).to.deep.equal({ restarted: true });
+    });
+
+    it('does not demote on a docker answer that is not a verdict', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.rejects(new Error('socket hang up'));
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+    });
+
+    it('never demotes a replicated folder for a stopped container', async () => {
+      mockParams.containerDataFlags = 'r';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
     // The figure peers rank this node by. It is published where it is computed, and
