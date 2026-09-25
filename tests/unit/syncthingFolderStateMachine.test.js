@@ -407,6 +407,21 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.isSynced).to.be.false;
     });
 
+    it('reports locally changed directories apart from files', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 1000,
+        inSyncBytes: 1000,
+        state: 'idle',
+        receiveOnlyChangedFiles: 0,
+        receiveOnlyChangedDirectories: 3,
+      });
+
+      const result = await stateMachine.getFolderSyncCompletion('test-folder');
+
+      expect(result.receiveOnlyChangedFiles).to.equal(0);
+      expect(result.receiveOnlyChangedDirectories).to.equal(3);
+    });
+
     it('should mark as synced when 100% complete', async () => {
       syncthingServiceMock.getDbStatus.resolves({
         globalBytes: 1000,
@@ -763,6 +778,65 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type, 'the built default is sendreceive; a standby must not inherit it').to.equal('receiveonly');
       expect(result.cache).to.deep.equal({ restarted: true });
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    // A receiveonly folder keeps its own deviations, owner and mode included, and
+    // the primary counts every one of them as outstanding for this node.
+    it('reverts a ready single-writer standby whose directories differ from the cluster', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 1000,
+        inSyncBytes: 1000,
+        state: 'idle',
+        receiveOnlyChangedFiles: 0,
+        receiveOnlyChangedDirectories: 1,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache).to.deep.equal({ restarted: true });
+    });
+
+    it('does not revert a ready single-writer standby that is still pulling', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 1000,
+        inSyncBytes: 400,
+        state: 'syncing',
+        receiveOnlyChangedFiles: 2,
+        receiveOnlyChangedDirectories: 1,
+      });
+
+      await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+    });
+
+    it('does not revert a ready single-writer standby with no local changes', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 1000,
+        inSyncBytes: 1000,
+        state: 'idle',
+        receiveOnlyChangedFiles: 0,
+        receiveOnlyChangedDirectories: 0,
+      });
+
+      await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.calledOnce(syncthingServiceMock.getDbStatus);
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
     });
 
     it('demotes a single-writer folder found sendreceive with its container stopped', async () => {
@@ -1837,6 +1911,31 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.be.false;
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
+    });
+
+    it('reverts instead of promoting when only directories differ locally', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 1000,
+        inSyncBytes: 1000,
+        state: 'idle',
+        receiveOnlyChangedFiles: 0,
+        receiveOnlyChangedDirectories: 2,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.be.false;
       sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');

@@ -525,6 +525,7 @@ async function probeFolderSyncCompletion(folderId) {
   try {
     const {
       globalBytes = 0, globalFiles = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
+      receiveOnlyChangedDirectories = 0,
     } = await syncthingService.getDbStatus(folderId);
 
     const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
@@ -542,6 +543,9 @@ async function probeFolderSyncCompletion(folderId) {
       // local additions/modifications in a receiveonly folder; invisible to the
       // completion metrics above (they only count cluster data)
       receiveOnlyChangedFiles,
+      // Directories are counted apart from files. A directory whose owner or mode
+      // differs from the cluster's is a local change like any other.
+      receiveOnlyChangedDirectories,
       // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
       // never "done": a node holding the only copy before its peers reconnect
       // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
@@ -1156,6 +1160,34 @@ async function nudgeFolderDevices(folderId) {
  * @param {Object} params - Parameters
  * @returns {Promise<Object>} Updated folder config and cache
  */
+/**
+ * Reverts a synced receiveonly folder's local changes to the cluster's version.
+ *
+ * A receiveonly folder never overwrites its own deviations: a file or directory
+ * whose content, owner or mode differs locally stays that way, and every peer
+ * keeps listing it as needed by this node. db/revert applies the cluster's
+ * version and deletes local-only items that are not ignored, so it runs only
+ * against a complete global index (isSynced).
+ *
+ * @param {string} appId - The Syncthing folder ID
+ * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
+ * @returns {Promise<boolean>} True when the folder had local changes and a revert was asked for
+ */
+async function revertLocalChangesIfSynced(appId, syncStatus) {
+  if (!syncStatus?.isSynced) return false;
+  const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
+  if (changed === 0) return false;
+  log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${syncStatus.receiveOnlyChangedFiles || 0} files, ${syncStatus.receiveOnlyChangedDirectories || 0} directories); reverting to the cluster's version`);
+  try {
+    // dataOrThrow: dbRevert answers in-band; without it this catch is
+    // dead code and a failed revert reads as reverted
+    messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
+  } catch (error) {
+    log.error(`revertLocalChangesIfSynced - revert of local changes for ${appId} failed: ${error.message}`);
+  }
+  return true;
+}
+
 async function handleReceiveOnlyTransition(params) {
   const {
     appId,
@@ -1432,15 +1464,7 @@ async function handleReceiveOnlyTransition(params) {
     // is clean first; if not, revert the local changes (db/revert undoes local edits in
     // a receiveonly folder) and promote on a later cycle once verifiably clean. The
     // leader path above is exempt by design - the leader's local data IS the seed.
-    if (syncStatus.isSynced && syncStatus.receiveOnlyChangedFiles > 0) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} is synced but the receive-only folder has ${syncStatus.receiveOnlyChangedFiles} locally changed item(s); reverting local changes instead of promoting (promotion would propagate them to the cluster)`);
-      try {
-        // dataOrThrow: dbRevert answers in-band; without it this catch is
-        // dead code and a failed revert reads as reverted
-        messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
-      } catch (error) {
-        log.error(`handleReceiveOnlyTransition - revert of local changes for ${appId} failed: ${error.message}`);
-      }
+    if (await revertLocalChangesIfSynced(appId, syncStatus)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
@@ -1734,6 +1758,12 @@ async function manageFolderSyncState(params) {
     // The election owns a single-writer folder's type, and the ready mark it
     // reads has to outlive this pass.
     syncthingFolder.type = syncFolder ? syncFolder.type : 'receiveonly';
+    // A ready standby still has to converge on the primary's copy: a local
+    // deviation (an owner or mode included) is never overwritten by syncthing
+    // in a receiveonly folder, and the primary counts it as outstanding.
+    if (syncthingFolder.type === 'receiveonly') {
+      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId));
+    }
     return { syncthingFolder, cache };
   }
   return { syncthingFolder, cache: null };
