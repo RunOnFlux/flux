@@ -779,7 +779,7 @@ async function holderIsGone(appId, holderIp, liveness) {
     return false;
   }
   if (verdict === SilenceVerdict.NO_EVIDENCE) {
-    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node cannot ask its own syncthing about it for ${appId}; gone requires evidence, keeping it`);
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node's own syncthing has never been connected to it or cannot be asked, for ${appId}; gone requires evidence, keeping it`);
     fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'noEvidence' });
     return false;
   }

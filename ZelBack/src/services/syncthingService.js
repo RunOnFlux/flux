@@ -1327,6 +1327,16 @@ async function folderCompleteOnPeers(folder, myId, connectedPeers) {
 }
 
 /**
+ * Syncthing's statistics per device, keyed by device id. lastSeen is when the
+ * device last connected or disconnected, to the second, and "now" while it is
+ * connected; a device this node has never been connected to reads 1970-01-01.
+ * @returns {Promise<Object<string, {lastSeen: string, lastConnectionDurationS: number}>>}
+ */
+async function getDeviceStats() {
+  return request('get', '/rest/stats/device');
+}
+
+/**
  * Scans a folder now and resolves when the scan is done. The watcher batches
  * changes for ten seconds, so a file written inside that window is unknown to
  * syncthing, and to every peer, until something scans it.
@@ -2806,6 +2816,7 @@ module.exports = {
   postDbRevert,
   dbRevert,
   drainFoldersToPeers,
+  getDeviceStats,
   scanFolder,
   postDbScan,
   // EVENTS

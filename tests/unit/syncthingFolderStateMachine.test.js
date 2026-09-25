@@ -21,6 +21,7 @@ const syncthingServiceMock = {
   getConfigDevices: sinon.stub(),
   dbRevert: sinon.stub(),
   scanFolder: sinon.stub(),
+  getDeviceStats: sinon.stub(),
   systemPause: sinon.stub(),
   systemResume: sinon.stub(),
 };
@@ -180,6 +181,9 @@ describe('syncthingFolderStateMachine tests', () => {
     syncthingServiceMock.dbRevert.resolves({ status: 'success' });
     syncthingServiceMock.scanFolder.reset();
     syncthingServiceMock.scanFolder.resolves({});
+    // default: this node's syncthing has never been connected to any peer
+    syncthingServiceMock.getDeviceStats.reset();
+    syncthingServiceMock.getDeviceStats.resolves({});
     syncthingServiceMock.systemPause.reset();
     syncthingServiceMock.systemPause.resolves({ status: 'success' });
     syncthingServiceMock.systemResume.reset();
@@ -1105,6 +1109,7 @@ describe('syncthingFolderStateMachine tests', () => {
       // about the holder's device and answered that it is not connected
       globalStateMock.syncthingDevicesIDCache.set('10.0.0.1:16127', 'HOLDER-DEVICE-ID');
       syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'unknown', completion: 0, globalBytes: 0 });
+      syncthingServiceMock.getDeviceStats.resolves({ 'HOLDER-DEVICE-ID': { lastSeen: '2026-09-25T14:00:00Z' } });
       // the survivor had been syncing alongside and holds a full copy - a partial
       // survivor must NOT take over (covered by the partial-copy test above)
       syncthingServiceMock.getDbStatus.resolves({
