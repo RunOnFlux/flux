@@ -570,6 +570,7 @@ describe('advancedWorkflows tests', () => {
     let dockerServiceStub;
     let syncthingServiceStub;
     let syncthingCompletionStub;
+    let syncthingDeviceStatsStub;
     let syncthingDevicesStub;
     let axiosGetStub;
     let recursionCounter;
@@ -650,6 +651,8 @@ describe('advancedWorkflows tests', () => {
       const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
       syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
       syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
+      // default: this node's syncthing has never been connected to any peer
+      syncthingDeviceStatsStub = sinon.stub(syncthingServiceModule, 'getDeviceStats').resolves({});
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -882,12 +885,16 @@ describe('advancedWorkflows tests', () => {
     };
 
     // This node's own syncthing view of a peer's device, which is what a silence is
-    // judged on. 'valid' is a live connection; any other state is a closed one; and
-    // leaving the device out of the cache entirely is the third answer - this node
-    // never resolved the peer and cannot say.
-    const peerSyncthingSays = (peerSocketAddr, remoteState) => {
+    // judged on. 'valid' is a live connection; any other state is a closed one if
+    // the connection was ever up, and no answer if it never was; and leaving the
+    // device out of the cache entirely is the third answer - this node never
+    // resolved the peer and cannot say.
+    const peerSyncthingSays = (peerSocketAddr, remoteState, { everConnected = true } = {}) => {
       globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
       syncthingCompletionStub.resolves({ remoteState });
+      syncthingDeviceStatsStub.resolves(everConnected
+        ? { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '2026-09-25T14:00:00Z' } }
+        : { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '1970-01-01T00:00:00Z' } });
     };
 
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
@@ -1572,7 +1579,7 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, 'cannot ask its own syncthing about it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
@@ -1609,11 +1616,43 @@ describe('advancedWorkflows tests', () => {
       // under the name the monitor gave it, and reports the connection closed
       syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }]);
       syncthingCompletionStub.resolves({ remoteState: 'unknown' });
+      syncthingDeviceStatsStub.resolves({ 'DEVICE-DEAD-PEER': { lastSeen: '2026-09-25T14:00:00Z' } });
 
       await runPass();
 
       expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    // A node placed minutes ago may not have connected to anyone yet. A primary whose
+    // FluxOS is restarting is silent for tens of seconds while its syncthing and its
+    // container carry on, and a connection that was never up says nothing about it.
+    it('will not start beside a silent peer its syncthing has never been connected to', async () => {
+      const appName = 'neverseenapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown', { everConnected: false });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read whether its syncthing ever saw it', async () => {
+      const appName = 'statsunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDeviceStatsStub.rejects(new Error('syncthing busy'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
     it('will not start when a silent peer\'s connection is gone but this node cannot see the fleet either', async () => {
