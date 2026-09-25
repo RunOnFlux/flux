@@ -1393,6 +1393,22 @@ describe('volumeExecutor tests', () => {
       ]);
     });
 
+    it('passes the file length ceiling to flux-op only when asked for', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true });
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['tar', '-czf', '/work/a.tgz'], {
+        publish: { staging, destination }, maxBytes: 1000, maxFileBytes: 5678.9,
+      });
+
+      const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(flags(Cmd)).to.deep.equal([
+        'flux-op', '--root', '/work', '--discard-staging',
+        '--max-bytes', '1000', '--max-file-bytes', '5678', '/work/.flux-op/22222222-2222-2222-2222-222222222222', '/work/out',
+      ]);
+    });
+
     it('passes --merge so a directory result overlays rather than replaces', async () => {
       const vol = await openSession();
       const staging = await vol.resolve('.flux-op/33333333-3333-3333-3333-333333333333', { allowReserved: true });
@@ -2567,6 +2583,17 @@ describe('volumeExecutor tests', () => {
       await expect(volumeExecutor.run(vol, ['cat'], {
         input: sending(['data']), publish: { staging, destination },
       })).to.be.rejectedWith(/takes no command/);
+    });
+
+    it('refuses a file length ceiling on an upload, which runs no command', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op/55555555-5555-5555-5555-555555555555', { allowReserved: true });
+      const destination = await vol.resolve('uploaded.bin');
+
+      await expect(volumeExecutor.run(vol, [], {
+        input: sending(['data']), publish: { staging, destination }, maxFileBytes: 1000,
+      })).to.be.rejectedWith(/input runs none/);
+      expect(dockerServiceStub.createContainer.called, 'a container was created').to.equal(false);
     });
 
     it('runs inside a slot the caller already holds, without taking a second', async () => {

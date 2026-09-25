@@ -373,6 +373,15 @@ describe('fileSystemManager tests', () => {
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
     });
+
+    it('runs the copy without a file length ceiling, so a sparse file that fits is copied', async () => {
+      // The source is measured by what it occupies before the copy starts, and
+      // a length ceiling would refuse a sparse file longer than the free space.
+      await fileSystemManager.copyAppsObject(req, res);
+
+      expect(runOptions()).to.have.property('maxBytes');
+      expect(runOptions().maxFileBytes).to.equal(undefined);
+    });
   });
 
   describe('compressAppsObject', () => {
@@ -447,6 +456,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
+      expect(runOptions().maxFileBytes, 'the archive is not stopped as it is written').to.be.closeTo(1e9 / 1.05, 1);
       expect(sessionStub.measure.called).to.equal(false);
       expect(sessionStub.requireSpace.called).to.equal(false);
     });
@@ -737,6 +747,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
+      expect(runOptions().maxFileBytes, 'a member is not stopped as it is written').to.be.closeTo(1e9 / 1.05, 1);
     });
 
     it('refuses a result holding anything that is not ordinary data', async () => {

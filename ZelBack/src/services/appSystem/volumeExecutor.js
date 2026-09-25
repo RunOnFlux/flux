@@ -1502,7 +1502,15 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  *   ceiling IS the volume's free space therefore has to establish that there is
  *   some before it asks - on a full volume the figure is zero, and the only
  *   bound it has would read as none. requireSpace and requireCapacity are how a
- *   caller does that.
+ *   caller does that. Measured by what the result occupies, so a sparse file
+ *   counts at the blocks it holds.
+ * @param {number} [options.maxFileBytes] - ceiling on the length of each file the
+ *   command writes, enforced by the kernel as it writes. For a command whose
+ *   output size is unknown until it is written - an archiver, an extraction - so
+ *   that it stops at the ceiling rather than filling the volume and being
+ *   refused afterwards. It counts a file's length, so a sparse file counts at
+ *   its full length; a copy, measured before it starts, runs without it. Not
+ *   for `input`, which runs no command.
  * @param {boolean} [options.dataOnly] - refuse a result holding a FIFO, a socket
  *   or a device node. None of them is data, and whatever opens a FIFO without
  *   O_NONBLOCK waits for a writer that never comes. Links are content and pass.
@@ -1536,7 +1544,7 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
 async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
-    publish = null, mkdirStaging = false, maxBytes = 0, dataOnly = false,
+    publish = null, mkdirStaging = false, maxBytes = 0, maxFileBytes = 0, dataOnly = false,
     noReplace = false, merge = false, onBytes = null, workingDir = null, input = null,
     slotHeld = false,
   } = options;
@@ -1570,6 +1578,9 @@ async function run(session, argv, options = {}) {
     if (params.length) {
       throw new Error('input takes no command - flux-op writes the stream itself');
     }
+    if (maxFileBytes > 0) {
+      throw new Error('maxFileBytes limits a command\'s files, and input runs none');
+    }
   }
 
   if (publish) {
@@ -1587,6 +1598,7 @@ async function run(session, argv, options = {}) {
       ...(publish.staging ? ['--discard-staging'] : []),
       ...(mkdirStaging ? ['--mkdir'] : []),
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
+      ...(maxFileBytes > 0 ? ['--max-file-bytes', String(Math.floor(maxFileBytes))] : []),
       ...(dataOnly ? ['--data-only'] : []),
       ...(noReplace ? ['--no-replace'] : []),
       ...(merge ? ['--merge'] : []),

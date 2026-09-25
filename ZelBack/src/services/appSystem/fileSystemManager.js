@@ -854,7 +854,9 @@ async function compressAppsObject(req, res) {
       workingDir,
       publish: { staging, destination },
       noReplace,
-      // What stops an archive that does not fit, as it is written.
+      // What stops an archive that does not fit, as it is written, and what
+      // refuses it once written.
+      maxFileBytes: volume.availableBytes / SPACE_HEADROOM,
       maxBytes: volume.availableBytes / SPACE_HEADROOM,
     }));
   } catch (error) {
@@ -925,8 +927,11 @@ async function extractAppsObject(req, res) {
       // here: an archive's declared uncompressed size is written by whoever
       // built it, so a bomb simply understates itself. The ceiling is applied
       // to what actually lands instead, and it is the free space on the volume,
-      // so an extraction can fill what is available and no more.
+      // so an extraction can fill what is available and no more. The file
+      // ceiling stops a single member at it as it is written, before it takes
+      // the volume.
       maxBytes: volume.availableBytes / SPACE_HEADROOM,
+      maxFileBytes: volume.availableBytes / SPACE_HEADROOM,
       // A FIFO, socket or device node in the result is refused: none of them is
       // data, and whatever opens a FIFO without O_NONBLOCK waits for a writer
       // that is never coming, so one published here is a reader that hangs. tar
