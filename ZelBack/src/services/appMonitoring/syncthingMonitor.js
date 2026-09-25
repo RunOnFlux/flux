@@ -437,7 +437,8 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
   getGlobalStateFn();
 
   // Early return if operations in progress
-  if (state.installationInProgress || state.removalInProgress || state.softRedeployInProgress || state.hardRedeployInProgress || state.updateSyncthingRunning) {
+  if (state.installationInProgress || state.removalInProgress || state.softRedeployInProgress || state.hardRedeployInProgress || state.updateSyncthingRunning
+    || state.shutdownInProgress) {
     return;
   }
 

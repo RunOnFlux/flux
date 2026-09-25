@@ -337,6 +337,25 @@ describe('syncthingMonitor tests', () => {
       expect(monitorControl.isActive()).to.be.false;
     });
 
+    it('changes no folder while the node is shutting down', async () => {
+      mockState.shutdownInProgress = true;
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+        mockAppDockerStopFn,
+        mockAppDockerRestartFn,
+        mockAppDeleteDataFn,
+        mockRemoveAppLocallyFn,
+      );
+
+      await clock.tickAsync(100);
+
+      sinon.assert.notCalled(mockInstalledAppsFn);
+    });
+
     it('should not run if installation in progress', async () => {
       mockState.installationInProgress = true;
       mockInstalledAppsFn.resolves({ status: 'success', data: [] });
