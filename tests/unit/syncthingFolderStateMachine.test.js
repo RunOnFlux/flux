@@ -20,6 +20,7 @@ const syncthingServiceMock = {
   getDeviceId: sinon.stub().resolves('LOCAL-DEVICE'),
   getConfigDevices: sinon.stub(),
   dbRevert: sinon.stub(),
+  scanFolder: sinon.stub(),
   systemPause: sinon.stub(),
   systemResume: sinon.stub(),
 };
@@ -177,6 +178,8 @@ describe('syncthingFolderStateMachine tests', () => {
     globalStateMock.syncthingDevicesIDCache.clear();
     syncthingServiceMock.dbRevert.reset();
     syncthingServiceMock.dbRevert.resolves({ status: 'success' });
+    syncthingServiceMock.scanFolder.reset();
+    syncthingServiceMock.scanFolder.resolves({});
     syncthingServiceMock.systemPause.reset();
     syncthingServiceMock.systemPause.resolves({ status: 'success' });
     syncthingServiceMock.systemResume.reset();
@@ -853,6 +856,9 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       sinon.assert.calledWith(appQueryServiceMock.holdsComponent, 'test-app');
+      // Scanned before the flip: an unscanned write would turn into a local change
+      // of the receiveonly folder, and the revert deletes those.
+      sinon.assert.calledOnceWithExactly(syncthingServiceMock.scanFolder, 'test-app');
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 0 });
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
@@ -871,6 +877,18 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache).to.deep.equal({ restarted: true });
+    });
+
+    it('still demotes when the scan before it fails', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      appQueryServiceMock.holdsComponent.resolves(false);
+      syncthingServiceMock.scanFolder.rejects(new Error('syncthing busy'));
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
     });
 
     it('does not demote when what this node holds cannot be read', async () => {

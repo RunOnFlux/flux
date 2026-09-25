@@ -1656,6 +1656,14 @@ async function manageFolderSyncState(params) {
     // its process, and what it holds must not go out until the election says
     // it is primary again.
     log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
+    // Scanned first, so everything written here is announced as this node's
+    // own version and the next primary pulls it. Unscanned when the folder
+    // turns receiveonly, a write becomes a local change that the revert deletes.
+    try {
+      await syncthingService.scanFolder(appId);
+    } catch (error) {
+      log.warn(`manageFolderSyncState - scan of ${appId} before demotion failed: ${error.message}`);
+    }
     syncthingFolder.type = 'receiveonly';
     return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
   }
