@@ -569,6 +569,52 @@ describe('registryManager tests', () => {
       expect(result).to.be.true;
     });
 
+    describe('a registration message whose hash is given', () => {
+      const hashesCollection = config.database.daemon.collections.appsHashes;
+      let daemonDatabase;
+
+      const insertHash = (hash, height) => dbHelper.insertOneToDatabase(daemonDatabase, hashesCollection, {
+        txid: `tx${hash}`, hash, height, value: 100000000, message: false,
+      });
+
+      const rejectionOf = async (hash) => {
+        try {
+          await registryManager.checkApplicationRegistrationNameConflicts({ name: 'ExistingApp' }, hash);
+        } catch (error) {
+          return error.message;
+        }
+        return expect.fail('Should have thrown an error');
+      };
+
+      beforeEach(async () => {
+        daemonDatabase = db.db(config.database.daemon.database);
+        try {
+          await daemonDatabase.collection(hashesCollection).drop();
+        } catch (err) {
+          // Collection doesn't exist
+        }
+      });
+
+      it('is refused as registered when its hash is not on chain', async () => {
+        expect(await rejectionOf('unknownhash')).to.include('already registered').and.include('Hash not found in collection');
+      });
+
+      it('is refused as registered when it is older than the app on record', async () => {
+        await insertHash('olderhash', 50); // the app on record is at height 100
+
+        const message = await rejectionOf('olderhash');
+
+        expect(message).to.include('already registered').and.include('Hash is older than our current app');
+        expect(message).to.not.include('local application');
+      });
+
+      it('is refused as registered when it is newer and the app on record has not expired', async () => {
+        await insertHash('newerhash', 150);
+
+        expect(await rejectionOf('newerhash')).to.include('already registered').and.include('Hash is not older than our current app');
+      });
+    });
+
     it('should reject app named "share"', async () => {
       const appSpec = {
         name: 'share',

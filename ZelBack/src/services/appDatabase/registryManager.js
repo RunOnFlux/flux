@@ -1234,6 +1234,8 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
         } else {
           log.warn(`Flux App ${appSpecFormatted.name} active specifications are outdated. Will be cleaned on next expiration`);
         }
+      } else {
+        throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is older than our current app.`);
       }
     } else {
       throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
