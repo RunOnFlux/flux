@@ -83,6 +83,19 @@ describe('volumeExecutor tests', () => {
 
   const openSession = async () => volumeSession.openVolume({ params: { appname: 'myapp', component: 'comp' }, query: {} });
 
+  // A container that exits 0 after ms, or 143 once it is stopped - what flux-op
+  // returns for a stop that reaches it while its command is still running.
+  const stoppableFor = (ms) => {
+    let settle;
+    const exit = new Promise((resolve) => { settle = resolve; });
+    const timer = setTimeout(() => settle({ StatusCode: 0 }), ms);
+    containerStub.stop = sinon.stub().callsFake(async () => {
+      clearTimeout(timer);
+      settle({ StatusCode: 143 });
+    });
+    return sinon.stub().returns(exit);
+  };
+
   beforeEach(() => {
     configStub = freshConfig();
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([mountRow(MOUNT)]) };
@@ -2159,9 +2172,7 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - an operation that stops getting anywhere', () => {
-    const runsFor = (ms) => sinon.stub().returns(
-      new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
-    );
+    const runsFor = (ms) => stoppableFor(ms);
     const usedBlocks = (n) => ({ bsize: 4096, blocks: 100000, bfree: 100000 - n });
 
     it('stops one that has written nothing for the whole window', async () => {
@@ -2179,6 +2190,22 @@ describe('volumeExecutor tests', () => {
       })).to.be.rejectedWith('making no progress');
 
       expect(containerStub.stop.called, 'the container was left running').to.equal(true);
+    });
+
+    it('reports success when the container publishes after the stall stops it', async () => {
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 60;
+      const vol = await openSession();
+      containerStub.wait = sinon.stub().returns(
+        new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), 600); }),
+      );
+      fsStub.statfs = sinon.stub().resolves(usedBlocks(500));
+
+      await volumeExecutor.run(vol, ['cp'], {
+        publish: { staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }), destination: await vol.resolve('out') },
+        onBytes: () => {},
+      });
+
+      expect(containerStub.stop.called, 'FIXTURE: the stall never stopped it').to.equal(true);
     });
 
     it('leaves one alone while the volume is still moving', async () => {
@@ -2239,9 +2266,7 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - the application keeps free space', () => {
-    const runsFor = (ms) => sinon.stub().returns(
-      new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
-    );
+    const runsFor = (ms) => stoppableFor(ms);
     // bfree stays high throughout: the floor is what the application can still
     // write, which is bavail.
     const freeBytes = (bytes) => ({
@@ -2271,6 +2296,20 @@ describe('volumeExecutor tests', () => {
       expect(error.code).to.equal('ENOSPC');
       expect(error.message).to.include('keep free space for the application');
       expect(containerStub.stop.called, 'the container was left running').to.equal(true);
+    });
+
+    it('reports success when the container publishes after the floor stops it', async () => {
+      // flux-op honours a stop only while its command runs; one arriving during
+      // the inspect or the publish is ignored and the result is published.
+      const vol = await openSession();
+      containerStub.wait = sinon.stub().returns(
+        new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), 600); }),
+      );
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) });
+
+      expect(containerStub.stop.called, 'FIXTURE: the floor never stopped it').to.equal(true);
     });
 
     it('leaves one alone while the volume has room', async () => {
@@ -2345,6 +2384,7 @@ describe('volumeExecutor tests', () => {
       // a truncated upload unpublishable, so the stub obeys it rather than
       // resolving up front and racing the transfer.
       socket.on('finish', () => exit.finish(0));
+      containerStub.stop = sinon.stub().callsFake(async () => exit.finish(143));
       containerStub.wait = sinon.stub().returns(exit.promise);
       // The two attaches are told apart by what they ask for. Returning the
       // socket for both would let a test pass while the executor attached

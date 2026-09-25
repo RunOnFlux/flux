@@ -1835,10 +1835,13 @@ async function run(session, argv, options = {}) {
 
     const result = await exited;
     settled = true;
-    if (starved) {
+    // Exit 0 is a published result, whatever was asked of the container: flux-op
+    // honours a stop only until it starts inspecting and publishing. A reason
+    // for stopping explains a non-zero exit and never overrides a zero one.
+    if (starved && result.StatusCode !== 0) {
       throw starved;
     }
-    if (stalled) {
+    if (stalled && result.StatusCode !== 0) {
       throw new Error(stallReason);
     }
     // An upload that did not arrive is not a failure of the operation - the
