@@ -689,6 +689,20 @@ describe('advancedWorkflows tests', () => {
       expect(installedApps.called).to.be.false;
     });
 
+    it('takes no action while the node is shutting down', async () => {
+      const shutdown = sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+
+      try {
+        await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, require('https'));
+      } finally {
+        shutdown.restore();
+      }
+
+      expect(installedApps.called).to.be.false;
+    });
+
     it('skips the whole cycle until the syncthing first-run mount-safety has completed', async () => {
       globalState.syncthingAppsFirstRun = true; // syncthing monitor first run not done yet
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });

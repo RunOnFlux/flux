@@ -32,10 +32,8 @@ const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
 const syncthingService = require('./ZelBack/src/services/syncthingService');
-const dbHelper = require('./ZelBack/src/services/dbHelper');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
 const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
-const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
 
 // Arcane gives fluxos.service 90 s to stop. The container stop in handleSigterm
 // takes at most 9 s, so container stop plus this drain stays under half that budget.
@@ -372,75 +370,9 @@ async function isSystemShuttingDown() {
 }
 
 /**
- * Handle SIGTERM signal for graceful shutdown.
- * Only broadcasts fluxnodesigterm message if the system is actually rebooting/shutting down,
- * not when the service is just being restarted by systemd/pm2.
+ * Stops every running Flux app container, each with a 9 s grace before a kill.
  */
-async function handleSigterm() {
-  log.info('SIGTERM received, checking if system is shutting down...');
-
-  // Small delay to allow systemd to update its state before we check
-  await serviceHelper.delay(100);
-
-  const systemShuttingDown = await isSystemShuttingDown();
-
-  if (!systemShuttingDown) {
-    log.info('System is not shutting down (service restart detected), skipping shutdown broadcast');
-    process.exit(0);
-  }
-
-  log.info('System shutdown/reboot detected, initiating graceful shutdown with peer notification...');
-
-  try {
-    const { runningAppsCache } = globalState;
-
-    if (runningAppsCache.size > 0) {
-      log.info(`Node was running ${runningAppsCache.size} apps, broadcasting shutdown notification to peers...`);
-
-      const ip = await fluxNetworkHelper.getLocalSocketAddress();
-      if (ip) {
-        const sigtermMessage = {
-          type: 'fluxnodesigterm',
-          version: 1,
-          ip,
-          broadcastedAt: Date.now(),
-        };
-
-        log.info(`Broadcasting fluxnodesigterm message: ${JSON.stringify(sigtermMessage)}`);
-
-        const signedMessage = await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
-
-        // Store sigterm event in event log and shorten location TTL to ~7 minutes.
-        // Peers apply the same when receiving the sigterm via gossip.
-        try {
-          const envelope = { version: signedMessage.version, timestamp: signedMessage.timestamp, pubKey: signedMessage.pubKey, signature: signedMessage.signature };
-          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: sigtermMessage, envelope });
-
-          const db = dbHelper.databaseConnection();
-          const database = db.db(config.database.appsglobal.database);
-          const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-          const newExpireAt = new Date(sigtermMessage.broadcastedAt + SIGTERM_EXPIRY_MS);
-          const update = { $set: { expireAt: newExpireAt } };
-          await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
-          log.info('Local sigterm event stored and location records updated to expire in ~7 minutes');
-        } catch (dbError) {
-          log.warn(`Failed to update local app expiration: ${dbError.message}`);
-        }
-
-        log.info('Shutdown notification broadcasted successfully');
-      } else {
-        log.warn('Could not get IP address, skipping shutdown broadcast');
-      }
-    } else {
-      log.info('No running apps cached, skipping shutdown broadcast');
-    }
-  } catch (error) {
-    log.error(`Error during SIGTERM handling: ${error.message}`);
-  }
-
-  await AppSyncOrchestrator.writeShutdownReason('sigterm');
-
-  // Gracefully stop all running Flux app containers
+async function stopFluxAppContainers() {
   try {
     let containers = await dockerService.dockerListContainers(false);
     containers = containers || [];
@@ -475,6 +407,76 @@ async function handleSigterm() {
   } catch (error) {
     log.error(`Error stopping containers during shutdown: ${error.message}`);
   }
+}
+
+/**
+ * Handle SIGTERM signal for graceful shutdown.
+ * Only broadcasts fluxnodesigterm message if the system is actually rebooting/shutting down,
+ * not when the service is just being restarted by systemd/pm2.
+ */
+async function handleSigterm() {
+  log.info('SIGTERM received, checking if system is shutting down...');
+
+  // Small delay to allow systemd to update its state before we check
+  await serviceHelper.delay(100);
+
+  const systemShuttingDown = await isSystemShuttingDown();
+
+  if (!systemShuttingDown) {
+    log.info('System is not shutting down (service restart detected), skipping shutdown broadcast');
+    process.exit(0);
+  }
+
+  log.info('System shutdown/reboot detected, initiating graceful shutdown with peer notification...');
+  globalState.setShutdownInProgressTrue();
+
+  try {
+    const { runningAppsCache } = globalState;
+
+    if (runningAppsCache.size > 0) {
+      log.info(`Node was running ${runningAppsCache.size} apps, broadcasting shutdown notification to peers...`);
+
+      const ip = await fluxNetworkHelper.getLocalSocketAddress();
+      if (ip) {
+        const sigtermMessage = {
+          type: 'fluxnodesigterm',
+          version: 1,
+          ip,
+          broadcastedAt: Date.now(),
+        };
+
+        log.info(`Broadcasting fluxnodesigterm message: ${JSON.stringify(sigtermMessage)}`);
+
+        const signedMessage = await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
+
+        // Store sigterm event in event log and shorten location TTL to ~7 minutes.
+        // Peers apply the same when receiving the sigterm via gossip.
+        try {
+          const envelope = { version: signedMessage.version, timestamp: signedMessage.timestamp, pubKey: signedMessage.pubKey, signature: signedMessage.signature };
+          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: sigtermMessage, envelope });
+          await messageStore.expireLocationsForSigterm(ip, sigtermMessage.broadcastedAt);
+          log.info('Local sigterm event stored and location records updated to expire in ~7 minutes');
+        } catch (dbError) {
+          log.warn(`Failed to update local app expiration: ${dbError.message}`);
+        }
+
+        log.info('Shutdown notification broadcasted successfully');
+      } else {
+        log.warn('Could not get IP address, skipping shutdown broadcast');
+      }
+    } else {
+      log.info('No running apps cached, skipping shutdown broadcast');
+    }
+  } catch (error) {
+    log.error(`Error during SIGTERM handling: ${error.message}`);
+  }
+
+  await AppSyncOrchestrator.writeShutdownReason('sigterm');
+
+  // A start already under way when the flag was set can land after the first
+  // list is taken; the second pass stops it.
+  await stopFluxAppContainers();
+  await stopFluxAppContainers();
 
   // The peers can only take over from what they hold, and syncthing is stopped
   // right after this process exits.
