@@ -29,6 +29,7 @@ const {
   INSTALLING_EXPIRY_MS,
   INSTALLING_ERRORS_EXPIRY_MS,
   EVICTED_EXPIRY_MS,
+  SIGTERM_EXPIRY_MS,
 } = require('../utils/appConstants');
 
 // Cap on how many location operations are handed to one bulk write. The driver
@@ -532,14 +533,55 @@ async function storeAppRemovedMessage(message) {
     return false;
   }
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const query = { ip: message.ip, name: message.appName };
-  const projection = {};
-  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
+  await removeLocationForAppRemoved(message.ip, message.appName, message.broadcastedAt);
 
   // all stored, rebroadcast
   return true;
+}
+
+/**
+ * Shortens the location rows a node's shutdown speaks for.
+ *
+ * A sigterm covers only what its node broadcast before it: a row from a later
+ * apprunning broadcast is the node running again and keeps its own expiry, which
+ * is the same rule the event-derived view applies. A sigterm may arrive long
+ * after it was sent (a peer sync replays every unexpired event), so the new
+ * expiry can already be in the past and must never be applied to a newer row.
+ *
+ * @param {string} ip - The node's socket address
+ * @param {number} broadcastedAt - The sigterm's broadcast time, ms
+ * @returns {Promise<void>}
+ */
+async function expireLocationsForSigterm(ip, broadcastedAt) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await dbHelper.updateInDatabase(
+    database,
+    globalAppsLocations,
+    { ip, broadcastedAt: { $lt: new Date(broadcastedAt) } },
+    { $min: { expireAt: new Date(broadcastedAt + SIGTERM_EXPIRY_MS) } },
+  );
+}
+
+/**
+ * Removes the location row an appremoved broadcast speaks for: the app's row on
+ * that node, when it was broadcast before the removal. A row from a later
+ * apprunning broadcast is the app installed again and stays.
+ *
+ * @param {string} ip - The node's socket address
+ * @param {string} appName - The removed app
+ * @param {number} broadcastedAt - The removal's broadcast time, ms
+ * @returns {Promise<void>}
+ */
+async function removeLocationForAppRemoved(ip, appName, broadcastedAt) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await dbHelper.findOneAndDeleteInDatabase(
+    database,
+    globalAppsLocations,
+    { ip, name: appName, broadcastedAt: { $lt: new Date(broadcastedAt) } },
+    {},
+  );
 }
 
 /**
@@ -1147,6 +1189,8 @@ module.exports = {
   storeSignedAppInstallingBroadcast,
   storeBatchAppInstallingMessages,
   storeAppRemovedMessage,
+  expireLocationsForSigterm,
+  removeLocationForAppRemoved,
   storeAppInstallingErrorMessage,
   storeSignedAppInstallingErrorBroadcast,
   storeBatchAppInstallingErrorMessages,

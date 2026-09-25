@@ -14,7 +14,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const { peerManager, PEER_SOURCE } = require('./utils/peerState');
-const { SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('./utils/appConstants');
+const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -284,11 +284,10 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     for (const event of [...evictions, ...stateEvents]) {
       if (event.type === 'sigterm') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
-        await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.data.ip }, { $set: { expireAt: newExpireAt } });
+        await messageStore.expireLocationsForSigterm(event.data.ip, event.data.broadcastedAt);
       } else if (event.type === 'appremoved') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, { ip: event.data.ip, name: event.data.appName }, {});
+        await messageStore.removeLocationForAppRemoved(event.data.ip, event.data.appName, event.data.broadcastedAt);
       } else if (event.type === 'evicted') {
         await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
         await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
@@ -579,12 +578,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: message.data, envelope });
     fluxEventBus.publish('network:sigterm', { ip });
 
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const newExpireAt = new Date(broadcastedAt + SIGTERM_EXPIRY_MS);
-    const update = { $set: { expireAt: newExpireAt } };
-    const query = { ip };
-    await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+    await messageStore.expireLocationsForSigterm(ip, broadcastedAt);
 
     // Rebroadcast to other peers
     announceToPeers(message, `${fromIP}:${port}`);
