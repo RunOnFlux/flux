@@ -1387,7 +1387,7 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
-    it('claims the component before the ownership fix, and releases it once the attempt ends', async () => {
+    it('claims the component before the folder flip, and releases it once the attempt ends', async () => {
       // The claim has to be taken BEFORE the slow pre-start work, or it does not
       // cover the window it exists for. Releasing it at the end is safe: a start
       // that got as far as controllerDesired is held by that from then on, and one
@@ -2305,6 +2305,78 @@ describe('advancedWorkflows tests', () => {
       // The g: component is not running here and we are not primary - nothing to stop.
       // The running pgcluster sibling must be left alone.
       expect(appDockerStopStub.called).to.be.false;
+    });
+
+    // The election owns a single-writer folder's type: the standby's receives and
+    // never sends, whether or not its component ever ran, and the primary's sends
+    // while its container runs here.
+    describe('the folder type follows the election', () => {
+      const syncthingService = require('../../ZelBack/src/services/syncthingService');
+      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+      const gApp = (name) => ({ name, version: 8, compose: [{ name: 'n8n', containerData: 'g:/home/node/.n8n' }] });
+
+      const pass = async ({ primaryIp, running, folderType }) => {
+        dockerServiceStub.returns('fluxn8n_n8napp');
+        syncthingServiceStub.resolves([{ id: 'fluxn8n_n8napp', path: `${appsFolder}fluxn8n_n8napp`, type: folderType }]);
+        const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+        sinon.stub(require('../../ZelBack/src/services/appMonitoring/appReconciler'), 'setControllerDesired');
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: [primaryIp] } } });
+        fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+
+        await advancedWorkflows.masterSlaveApps(
+          globalState,
+          sinon.stub().resolves({ status: 'success', data: [gApp('n8napp')] }),
+          sinon.stub().resolves({ status: 'success', data: running.map((n) => ({ Names: [`/${n}`] })) }),
+          require('https'),
+        );
+        return adjust;
+      };
+
+      it('makes a standby\'s folder receiveonly even when its component is not running', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.99', running: [], folderType: 'sendreceive' });
+
+        sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'receiveonly', maxConflicts: 0 }, 'fluxn8n_n8napp');
+      });
+
+      it('makes the primary\'s folder send again once its container runs here', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.5', running: ['fluxn8n_n8napp'], folderType: 'receiveonly' });
+
+        sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'sendreceive', maxConflicts: 0 }, 'fluxn8n_n8napp');
+      });
+
+      it('writes nothing when the folder already has the type the election gives it', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.99', running: [], folderType: 'receiveonly' });
+
+        sinon.assert.notCalled(adjust);
+      });
+    });
+
+    it('does not start a primary whose folder could not be made to send', async () => {
+      const appName = 'flipfailsapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+      sinon.stub(appReconciler, 'claimStarting');
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const syncthingService = require('../../ZelBack/src/services/syncthingService');
+      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      const released = () => releaseStarting.getCalls().some((c) => c.args[0] === appName);
+      for (let tick = 0; tick < 100 && !released(); tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+      }
+
+      expect(released(), 'the start was never attempted, so this proves nothing').to.equal(true);
+      sinon.assert.calledWithMatch(adjust, 'patch', { type: 'sendreceive' });
+      sinon.assert.neverCalledWith(setControllerDesired, appName, 'running');
     });
 
     it('does NOT stop its own container when it is the primary on a UPnP (non-default) port', async () => {

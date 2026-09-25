@@ -2214,8 +2214,6 @@ async function changeSyncthingFolderType(folderId, folderType) {
     // eslint-disable-next-line global-require
     const syncthingService = require('../syncthingService');
 
-    log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
-
     // Get current folder configuration
     const folders = await syncthingService.getConfigFolders();
 
@@ -2230,10 +2228,13 @@ async function changeSyncthingFolderType(folderId, folderType) {
     }
 
     // Check if already in desired mode
+    // The election asserts a standby's type on every pass, so an unchanged
+    // folder is the common case and says nothing worth logging.
     if (folder.type === folderType) {
-      log.info(`Syncthing folder ${folderId} is already in ${folderType} mode`);
       return true;
     }
+
+    log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
 
     // Update folder type using PATCH
     const patchData = { type: folderType, ...OWNED_FOLDER_SETTINGS };
