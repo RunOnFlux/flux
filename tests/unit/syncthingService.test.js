@@ -325,6 +325,76 @@ describe('syncthingService tests', () => {
     });
   });
 
+
+  describe('drainFoldersToPeers', () => {
+    const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const peer = 'PEER111-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const gone = 'GONE111-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;
+    const folders = [
+      { id: 'fluxa_app', type: 'sendreceive', devices: [{ deviceID: deviceId }, { deviceID: peer }, { deviceID: gone }] },
+      { id: 'fluxb_app', type: 'receiveonly', devices: [{ deviceID: deviceId }, { deviceID: peer }] },
+    ];
+    let fakeGet;
+    let fakePost;
+    let completion;
+    beforeEach(() => {
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      fakeGet = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') return { status: 'success', data: metaBody };
+        if (reqPath === '/rest/noauth/health') return { status: 'success', data: { status: 'OK' } };
+        if (reqPath === '/rest/system/ping') return { status: 'success', data: { ping: 'pong' } };
+        if (reqPath === '/rest/config/folders') return { data: folders };
+        if (reqPath === '/rest/system/connections') return { data: { connections: { [peer]: { connected: true }, [gone]: { connected: false } } } };
+        if (reqPath.startsWith('/rest/db/completion')) return { data: completion() };
+        return {};
+      });
+      fakePost = sinon.fake.resolves({ data: '' });
+      sinon.stub(axios, 'create').returns({ get: fakeGet, post: fakePost });
+    });
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      sinon.restore();
+    });
+
+    it('scans every sendreceive folder before asking what the peers hold, and skips folders that only receive', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+
+      const incomplete = await syncthingService.drainFoldersToPeers(1000);
+
+      expect(incomplete).to.deep.equal([]);
+      sinon.assert.calledOnce(fakePost);
+      expect(fakePost.firstCall.args[0]).to.equal('/rest/db/scan?folder=fluxa_app');
+      const scanAt = fakePost.firstCall.callId;
+      const firstCompletion = fakeGet.getCalls().find((call) => call.args[0].startsWith('/rest/db/completion'));
+      expect(firstCompletion.callId, 'the scan must precede the first completion read, or the read answers about the old index').to.be.greaterThan(scanAt);
+    });
+
+    it('reports the folder a connected peer has not completed by the deadline', async () => {
+      completion = () => ({ needBytes: 4096, needItems: 1, needDeletes: 0 });
+
+      const incomplete = await syncthingService.drainFoldersToPeers(50);
+
+      expect(incomplete).to.deep.equal(['fluxa_app']);
+    });
+
+    it('does not wait for a peer that is not connected', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+
+      await syncthingService.drainFoldersToPeers(1000);
+
+      const asked = fakeGet.getCalls().map((call) => call.args[0]).filter((reqPath) => reqPath.startsWith('/rest/db/completion'));
+      expect(asked).to.have.length(1);
+      expect(asked[0]).to.include(`device=${peer}`);
+    });
+  });
+
   describe('syncthing health robustness', () => {
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
     const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;

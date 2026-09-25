@@ -6175,3 +6175,38 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
     });
   });
 });
+
+describe('changeSyncthingFolderType', () => {
+  const syncthingService = require('../../ZelBack/src/services/syncthingService');
+  const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+  const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('writes the type together with every setting FluxOS owns on the folder', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly' },
+    ]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive');
+
+    expect(changed).to.equal(true);
+    sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'sendreceive', ...OWNED_FOLDER_SETTINGS }, 'fluxprobe_app');
+    expect(adjust.firstCall.args[1].maxConflicts, 'a type change that omits maxConflicts hands the folder syncthing\'s default').to.equal(0);
+  });
+
+  it('writes nothing when the folder already has the type', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
+    ]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+    const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive');
+
+    expect(changed).to.equal(true);
+    sinon.assert.notCalled(adjust);
+  });
+});

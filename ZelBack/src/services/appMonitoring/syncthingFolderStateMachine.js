@@ -503,40 +503,6 @@ async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs 
 }
 
 /**
- * Fix permissions on all mount directories for containers
- * Critical for synced data that may have wrong ownership
- * Fixes permissions on appdata and all additional mount points
- * @param {string} appId - App ID
- * @returns {Promise<void>}
- */
-async function fixAppdataPermissions(appId) {
-  try {
-    // Fix permissions on entire app directory to cover appdata and all additional mounts
-    // (appdata, logs, config, file mounts, etc.)
-    const appPath = `${appsFolder}${appId}`;
-
-    // ONE ARGUMENT, AND IT IS THE DIRECTORY FLUXOS CREATED. chmod resolves a
-    // symbolic link given as an argument and ignores one met inside a traversal,
-    // so a path named here that something else can replace with a link has that
-    // link's TARGET widened, as root, at a path of that writer's choosing. Every
-    // name inside the volume is such a path: the owner's file API copies and moves
-    // a link as a link, and syncthing replicates one into this very folder. The
-    // volume root is the only path FluxOS owns, so it is the only one named.
-    //
-    // The executor's staging directory is widened with the rest. Root owns it and
-    // the executor runs as root in the container, so the mode buys nothing there;
-    // reaching it needs a path to the volume root, which no app container is given
-    // and the owner's file API refuses.
-    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', appPath] });
-    if (chmod.error) throw chmod.error;
-    log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
-  } catch (error) {
-    log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
-    // Continue anyway - container might still work
-  }
-}
-
-/**
  * Reads a folder's sync completion, and says which of the two ways it failed.
  *
  * "Syncthing says there is no such folder" is a finding about the data. "Syncthing
@@ -1399,8 +1365,6 @@ async function handleReceiveOnlyTransition(params) {
     // long as the apply takes.
     cache.designationPending = true;
 
-    // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
-    await fixAppdataPermissions(appId);
 
     syncthingFolder.type = 'sendreceive';
 
@@ -1488,8 +1452,9 @@ async function handleReceiveOnlyTransition(params) {
         return { syncthingFolder, cache };
       }
       log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
-      await fixAppdataPermissions(appId);
-      syncthingFolder.type = 'sendreceive';
+      // A single-writer folder sends only while the elected primary runs here;
+      // the election flips it, this pass only records that the copy is whole.
+      syncthingFolder.type = containerDataFlags.includes('g') ? 'receiveonly' : 'sendreceive';
       if (containerDataFlags.includes('r')) {
         log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (synced)`);
         appReconciler.setControllerDesired(appId, 'running', 'syncthing synced start');
@@ -1615,6 +1580,23 @@ async function handleNewApp(params) {
  * @param {string} containerDataFlags - Container flags
  * @returns {Promise<void>}
  */
+/**
+ * Whether the component's container is running. null when docker did not answer,
+ * which is not the same as no container.
+ * @param {string} appId - Component identifier
+ * @returns {Promise<boolean|null>}
+ */
+async function containerIsRunning(appId) {
+  try {
+    const containerInspect = await dockerService.dockerContainerInspect(appId);
+    return Boolean(containerInspect?.State?.Running);
+  } catch (error) {
+    if (error?.statusCode === 404) return false;
+    log.warn(`containerIsRunning - docker did not answer for ${appId}: ${error.message}`);
+    return null;
+  }
+}
+
 async function ensureContainerRunning(appId, containerDataFlags) {
   try {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
@@ -1652,6 +1634,15 @@ async function manageFolderSyncState(params) {
 
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
+  if (folderAlreadySyncing && containerDataFlags.includes('g') && (await containerIsRunning(appId)) === false) {
+    // A single-writer folder sends only while the elected primary runs here. Found
+    // sendreceive with the container stopped, this is a primary that lost its
+    // process, and what it holds must not go out until the election says it is
+    // primary again.
+    log.info(`manageFolderSyncState - ${appId} is sendreceive with its container stopped, demoting until the election decides`);
+    syncthingFolder.type = 'receiveonly';
+    return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
+  }
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {

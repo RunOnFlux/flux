@@ -1312,6 +1312,48 @@ async function postDbRevert(req, res) {
 }
 
 /**
+ * Whether every connected peer of a folder holds everything this node has
+ * announced for it. A peer that is not connected cannot be waited for.
+ * @param {object} folder Folder configuration
+ * @param {string} myId This node's device id
+ * @param {Set<string>} connectedPeers Device ids with a live connection
+ * @returns {Promise<boolean>}
+ */
+async function folderCompleteOnPeers(folder, myId, connectedPeers) {
+  const peers = folder.devices.map((device) => device.deviceID).filter((id) => id !== myId && connectedPeers.has(id));
+  if (!peers.length) return true;
+  const completions = await Promise.all(peers.map((device) => getDbCompletion({ folder: folder.id, device })));
+  return completions.every((completion) => completion.needBytes === 0 && completion.needItems === 0 && completion.needDeletes === 0);
+}
+
+/**
+ * Announces everything this node holds in its sendreceive folders and waits for
+ * the connected peers to hold it too. The scan is what makes it a drain: the
+ * watcher batches changes for ten seconds, and a file written inside that window
+ * is unknown to syncthing until something scans it.
+ * @param {number} timeoutMs Deadline for the whole drain
+ * @returns {Promise<string[]>} Ids of the folders a connected peer had not completed at the deadline
+ */
+async function drainFoldersToPeers(timeoutMs) {
+  const folders = (await getConfigFolders()).filter((folder) => folder.type === 'sendreceive');
+  if (!folders.length) return [];
+  const myId = await getDeviceId();
+  const { connections = {} } = await request('get', '/rest/system/connections');
+  const connectedPeers = new Set(Object.keys(connections).filter((id) => connections[id]?.connected));
+  await Promise.all(folders.map((folder) => request('post', `/rest/db/scan?folder=${encodeURIComponent(folder.id)}`)));
+  const deadline = Date.now() + timeoutMs;
+  let pending = folders;
+  while (pending.length && Date.now() < deadline) {
+    // eslint-disable-next-line no-await-in-loop
+    const complete = await Promise.all(pending.map((folder) => folderCompleteOnPeers(folder, myId, connectedPeers)));
+    pending = pending.filter((folder, i) => !complete[i]);
+    // eslint-disable-next-line no-await-in-loop
+    if (pending.length) await serviceHelper.delay(500);
+  }
+  return pending.map((folder) => folder.id);
+}
+
+/**
  * To request revert of a receive only folder. Reverting a folder means to undo all local changes. This API call does nothing if the folder is not a receive only folder. Takes the mandatory parameter {folder}.
  * @param {string} folder Request.
  */
@@ -2752,6 +2794,7 @@ module.exports = {
   postDbPrio,
   postDbRevert,
   dbRevert,
+  drainFoldersToPeers,
   postDbScan,
   // EVENTS
   getEvents,
