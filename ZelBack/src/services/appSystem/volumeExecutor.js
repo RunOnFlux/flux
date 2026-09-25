@@ -1686,6 +1686,19 @@ async function run(session, argv, options = {}) {
   let reportsClosed = false;
 
   try {
+    // The floor applies from the start, not only from the first tick: an
+    // operation begun under it is refused whatever its length, as one that
+    // falls under it while running is stopped.
+    if (yieldsSpace) {
+      const { minFreeBytes } = settings();
+      const free = minFreeBytes > 0 ? (await volumeSpace(session.mount, fs))?.free : null;
+      if (free != null && free < minFreeBytes) {
+        const refused = new Error(`Refused to keep free space for the application: ${free} bytes are left on the volume, under the ${minFreeBytes} it keeps`);
+        refused.code = 'ENOSPC';
+        throw refused;
+      }
+    }
+
     // Before the mount check, not after: fetching can take seconds, and the
     // mount is re-read immediately before the bind on purpose.
     // By id rather than by tag: the id is what was verified, and a tag is a

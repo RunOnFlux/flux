@@ -2301,10 +2301,17 @@ describe('volumeExecutor tests', () => {
       delete configStub.fluxapps.volumeOperations.minFreeBytes;
     });
 
+    // Room when the operation starts, under the floor from then on.
+    const fallsUnderTheFloor = () => {
+      const statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+      statfs.onFirstCall().resolves(freeBytes(1000 * 4096));
+      return statfs;
+    };
+
     it('stops an operation writing into staging once free space falls under the floor', async () => {
       const vol = await openSession();
       containerStub.wait = runsFor(600);
-      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+      fsStub.statfs = fallsUnderTheFloor();
 
       const error = await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) }).catch((e) => e);
 
@@ -2321,11 +2328,36 @@ describe('volumeExecutor tests', () => {
       containerStub.wait = sinon.stub().returns(
         new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), 600); }),
       );
-      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+      fsStub.statfs = fallsUnderTheFloor();
 
       await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) });
 
       expect(containerStub.stop.called, 'FIXTURE: the floor never stopped it').to.equal(true);
+    });
+
+    it('refuses an operation writing into staging that starts under the floor', async () => {
+      // However short: one finished inside the first tick would otherwise
+      // succeed where a longer one is stopped.
+      const vol = await openSession();
+      containerStub.wait = runsFor(10);
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      const error = await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) }).catch((e) => e);
+
+      expect(error).to.be.an('error');
+      expect(error.code).to.equal('ENOSPC');
+      expect(error.message).to.include('keep free space for the application');
+      expect(dockerServiceStub.createContainer.called, 'a container was created').to.equal(false);
+    });
+
+    it('starts one that writes nothing into staging under the floor', async () => {
+      // A removal is how an owner gives the space back.
+      const vol = await openSession();
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      await volumeExecutor.run(vol, ['rm', '-rf', '/work/old']);
+
+      expect(dockerServiceStub.createContainer.called, 'the removal was refused').to.equal(true);
     });
 
     it('leaves one alone while the volume has room', async () => {
