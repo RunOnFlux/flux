@@ -1147,6 +1147,9 @@ const OUTPUT_TAIL_BYTES = 2000;
  * than that it failed.
  */
 const REFUSAL_BY_STATUS = new Map([
+  // flux-op stopped a result at the ceiling it was given, which every caller
+  // sets from the volume's free space.
+  [3, { code: 'ENOSPC', message: 'The result is larger than the free space on the volume' }],
   [5, { code: 'EEXIST', message: 'Destination already exists' }],
   // flux-op refused because the only way to carry the request out was to delete
   // data it never named - a file put where a directory is, an entry moved onto
@@ -1220,7 +1223,7 @@ async function collectOutput(container) {
 }
 
 /**
- * Bytes in use on a volume, from the filesystem itself.
+ * Bytes in use on a volume, and bytes free to write, from the filesystem itself.
  *
  * One syscall, whatever the tree looks like. The alternative - walking the
  * staging directory on every tick - costs 179ms per 20,000 files, which for an
@@ -1241,14 +1244,22 @@ async function collectOutput(container) {
  * has got; the caller clamps it, and the figure a completed operation reports
  * is taken from what it actually published rather than from here.
  *
+ * Free is what an unprivileged writer can still use (bavail), which is what the
+ * application running on the volume has left.
+ *
  * @param {string} mount - host path of the app volume
  * @param {object} fsPromises
- * @returns {Promise<number|null>} bytes in use, or null if it cannot be read
+ * @returns {Promise<{used: number, free: number}|null>} null if it cannot be
+ *   read; `free` is NaN when the filesystem does not report it
  */
-async function volumeUsedBytes(mount, fsPromises) {
+async function volumeSpace(mount, fsPromises) {
   const stats = await fsPromises.statfs(mount).catch(() => null);
   if (!stats) return null;
-  return (Number(stats.blocks) - Number(stats.bfree)) * Number(stats.bsize);
+  const bsize = Number(stats.bsize);
+  return {
+    used: (Number(stats.blocks) - Number(stats.bfree)) * bsize,
+    free: Number(stats.bavail) * bsize,
+  };
 }
 
 /**
@@ -1491,7 +1502,15 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  *   ceiling IS the volume's free space therefore has to establish that there is
  *   some before it asks - on a full volume the figure is zero, and the only
  *   bound it has would read as none. requireSpace and requireCapacity are how a
- *   caller does that.
+ *   caller does that. Measured by what the result occupies, so a sparse file
+ *   counts at the blocks it holds.
+ * @param {number} [options.maxFileBytes] - ceiling on the length of each file the
+ *   command writes, enforced by the kernel as it writes. For a command whose
+ *   output size is unknown until it is written - an archiver, an extraction - so
+ *   that it stops at the ceiling rather than filling the volume and being
+ *   refused afterwards. It counts a file's length, so a sparse file counts at
+ *   its full length; a copy, measured before it starts, runs without it. Not
+ *   for `input`, which runs no command.
  * @param {boolean} [options.dataOnly] - refuse a result holding a FIFO, a socket
  *   or a device node. None of them is data, and whatever opens a FIFO without
  *   O_NONBLOCK waits for a writer that never comes. Links are content and pass.
@@ -1525,7 +1544,7 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
 async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
-    publish = null, mkdirStaging = false, maxBytes = 0, dataOnly = false,
+    publish = null, mkdirStaging = false, maxBytes = 0, maxFileBytes = 0, dataOnly = false,
     noReplace = false, merge = false, onBytes = null, workingDir = null, input = null,
     slotHeld = false,
   } = options;
@@ -1559,6 +1578,9 @@ async function run(session, argv, options = {}) {
     if (params.length) {
       throw new Error('input takes no command - flux-op writes the stream itself');
     }
+    if (maxFileBytes > 0) {
+      throw new Error('maxFileBytes limits a command\'s files, and input runs none');
+    }
   }
 
   if (publish) {
@@ -1571,16 +1593,12 @@ async function run(session, argv, options = {}) {
     }
     params = [
       'flux-op',
-      // Names what an interrupted publish leaves behind, and where. Both are
-      // given rather than derived from the operand: a move's operand is the
-      // caller's own path at whatever depth they keep it, so a name derived
-      // from it collides with what a user might call a folder, and a location
-      // derived from it lands outside the one directory the sweep reads.
-      '--id', crypto.randomUUID(),
+      // flux-op refuses a publish whose operands are not both inside this.
       '--root', WORK_ROOT,
       ...(publish.staging ? ['--discard-staging'] : []),
       ...(mkdirStaging ? ['--mkdir'] : []),
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
+      ...(maxFileBytes > 0 ? ['--max-file-bytes', String(Math.floor(maxFileBytes))] : []),
       ...(dataOnly ? ['--data-only'] : []),
       ...(noReplace ? ['--no-replace'] : []),
       ...(merge ? ['--merge'] : []),
@@ -1645,6 +1663,13 @@ async function run(session, argv, options = {}) {
   let lastChangeAt = process.hrtime.bigint();
   let stalled = false;
   let stallReason = null;
+  // An operation writing into staging yields to the application when the
+  // volume runs low: it is stopped once free space falls under the floor,
+  // whoever is writing, and its staging reclaimed gives the space back. Read
+  // on the same tick as progress, so the floor needs to cover what can be
+  // written between two ticks, not the whole operation.
+  const yieldsSpace = Boolean(publish && publish.staging);
+  let starved = null;
   // What the caller had sent when the current liveness window opened. Bytes are
   // measured against this as a RATE, because "has a byte arrived" is a question
   // one byte per window answers forever.
@@ -1661,6 +1686,19 @@ async function run(session, argv, options = {}) {
   let reportsClosed = false;
 
   try {
+    // The floor applies from the start, not only from the first tick: an
+    // operation begun under it is refused whatever its length, as one that
+    // falls under it while running is stopped.
+    if (yieldsSpace) {
+      const { minFreeBytes } = settings();
+      const free = minFreeBytes > 0 ? (await volumeSpace(session.mount, fs))?.free : null;
+      if (free != null && free < minFreeBytes) {
+        const refused = new Error(`Refused to keep free space for the application: ${free} bytes are left on the volume, under the ${minFreeBytes} it keeps`);
+        refused.code = 'ENOSPC';
+        throw refused;
+      }
+    }
+
     // Before the mount check, not after: fetching can take seconds, and the
     // mount is re-read immediately before the bind on purpose.
     // By id rather than by tag: the id is what was verified, and a tag is a
@@ -1724,7 +1762,7 @@ async function run(session, argv, options = {}) {
     // Everything the volume held before this operation wrote anything. Progress
     // is the difference from here, so the app's existing data is not counted as
     // this copy's work.
-    if (measurable) baseline = await volumeUsedBytes(session.mount, fs);
+    if (measurable) baseline = (await volumeSpace(session.mount, fs))?.used ?? null;
     if (baseline === null) stopMeasuring();
     // Timed from here, not from when run() was entered: fetching the image can
     // take a minute on a cold node, and that is not the operation making no
@@ -1742,9 +1780,17 @@ async function run(session, argv, options = {}) {
     const readVolume = () => {
       if (measuring) return;
       measuring = true;
-      volumeUsedBytes(session.mount, fs)
-        .then((used) => {
-          if (used === null) return;
+      volumeSpace(session.mount, fs)
+        .then((space) => {
+          if (space === null) return;
+          const { used, free } = space;
+          const { minFreeBytes } = settings();
+          if (yieldsSpace && !starved && minFreeBytes > 0 && free < minFreeBytes) {
+            starved = new Error(`Stopped to keep free space for the application: ${free} bytes were left on the volume, under the ${minFreeBytes} it keeps`);
+            starved.code = 'ENOSPC';
+            log.error(`volumeExecutor - ${session.identifier} ${starved.message}; stopping it`);
+            stopContainer();
+          }
           if (used !== lastUsed) {
             lastUsed = used;
             openLivenessWindow();
@@ -1814,7 +1860,13 @@ async function run(session, argv, options = {}) {
 
     const result = await exited;
     settled = true;
-    if (stalled) {
+    // Exit 0 is a published result, whatever was asked of the container: flux-op
+    // honours a stop only until it starts inspecting and publishing. A reason
+    // for stopping explains a non-zero exit and never overrides a zero one.
+    if (starved && result.StatusCode !== 0) {
+      throw starved;
+    }
+    if (stalled && result.StatusCode !== 0) {
       throw new Error(stallReason);
     }
     // An upload that did not arrive is not a failure of the operation - the

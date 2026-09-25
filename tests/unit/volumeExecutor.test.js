@@ -83,6 +83,19 @@ describe('volumeExecutor tests', () => {
 
   const openSession = async () => volumeSession.openVolume({ params: { appname: 'myapp', component: 'comp' }, query: {} });
 
+  // A container that exits 0 after ms, or 143 once it is stopped - what flux-op
+  // returns for a stop that reaches it while its command is still running.
+  const stoppableFor = (ms) => {
+    let settle;
+    const exit = new Promise((resolve) => { settle = resolve; });
+    const timer = setTimeout(() => settle({ StatusCode: 0 }), ms);
+    containerStub.stop = sinon.stub().callsFake(async () => {
+      clearTimeout(timer);
+      settle({ StatusCode: 143 });
+    });
+    return sinon.stub().returns(exit);
+  };
+
   beforeEach(() => {
     configStub = freshConfig();
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([mountRow(MOUNT)]) };
@@ -1327,17 +1340,13 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - publish options', () => {
-    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-    // Everything up to the `--`, with --id's value replaced by a marker so a
-    // random uuid does not have to be threaded through every expectation.
+    // Everything up to the `--`.
     const flags = (cmd) => {
       const end = cmd.indexOf('--', 1);
-      return cmd.slice(0, end === -1 ? cmd.length : end)
-        .map((arg, i, all) => (all[i - 1] === '--id' ? '<uuid>' : arg));
+      return cmd.slice(0, end === -1 ? cmd.length : end);
     };
 
-    it('names the operation and the volume root for flux-op', async () => {
+    it('names the volume root for flux-op', async () => {
       const vol = await openSession();
       const staging = await vol.resolve('.flux-op/11111111-1111-1111-1111-111111111111', { allowReserved: true });
       const destination = await vol.resolve('out');
@@ -1345,10 +1354,8 @@ describe('volumeExecutor tests', () => {
       await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
-      expect(Cmd[1]).to.equal('--id');
-      expect(Cmd[2]).to.match(UUID);
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging',
+        'flux-op', '--root', '/work', '--discard-staging',
         '/work/.flux-op/11111111-1111-1111-1111-111111111111', '/work/out',
       ]);
     });
@@ -1381,8 +1388,24 @@ describe('volumeExecutor tests', () => {
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
+        'flux-op', '--root', '/work', '--discard-staging', '--mkdir',
         '--max-bytes', '1234', '--data-only', '/work/.flux-op/22222222-2222-2222-2222-222222222222', '/work/out',
+      ]);
+    });
+
+    it('passes the file length ceiling to flux-op only when asked for', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true });
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['tar', '-czf', '/work/a.tgz'], {
+        publish: { staging, destination }, maxBytes: 1000, maxFileBytes: 5678.9,
+      });
+
+      const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(flags(Cmd)).to.deep.equal([
+        'flux-op', '--root', '/work', '--discard-staging',
+        '--max-bytes', '1000', '--max-file-bytes', '5678', '/work/.flux-op/22222222-2222-2222-2222-222222222222', '/work/out',
       ]);
     });
 
@@ -1397,7 +1420,7 @@ describe('volumeExecutor tests', () => {
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
+        'flux-op', '--root', '/work', '--discard-staging', '--mkdir',
         '--merge', '/work/.flux-op/33333333-3333-3333-3333-333333333333', '/work/out',
       ]);
     });
@@ -1428,7 +1451,7 @@ describe('volumeExecutor tests', () => {
       expect(Cmd).to.not.include('--discard-staging');
       expect(Cmd[Cmd.length - 1]).to.equal('--');
       expect(flags(Cmd)).to.deep.equal([
-        'flux-op', '--id', '<uuid>', '--root', '/work', '/work/photos', '/work/out',
+        'flux-op', '--root', '/work', '/work/photos', '/work/out',
       ]);
     });
 
@@ -1684,7 +1707,7 @@ describe('volumeExecutor tests', () => {
     let sweeper;
     let logStub;
 
-    // flux-op names a staging directory with a randomUUID, so a fixture that is
+    // FluxOS names a staging directory with a randomUUID, so a fixture that is
     // not one is not a fixture for anything this ever sees.
     const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
     const OP = `.flux-op/${ID}`;
@@ -2098,11 +2121,24 @@ describe('volumeExecutor tests', () => {
     });
 
     it('keeps the exit code alongside it', async () => {
-      containerOutput = 'flux-op: result is 900 bytes, over the 500 limit\n';
+      containerOutput = 'unzip: cannot find zipfile directory\n';
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 9 });
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['unzip'])).to.be.rejectedWith('exit 9');
+    });
+
+    it('names a result stopped at its ceiling as out of space', async () => {
+      // Every caller's ceiling is the volume's free space, so this is the
+      // answer a caller acts on rather than a number.
+      containerOutput = 'flux-op: result reached the 500 byte limit\n';
       containerStub.wait = sinon.stub().resolves({ StatusCode: 3 });
       const vol = await openSession();
 
-      await expect(volumeExecutor.run(vol, ['unzip'])).to.be.rejectedWith('exit 3');
+      const error = await volumeExecutor.run(vol, ['zip']).catch((e) => e);
+      expect(error).to.be.an('error');
+      expect(error.code).to.equal('ENOSPC');
+      expect(error.message).to.equal('The result is larger than the free space on the volume');
     });
 
     it('attaches before the container starts, or a fast failure says nothing', async () => {
@@ -2152,9 +2188,7 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - an operation that stops getting anywhere', () => {
-    const runsFor = (ms) => sinon.stub().returns(
-      new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
-    );
+    const runsFor = (ms) => stoppableFor(ms);
     const usedBlocks = (n) => ({ bsize: 4096, blocks: 100000, bfree: 100000 - n });
 
     it('stops one that has written nothing for the whole window', async () => {
@@ -2172,6 +2206,22 @@ describe('volumeExecutor tests', () => {
       })).to.be.rejectedWith('making no progress');
 
       expect(containerStub.stop.called, 'the container was left running').to.equal(true);
+    });
+
+    it('reports success when the container publishes after the stall stops it', async () => {
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 60;
+      const vol = await openSession();
+      containerStub.wait = sinon.stub().returns(
+        new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), 600); }),
+      );
+      fsStub.statfs = sinon.stub().resolves(usedBlocks(500));
+
+      await volumeExecutor.run(vol, ['cp'], {
+        publish: { staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }), destination: await vol.resolve('out') },
+        onBytes: () => {},
+      });
+
+      expect(containerStub.stop.called, 'FIXTURE: the stall never stopped it').to.equal(true);
     });
 
     it('leaves one alone while the volume is still moving', async () => {
@@ -2231,6 +2281,110 @@ describe('volumeExecutor tests', () => {
     });
   });
 
+  describe('run - the application keeps free space', () => {
+    const runsFor = (ms) => stoppableFor(ms);
+    // bfree stays high throughout: the floor is what the application can still
+    // write, which is bavail.
+    const freeBytes = (bytes) => ({
+      bsize: 4096, blocks: 100000, bfree: 90000, bavail: bytes / 4096,
+    });
+    const writing = async (vol) => ({
+      staging: await vol.resolve('.flux-op/22222222-2222-2222-2222-222222222222', { allowReserved: true }),
+      destination: await vol.resolve('out'),
+    });
+
+    beforeEach(() => {
+      configStub.fluxapps.volumeOperations.minFreeBytes = 64 * 4096;
+    });
+
+    afterEach(() => {
+      delete configStub.fluxapps.volumeOperations.minFreeBytes;
+    });
+
+    // Room when the operation starts, under the floor from then on.
+    const fallsUnderTheFloor = () => {
+      const statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+      statfs.onFirstCall().resolves(freeBytes(1000 * 4096));
+      return statfs;
+    };
+
+    it('stops an operation writing into staging once free space falls under the floor', async () => {
+      const vol = await openSession();
+      containerStub.wait = runsFor(600);
+      fsStub.statfs = fallsUnderTheFloor();
+
+      const error = await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) }).catch((e) => e);
+
+      expect(error).to.be.an('error');
+      expect(error.code).to.equal('ENOSPC');
+      expect(error.message).to.include('keep free space for the application');
+      expect(containerStub.stop.called, 'the container was left running').to.equal(true);
+    });
+
+    it('reports success when the container publishes after the floor stops it', async () => {
+      // flux-op honours a stop only while its command runs; one arriving during
+      // the inspect or the publish is ignored and the result is published.
+      const vol = await openSession();
+      containerStub.wait = sinon.stub().returns(
+        new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), 600); }),
+      );
+      fsStub.statfs = fallsUnderTheFloor();
+
+      await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) });
+
+      expect(containerStub.stop.called, 'FIXTURE: the floor never stopped it').to.equal(true);
+    });
+
+    it('refuses an operation writing into staging that starts under the floor', async () => {
+      // However short: one finished inside the first tick would otherwise
+      // succeed where a longer one is stopped.
+      const vol = await openSession();
+      containerStub.wait = runsFor(10);
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      const error = await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) }).catch((e) => e);
+
+      expect(error).to.be.an('error');
+      expect(error.code).to.equal('ENOSPC');
+      expect(error.message).to.include('keep free space for the application');
+      expect(dockerServiceStub.createContainer.called, 'a container was created').to.equal(false);
+    });
+
+    it('starts one that writes nothing into staging under the floor', async () => {
+      // A removal is how an owner gives the space back.
+      const vol = await openSession();
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      await volumeExecutor.run(vol, ['rm', '-rf', '/work/old']);
+
+      expect(dockerServiceStub.createContainer.called, 'the removal was refused').to.equal(true);
+    });
+
+    it('leaves one alone while the volume has room', async () => {
+      const vol = await openSession();
+      containerStub.wait = runsFor(300);
+      fsStub.statfs = sinon.stub().resolves(freeBytes(1000 * 4096));
+
+      await volumeExecutor.run(vol, ['zip'], { publish: await writing(vol) });
+
+      expect(fsStub.statfs.called, 'nothing read the volume').to.equal(true);
+      expect(containerStub.stop.called, 'an operation with room was stopped').to.equal(false);
+    });
+
+    it('never stops one that writes nothing into staging', async () => {
+      // A removal gives space back; stopping it because the volume is full
+      // would keep the application short of the space it is freeing.
+      const vol = await openSession();
+      containerStub.wait = runsFor(300);
+      fsStub.statfs = sinon.stub().resolves(freeBytes(10 * 4096));
+
+      await volumeExecutor.run(vol, ['rm', '-rf', '/work/old']);
+
+      expect(fsStub.statfs.called, 'nothing read the volume').to.equal(true);
+      expect(containerStub.stop.called, 'an operation writing nothing was stopped').to.equal(false);
+    });
+  });
+
   describe('run - an upload streamed into the container', () => {
     const { Readable, Writable } = require('node:stream');
 
@@ -2278,6 +2432,7 @@ describe('volumeExecutor tests', () => {
       // a truncated upload unpublishable, so the stub obeys it rather than
       // resolving up front and racing the transfer.
       socket.on('finish', () => exit.finish(0));
+      containerStub.stop = sinon.stub().callsFake(async () => exit.finish(143));
       containerStub.wait = sinon.stub().returns(exit.promise);
       // The two attaches are told apart by what they ask for. Returning the
       // socket for both would let a test pass while the executor attached
@@ -2433,7 +2588,7 @@ describe('volumeExecutor tests', () => {
       await new Promise((resolve) => { setTimeout(resolve, 20); });
       exit.finish(3);
 
-      await expect(running).to.be.rejectedWith(/over the 1000 byte limit/);
+      await expect(running).to.be.rejectedWith(/larger than the free space/);
       // Unpiped rather than destroyed: for an upload this stream belongs to the
       // multipart parser, and destroying it stops the parser consuming the
       // request - so a client still sending can never finish, and never reads
@@ -2460,6 +2615,17 @@ describe('volumeExecutor tests', () => {
       await expect(volumeExecutor.run(vol, ['cat'], {
         input: sending(['data']), publish: { staging, destination },
       })).to.be.rejectedWith(/takes no command/);
+    });
+
+    it('refuses a file length ceiling on an upload, which runs no command', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op/55555555-5555-5555-5555-555555555555', { allowReserved: true });
+      const destination = await vol.resolve('uploaded.bin');
+
+      await expect(volumeExecutor.run(vol, [], {
+        input: sending(['data']), publish: { staging, destination }, maxFileBytes: 1000,
+      })).to.be.rejectedWith(/input runs none/);
+      expect(dockerServiceStub.createContainer.called, 'a container was created').to.equal(false);
     });
 
     it('runs inside a slot the caller already holds, without taking a second', async () => {

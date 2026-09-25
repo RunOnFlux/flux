@@ -263,6 +263,12 @@ module.exports = {
       // before the work began - so this is the resolution of a poll, not a
       // keepalive.
       progressIntervalMs: 2000,
+      // The free space an operation writing into staging leaves the
+      // application. Below it the operation is stopped and its staging
+      // reclaimed. It is read every progressIntervalMs, so it has to cover what
+      // the operation and the application can write between two reads: 64 MiB
+      // is 32 MB/s from each over one 2 s tick.
+      minFreeBytes: 64 * 1024 * 1024,
     },
     // in flux main chain per month (blocksLasting)
     price: [
