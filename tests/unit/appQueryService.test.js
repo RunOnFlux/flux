@@ -651,6 +651,41 @@ describe('appQueryService tests', () => {
     });
   });
 
+  // The same account, asked by this node of itself: a primary its owner stopped
+  // to work on is still the primary, and its folder must stay writable.
+  describe('holdsComponent', () => {
+    // eslint-disable-next-line global-require
+    const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+    // eslint-disable-next-line global-require
+    const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+
+    const account = ({ running = [], stopped = [] } = {}) => {
+      dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
+      sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves(stopped);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+    };
+
+    it('holds a component its owner stopped here, with no container running', async () => {
+      account({ stopped: ['probe_gsyncprobe'] });
+
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(true);
+    });
+
+    it('does not hold a component that is neither running, committed nor stopped here', async () => {
+      account({ running: ['fluxother_App'] });
+
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(false);
+    });
+
+    it('answers null when the account cannot be read', async () => {
+      dockerServiceStub.dockerListContainers.rejects(new Error('docker down'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(null);
+    });
+  });
+
   describe('promotedFolders', () => {
     // eslint-disable-next-line global-require
     const globalState = require('../../ZelBack/src/services/utils/globalState');

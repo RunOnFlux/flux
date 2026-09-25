@@ -61,6 +61,7 @@ const appReconcilerMock = {
   enqueue: sinon.stub(),
 };
 const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
+const appQueryServiceMock = { holdsComponent: sinon.stub() };
 // the pre-promotion peer probe (/apps/promotedfolders)
 const axiosMock = { get: sinon.stub(), post: sinon.stub() };
 // This node signs its holdings probe, so WHETHER IT CAN SIGN decides which request the
@@ -153,6 +154,7 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   './appReconciler': appReconcilerMock,
   '../appLifecycle/appUninstaller': appUninstallerMock,
   './peerFolderLiveness': peerFolderLivenessMock,
+  '../appQuery/appQueryService': appQueryServiceMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
@@ -160,6 +162,9 @@ describe('syncthingFolderStateMachine tests', () => {
     // Reset only this file's own stubs (NOT a global sinon.reset(), which would
     // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
+    // default: this node holds the component, so no test is about demotion by accident
+    appQueryServiceMock.holdsComponent.reset();
+    appQueryServiceMock.holdsComponent.resolves(true);
     syncthingServiceMock.eachDbLocalChanged.reset();
     syncthingServiceMock.systemRestart.reset();
     syncthingServiceMock.systemRestart.resolves();
@@ -839,26 +844,28 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(syncthingServiceMock.dbRevert);
     });
 
-    it('demotes a single-writer folder found sendreceive with its container stopped', async () => {
+    it('demotes a single-writer folder found sendreceive on a node that does not hold it', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
-      const notFound = new Error('no such container');
-      notFound.statusCode = 404;
-      dockerServiceMock.dockerContainerInspect.rejects(notFound);
+      appQueryServiceMock.holdsComponent.resolves(false);
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
+      sinon.assert.calledWith(appQueryServiceMock.holdsComponent, 'test-app');
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 0 });
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
-    it('keeps a single-writer folder sendreceive while its container runs', async () => {
+    // Held covers a primary its owner stopped to work on its data, which has no
+    // running container: demoting it would revert the owner's edits.
+    it('keeps a single-writer folder sendreceive while this node holds it, running or not', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
-      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+      appQueryServiceMock.holdsComponent.resolves(true);
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -866,11 +873,11 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache).to.deep.equal({ restarted: true });
     });
 
-    it('does not demote on a docker answer that is not a verdict', async () => {
+    it('does not demote when what this node holds cannot be read', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
-      dockerServiceMock.dockerContainerInspect.rejects(new Error('socket hang up'));
+      appQueryServiceMock.holdsComponent.resolves(null);
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -882,6 +889,7 @@ describe('syncthingFolderStateMachine tests', () => {
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
       dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+      appQueryServiceMock.holdsComponent.resolves(false);
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
