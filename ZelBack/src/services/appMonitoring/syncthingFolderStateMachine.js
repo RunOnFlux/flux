@@ -1365,8 +1365,9 @@ async function handleReceiveOnlyTransition(params) {
     // long as the apply takes.
     cache.designationPending = true;
 
-
-    syncthingFolder.type = 'sendreceive';
+    // A single-writer folder sends only while the elected primary runs here; the
+    // election starts the leader and flips it, this pass only names the seed.
+    syncthingFolder.type = containerDataFlags.includes('g') ? 'receiveonly' : 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
       log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (leader)`);

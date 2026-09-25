@@ -734,6 +734,24 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(chmods, 'a mode sweep over a synced folder is a modification of every file in it').to.have.length(0);
     });
 
+    it('names a single-writer leader without flipping its folder: the election flips it when it starts', async () => {
+      mockParams.containerDataFlags = 'g';
+      fsMock.promises.readdir.resolves([]);
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted, 'the election reads this as ready to start').to.be.true;
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
     it('demotes a single-writer folder found sendreceive with its container stopped', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
