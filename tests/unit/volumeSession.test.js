@@ -185,7 +185,7 @@ describe('volumeSession tests', () => {
     it('reports a missing source as such when the caller requires one', async () => {
       const vol = await volumeSession.openVolume(reqFor());
       await expect(vol.resolve('nope.txt', { mustExist: true }))
-        .to.be.rejectedWith('Source does not exist');
+        .to.be.rejectedWith('nope.txt does not exist');
     });
 
     it('refuses a name in the root that is not the application\'s', async () => {
@@ -269,14 +269,14 @@ describe('volumeSession tests', () => {
     it('rejects identical source and destination', async () => {
       existsAsFile(`${MOUNT}/a.txt`);
       const vol = await volumeSession.openVolume(reqFor());
-      await expect(vol.pair('a.txt', 'a.txt')).to.be.rejectedWith('Source and destination are the same');
+      await expect(vol.pair('a.txt', 'a.txt')).to.be.rejectedWith('a.txt is both the source and the destination');
     });
 
     it('rejects a destination nested inside the source', async () => {
       // A directory copied into itself recurses until the volume fills.
       existsAsFile(`${MOUNT}/uploads`);
       const vol = await volumeSession.openVolume(reqFor());
-      await expect(vol.pair('uploads', 'uploads/backup')).to.be.rejectedWith('Destination is inside the source');
+      await expect(vol.pair('uploads', 'uploads/backup')).to.be.rejectedWith('Destination uploads/backup is inside source uploads');
     });
 
     it('rejects a destination that contains the source', async () => {
@@ -291,7 +291,7 @@ describe('volumeSession tests', () => {
       const vol = await volumeSession.openVolume(reqFor());
 
       await expect(vol.pair('photos/2024', 'photos', { overwrite: true }))
-        .to.be.rejectedWith('Destination contains the source');
+        .to.be.rejectedWith('Destination photos contains source photos/2024');
     });
 
     it('still allows operands that merely share a prefix', async () => {
@@ -319,6 +319,51 @@ describe('volumeSession tests', () => {
     it('rejects the volume root as a source', async () => {
       const vol = await volumeSession.openVolume(reqFor());
       await expect(vol.pair('', 'somewhere')).to.be.rejectedWith('Refusing to operate on the volume root');
+    });
+  });
+
+  describe('pairAll', () => {
+    it('resolves the destination once for every source', async () => {
+      ['a.txt', 'b.txt', 'c.txt'].forEach((name) => existsAsFile(`${MOUNT}/${name}`));
+      const vol = await volumeSession.openVolume(reqFor());
+      const resolve = sinon.spy(vol, 'resolve');
+
+      const pairs = await vol.pairAll(['a.txt', 'b.txt', 'c.txt'], 'selection.zip');
+
+      expect(resolve.args.filter(([p]) => p === 'selection.zip')).to.have.length(1);
+      expect(pairs.map(({ source }) => source.relative)).to.deep.equal(['a.txt', 'b.txt', 'c.txt']);
+      expect(new Set(pairs.map(({ destination }) => destination))).to.have.property('size', 1);
+    });
+
+    it('applies every pair guard to each source', async () => {
+      existsAsFile(`${MOUNT}/a.txt`);
+      existsAsFile(`${MOUNT}/uploads`);
+      const vol = await volumeSession.openVolume(reqFor());
+
+      await expect(vol.pairAll(['a.txt', 'uploads'], 'uploads/backup.zip'))
+        .to.be.rejectedWith('Destination uploads/backup.zip is inside source uploads');
+    });
+
+    it('resolves the sources one at a time', async () => {
+      // Resolving is filesystem work on the thread pool every request shares,
+      // so a list must not queue all of it at once.
+      ['a.txt', 'b.txt', 'c.txt'].forEach((name) => existsAsFile(`${MOUNT}/${name}`));
+      const vol = await volumeSession.openVolume(reqFor());
+      const real = vol.resolve.bind(vol);
+      let inFlight = 0;
+      let mostInFlight = 0;
+      sinon.stub(vol, 'resolve').callsFake(async (userPath, options) => {
+        inFlight += 1;
+        mostInFlight = Math.max(mostInFlight, inFlight);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        inFlight -= 1;
+        return real(userPath, options);
+      });
+
+      await vol.pairAll(['a.txt', 'b.txt', 'c.txt'], 'selection.zip');
+
+      expect(vol.resolve.callCount).to.equal(4);
+      expect(mostInFlight).to.equal(1);
     });
   });
 

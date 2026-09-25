@@ -152,8 +152,13 @@ function buildBinaryLayerTar(binPath, binName, markerContent) {
 
 // Push the configurable test-app image (entrypoint /bin/test-app). Exit behaviour
 // is driven at run time by the app spec's environmentParameters (EXIT_CODE,
-// EXIT_AFTER_S) — see buildSeedableTestApp and test-infra/test-app/test-app.c.
-export async function pushTestApp(repo, tag = 'v1', markerContent = 'testapp') {
+// EXIT_AFTER_S, WRITE_PROBE, ...) — see buildSeedableTestApp and
+// test-infra/test-app/test-app.c.
+//
+// `user` sets the image's User ("10000", "10000:10000"), which is what the
+// container runs as: an application image that does not run as root, as most
+// published ones do not. Unset, the container runs as root.
+export async function pushTestApp(repo, tag = 'v1', markerContent = 'testapp', { user } = {}) {
   const gzippedLayer = buildBinaryLayerTar(TEST_APP_BIN, 'test-app', markerContent);
   const layerDigest = await uploadBlob(repo, gzippedLayer);
 
@@ -163,7 +168,7 @@ export async function pushTestApp(repo, tag = 'v1', markerContent = 'testapp') {
   const configObj = {
     architecture: 'amd64',
     os: 'linux',
-    config: { Entrypoint: ['/bin/test-app'] },
+    config: { Entrypoint: ['/bin/test-app'], ...(user ? { User: String(user) } : {}) },
     rootfs: { type: 'layers', diff_ids: [diffId] },
   };
   const configBuf = Buffer.from(JSON.stringify(configObj));

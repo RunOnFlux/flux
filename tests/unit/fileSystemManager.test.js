@@ -42,6 +42,10 @@ describe('fileSystemManager tests', () => {
         source: volumePath(source),
         destination: volumePath(destination),
       })),
+      pairAll: sinon.stub().callsFake(async (sources, destination) => sources.map((source) => ({
+        source: volumePath(source),
+        destination: volumePath(destination),
+      }))),
       staging: sinon.stub().returns(volumePath('.flux-op-abc')),
       // Names the staging entry after the destination's basename, so the tool
       // writes the exact name flux-op then inspects (zip appends .zip to an
@@ -53,8 +57,9 @@ describe('fileSystemManager tests', () => {
       measure: sinon.stub().resolves(1000),
       requireSpace: sinon.stub(),
       // Defaults to a volume with room, which is what every other test needs.
-      // Left off, extract and upload would refuse before doing anything and the
-      // assertions below would be made against the error branch.
+      // Left off, extract, compress and upload would refuse before doing
+      // anything and the assertions below would be made against the error
+      // branch.
       requireCapacity: sinon.stub(),
       // Defaults to a directory because that is the common case; the
       // single-file tests below flip it. A stub's default is a coverage
@@ -368,6 +373,15 @@ describe('fileSystemManager tests', () => {
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
     });
+
+    it('runs the copy without a file length ceiling, so a sparse file that fits is copied', async () => {
+      // The source is measured by what it occupies before the copy starts, and
+      // a length ceiling would refuse a sparse file longer than the free space.
+      await fileSystemManager.copyAppsObject(req, res);
+
+      expect(runOptions()).to.have.property('maxBytes');
+      expect(runOptions().maxFileBytes).to.equal(undefined);
+    });
   });
 
   describe('compressAppsObject', () => {
@@ -379,7 +393,7 @@ describe('fileSystemManager tests', () => {
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/backup.zip', '--', '.']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/backup.zip', '--', '.']);
     });
 
     it('writes a tarball when the destination says .tar.gz', async () => {
@@ -432,14 +446,37 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().workingDir.containerPath).to.equal('/work');
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/backup.zip', '--', 'notes.txt']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/backup.zip', '--', 'notes.txt']);
     });
 
-    it('carries a ceiling as well, because the measurement can read low', async () => {
+    it('bounds the archive by the byte ceiling, without measuring the source', async () => {
+      // Walking the source would be work in the FluxOS process, ahead of any
+      // capacity slot, in proportion to a tree the app shapes.
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
+      expect(runOptions().maxFileBytes, 'the archive is not stopped as it is written').to.be.closeTo(1e9 / 1.05, 1);
+      expect(sessionStub.measure.called).to.equal(false);
+      expect(sessionStub.requireSpace.called).to.equal(false);
+    });
+
+    it('refuses on a full volume rather than running with a ceiling of nothing', async () => {
+      sessionStub.requireCapacity.throws(new Error('No free space on the application volume'));
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(executorStub.run.called).to.equal(false);
+      expect(res.json.firstCall.args[0].data.message).to.equal('No free space on the application volume');
+    });
+
+    it('names a single file called `-` to zip as ./-', async () => {
+      sessionStub.isDirectory.resolves(false);
+      req.body.source = 'uploads/-';
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/backup.zip', '--', './-']);
     });
 
     it('hands a name beginning with a dash over as a name, not an option', async () => {
@@ -455,6 +492,18 @@ describe('fileSystemManager tests', () => {
       const args = argv();
       expect(args).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc/backup.tar.gz', '--', '-dashfile.txt']);
       expect(args.indexOf('--')).to.equal(args.indexOf('-dashfile.txt') - 1);
+    });
+
+    it('fails a zip whose named operand is missing, as tar does', async () => {
+      // zip skips an operand it cannot find, warns, and exits 0 - so a listed
+      // entry the application removed after it was resolved would be missing
+      // from an archive reported as a success.
+      req.body.source = ['uploads/a.txt', 'uploads/b.txt'];
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(argv()).to.include('-MM');
+      expect(argv().indexOf('-MM')).to.be.lessThan(argv().indexOf('--'));
     });
 
     it('stores a symlink as a symlink rather than the file it points at', async () => {
@@ -480,6 +529,177 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(argv()[0]).to.equal('zip');
+    });
+
+    describe('a list of sources', () => {
+      beforeEach(() => {
+        req.body.destination = 'data/selection.zip';
+      });
+
+      it('archives each entry by name, from the folder they share', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '-MM', '/work/.flux-op-abc/selection.zip', '--', 'saves', 'notes.txt']);
+      });
+
+      it('hands tar the same operands', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        req.body.destination = 'data/selection.tar.gz';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc/selection.tar.gz', '--', 'saves', 'notes.txt']);
+      });
+
+      it('archives a directory in a list of one as that directory, not its contents', async () => {
+        // isDirectory answers true here, which a single `source` would turn into
+        // `.` run from inside the directory. A list names entries, so the
+        // directory itself is the operand.
+        req.body.source = ['data/saves'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv().slice(-2)).to.deep.equal(['--', 'saves']);
+      });
+
+      it('runs from the volume root for entries at the root', async () => {
+        req.body.source = ['saves', 'notes.txt'];
+        req.body.destination = 'selection.zip';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work');
+        expect(argv().slice(-3)).to.deep.equal(['--', 'saves', 'notes.txt']);
+      });
+
+      it('pairs every entry with the destination, so each gets the pair guards', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.pairAll.args).to.deep.equal([
+          [['data/saves', 'data/notes.txt'], 'data/selection.zip'],
+        ]);
+      });
+
+      it('refuses when any entry fails its pair guard', async () => {
+        sessionStub.pairAll.rejects(new Error('data/notes.txt does not exist'));
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('data/notes.txt does not exist');
+      });
+
+      it('measures none of the entries, and checks capacity once', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(executorStub.run.calledOnce).to.equal(true);
+        expect(sessionStub.measure.called).to.equal(false);
+        expect(sessionStub.requireCapacity.calledOnce).to.equal(true);
+        expect(sessionStub.requireCapacity.calledBefore(executorStub.run)).to.equal(true);
+      });
+
+      it('hands names beginning with a dash over after `--`', async () => {
+        req.body.source = ['data/-a.txt', 'data/-b.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv().slice(-3)).to.deep.equal(['--', '-a.txt', '-b.txt']);
+      });
+
+      it('carries overwrite to the publish', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt'];
+        req.body.overwrite = true;
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().noReplace).to.equal(false);
+      });
+
+      it('archives entries from different folders by their paths from the volume root', async () => {
+        req.body.source = ['mods/config.ini', 'readme.txt', 'saves', 'logs/server.log'];
+        req.body.destination = 'selection.tar.gz';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work');
+        expect(argv().slice(-5)).to.deep.equal(['--', 'mods/config.ini', 'readme.txt', 'saves', 'logs/server.log']);
+      });
+
+      it('runs from the deepest folder holding every entry', async () => {
+        req.body.source = ['data/logs/a.txt', 'data/saves/world/b.dat', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv().slice(-4)).to.deep.equal(['--', 'logs/a.txt', 'saves/world/b.dat', 'notes.txt']);
+      });
+
+      it('does not read a sibling that shares a prefix as a folder holding the others', async () => {
+        // `data/log` is not inside `data/lo`, so the working directory has to
+        // climb to `data` rather than stop at a string prefix.
+        req.body.source = ['data/lo/a.txt', 'data/log/b.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(runOptions().workingDir.containerPath).to.equal('/work/data');
+        expect(argv().slice(-3)).to.deep.equal(['--', 'lo/a.txt', 'log/b.txt']);
+      });
+
+      it('refuses an entry inside another listed entry', async () => {
+        req.body.source = ['saves', 'readme.txt', 'saves/world/level.dat'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('saves/world/level.dat is inside saves, which is also listed');
+      });
+
+      it('names an entry called `-` to zip as ./- so it is not read as standard input', async () => {
+        req.body.source = ['data/-', 'data/notes.txt'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv().slice(-3)).to.deep.equal(['--', './-', 'notes.txt']);
+      });
+
+      it('hands tar an entry called `-` unchanged, since tar reads it as a name', async () => {
+        req.body.source = ['data/-', 'data/notes.txt'];
+        req.body.destination = 'data/selection.tar.gz';
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(argv().slice(-3)).to.deep.equal(['--', '-', 'notes.txt']);
+      });
+
+      it('accepts a list of MAX_ARCHIVE_SOURCES entries', async () => {
+        req.body.source = Array.from({ length: 1000 }, (_, i) => `data/f${i}`);
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.pairAll.firstCall.args[0]).to.have.length(1000);
+        expect(executorStub.run.calledOnce).to.equal(true);
+      });
+
+      it('refuses a list longer than MAX_ARCHIVE_SOURCES before resolving any of it', async () => {
+        req.body.source = Array.from({ length: 1001 }, (_, i) => `data/f${i}`);
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(sessionStub.pairAll.called).to.equal(false);
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.match(/at most 1000 entries/);
+      });
+
+      it('refuses an entry listed twice', async () => {
+        req.body.source = ['data/saves', 'data/notes.txt', 'data/saves'];
+        await fileSystemManager.compressAppsObject(req, res);
+
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('data/saves is listed more than once');
+      });
+
+      for (const [label, source] of [['an empty list', []], ['an entry that is not a path', ['data/saves', 7]], ['an empty entry', ['data/saves', '']]]) {
+        it(`refuses ${label}`, async () => {
+          req.body.source = source;
+          await fileSystemManager.compressAppsObject(req, res);
+
+          expect(executorStub.run.called).to.equal(false);
+          expect(sessionStub.pairAll.called).to.equal(false);
+          expect(res.json.firstCall.args[0].data.message).to.equal('source must be a path or a non-empty list of paths');
+        });
+      }
     });
   });
 
@@ -527,6 +747,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
+      expect(runOptions().maxFileBytes, 'a member is not stopped as it is written').to.be.closeTo(1e9 / 1.05, 1);
     });
 
     it('refuses a result holding anything that is not ordinary data', async () => {

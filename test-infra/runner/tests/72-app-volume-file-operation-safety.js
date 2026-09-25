@@ -189,6 +189,76 @@ describe('app volume file operations - safety and recovery', function () {
       }
     });
 
+    it('archives a link named in a list as a link, in both formats', async function () {
+      this.timeout(300000);
+      // A list hands the archiver each entry's path, so a listed link is an
+      // operand in its own right rather than something met while recursing.
+      await seedVolumeTree(node.container, appName, { 'ordinary.txt': 'plain' });
+      await seedSymlink(node.container, appName, 'evil', '/etc/shadow');
+
+      for (const extension of ['zip', 'tar.gz']) {
+        // eslint-disable-next-line no-await-in-loop
+        const { job } = await settle('/apps/compressobject', {
+          appname: appName, component: appName, source: ['ordinary.txt', 'evil'], destination: `listed.${extension}`,
+        });
+        expect(job.status, `${extension}: ${JSON.stringify(job.error)}`).to.equal('Succeeded');
+
+        // eslint-disable-next-line no-await-in-loop
+        const listing = await inNode(
+          `docker run --rm -v ${root}:/work --entrypoint sh ${executorImage} -c `
+          + `"${extension === 'zip' ? `unzip -l /work/listed.${extension}` : `tar -tvzf /work/listed.${extension}`}"`,
+        );
+        expect(listing.exitCode, listing.output).to.equal(0);
+        if (extension === 'tar.gz') {
+          expect(listing.stdout, 'the archive holds a regular file where a link should be')
+            .to.match(/lrwxrwxrwx.*evil/);
+        } else {
+          expect(listing.stdout).to.match(new RegExp(`\\s${'/etc/shadow'.length}\\s.*evil`));
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await inNode(`rm -f ${root}/listed.${extension}`);
+      }
+    });
+
+    it('refuses a listed path that runs through a link out of the volume', async function () {
+      this.timeout(60000);
+      // The host file exists, so a refusal is the guard and not a missing file.
+      expect((await inNode('test -s /etc/shadow')).exitCode, 'the node has no /etc/shadow to protect').to.equal(0);
+      await seedVolumeTree(node.container, appName, { 'ordinary.txt': 'plain' });
+      await seedSymlink(node.container, appName, 'escape', '/etc');
+
+      const { accepted } = await settle('/apps/compressobject', {
+        appname: appName, component: appName, source: ['ordinary.txt', 'escape/shadow'], destination: 'escaped.zip',
+      });
+
+      expect(accepted.status).to.not.equal(202);
+      expect(JSON.stringify(accepted.data)).to.match(/outside allowed directory/);
+      expect(await exists(node.container, `${root}/escaped.zip`)).to.equal(false);
+    });
+
+    for (const [label, reserved] of [
+      ['an operation\'s staging', `.flux-op/${STAGING_UUID}/data`],
+      ['a syncthing control file', '.stignore'],
+    ]) {
+      it(`refuses a list naming ${label}, spelled directly or through a link`, async function () {
+        this.timeout(60000);
+        // Seeded, so each refusal is the reserved-name guard rather than a
+        // missing source.
+        await seedVolumeTree(node.container, appName, { 'ordinary.txt': 'plain', [reserved]: 'not the owner\'s' });
+        await seedSymlink(node.container, appName, 'here', '.');
+
+        for (const spelling of [reserved, `here/${reserved}`]) {
+          // eslint-disable-next-line no-await-in-loop
+          const { accepted } = await settle('/apps/compressobject', {
+            appname: appName, component: appName, source: ['ordinary.txt', spelling], destination: 'reserved.zip',
+          });
+          expect(accepted.status, spelling).to.not.equal(202);
+          expect(JSON.stringify(accepted.data), spelling).to.match(/is not an application's to write/);
+        }
+        expect(await exists(node.container, `${root}/reserved.zip`)).to.equal(false);
+      });
+    }
+
     it('survives a link pointing at its own parent, in the browser and in a copy', async function () {
       this.timeout(300000);
       // The regression that could take the node down. Measuring a folder used
@@ -353,6 +423,85 @@ describe('app volume file operations - safety and recovery', function () {
       // first, and what this proves is the refusal and the cleanup.
       const said = JSON.stringify(job.error);
       expect(said, `only a bare exit code: ${said}`).to.not.match(/"detail":"File operation failed with exit code \d+"/);
+    });
+
+    it('archives a selection larger than the free space when the archive fits', async function () {
+      this.timeout(600000);
+      const seed = await inNode(
+        `mkdir -p ${root}/big`
+        + ` && dd if=/dev/zero of=${root}/big/a bs=1M count=350 2>/dev/null`
+        + ` && dd if=/dev/zero of=${root}/big/b bs=1M count=350 2>/dev/null`,
+      );
+      expect(seed.exitCode, seed.output).to.equal(0);
+
+      // FIXTURE: the sources must be larger than the free space, or this is an
+      // ordinary compress and proves nothing about what bounds it.
+      const avail = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const freeBytes = parseInt(avail.stdout.trim(), 10);
+      expect(freeBytes).to.be.lessThan(700 * 1024 * 1024);
+
+      const { accepted, job } = await settle('/apps/compressobject', {
+        appname: appName, component: appName, source: ['big/a', 'big/b'], destination: 'big.zip',
+      });
+
+      expect(accepted.status, JSON.stringify(accepted.data)).to.equal(202);
+      expect(job.status, JSON.stringify(job.error)).to.equal('Succeeded');
+      const size = await inNode(`stat -c '%s' ${root}/big.zip`);
+      expect(parseInt(size.stdout.trim(), 10)).to.be.lessThan(10 * 1024 * 1024);
+    });
+
+    it('fails an archive that does not fit, and leaves nothing behind', async function () {
+      this.timeout(600000);
+      // Random bytes do not compress, so the archive is as large as its source.
+      const seed = await inNode(`dd if=/dev/urandom of=${root}/noise.bin bs=1M count=550 2>/dev/null`);
+      expect(seed.exitCode, seed.output).to.equal(0);
+
+      // FIXTURE: the archive must be larger than what the volume has left, or
+      // it fits and the failure below would be about something else.
+      const avail = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const freeBytes = parseInt(avail.stdout.trim(), 10);
+      expect(freeBytes).to.be.lessThan(550 * 1024 * 1024);
+
+      const { accepted, job } = await settle('/apps/compressobject', {
+        appname: appName, component: appName, source: 'noise.bin', destination: 'noise.zip',
+      });
+
+      expect(accepted.status, JSON.stringify(accepted.data)).to.equal(202);
+      expect(job.status).to.equal('Failed');
+      expect(await exists(node.container, `${root}/noise.zip`)).to.equal(false);
+      const leftovers = await treeOf(node.container, root);
+      expect(stagingEntries(leftovers), 'staging was not reclaimed').to.deep.equal([]);
+      const said = JSON.stringify(job.error);
+      expect(said, `only a bare exit code: ${said}`).to.not.match(/"detail":"File operation failed with exit code \d+"/);
+    });
+
+    it('stops an operation once the volume runs low, so the application keeps room', async function () {
+      this.timeout(600000);
+      // A large source that compresses to almost nothing, so the archive fits
+      // any ceiling and only the free-space floor can stop it.
+      const avail = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const leaveMb = 40;
+      const fillMb = Math.floor(parseInt(avail.stdout.trim(), 10) / (1024 * 1024)) - leaveMb;
+      const seed = await inNode(`dd if=/dev/zero of=${root}/zeros bs=1M count=${fillMb} 2>/dev/null`);
+      expect(seed.exitCode, seed.output).to.equal(0);
+
+      // FIXTURE: the volume must already be under the floor, or the operation
+      // runs to completion and this proves nothing about the floor.
+      const left = await inNode(`df -B1 --output=avail ${root} | tail -1`);
+      const freeBytes = parseInt(left.stdout.trim(), 10);
+      expect(freeBytes).to.be.greaterThan(0);
+      expect(freeBytes).to.be.lessThan(64 * 1024 * 1024);
+
+      const { accepted, job } = await settle('/apps/compressobject', {
+        appname: appName, component: appName, source: 'zeros', destination: 'zeros.tar.gz',
+      });
+
+      expect(accepted.status, JSON.stringify(accepted.data)).to.equal(202);
+      expect(job.status).to.equal('Failed');
+      expect(JSON.stringify(job.error)).to.include('keep free space for the application');
+      expect(await exists(node.container, `${root}/zeros.tar.gz`)).to.equal(false);
+      const leftovers = await treeOf(node.container, root);
+      expect(stagingEntries(leftovers), 'staging was not reclaimed').to.deep.equal([]);
     });
   });
 

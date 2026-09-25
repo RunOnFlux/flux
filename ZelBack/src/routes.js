@@ -1262,6 +1262,9 @@ module.exports = (app) => {
   // POST, with the operands in a JSON body:
   //   { appname, component, source, destination, overwrite? }
   //
+  // compressobject also takes `source` as a list of entries, and archives each
+  // by its path from the deepest folder holding all of them.
+  //
   // Not GET. These create, overwrite and destroy, and a GET may be replayed by
   // a proxy, a retry or a refresh - `overwrite: true` sitting in a URL is a
   // destructive operation waiting to be repeated. Thirty of the /apps/ GET

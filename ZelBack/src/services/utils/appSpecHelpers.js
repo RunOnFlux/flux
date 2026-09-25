@@ -22,6 +22,21 @@ const myShortCache = cacheManager.fluxRatesCache;
 const myLongCache = cacheManager.appPriceBlockedRepoCache;
 
 /**
+ * Round a USD price up to the next price ending in .49 or .99 (1.12 -> 1.49, 1.50 -> 1.99).
+ * A price already ending in .49 or .99 is kept.
+ * @param {number|string} usdPrice - Price in USD
+ * @returns {string} Rounded price with two decimals
+ */
+function roundUpToCharmPrice(usdPrice) {
+  // Whole cents first, so float noise (4.49 * 100 = 449.00000000000006) cannot push a price
+  // that already ends in .49 up to .99.
+  const cents = Math.round(Number(usdPrice) * 100);
+  const dollars = Math.floor(cents / 100);
+  const charmCents = cents % 100 <= 49 ? 49 : 99;
+  return ((dollars * 100 + charmCents) / 100).toFixed(2);
+}
+
+/**
  * Get app Flux on-chain price
  * @param {object} appSpecification - Application specification
  * @returns {Promise<string>} Price in Flux
@@ -101,15 +116,6 @@ async function getAppFluxOnChainPrice(appSpecification) {
       actualPriceToPay *= 0.8;
     } else if (appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
       actualPriceToPay *= 0.9;
-    }
-    let gSyncthgApp = false;
-    if (appSpecFormatted.version <= 3) {
-      gSyncthgApp = appSpecFormatted.containerData.includes('g:');
-    } else {
-      gSyncthgApp = appSpecFormatted.compose.find((comp) => comp.containerData.includes('g:'));
-    }
-    if (gSyncthgApp) {
-      actualPriceToPay *= 0.8;
     }
     actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
     if (actualPriceToPay < priceSpecifications.minPrice) {
@@ -432,15 +438,6 @@ async function getAppFiatAndFluxPrice(req, res) {
           actualPriceToPay *= 0.9;
         }
       }
-      let gSyncthgApp = false;
-      if (appSpecFormatted.version <= 3) {
-        gSyncthgApp = appSpecFormatted.containerData.includes('g:');
-      } else {
-        gSyncthgApp = appSpecFormatted.compose.find((comp) => comp.containerData.includes('g:'));
-      }
-      if (gSyncthgApp) {
-        actualPriceToPay *= 0.8;
-      }
       const marketplaceResponse = await axios.get(`${config.stats.baseUrl}/marketplace/listapps`).catch((error) => log.error(error));
       let marketPlaceApps = [];
       if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
@@ -483,6 +480,14 @@ async function getAppFiatAndFluxPrice(req, res) {
       // Ensure final price meets minimum after all discounts
       if (actualPriceToPay < appPrices[0].minUSDPrice) {
         actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+      }
+
+      // Last step on purpose: anything applied after it would move the price off .49/.99.
+      // The Flux price below is derived from this, so it follows the rounded figure.
+      // A caller's own priceUSD is left alone: it has always come back exactly as sent, and a
+      // caller that charges that amount would otherwise be quoted up to $0.50 more than it took.
+      if (!appSpecification.priceUSD) {
+        actualPriceToPay = roundUpToCharmPrice(actualPriceToPay);
       }
 
       let fiatRates;
@@ -551,6 +556,7 @@ module.exports = {
   getAppPrice,
   getAppFluxOnChainPrice,
   checkFreeAppUpdate,
+  roundUpToCharmPrice,
   // Re-export for backward compatibility
   specificationFormatter,
 };

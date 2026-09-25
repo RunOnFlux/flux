@@ -1449,7 +1449,7 @@ describe('volumeService tests', () => {
       expect(chmod[0].args[1].params).to.deep.equal(['777', expectedPath]);
     });
 
-    it('should create a missing directory as root via mkdir -p', async () => {
+    it('should create a missing directory as root via mkdir -p + chmod 777', async () => {
       dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
       mountParserStub.parseContainerData.returns({ allMounts: [] });
       mountParserStub.getRequiredLocalPaths.returns([
@@ -1461,10 +1461,47 @@ describe('volumeService tests', () => {
 
       await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data|m:logs:/var/log' }, 'testapp', true, null);
 
+      const expectedPath = `${APPS_FOLDER}fluxwebserver_testapp/logs`;
       const mkdir = callsFor('mkdir');
+      const chmod = callsFor('chmod');
       expect(mkdir).to.have.lengthOf(1);
       expect(mkdir[0].args[1]).to.include({ runAsRoot: true });
-      expect(mkdir[0].args[1].params).to.deep.equal(['-p', `${APPS_FOLDER}fluxwebserver_testapp/logs`]);
+      expect(mkdir[0].args[1].params).to.deep.equal(['-p', expectedPath]);
+      expect(chmod).to.have.lengthOf(1);
+      expect(chmod[0].args[1]).to.include({ runAsRoot: true });
+      expect(chmod[0].args[1].params).to.deep.equal(['777', expectedPath]);
+      expect(chmod[0].calledAfter(mkdir[0])).to.be.true;
+    });
+
+    it('should leave an existing directory mode untouched', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+      mountParserStub.parseContainerData.returns({ allMounts: [] });
+      mountParserStub.getRequiredLocalPaths.returns([
+        { name: 'appdata', isFile: false },
+        { name: 'logs', isFile: false },
+      ]);
+      fsStub.promises.access.onFirstCall().rejects(enoent()); // appdata missing
+      fsStub.promises.access.onSecondCall().resolves(); // logs exists
+
+      await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data|m:logs:/var/log' }, 'testapp', true, null);
+
+      const chmod = callsFor('chmod');
+      expect(chmod).to.have.lengthOf(1);
+      expect(chmod[0].args[1].params).to.deep.equal(['777', `${APPS_FOLDER}fluxwebserver_testapp/appdata`]);
+    });
+
+    it('should propagate a chmod failure on a created directory as a thrown error', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+      mountParserStub.parseContainerData.returns({ allMounts: [] });
+      mountParserStub.getRequiredLocalPaths.returns([{ name: 'logs', isFile: false }]);
+      fsStub.promises.access.rejects(enoent());
+      dispatchRunCommand({
+        chmod: async () => ({ error: new Error('chmod failed'), stdout: '', stderr: '' }),
+      });
+
+      await expect(
+        volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data|m:logs:/var/log' }, 'testapp', true, null),
+      ).to.be.rejectedWith('chmod failed');
     });
 
     it('should create multiple missing files and directories', async () => {
@@ -1483,11 +1520,11 @@ describe('volumeService tests', () => {
 
       await volumeService.ensureMountPathsExist({ name: 'webserver', containerData: '/data|m:logs:/var/log|f:config.yaml:/etc/config.yaml|m:cache:/var/cache' }, 'testapp', true, null);
 
-      // logs (mkdir) + config.yaml (touch+chmod) + cache (mkdir) = 4 commands
-      expect(mountCommands()).to.have.lengthOf(4);
+      // logs (mkdir+chmod) + config.yaml (touch+chmod) + cache (mkdir+chmod) = 6 commands
+      expect(mountCommands()).to.have.lengthOf(6);
       expect(callsFor('mkdir')).to.have.lengthOf(2);
       expect(callsFor('touch')).to.have.lengthOf(1);
-      expect(callsFor('chmod')).to.have.lengthOf(1);
+      expect(callsFor('chmod')).to.have.lengthOf(3);
     });
 
     it('should construct the identifier correctly for non-component apps', async () => {
