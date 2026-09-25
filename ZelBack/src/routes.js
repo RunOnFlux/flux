@@ -1312,4 +1312,10 @@ module.exports = (app) => {
   app.get('/flux/testcounters', asyncRoute((req, res) => {
     return fluxEventBus.countersHandler(req, res);
   }));
+
+  // State, read at the moment of asking - see the rule at the top of
+  // fluxEventBus.js. Uncached by design. 404s in production, like the two above.
+  app.get('/flux/teststate/:name', asyncRoute((req, res) => {
+    return fluxEventBus.snapshotHandler(req, res);
+  }));
 };

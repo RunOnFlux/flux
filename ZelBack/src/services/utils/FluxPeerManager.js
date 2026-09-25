@@ -3,7 +3,7 @@ const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./FluxPeerSocket');
-const { DEFAULT_API_PORT } = require('./socketAddressUtils');
+const { DEFAULT_API_PORT, compareSocketAddresses } = require('./socketAddressUtils');
 const peerCodec = require('./peerCodec');
 const fluxEventBus = require('./fluxEventBus');
 
@@ -571,6 +571,37 @@ class FluxPeerManager extends EventEmitter {
     return this.#ownSocketAddress;
   }
 
+  /**
+   * Which of a crossing pair's two connections this node keeps: the one dialed
+   * by the lower of the two socket addresses. Both ends compute it from the same
+   * two addresses, so they agree whatever order the connections established in
+   * at either end. Null while this node does not know its own address, or when
+   * the two cannot be ordered; the connection already held then stays.
+   * @param {string} peerKey The peer's ip:port.
+   * @returns {string|null} DIRECTION.OUTBOUND, DIRECTION.INBOUND or null.
+   */
+  crossingSurvivor(peerKey) {
+    const order = compareSocketAddresses(this.#ownSocketAddress, peerKey);
+    if (!order) return null;
+    return order < 0 ? DIRECTION.OUTBOUND : DIRECTION.INBOUND;
+  }
+
+  /**
+   * Whether a connection just established to a peer this node already holds
+   * replaces the held one. A held connection that is no longer alive is always
+   * replaced. A live one is never replaced by another in the same direction.
+   * Two live connections in opposite directions are a crossing, and the
+   * survivor is crossingSurvivor's.
+   * @param {object} existing The held peer.
+   * @param {string} direction The newcomer's DIRECTION.
+   * @returns {boolean}
+   */
+  newcomerReplaces(existing, direction) {
+    if (!existing.isAlive) return true;
+    if (existing.direction === direction) return false;
+    return this.crossingSurvivor(existing.key) === direction;
+  }
+
   getPeerFluxUptime(key) {
     const peer = this.#peers.get(key);
     if (!peer || peer.remoteFluxUptime === null) return null;
@@ -1091,6 +1122,16 @@ class FluxPeerManager extends EventEmitter {
           log.info(`Replacing stale inbound connection ${key}`);
           this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
           return;
+        }
+        // Both ends dialed at once: this inbound is the pair's other connection.
+        if (existing && existing.direction === DIRECTION.OUTBOUND) {
+          const replaces = this.newcomerReplaces(existing, DIRECTION.INBOUND);
+          fluxEventBus.count('peers:crossing', replaces ? DIRECTION.INBOUND : DIRECTION.OUTBOUND);
+          if (replaces) {
+            log.info(`Crossing connections with ${key}: keeping the inbound one, dialed by the lower address`);
+            this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+            return;
+          }
         }
         // If the remote is reconnecting (asymmetric disconnect), verify the
         // existing connection is still alive before rejecting. Ping it and
@@ -1701,5 +1742,18 @@ class FluxPeerManager extends EventEmitter {
 
 // Singleton export
 const peerManager = new FluxPeerManager();
+
+// The connections this node holds right now, by direction, and the address it
+// knows itself by - harness-only, see fluxEventBus.js.
+fluxEventBus.snapshot('peers', () => {
+  const describe = (peer) => ({
+    ip: peer.ip, port: String(peer.port), source: peer.source, alive: peer.isAlive, connectedAt: peer.connectedAt,
+  });
+  return {
+    self: peerManager.getOwnSocketAddress(),
+    outbound: [...peerManager.outboundValues()].map(describe),
+    inbound: [...peerManager.inboundValues()].map(describe),
+  };
+});
 
 module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };

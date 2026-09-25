@@ -1,9 +1,9 @@
-// The harness-only telemetry surface: an event stream and a set of counters,
-// both dead in production (`testEventStream` is false there, and every entry
-// point below returns before doing any work).
+// The harness-only telemetry surface: an event stream, a set of counters and a
+// set of state snapshots, all dead in production (`testEventStream` is false
+// there, and every entry point below returns before doing any work).
 //
 // THE RULE, and it is what keeps the ring a sensible size: FACTS AS EVENTS,
-// CADENCE AS A COUNTER.
+// CADENCE AS A COUNTER, STATE AS A SNAPSHOT.
 //
 // An event marks something that HAPPENED - a block processed, a container
 // actuated, a spec stored. Every one of the publishers in this codebase is of
@@ -19,6 +19,13 @@
 // `count()` and let the reader ask for the number over /flux/testcounters,
 // rather than broadcasting twenty messages a minute so it can count them.
 // Publish an event only for the thing that actually happened.
+//
+// And when a test needs to know what a node holds NOW - its peers, its
+// connections - that is a SNAPSHOT: register a reader with `snapshot()` and let
+// the test ask /flux/teststate/<name>. The reader runs at the moment of asking,
+// so the answer is never older than the request. A state rebuilt from events is
+// only as complete as the events are, and a public route that reports the same
+// state is cached for production's sake; neither answers "what is true now".
 
 const { EventEmitter } = require('node:events');
 const config = require('config');
@@ -42,6 +49,7 @@ class FluxEventBus extends EventEmitter {
   #nextId;
   #enabled;
   #counters;
+  #snapshots;
 
   constructor(enabled) {
     super();
@@ -63,6 +71,7 @@ class FluxEventBus extends EventEmitter {
     this.#nextId = Number(process.hrtime.bigint() / 1000n);
     this.#enabled = enabled ?? (config.has('testEventStream') && config.get('testEventStream') === true);
     this.#counters = new Map();
+    this.#snapshots = new Map();
   }
 
   get enabled() { return this.#enabled; }
@@ -153,6 +162,34 @@ class FluxEventBus extends EventEmitter {
       return out;
     };
     return plain(this.#counters);
+  }
+
+  // State, not facts or cadence - see the rule at the top of this file. The
+  // reader is called on every request and never between them. A no-op when
+  // disabled, so production holds no reference to it.
+  //
+  // snapshot('peers', () => ({ outbound: [...], inbound: [...] }))
+  snapshot(name, reader) {
+    if (!this.#enabled) return;
+    this.#snapshots.set(name, reader);
+  }
+
+  snapshotHandler(req, res) {
+    if (!this.#enabled) {
+      res.status(404).json({ status: 'error', data: { message: 'Test state not enabled' } });
+      return;
+    }
+    const { name } = req.params;
+    const reader = this.#snapshots.get(name);
+    if (!reader) {
+      res.status(404).json({ status: 'error', data: { message: `No test state named ${name}` } });
+      return;
+    }
+    try {
+      res.json({ status: 'success', data: reader() });
+    } catch (err) {
+      res.status(500).json({ status: 'error', data: { message: err.message } });
+    }
   }
 
   countersHandler(req, res) {
