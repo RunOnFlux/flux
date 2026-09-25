@@ -363,6 +363,13 @@ describe('syncthingService tests', () => {
       sinon.restore();
     });
 
+    it('scanFolder asks syncthing to scan exactly the folder named', async () => {
+      await syncthingService.scanFolder('fluxa_app');
+
+      sinon.assert.calledOnce(fakePost);
+      expect(fakePost.firstCall.args[0]).to.equal('/rest/db/scan?folder=fluxa_app');
+    });
+
     it('scans every sendreceive folder before asking what the peers hold, and skips folders that only receive', async () => {
       completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
 

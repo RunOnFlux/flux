@@ -789,6 +789,17 @@ async function folderCompleteOnPeers(folder, myId, connectedPeers) {
 }
 
 /**
+ * Scans a folder now and resolves when the scan is done. The watcher batches
+ * changes for ten seconds, so a file written inside that window is unknown to
+ * syncthing, and to every peer, until something scans it.
+ * @param {string} folderId Folder id
+ * @returns {Promise<object>} Syncthing's reply
+ */
+async function scanFolder(folderId) {
+  return request('post', `/rest/db/scan?folder=${encodeURIComponent(folderId)}`);
+}
+
+/**
  * Announces everything this node holds in its sendreceive folders and waits for
  * the connected peers to hold it too. The scan is what makes it a drain: the
  * watcher batches changes for ten seconds, and a file written inside that window
@@ -802,7 +813,7 @@ async function drainFoldersToPeers(timeoutMs) {
   const myId = await getDeviceId();
   const { connections = {} } = await request('get', '/rest/system/connections');
   const connectedPeers = new Set(Object.keys(connections).filter((id) => connections[id]?.connected));
-  await Promise.all(folders.map((folder) => request('post', `/rest/db/scan?folder=${encodeURIComponent(folder.id)}`)));
+  await Promise.all(folders.map((folder) => scanFolder(folder.id)));
   const deadline = Date.now() + timeoutMs;
   let pending = folders;
   while (pending.length && Date.now() < deadline) {
@@ -2197,6 +2208,7 @@ module.exports = {
   eachDbLocalChanged,
   dbRevert,
   drainFoldersToPeers,
+  scanFolder,
   // EVENTS
   getEvents,
   // MISC
