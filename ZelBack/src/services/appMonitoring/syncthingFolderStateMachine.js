@@ -1611,17 +1611,6 @@ async function handleNewApp(params) {
  * @param {string} appId - Component identifier
  * @returns {Promise<boolean|null>}
  */
-async function containerIsRunning(appId) {
-  try {
-    const containerInspect = await dockerService.dockerContainerInspect(appId);
-    return Boolean(containerInspect?.State?.Running);
-  } catch (error) {
-    if (error?.statusCode === 404) return false;
-    log.warn(`containerIsRunning - docker did not answer for ${appId}: ${error.message}`);
-    return null;
-  }
-}
-
 async function ensureContainerRunning(appId, containerDataFlags) {
   try {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
@@ -1659,12 +1648,14 @@ async function manageFolderSyncState(params) {
 
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
-  if (folderAlreadySyncing && containerDataFlags.includes('g') && (await containerIsRunning(appId)) === false) {
-    // A single-writer folder sends only while the elected primary runs here. Found
-    // sendreceive with the container stopped, this is a primary that lost its
-    // process, and what it holds must not go out until the election says it is
-    // primary again.
-    log.info(`manageFolderSyncState - ${appId} is sendreceive with its container stopped, demoting until the election decides`);
+  // eslint-disable-next-line global-require
+  if (folderAlreadySyncing && containerDataFlags.includes('g') && (await require('../appQuery/appQueryService').holdsComponent(appId)) === false) {
+    // A single-writer folder sends only from the node that holds the primary:
+    // running it, committed to start it, or stopped by its owner to work on its
+    // data. Found sendreceive with none of those, this is a primary that lost
+    // its process, and what it holds must not go out until the election says
+    // it is primary again.
+    log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
     syncthingFolder.type = 'receiveonly';
     return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
   }

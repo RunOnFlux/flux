@@ -371,6 +371,19 @@ async function heldComponents(req, res) {
 }
 
 /**
+ * Whether this node holds a component, by the same account heldComponents gives
+ * a peer: running here, committed to start here, or stopped here by its owner.
+ *
+ * @param {string} identifier - The component's container name, e.g. fluxcomp_app
+ * @returns {Promise<boolean|null>} null when the account cannot be read
+ */
+async function holdsComponent(identifier) {
+  const response = await heldComponents();
+  if (response.status !== 'success') return null;
+  return response.data.includes(identifier);
+}
+
+/**
  * Syncthing folder ids this node has promoted to sendreceive - the folders it
  * holds the writable copy of.
  *
@@ -711,6 +724,7 @@ module.exports = {
   listRunningApps,
   listRunningAppsApi,
   heldComponents,
+  holdsComponent,
   promotedFolders,
   promotedFolderHoldings,
   listAllApps,
