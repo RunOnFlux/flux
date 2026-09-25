@@ -1024,7 +1024,7 @@ async function checkIfPeersAreSynced(folderId) {
  * @returns {Promise<{deviceID: string, globalBytes: number}|null>} The peer, or
  *   null when no peer can be shown to hold this folder.
  */
-async function findSyncedPeer(folderId) {
+async function findSyncedPeer(folderId, { exclude = new Set() } = {}) {
   try {
     // getConfig takes no request and answers with the config itself, not a
     // {status, data} envelope - the same call its sibling checkIfPeersAreSynced
@@ -1066,6 +1066,12 @@ async function findSyncedPeer(folderId) {
       // A device id this node could not establish excludes nothing, which is
       // the safe direction: the completion checks below still have to pass.
       if (localDeviceId && device.deviceID === localDeviceId) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      // A peer the caller has ruled out - one that is shutting down holds the data
+      // only until its syncthing stops, seconds from now.
+      if (exclude.has(device.deviceID)) {
         // eslint-disable-next-line no-continue
         continue;
       }

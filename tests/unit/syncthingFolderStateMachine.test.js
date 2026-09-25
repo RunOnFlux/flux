@@ -2921,6 +2921,28 @@ describe('syncthingFolderStateMachine tests', () => {
     });
   });
 
+  describe('findSyncedPeer skips a peer the caller rules out', () => {
+    it('passes over an excluded peer and accepts the next full one', async () => {
+      syncthingServiceMock.getConfig.resolves({
+        folders: [{ id: 'fluxappone', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'LEAVING' }, { deviceID: 'STAYING' }] }],
+      });
+      syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+
+      const peer = await stateMachine.findSyncedPeer('fluxappone', { exclude: new Set(['LEAVING']) });
+
+      expect(peer.deviceID).to.equal('STAYING');
+    });
+
+    it('finds no peer when the only full one is excluded', async () => {
+      syncthingServiceMock.getConfig.resolves({
+        folders: [{ id: 'fluxappone', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'LEAVING' }] }],
+      });
+      syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+
+      expect(await stateMachine.findSyncedPeer('fluxappone', { exclude: new Set(['LEAVING']) })).to.equal(null);
+    });
+  });
+
   describe('findSyncedPeer excludes this node', () => {
     // Every folder's device list BEGINS with the local device - see
     // syncthingMonitorHelpers, `const devices = [{ deviceID: myDeviceId }]` -

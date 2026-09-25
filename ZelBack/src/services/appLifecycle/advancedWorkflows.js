@@ -2591,6 +2591,22 @@ async function appDockerRestart(appname) {
 }
 
 /**
+ * Syncthing device ids of the nodes that have announced a shutdown and not come
+ * back. The monitor names each device after its node's socket address.
+ * @returns {Promise<Set<string>>}
+ */
+async function shuttingDownDevices() {
+  // eslint-disable-next-line global-require
+  const registryManager = require('../appDatabase/registryManager');
+  const departing = await registryManager.shuttingDownNodes();
+  if (!departing.length) return new Set();
+  const devices = await syncthingServiceModule.getConfigDevices();
+  return new Set((devices || [])
+    .filter((device) => departing.some((ip) => socketAddressesMatch(ip, device.name)))
+    .map((device) => device.deviceID));
+}
+
+/**
  * Makes this node the primary of a single-writer component: the folder sends
  * from now on, and the reconciler starts the container.
  * @param {string} appname - App name
@@ -3980,6 +3996,7 @@ async function checkAndRemoveApplicationInstance() {
         findSyncedPeer,
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
         isComponentRunningLocally,
+        shuttingDownDevices,
       });
       fluxEventBus.publish('giveUp:safety', {
         appName: installedApp.name,
