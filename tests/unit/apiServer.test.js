@@ -576,3 +576,60 @@ describe('apiServer SIGTERM handling tests', () => {
     });
   });
 });
+
+describe('handleSigterm drains syncthing folders before it exits', () => {
+  const fs = require('node:fs');
+  const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+  const dockerService = require('../../ZelBack/src/services/dockerService');
+  const syncthingService = require('../../ZelBack/src/services/syncthingService');
+  const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
+  const globalState = require('../../ZelBack/src/services/utils/globalState');
+  let apiServer;
+  let exitStub;
+  let drainStub;
+  let stopStub;
+
+  before(() => {
+    apiServer = require('../../apiServer');
+  });
+
+  beforeEach(() => {
+    // Method 1 of isSystemShuttingDown: the scheduled-shutdown marker exists.
+    sinon.stub(fs, 'existsSync').callsFake((p) => p === '/run/systemd/shutdown/scheduled');
+    sinon.stub(serviceHelper, 'delay').resolves();
+    sinon.stub(serviceHelper, 'runCommand').resolves({ stdout: 'stopping', error: null });
+    globalState.runningAppsCache.clear();
+    sinon.stub(dockerService, 'dockerListContainers').resolves([{ Names: ['/fluxprobe_app'] }]);
+    stopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+    drainStub = sinon.stub(syncthingService, 'drainFoldersToPeers').resolves([]);
+    sinon.stub(verifyPool, 'stop');
+    exitStub = sinon.stub(process, 'exit');
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('drains after the containers have stopped and before exiting', async () => {
+    await apiServer.handleSigterm();
+
+    sinon.assert.calledOnce(drainStub);
+    expect(drainStub.firstCall.args[0]).to.equal(30000);
+    expect(drainStub.firstCall.callId, 'the drain announces the write the container made on its way down, so it runs after the stop').to.be.greaterThan(stopStub.firstCall.callId);
+    expect(exitStub.firstCall.callId).to.be.greaterThan(drainStub.firstCall.callId);
+    sinon.assert.calledWith(exitStub, 0);
+  });
+
+  it('still exits when the drain cannot run', async () => {
+    drainStub.rejects(new Error('syncthing not answering'));
+
+    await apiServer.handleSigterm();
+
+    sinon.assert.calledWith(exitStub, 0);
+  });
+
+  it('answers SIGINT with the same handler as SIGTERM', () => {
+    expect(process.listeners('SIGINT')).to.include(apiServer.handleSigterm);
+    expect(process.listeners('SIGTERM')).to.include(apiServer.handleSigterm);
+  });
+});
