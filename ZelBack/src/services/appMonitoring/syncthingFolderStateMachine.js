@@ -1730,6 +1730,12 @@ async function manageFolderSyncState(params) {
 
   // Default case - ensure container is running
   await ensureContainerRunning(appId, containerDataFlags);
+  if (containerDataFlags.includes('g')) {
+    // The election owns a single-writer folder's type, and the ready mark it
+    // reads has to outlive this pass.
+    syncthingFolder.type = syncFolder ? syncFolder.type : 'receiveonly';
+    return { syncthingFolder, cache };
+  }
   return { syncthingFolder, cache: null };
 }
 

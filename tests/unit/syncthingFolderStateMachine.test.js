@@ -752,6 +752,19 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
+    it('keeps a ready single-writer standby receiveonly and keeps its ready mark', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type, 'the built default is sendreceive; a standby must not inherit it').to.equal('receiveonly');
+      expect(result.cache).to.deep.equal({ restarted: true });
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
     it('demotes a single-writer folder found sendreceive with its container stopped', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
