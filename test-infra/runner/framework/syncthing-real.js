@@ -92,3 +92,41 @@ export async function listFolderFiles(client, path) {
   const r = await execInContainer(client.container, `ls -A "${path}" 2>/dev/null | sort | tr '\\n' ' '`);
   return r.stdout.trim();
 }
+
+// One folder's config as the daemon holds it: type, syncOwnership,
+// maxConflicts, devices and the rest. Null when the folder does not exist.
+export async function getFolderConfig(client, folderId) {
+  const folders = await getFolders(client);
+  return folders.find((f) => f.id === folderId) ?? null;
+}
+
+// Owner and mode of a path on the node's disk, as numbers: { uid, gid, mode }
+// with mode the octal permission string stat prints (e.g. '755'). Null when
+// the path does not exist.
+export async function statPath(client, path) {
+  const r = await execInContainer(client.container, `stat -c '%u %g %a' "${path}" 2>/dev/null`);
+  const [uid, gid, mode] = r.stdout.trim().split(' ');
+  if (r.exitCode !== 0 || mode === undefined) return null;
+  return { uid: Number(uid), gid: Number(gid), mode };
+}
+
+// A file's content on the node's disk, or null when it does not exist.
+export async function readPath(client, path) {
+  const r = await execInContainer(client.container, `cat "${path}" 2>/dev/null`);
+  return r.exitCode === 0 ? r.stdout : null;
+}
+
+// Start the node's own daemon again after something stopped it, the way the OS
+// starts it, and wait until it answers.
+export async function startDaemon(client, { timeout = 60000, interval = 1000 } = {}) {
+  const r = await execInContainer(client.container, '/flux/test-infra/start-syncthing.sh');
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: could not start the daemon: ${r.output}`);
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await isDaemonUp(client)) return;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => { setTimeout(resolve, interval); });
+  }
+  throw new Error(`syncthing-real: the daemon did not answer within ${timeout}ms of starting`);
+}

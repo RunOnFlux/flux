@@ -44,6 +44,30 @@ export async function getFolderWrites(ip) {
   return node ? node.folderWrites : [];
 }
 
+// The scans this node has asked for, in order: { id, seq }. seq is numbered from
+// the same sequence as getFolderWrites' entries, so a scan and a write can be
+// ordered against each other.
+export async function getFolderScans(ip) {
+  const state = await getSyncthingState();
+  const node = state.nodes.find((n) => n.ip === ip);
+  return node ? node.folderScans : [];
+}
+
+// What one node's syncthing reports as a device's lastSeen. `lastSeen` is a Date
+// or ISO string, or null for a device the node has never been connected to.
+// Omit viewerIp to set it for every node.
+export async function setDeviceLastSeen({ viewerIp = '*', deviceIp, lastSeen }) {
+  const device = await stubDeviceId(deviceIp);
+  const value = lastSeen instanceof Date ? lastSeen.toISOString() : lastSeen;
+  return post('/device-last-seen', { ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], device, lastSeen: value });
+}
+
+// Back to "every device was last seen now" for this device.
+export async function clearDeviceLastSeen({ viewerIp = '*', deviceIp }) {
+  const device = await stubDeviceId(deviceIp);
+  return post('/device-last-seen', { ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], device });
+}
+
 // The paused/resumed pairs this operation applied, in order, as folder ids.
 export async function getPauseWrites(ip) {
   return (await getFolderWrites(ip))
@@ -183,15 +207,18 @@ export async function setPeerDisconnected({ ip = '*', folder }) {
 // disconnected. A suite that cuts a declared source off from the fleet
 // declares this consequence too, or the fleet keeps trusting a connection
 // that no longer exists.
-export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
+// The device id the stub gives a node, by its address. A write against a device
+// the stub does not know would fall back to a wildcard or to nothing - a fixture
+// that silently does nothing - so an unknown node fails loudly.
+async function stubDeviceId(deviceIp) {
   const bare = deviceIp.split(':')[0];
   const device = ((await getSyncthingState()).nodes || []).find((n) => n.ip.split(':')[0] === bare)?.deviceId;
-  if (!device) {
-    // Without the device id this would fall back to a wildcard write, which
-    // loses to the source's device-specific testimony - a sever that silently
-    // severs nothing. A fixture that cannot do what it claims fails loudly.
-    throw new Error(`severPeerSync: the stub has no device for ${deviceIp} (folder ${folder})`);
-  }
+  if (!device) throw new Error(`syncthing-control: the stub has no device for ${deviceIp}`);
+  return device;
+}
+
+export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
+  const device = await stubDeviceId(deviceIp);
   return setPeerCompletion({
     ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], folder, device, completion: 0, remoteState: 'unknown',
   });
