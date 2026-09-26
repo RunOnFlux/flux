@@ -249,6 +249,25 @@ fi
 # While /tmp/fluxos.hold exists the loop does not respawn: the node stays down
 # after FluxOS exits, as a machine does between a shutdown and its next boot,
 # and comes back once a test removes the file.
+# A legacy node the multitool installed: the pm2 daemon starts FluxOS through
+# start.sh, which runs npm start - npm install, then FluxOS - from the account's
+# home, with the flags the multitool gives it. The kill timeout is the fleet's
+# to choose; unset, pm2 uses its own default. There is no registry here, so npm
+# answers its install from the image's own. The entrypoint stays in the
+# foreground streaming pm2's logs, so FluxOS's output is the container's, and a
+# test stops and starts FluxOS through pm2 as an operator or the OS does.
+if [ "$FLUX_PM2" = "1" ]; then
+  export NPM_CONFIG_OFFLINE=true NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
+  cd "$HOME" || exit 1
+  pm2 start "$HOME/zelflux/start.sh" --name flux \
+    --max-memory-restart 1500M --restart-delay 30000 --max-restarts 40 --time \
+    ${FLUX_PM2_KILL_TIMEOUT_MS:+--kill-timeout "$FLUX_PM2_KILL_TIMEOUT_MS"} >/dev/null
+  trap 'pm2 kill >/dev/null 2>&1; exit 0' TERM INT
+  pm2 logs --raw --lines 0 &
+  wait $!
+  exit 0
+fi
+
 set +e
 STOPPING=0
 trap 'STOPPING=1; kill -TERM "$(cat /tmp/fluxos.pid 2>/dev/null)" 2>/dev/null' TERM INT

@@ -334,3 +334,42 @@ export async function crashFluxos(container, { hold = false, exitTimeoutMs = 300
   }
   throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
 }
+
+// A system shutdown of a legacy node whose FluxOS pm2 runs (createTestEnv
+// pm2Nodes): the shutdown marker FluxOS checks for is put in place and pm2
+// stops FluxOS, as the OS stops pm2 on its way down. pm2 returns once FluxOS
+// has exited or its kill timeout has run out, whichever is first.
+// `stopSyncthingAfter` then stops the node's syncthing, as the rest of the
+// shutdown does: FluxOS started it outside pm2's process tree, so pm2 leaves it.
+//
+// @returns {Promise<{stopMs: number}>} how long pm2 took to report FluxOS stopped
+export async function shutdownFluxosUnderPm2(container, { stopSyncthingAfter = false } = {}) {
+  await execInContainer(container, 'touch /run/nologin');
+  try {
+    const started = Date.now();
+    const stopped = await execInContainer(container, 'pm2 stop flux');
+    const stopMs = Date.now() - started;
+    if (stopped.exitCode !== 0) throw new Error(`shutdownFluxosUnderPm2: pm2 stop failed: ${stopped.output}`);
+    if (stopSyncthingAfter) await execInContainer(container, 'pkill -KILL -x syncthing; true');
+    return { stopMs };
+  } finally {
+    await execInContainer(container, 'rm -f /run/nologin');
+  }
+}
+
+// Start FluxOS again through pm2 on a node shut down by shutdownFluxosUnderPm2,
+// and wait for its API to answer.
+export async function startFluxosUnderPm2(container, { apiPort = 16127, readyTimeoutMs = 180000, interval = 1000 } = {}) {
+  const started = await execInContainer(container, 'pm2 start flux');
+  if (started.exitCode !== 0) throw new Error(`startFluxosUnderPm2: pm2 start failed: ${started.output}`);
+  const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
+  const start = Date.now();
+  while (Date.now() - start < readyTimeoutMs) {
+    throwIfInfraDead();
+    // eslint-disable-next-line no-await-in-loop
+    if ((await execInContainer(container, probe)).exitCode === 0) return;
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(interval);
+  }
+  throw new Error(`startFluxosUnderPm2: FluxOS did not answer within ${readyTimeoutMs}ms`);
+}

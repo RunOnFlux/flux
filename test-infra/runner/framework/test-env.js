@@ -745,10 +745,18 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true,
+  awaitPolicy = true, pm2Nodes = {},
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
+  }
+  // Nodes whose FluxOS pm2 runs, the way the multitool installs a legacy node:
+  // index -> the kill timeout it is started with in ms, or null for pm2's own
+  // default. Only a legacy node is started by pm2, and it runs FluxOS as root.
+  for (const key of Object.keys(pm2Nodes)) {
+    const index = Number(key);
+    if (!legacyNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} is not a legacy node`);
+    if (unprivilegedNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} cannot also be unprivileged`);
   }
   // WHICH NODES ARE ALREADY PART OF THE NETWORK, rather than joining it.
   //
@@ -989,7 +997,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1018,7 +1026,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1327,6 +1335,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // can READ - syncthing is spawned with sudo whichever account FluxOS holds, so on
     // an unprivileged node the index can describe files the node itself is refused.
     if (unprivilegedNodes.includes(i)) nodeEnv.FLUX_FLUXOS_USER = 'fluxuser';
+    if (Object.prototype.hasOwnProperty.call(pm2Nodes, i)) {
+      nodeEnv.FLUX_PM2 = '1';
+      if (pm2Nodes[i] != null) nodeEnv.FLUX_PM2_KILL_TIMEOUT_MS = String(pm2Nodes[i]);
+    }
     // Legacy only, because it is the only node type that installs anything:
     // monitorSystem() returns on sight of FLUXOS_PATH, so an Arcane node purged
     // of syncthing would simply never get it back.

@@ -164,7 +164,13 @@ RUN set -eu; \
 WORKDIR /flux
 
 COPY package.json ./
-RUN npm install --production
+RUN npm install --production \
+    && cp package-lock.json /tmp/image-package-lock.json
+
+# pm2, for a legacy node started the way the multitool starts one. Pinned: the
+# multitool installs pm2@latest, and a suite measuring its stop must know which
+# pm2 it measured.
+RUN npm install -g pm2@6.0.14
 
 # The install belongs to the account that runs it, which is what an operator's own
 # install looks like and what lets FluxOS write its logs, its config and the TLS
@@ -177,6 +183,12 @@ RUN npm install --production
 COPY --chown=fluxuser:fluxuser . .
 
 COPY --chown=fluxuser:fluxuser test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
+
+# The lockfile that describes the node_modules installed above. The build context
+# may carry another (development does not track one), and a node started by pm2
+# runs npm install at every start with no registry to reach: it succeeds only
+# when the lockfile and node_modules agree.
+RUN cp /tmp/image-package-lock.json /flux/package-lock.json
 
 RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
     && chown fluxuser:fluxuser /flux /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
