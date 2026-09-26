@@ -28,6 +28,7 @@ const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
 const globalState = require('./ZelBack/src/services/utils/globalState');
+const fluxEventBus = require('./ZelBack/src/services/utils/fluxEventBus');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
@@ -429,6 +430,7 @@ async function shutDown() {
   }
 
   log.info('System shutdown/reboot detected, initiating graceful shutdown with peer notification...');
+  fluxEventBus.publish('shutdown:started', {});
   globalState.setShutdownInProgressTrue();
 
   try {
@@ -483,6 +485,7 @@ async function shutDown() {
   // right after this process exits.
   try {
     const incomplete = await syncthingService.drainFoldersToPeers(SHUTDOWN_DRAIN_TIMEOUT_MS);
+    fluxEventBus.publish('shutdown:drained', { complete: incomplete.length === 0, incomplete });
     if (incomplete.length) {
       log.warn(`Shutdown drain reached its deadline with ${incomplete.length} folder(s) not yet complete on a peer: ${incomplete.join(', ')}`);
     } else {

@@ -268,6 +268,8 @@ export function nodeClient(nodeNum) {
         'network:appmessage',
         'network:ipchanged',
         'network:sigterm',
+        'shutdown:started',
+        'shutdown:drained',
         'ephemeralSync:requested',
         'ephemeralSync:peerComplete',
         'ephemeralSync:allComplete',

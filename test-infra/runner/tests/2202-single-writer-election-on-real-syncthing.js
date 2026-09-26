@@ -36,14 +36,14 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const APP_UID = 1000;
 const API_PORT = 16127;
 const SYNCTHING_PORT = API_PORT + 2;
-const NEVER_CONNECTED = /is silent for app:.* has never been connected to it or cannot be asked, will not start/;
 
 describe('single-writer election on real syncthing', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
   const appName = `e2eswelect${Date.now()}`;
-  const folder = `flux${appName}_${appName}`;
+  const identifier = `${appName}_${appName}`;
+  const folder = `flux${identifier}`;
   const root = `/mnt/appdata/flux-apps/${folder}`;
   // Placed in this order; a fourth node holds nothing and keeps the ring whole
   // while one link is cut.
@@ -64,7 +64,9 @@ describe('single-writer election on real syncthing', function () {
     expect(running.length, `more than one node runs the component: ${running.join(', ')}`).to.be.at.most(1);
     return running;
   };
-  const neverConnected = (i, ip) => env.nodeLogCount(i, new RegExp(`at ${ip.replace(/\./g, '\\.')} ${NEVER_CONNECTED.source}`));
+  // How this node's election has judged a silent peer ahead of it, pass by pass:
+  // 'noEvidence' is a silence it may not act on, 'gone' one it may.
+  const silenceVerdicts = (i, verdict) => client(i).getDecisionCount('peer:silenceVerdict', identifier, verdict);
   const ownerAuth = async (i) => (await authenticate(client(i).url, appOwnerKey())).zelidauth;
 
   before(async function () {
@@ -143,12 +145,15 @@ describe('single-writer election on real syncthing', function () {
     expect(await runners(), 'fixture: the first holder is the primary').to.deep.equal([FIRST]);
 
     // Every one of these is a pass in which the late holder reached the primary
-    // in the election order, found it silent, and would otherwise have started.
-    const from = neverConnected(LATE, client(FIRST).ip);
+    // in the election order and found it silent. The primary is the only peer
+    // silent to it, so each is a verdict on the primary.
+    const gone = await silenceVerdicts(LATE, 'gone');
+    const from = await silenceVerdicts(LATE, 'noEvidence');
     await waitFor(async () => {
       await oneWriterAtMost();
-      return neverConnected(LATE, client(FIRST).ip) >= from + 3;
-    }, { timeout: 300000, interval: 3000, label: 'three election passes on the late holder that declined for want of evidence' });
+      return await silenceVerdicts(LATE, 'noEvidence') >= from + 3;
+    }, { timeout: 300000, interval: 3000, label: 'three election passes on the late holder that found no evidence of the primary\'s death' });
+    expect(await silenceVerdicts(LATE, 'gone') - gone, 'passes that read the silence as death').to.equal(0);
 
     expect(await runners(), 'the writer after those passes').to.deep.equal([FIRST]);
     expect((await getFolderConfig(client(LATE), folder)).type, 'the late holder\'s folder').to.equal('receiveonly');

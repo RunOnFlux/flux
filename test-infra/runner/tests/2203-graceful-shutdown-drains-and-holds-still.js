@@ -102,10 +102,10 @@ describe('a graceful shutdown drains to the standby and holds still', function (
 
     // The primary's syncthing stops the moment FluxOS exits, so what has not
     // reached the standby by then does not reach it at all.
+    const mark = client(FIRST).getLastEventId();
     await shutdownFluxosGracefully(client(FIRST).container, { hold: true, stopSyncthingAfter: true });
-    await waitFor(() => env.nodeHasLog(FIRST, /Shutdown drain complete/), {
-      timeout: 10000, interval: 500, label: 'the primary drained to completion',
-    });
+    const drained = await client(FIRST).waitForEvent('shutdown:drained', () => true, 10000, { afterId: mark });
+    expect(drained.data, 'the primary drained to completion').to.include({ complete: true });
 
     const path = `${root}/appdata/${FINAL_SAVE}`;
     await waitFor(async () => (await readPath(client(SECOND), path)) === 'written on signal\n', {
@@ -131,6 +131,7 @@ describe('a graceful shutdown drains to the standby and holds still', function (
     await blockTraffic(client(SECOND).container, [client(FIRST).ip], SYNCTHING_PORT);
     try {
       const started = Date.now();
+      const mark = client(SECOND).getLastEventId();
       const shutdown = shutdownFluxosGracefully(client(SECOND).container, { hold: true });
       let settled = false;
       shutdown.finally(() => { settled = true; }).catch(() => {});
@@ -150,9 +151,9 @@ describe('a graceful shutdown drains to the standby and holds still', function (
       expect(stoppedAt, 'the app was stopped for the shutdown').to.not.equal(null);
       expect(restartedAt, `the app started again ${restartedAt - stoppedAt}ms into the drain`).to.equal(null);
       expect(Date.now() - started, 'the drain held for its whole deadline').to.be.at.least(DRAIN_TIMEOUT_MS);
-      await waitFor(() => env.nodeHasLog(SECOND, /Shutdown drain reached its deadline/), {
-        timeout: 10000, interval: 500, label: 'the drain reached its deadline',
-      });
+      const drained = await client(SECOND).waitForEvent('shutdown:drained', () => true, 10000, { afterId: mark });
+      expect(drained.data, 'the drain reached its deadline with the folder undelivered')
+        .to.deep.include({ complete: false, incomplete: [folder] });
     } finally {
       await unblockTraffic(client(SECOND).container, [client(FIRST).ip], SYNCTHING_PORT);
       await releaseFluxos(client(SECOND).container);
