@@ -130,3 +130,34 @@ export async function startDaemon(client, { timeout = 60000, interval = 1000 } =
   }
   throw new Error(`syncthing-real: the daemon did not answer within ${timeout}ms of starting`);
 }
+
+// Stop the node's own daemon outright, as a machine going down stops it.
+export async function stopDaemon(client) {
+  await execInContainer(client.container, 'pkill -KILL -x syncthing; true');
+}
+
+// The daemon's own event log since `since`, optionally of named types - e.g.
+// StateChanged (a folder starting a scan) and ConfigSaved (a folder's type
+// changed). Event ids are ordered, so two events can be put in order, and
+// they restart from 1 when the daemon does.
+export async function getDaemonEvents(client, { since = 0, events = [] } = {}) {
+  const types = events.length ? `&events=${events.join(',')}` : '';
+  return api(client, `/rest/events?since=${since}&timeout=1${types}`);
+}
+
+// The id of the newest event the daemon holds, to measure later events from.
+export async function lastDaemonEventId(client) {
+  const all = await getDaemonEvents(client);
+  return all.length ? all[all.length - 1].id : 0;
+}
+
+// What the daemon records about each device: { <deviceID>: { lastSeen, ... } }.
+// lastSeen is 1970-01-01 for a device it has never been connected to.
+export async function getDeviceStats(client) {
+  return api(client, '/rest/stats/device');
+}
+
+// The devices the daemon has configured, as syncthing holds them.
+export async function getConfigDevices(client) {
+  return api(client, '/rest/config/devices');
+}

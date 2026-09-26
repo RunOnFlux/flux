@@ -315,3 +315,22 @@ export async function unblockTraffic(container, peerIps, port) {
     }
   }
 }
+
+// A crash of one node's FluxOS: the process is killed outright, with no
+// shutdown handling at all. `hold` keeps the node down afterwards, as a machine
+// that lost power stays down; releaseFluxos brings it back.
+export async function crashFluxos(container, { hold = false, exitTimeoutMs = 30000, interval = 250 } = {}) {
+  const pid = Number((await execInContainer(container, 'cat /tmp/fluxos.pid')).stdout.trim());
+  if (!pid) throw new Error('crashFluxos: no FluxOS pid in /tmp/fluxos.pid');
+  if (hold) await execInContainer(container, 'touch /tmp/fluxos.hold');
+  await execInContainer(container, `kill -9 ${pid}`);
+  const start = Date.now();
+  while (Date.now() - start < exitTimeoutMs) {
+    throwIfInfraDead();
+    // eslint-disable-next-line no-await-in-loop
+    if ((await execInContainer(container, `kill -0 ${pid} 2>/dev/null`)).exitCode !== 0) return { pid };
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(interval);
+  }
+  throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
+}
