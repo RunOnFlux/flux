@@ -165,6 +165,51 @@ async function getCurrentCommitId() {
 }
 
 /**
+ * The commit this install is on, or null when it cannot be read.
+ *
+ * @returns {Promise<string|null>}
+ */
+async function commitOrNull() {
+  try {
+    return await getCurrentCommitId();
+  } catch {
+    return null;
+  }
+}
+
+// Long enough for the reply to the request that changed the code to go out.
+const RESTART_AFTER_REPLY_MS = 5000;
+
+/**
+ * Runs the code now on disk, on a node whose FluxOS runs under pm2.
+ *
+ * pm2 starts FluxOS through start.sh, which installs its dependencies first, so
+ * a restart through pm2 runs the new code with the modules it needs. It is asked
+ * for when the checkout moved, or always for an update that removed the
+ * installed modules, and a moment later so the reply goes out first. A FluxOS
+ * that pm2 does not run - Arcane, which systemd starts - runs the new code from
+ * its next start.
+ *
+ * @param {string|null} before The commit before the change
+ * @param {{always?: boolean}} [options]
+ * @returns {Promise<boolean>} Whether a restart was asked for
+ */
+async function runNewCode(before, { always = false } = {}) {
+  const pm2Id = process.env.pm_id;
+  if (pm2Id === undefined) return false;
+  if (!always) {
+    const after = await commitOrNull();
+    if (after === null || after === before) return false;
+  }
+  log.info(`FluxOS code changed on disk, asking pm2 to restart process ${pm2Id} in ${RESTART_AFTER_REPLY_MS}ms`);
+  setTimeout(async () => {
+    const { error } = await serviceHelper.runCommand('pm2', { params: ['restart', String(pm2Id)] });
+    if (error) log.error(`pm2 could not restart FluxOS to run its new code: ${error.message}`);
+  }, RESTART_AFTER_REPLY_MS);
+  return true;
+}
+
+/**
  * To show the current short commit id. Flux team only: which code a node runs is not the operator's to choose or to read.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -355,7 +400,9 @@ async function currentCheckout() {
  * @returns {Promise<object>} Message.
  */
 async function enterMaster() {
+  const before = await commitOrNull();
   await checkoutBranch('master');
+  await runNewCode(before);
 }
 
 /**
@@ -388,7 +435,9 @@ async function enterMasterApi(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function enterDevelopment() {
+  const before = await commitOrNull();
   await checkoutBranch('development');
+  await runNewCode(before);
 }
 
 /**
@@ -428,6 +477,7 @@ async function updateFlux(req, res) {
     return res.json(errMessage);
   }
 
+  const before = await commitOrNull();
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'updateflux'] });
 
   if (error) {
@@ -435,6 +485,7 @@ async function updateFlux(req, res) {
     return res.json(errMessage);
   }
 
+  await runNewCode(before);
   const message = messageHelper.createSuccessMessage('Flux successfully updated');
   return res.json(message);
 }
@@ -446,10 +497,11 @@ async function updateFlux(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFlux() {
-
+  const before = await commitOrNull();
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'softupdate'] });
 
   if (error) throw error;
+  await runNewCode(before);
 }
 
 /**
@@ -479,10 +531,11 @@ async function softUpdateFluxApi(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFluxInstall() {
-
+  const before = await commitOrNull();
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'softupdateinstall'] });
 
   if (error) throw error;
+  await runNewCode(before);
 }
 
 /**
@@ -527,6 +580,9 @@ async function hardUpdateFlux(req, res) {
     return res ? res.json(errMessage) : errMessage;
   }
 
+  // The update removed the installed modules, so the code runs only after a
+  // start that installs them again.
+  await runNewCode(null, { always: true });
   const message = messageHelper.createSuccessMessage('Flux successfully hard updated');
   return res ? res.json(message) : message;
 }
@@ -1697,7 +1753,7 @@ async function getNodeTier(req, res) {
 }
 
 /**
- * Restart FluxOS via nodemon (executes the command `touch ` on package.json).
+ * Restart FluxOS through pm2 (executes `pm2 restart flux`).
  * @param {object} req Request.
  * @param {object} res Response.
  */
@@ -2126,6 +2182,7 @@ async function isArcaneOs(req, res) {
 }
 
 module.exports = {
+  runNewCode,
   adjustAPIPort,
   adjustKadenaAccount,
   adjustRouterIP,

@@ -412,9 +412,10 @@ async function stopFluxAppContainers() {
 }
 
 /**
- * Handle SIGTERM signal for graceful shutdown.
- * Only broadcasts fluxnodesigterm message if the system is actually rebooting/shutting down,
- * not when the service is just being restarted by systemd/pm2.
+ * Stops FluxOS. On a system shutdown or reboot it announces the shutdown to its
+ * peers, stops the app containers and drains every sendreceive folder to the
+ * connected peers before exiting; on a restart of the service alone it exits at
+ * once.
  */
 async function shutDown() {
   log.info('SIGTERM received, checking if system is shutting down...');

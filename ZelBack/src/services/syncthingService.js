@@ -1274,38 +1274,15 @@ async function ensureSyncthingRunning(installed) {
   // whatever the operator installed as.
   // this can throw
 
-  // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
-  // killed, but then get issues with nodemon not dying.
-
-  // adding old spawn with shell in the interim.
-
+  // Started through a shell that backgrounds it and exits, so syncthing is not
+  // a descendant of FluxOS. pm2 stops and restarts FluxOS by signalling every
+  // process in its tree, and syncthing has to keep running through that: across
+  // a restart, and through the drain FluxOS runs over it while it shuts down.
   childProcess.spawn(
     // Quoted: both paths come from SYNCTHING_PATH, and this runs through a shell.
     `sudo nohup syncthing --logfile '${logFile}' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '${syncthingHome}' >/dev/null 2>&1 </dev/null &`,
     { shell: true },
   ).unref();
-
-  // childProcess.spawn(
-  //   'sudo',
-  //   [
-  //     'nohup',
-  //     'syncthing',
-  //     '--logfile',
-  //     logFile,
-  //     '--logflags=3',
-  //     '--log-max-old-files=2',
-  //     '--log-max-size=26214400',
-  //     '--allow-newer-config',
-  //     '--no-browser',
-  //     '--home',
-  //     syncthingHome,
-  //   ],
-  //   {
-  //     detached: true,
-  //     stdio: 'ignore',
-  //     // uid: 0,
-  //   },
-  // ).unref();
 
   // let syncthing set itself up
   await stc.sleep(5 * 1000);

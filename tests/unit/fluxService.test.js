@@ -3189,7 +3189,9 @@ describe('fluxService tests', () => {
 
         await fluxService[api]({}, generateResponse());
 
-        sinon.assert.calledOnceWithMatch(runCmdStub, 'npm', { params: ['run', script] });
+        const npmCalls = runCmdStub.getCalls().filter((call) => call.args[0] === 'npm');
+        expect(npmCalls, 'npm runs once').to.have.length(1);
+        sinon.assert.calledWithMatch(runCmdStub, 'npm', { params: ['run', script] });
       });
     });
 
@@ -3397,6 +3399,116 @@ describe('fluxService tests', () => {
       await fluxService.enterMasterApi({}, generateResponse());
 
       sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', 'master'] });
+    });
+  });
+
+  // A node whose FluxOS runs under pm2 starts new code by a pm2 restart, which
+  // goes through start.sh and installs the modules first.
+  describe('running the code an update put on disk', () => {
+    let runCmdStub;
+    let clock;
+    let heads;
+    const savedPm2Id = process.env.pm_id;
+
+    const pm2Restarts = () => runCmdStub.getCalls().filter((call) => call.args[0] === 'pm2');
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      heads = ['aaa1111'];
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').callsFake(async (cmd, opts = {}) => {
+        if (cmd === 'git' && opts.params?.[0] === 'rev-parse' && opts.params?.includes('HEAD')) {
+          return { stdout: `${heads.length > 1 ? heads.shift() : heads[0]}\n`, error: null };
+        }
+        return { stdout: '', error: null };
+      });
+      process.env.pm_id = '3';
+    });
+
+    afterEach(() => {
+      clock.restore();
+      sinon.restore();
+      if (savedPm2Id === undefined) delete process.env.pm_id; else process.env.pm_id = savedPm2Id;
+    });
+
+    it('restarts through pm2 once the reply has had time to go, when the checkout moved', async () => {
+      heads = ['bbb2222'];
+
+      expect(await fluxService.runNewCode('aaa1111')).to.equal(true);
+      await clock.tickAsync(4999);
+      expect(pm2Restarts(), 'restarted before the reply').to.have.length(0);
+      await clock.tickAsync(1);
+      expect(pm2Restarts().map((call) => call.args[1])).to.deep.equal([{ params: ['restart', '3'] }]);
+    });
+
+    it('leaves FluxOS running when the checkout did not move', async () => {
+      expect(await fluxService.runNewCode('aaa1111')).to.equal(false);
+      await clock.tickAsync(10000);
+      expect(pm2Restarts()).to.have.length(0);
+    });
+
+    it('asks nothing of pm2 when pm2 does not run FluxOS', async () => {
+      delete process.env.pm_id;
+      heads = ['bbb2222'];
+
+      expect(await fluxService.runNewCode('aaa1111')).to.equal(false);
+      await clock.tickAsync(10000);
+      expect(pm2Restarts()).to.have.length(0);
+    });
+
+    it('restarts after an update that removed the installed modules, whatever the commit', async () => {
+      expect(await fluxService.runNewCode('aaa1111', { always: true })).to.equal(true);
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a soft update that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.softUpdateFlux();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a hard update', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const res = generateResponse();
+
+      await fluxService.hardUpdateFlux(undefined, res);
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a branch switch that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.enterDevelopment();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a switch to master that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.enterMaster();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a soft update with install that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.softUpdateFluxInstall();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after an update that moved the checkout', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.updateFlux(undefined, generateResponse());
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
     });
   });
 });
