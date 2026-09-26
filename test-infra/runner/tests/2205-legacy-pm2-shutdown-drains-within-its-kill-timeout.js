@@ -30,10 +30,8 @@ const APP_UID = 1000;
 const FINAL_SAVE = 'final.sav';
 const SAVE_TAKES_MS = 3000;
 const MULTITOOL_KILL_TIMEOUT_MS = 60000;
-const DETECTED = /System shutdown\/reboot detected, initiating graceful shutdown/;
-// pm2 relays FluxOS's output by tailing its log files, so a line can reach the
-// collector a moment after pm2 has returned.
-const RELAY_MS = 15000;
+// The node's event stream carries the rest after pm2 returns.
+const DELIVERY_MS = 10000;
 
 describe('a legacy node under pm2 drains within its kill timeout', function () {
   let env;
@@ -45,6 +43,8 @@ describe('a legacy node under pm2 drains within its kill timeout', function () {
   const STANDBY = 1;
   const DEFAULT = 2;
   const client = (i) => env.clients[i];
+  const eventsSince = (i, name, afterId) => client(i).getEventBuffer()
+    .filter((e) => e.event === name && e.id > afterId);
   const apps = {
     [TIMED]: `e2epm2timed${stamp}`,
     [DEFAULT]: `e2epm2default${stamp}`,
@@ -126,18 +126,16 @@ describe('a legacy node under pm2 drains within its kill timeout', function () {
   it('delivers the final save to the standby inside the multitool\'s kill timeout', async function () {
     this.timeout(300000);
     expect(await readPath(client(STANDBY), saveOnStandby(TIMED)), 'fixture: no final save yet').to.equal(null);
-    const detectedBefore = env.nodeLogCount(TIMED, DETECTED);
+    const mark = client(TIMED).getLastEventId();
 
     const { stopMs } = await shutdownFluxosUnderPm2(client(TIMED).container, { stopSyncthingAfter: true });
 
     // pm2 waited for FluxOS itself, not for its timeout.
     expect(stopMs, 'pm2 reported FluxOS stopped').to.be.below(MULTITOOL_KILL_TIMEOUT_MS);
-    await waitFor(() => env.nodeHasLog(TIMED, /Graceful shutdown complete, exiting/), {
-      timeout: RELAY_MS, interval: 500, label: 'FluxOS finished its shutdown',
-    });
-    expect(env.nodeHasLog(TIMED, /Shutdown drain complete/), 'the drain completed').to.equal(true);
+    const drained = await client(TIMED).waitForEvent('shutdown:drained', () => true, DELIVERY_MS, { afterId: mark });
+    expect(drained.data, 'the drain completed').to.include({ complete: true });
     // One stop, one shutdown, however many processes pm2 signalled on the way.
-    expect(env.nodeLogCount(TIMED, DETECTED) - detectedBefore, 'shutdowns started').to.equal(1);
+    expect(eventsSince(TIMED, 'shutdown:started', mark), 'shutdowns started').to.have.length(1);
 
     await waitFor(async () => (await readPath(client(STANDBY), saveOnStandby(TIMED))) === 'written on signal\n', {
       timeout: 30000, interval: 1000, label: 'the final save on the standby',
@@ -146,17 +144,16 @@ describe('a legacy node under pm2 drains within its kill timeout', function () {
 
   it('cuts the shutdown short at pm2\'s default kill timeout, and the final save stays behind', async function () {
     this.timeout(300000);
+    const mark = client(DEFAULT).getLastEventId();
     const { stopMs } = await shutdownFluxosUnderPm2(client(DEFAULT).container, { stopSyncthingAfter: true });
 
     expect(stopMs, 'pm2 gave FluxOS its default time').to.be.below(SAVE_TAKES_MS);
-    await waitFor(() => env.nodeHasLog(DEFAULT, DETECTED), {
-      timeout: RELAY_MS, interval: 500, label: 'fixture: FluxOS began its shutdown',
-    });
+    await client(DEFAULT).waitForEvent('shutdown:started', () => true, DELIVERY_MS, { afterId: mark });
 
-    // Long past the save landing on the node that left, and past the log relay:
-    // the save never leaves, and FluxOS never finished its drain.
-    await sleepUnlessInfraDead(SAVE_TAKES_MS + RELAY_MS);
+    // Long past the save landing on the node that left: it never leaves, and
+    // FluxOS never finished a drain.
+    await sleepUnlessInfraDead(SAVE_TAKES_MS + 20000);
     expect(await readPath(client(STANDBY), saveOnStandby(DEFAULT)), 'the final save on the standby').to.equal(null);
-    expect(env.nodeHasLog(DEFAULT, /Shutdown drain complete/), 'the drain completed').to.equal(false);
+    expect(eventsSince(DEFAULT, 'shutdown:drained', mark), 'drains that finished').to.have.length(0);
   });
 });

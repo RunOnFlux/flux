@@ -4920,6 +4920,7 @@ async function peerComponentState(peerSocketAddr, {
       return PeerComponent.UNKNOWN;
     }
     const verdict = await silenceVerdict(appId, peerSocketAddr, liveness);
+    fluxEventBus.count('peer:silenceVerdict', identifier, verdict);
     if (verdict === SilenceVerdict.GONE) {
       log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appId} gone - the component is free there`);
       return PeerComponent.NOT_RUNNING;
