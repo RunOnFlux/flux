@@ -661,7 +661,7 @@ describe('messageStore tests', () => {
       expect(result.message).to.include('appName cannot be empty');
     });
 
-    it('should store valid removed message and delete the location broadcast before it', async () => {
+    it('should store valid removed message and delete the location broadcast no later than it', async () => {
       const message = {
         type: 'fluxappremoved',
         version: 1,
@@ -679,7 +679,7 @@ describe('messageStore tests', () => {
       expect(result).to.be.true;
       expect(dbHelperStub.findOneAndDeleteInDatabase.calledOnce).to.be.true;
       expect(dbHelperStub.findOneAndDeleteInDatabase.firstCall.args[2]).to.deep.equal({
-        ip: '192.168.1.1', name: 'testapp', broadcastedAt: { $lt: new Date(message.broadcastedAt) },
+        ip: '192.168.1.1', name: 'testapp', broadcastedAt: { $lte: new Date(message.broadcastedAt) },
       });
     });
   });
