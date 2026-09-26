@@ -164,11 +164,7 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # read and a node with one of them gets either two syncthings or none.
   if [ -n "$FLUXOS_PATH" ]; then
     # the flags a real Arcane node is supervised with, read off a live one
-    mkdir -p /dat/var/log
-    nohup syncthing --no-browser --allow-newer-config --home "$SYNCTHING_PATH" \
-          --logfile /dat/var/log/syncthing.log --logflags=3 \
-          --log-max-old-files=2 --log-max-size=26214400 \
-          >/dev/null 2>&1 </dev/null &
+    /flux/test-infra/start-syncthing.sh
   fi
 elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
@@ -249,6 +245,10 @@ fi
 # dockerd - the app containers keep running, exactly like `systemctl restart fluxos`.
 # The child PID is written to /tmp/fluxos.pid so a test kills only the node process,
 # never PID 1. A SIGTERM/SIGINT (docker stop at teardown) stops the child and exits.
+#
+# While /tmp/fluxos.hold exists the loop does not respawn: the node stays down
+# after FluxOS exits, as a machine does between a shutdown and its next boot,
+# and comes back once a test removes the file.
 set +e
 STOPPING=0
 trap 'STOPPING=1; kill -TERM "$(cat /tmp/fluxos.pid 2>/dev/null)" 2>/dev/null' TERM INT
@@ -257,6 +257,8 @@ while [ "$STOPPING" = "0" ]; do
   FLUXOS_PID=$!
   echo "$FLUXOS_PID" > /tmp/fluxos.pid
   wait "$FLUXOS_PID"
+  [ "$STOPPING" = "1" ] && break
+  while [ -f /tmp/fluxos.hold ] && [ "$STOPPING" = "0" ]; do sleep 1; done
   [ "$STOPPING" = "1" ] && break
   echo "fluxos (node app.js) exited, respawning in 1s" >&2
   sleep 1

@@ -44,8 +44,20 @@ const nodeStates = new Map();
 // like one that was never touched. Record each write in order so a test can ask
 // what was done to WHICH folder - the whole question for a composed app, whose
 // folders are per component and whose app name addresses none of them.
+//
+// Scans are recorded in their own list, numbered from the same sequence as the
+// writes, so a suite can ask whether a folder was scanned before it was changed
+// without a scan reading as a config write.
+let folderCallSeq = 0;
 function recordFolderWrite(state, method, id, body) {
-  state.folderWrites.push({ method, id, body: body ?? null });
+  folderCallSeq += 1;
+  state.folderWrites.push({
+    method, id, body: body ?? null, seq: folderCallSeq,
+  });
+}
+function recordFolderScan(state, id) {
+  folderCallSeq += 1;
+  state.folderScans.push({ id, seq: folderCallSeq });
 }
 
 function nodeState(ip) {
@@ -59,6 +71,7 @@ function nodeState(ip) {
       ignores: new Map(),
       restartRequired: false,
       folderWrites: [],
+      folderScans: [],
     };
     // every node knows itself as a configured device
     state.devices.set(deviceID, {
@@ -628,7 +641,10 @@ app.post('/rest/db/revert', (req, res) => {
   });
   res.json({});
 });
-app.post('/rest/db/scan', (req, res) => res.json({}));
+app.post('/rest/db/scan', (req, res) => {
+  recordFolderScan(reqState(req), req.query.folder || '');
+  res.json({});
+});
 
 // -- Folder --
 
@@ -644,10 +660,21 @@ app.post('/rest/folder/versions', (req, res) => res.json({}));
 
 // -- Stats --
 
+// `<viewer ip>|<device>` or `*|<device>` -> the lastSeen a node reports for a
+// device, or null for a device it has never been connected to. Unset, every
+// device was last seen now.
+const deviceLastSeen = new Map();
+// What syncthing reports as lastSeen for a device it has never been connected to.
+const NEVER_SEEN = '1970-01-01T00:00:00Z';
+
 app.get('/rest/stats/device', (req, res) => {
+  const ip = clientIp(req);
   const stats = {};
   reqState(req).devices.forEach((d) => {
-    stats[d.deviceID] = { lastSeen: new Date().toISOString(), lastConnectionDurationS: 3600 };
+    const key = [`${ip}|${d.deviceID}`, `*|${d.deviceID}`].find((k) => deviceLastSeen.has(k));
+    const declared = key ? deviceLastSeen.get(key) : undefined;
+    const lastSeen = declared === undefined ? new Date().toISOString() : (declared ?? NEVER_SEEN);
+    stats[d.deviceID] = { lastSeen, lastConnectionDurationS: declared === null ? 0 : 3600 };
   });
   res.json(stats);
 });
@@ -746,8 +773,9 @@ control.get('/state', (req, res) => {
       folders: Array.from(s.folders.values()),
       devices: Array.from(s.devices.values()),
       restartRequired: s.restartRequired,
-      // ordered history of folder config writes - see recordFolderWrite
+      // ordered history of folder config writes, and of scans - see recordFolderWrite
       folderWrites: s.folderWrites,
+      folderScans: s.folderScans,
     })),
   });
 });
@@ -902,6 +930,18 @@ control.get('/device-config-refusals', (req, res) => {
   return res.json({ refusals: ip ? (deviceConfigRefusals.get(ip) ?? 0) : Object.fromEntries(deviceConfigRefusals) });
 });
 
+// Set what one node's /rest/stats/device reports as lastSeen for a device: an
+// ISO time, or null for a device it has never been connected to. Omit ip to
+// set it for every viewer; omit lastSeen to go back to "seen now".
+control.post('/device-last-seen', (req, res) => {
+  const { ip = '*', device } = req.body || {};
+  if (!device) return res.status(400).json({ error: 'device required' });
+  const key = `${ip}|${device}`;
+  if (!('lastSeen' in (req.body || {}))) deviceLastSeen.delete(key);
+  else deviceLastSeen.set(key, req.body.lastSeen);
+  return res.json({ ok: true, key, lastSeen: deviceLastSeen.get(key) });
+});
+
 // Back to default always-synced/empty behaviour.
 control.post('/sync-reset', (req, res) => {
   console.log(`[write] sync-reset from=${clientIp(req)}`);
@@ -914,10 +954,11 @@ control.post('/sync-reset', (req, res) => {
   eventsOutages.clear();
   folderPatchDelay.clear();
   patchDelayWaker.emit('wake');
+  deviceLastSeen.clear();
   res.json({ ok: true });
 });
 
-// Drop the recorded folder-write history, leaving the folder config itself
+// Drop the recorded folder-write and scan history, leaving the folder config itself
 // alone: a test that asks "what did THIS operation do" needs a mark it can
 // measure from, and the monitor writes folder config continuously.
 control.post('/folder-writes-reset', (req, res) => {
@@ -925,7 +966,10 @@ control.post('/folder-writes-reset', (req, res) => {
   const targets = ip === '*' ? Array.from(nodeStates.keys()) : [ip];
   targets.forEach((target) => {
     const state = nodeStates.get(target);
-    if (state) state.folderWrites.length = 0;
+    if (state) {
+      state.folderWrites.length = 0;
+      state.folderScans.length = 0;
+    }
   });
   res.json({ ok: true });
 });

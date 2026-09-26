@@ -105,6 +105,12 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappslocation').find({ ip }).toArray();
     },
 
+    // This node's stored state events for one node, optionally of one type.
+    async getAppStateEvents({ ip, type } = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appstateevents').find({ ip, ...(type ? { type } : {}) }).toArray();
+    },
+
     async eventCounts() {
       const globalDb = await db('appsGlobal');
       const col = globalDb.collection('appstateevents');

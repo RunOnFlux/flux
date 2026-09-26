@@ -223,3 +223,95 @@ export async function getContainerImageDigest(container, appName, componentName)
   const match = stdout.trim().match(/@(sha256:[a-f0-9]+)$/);
   return match ? match[1] : null;
 }
+
+// A graceful system shutdown of one node's FluxOS, as systemd performs it: the
+// shutdown marker FluxOS checks for is put in place, the process is sent
+// SIGTERM, and this returns once it has exited. The marker is removed again
+// after the exit, so the next FluxOS on this node boots as usual.
+//
+// `hold` keeps the node down after the exit, as a machine stays down between a
+// shutdown and its next boot; releaseFluxos brings it back. `stopSyncthingAfter`
+// stops the node's own syncthing the moment FluxOS exits, which is what the OS
+// does next on an Arcane node - for a node booted with syncthing: 'binary'.
+//
+// @returns {Promise<{pid: number, exitedAt: number}>} the process that shut down,
+//   and when this saw it gone (ms)
+export async function shutdownFluxosGracefully(container, {
+  hold = false, stopSyncthingAfter = false, exitTimeoutMs = 120000, interval = 250,
+} = {}) {
+  const pid = Number((await execInContainer(container, 'cat /tmp/fluxos.pid')).stdout.trim());
+  if (!pid) throw new Error('shutdownFluxosGracefully: no FluxOS pid in /tmp/fluxos.pid');
+  await execInContainer(container, `touch /run/nologin${hold ? ' /tmp/fluxos.hold' : ''}`);
+  if (stopSyncthingAfter) {
+    // Inside the node, so the daemon stops within a poll of the exit rather than
+    // a docker exec round trip later.
+    const watcher = await execInContainer(container,
+      `setsid sh -c 'while kill -0 ${pid} 2>/dev/null; do sleep 0.05; done; pkill -x syncthing' >/dev/null 2>&1 </dev/null &`);
+    if (watcher.exitCode !== 0) throw new Error(`shutdownFluxosGracefully: could not arm the syncthing stop: ${watcher.output}`);
+  }
+  const signalled = await execInContainer(container, `kill -TERM ${pid}`);
+  if (signalled.exitCode !== 0) throw new Error(`shutdownFluxosGracefully: could not signal ${pid}: ${signalled.output}`);
+  const start = Date.now();
+  try {
+    while (Date.now() - start < exitTimeoutMs) {
+      throwIfInfraDead();
+      // eslint-disable-next-line no-await-in-loop
+      const alive = await execInContainer(container, `kill -0 ${pid} 2>/dev/null`);
+      if (alive.exitCode !== 0) return { pid, exitedAt: Date.now() };
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(interval);
+    }
+    throw new Error(`shutdownFluxosGracefully: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGTERM`);
+  } finally {
+    await execInContainer(container, 'rm -f /run/nologin');
+  }
+}
+
+// Bring back a node held down by shutdownFluxosGracefully({ hold: true }), and
+// wait for its API to answer.
+export async function releaseFluxos(container, { apiPort = 16127, readyTimeoutMs = 120000, interval = 500 } = {}) {
+  await execInContainer(container, 'rm -f /tmp/fluxos.hold');
+  const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
+  const start = Date.now();
+  while (Date.now() - start < readyTimeoutMs) {
+    throwIfInfraDead();
+    // eslint-disable-next-line no-await-in-loop
+    if ((await execInContainer(container, probe)).exitCode === 0) return;
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(interval);
+  }
+  throw new Error(`releaseFluxos: FluxOS did not answer within ${readyTimeoutMs}ms`);
+}
+
+// Drop every packet between this node and each peer on one TCP port, in both
+// directions and whichever side dialled - a link that is up but carries nothing
+// for that service. The syncthing port is apiport+2.
+function trafficRules(peerIp, port) {
+  return [
+    `INPUT -p tcp -s ${peerIp} --dport ${port} -j DROP`,
+    `INPUT -p tcp -s ${peerIp} --sport ${port} -j DROP`,
+    `OUTPUT -p tcp -d ${peerIp} --dport ${port} -j DROP`,
+    `OUTPUT -p tcp -d ${peerIp} --sport ${port} -j DROP`,
+  ];
+}
+
+export async function blockTraffic(container, peerIps, port) {
+  for (const peerIp of peerIps) {
+    for (const rule of trafficRules(peerIp, port)) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables -I ${rule}`);
+      if (r.exitCode !== 0) throw new Error(`blockTraffic: could not add '${rule}': ${r.output}`);
+    }
+  }
+  return peerIps;
+}
+
+// Undo blockTraffic. Tolerates a rule that is already gone.
+export async function unblockTraffic(container, peerIps, port) {
+  for (const peerIp of peerIps) {
+    for (const rule of trafficRules(peerIp, port)) {
+      // eslint-disable-next-line no-await-in-loop
+      await execInContainer(container, `iptables -D ${rule}`);
+    }
+  }
+}
