@@ -565,8 +565,10 @@ async function expireLocationsForSigterm(ip, broadcastedAt) {
 
 /**
  * Removes the location row an appremoved broadcast speaks for: the app's row on
- * that node, when it was broadcast before the removal. A row from a later
- * apprunning broadcast is the app installed again and stays.
+ * that node, when it was broadcast no later than the removal. A row from a later
+ * apprunning broadcast is the app installed again and stays. The same rule as
+ * the event-derived view, which keeps a report only when it is newer than the
+ * node's removal of that app.
  *
  * @param {string} ip - The node's socket address
  * @param {string} appName - The removed app
@@ -579,7 +581,7 @@ async function removeLocationForAppRemoved(ip, appName, broadcastedAt) {
   await dbHelper.findOneAndDeleteInDatabase(
     database,
     globalAppsLocations,
-    { ip, name: appName, broadcastedAt: { $lt: new Date(broadcastedAt) } },
+    { ip, name: appName, broadcastedAt: { $lte: new Date(broadcastedAt) } },
     {},
   );
 }

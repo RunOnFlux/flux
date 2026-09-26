@@ -101,6 +101,15 @@ describe('messageStore location ordering', () => {
       expect(await find('app')).to.not.equal(null);
     });
 
+    it('removes a row broadcast at the removal instant, as the event-derived view does', async () => {
+      const now = Date.now();
+      await collection.insertOne(row('app', ip, now));
+
+      await messageStore.removeLocationForAppRemoved(ip, 'app', now);
+
+      expect(await find('app')).to.equal(null);
+    });
+
     it('removes the app row broadcast before the removal and nothing else', async () => {
       const now = Date.now();
       await collection.insertMany([
