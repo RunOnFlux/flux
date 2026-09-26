@@ -12,7 +12,6 @@ const policyStore = require('./policyStore');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
-const dbHelper = require('./dbHelper');
 const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
@@ -26,7 +25,6 @@ const { INTENT } = require('./utils/messageIntent');
 const {
   ROUTE, register, declaredIntent, handlerFor, isOrdered,
 } = require('./utils/messageRoutes');
-const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
 
@@ -274,13 +272,9 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
       await messageStore.pruneAppRunningLocations(newestByIp);
     }
 
-    // Applied after every slice, never inside one. An eviction clears a node's
-    // locations outright, so a slice storing that node's apprunning events
-    // afterwards would put them straight back - and evictions carry no
-    // broadcastedAt, so the sender's timestamp sort puts them in the earliest
-    // slice every time.
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+    // Applied after every slice, once every apprunning row in the response is
+    // stored. Each event removes or shortens only the rows broadcast before it.
+    // An eviction's time is createdAt, when the evicting node made it.
     for (const event of [...evictions, ...stateEvents]) {
       if (event.type === 'sigterm') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
@@ -289,8 +283,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
         await messageStore.removeLocationForAppRemoved(event.data.ip, event.data.appName, event.data.broadcastedAt);
       } else if (event.type === 'evicted') {
-        await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
-        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
+        await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
       }
