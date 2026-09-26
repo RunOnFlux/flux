@@ -877,7 +877,7 @@ describe('messageStore tests', () => {
       expect(filter.type).to.equal('evicted');
       expect(filter.dedupKey).to.equal('evicted');
       const update = collectionStub.updateOne.firstCall.args[1];
-      expect(update.$set.createdAt).to.be.instanceOf(Date);
+      expect(update.$max.createdAt).to.be.instanceOf(Date);
     });
 
     it('should reject expired apprunning events', async () => {

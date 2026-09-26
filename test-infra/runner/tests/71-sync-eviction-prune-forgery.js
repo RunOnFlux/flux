@@ -63,12 +63,14 @@ async function apprunningEvent({
 }
 
 // Evictions carry no broadcastedAt, so the sender's timestamp sort always places
-// them at the very front of the response - in the first slice.
-const evictedEvent = (nodeNum) => ({
+// them at the very front of the response - in the first slice. createdAt is when
+// the evicting node made the call, and an eviction removes only the rows
+// broadcast before it.
+const evictedEvent = (nodeNum, createdAt) => ({
   type: 'evicted',
   ip: socketAddr(nodeNum),
   dedupKey: `evicted:${socketAddr(nodeNum)}`,
-  createdAt: new Date(),
+  createdAt,
 });
 
 async function bootAndPeer(env, nodeIndices) {
@@ -167,9 +169,10 @@ describe('Sync response: eviction, pruning and forged events', function () {
       }));
     }
 
-    // The node is evicted, and reports itself running an app later in the same
-    // response. The eviction must still be the outcome.
-    events.push(evictedEvent(EVICTED_NODE));
+    // The node reports itself running an app, and is evicted after that report.
+    // The eviction sits in the first slice and the report in a later one; the
+    // eviction must still be the outcome.
+    events.push(evictedEvent(EVICTED_NODE, new Date(stamp + FILLER_EVENTS + 150)));
     events.push(await apprunningEvent({
       nodeNum: EVICTED_NODE,
       apps: ['evictedapp'],

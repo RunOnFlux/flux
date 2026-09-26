@@ -2024,6 +2024,33 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledOnceWithExactly(removeStub, SENDER, 'app', broadcastedAt);
     });
+
+    it('hands an eviction to messageStore with the time it was made', async () => {
+      const evictStub = sinon.stub(messageStore, 'applyEviction').resolves();
+      const createdAt = new Date(Date.now() - 45 * 60 * 1000);
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: {
+          type: 'fluxapprunningsync',
+          messages: [{ type: 'evicted', ip: SENDER, dedupKey: 'evicted', createdAt: createdAt.toISOString() }],
+          done: true,
+        },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledOnceWithExactly(evictStub, SENDER, createdAt.getTime());
+    });
+
+    it('hands an eviction without a time over as unreadable, for messageStore to take as now', async () => {
+      const evictStub = sinon.stub(messageStore, 'applyEviction').resolves();
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'evicted', ip: SENDER }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledOnce(evictStub);
+      expect(evictStub.firstCall.args[0]).to.equal(SENDER);
+      expect(Number.isNaN(evictStub.firstCall.args[1])).to.equal(true);
+    });
   });
 
   describe('a sync response says which peer completed it, and whether it declined', () => {
