@@ -665,6 +665,14 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
     sinon.assert.calledWith(exitStub, 0);
   });
 
+  it('runs one shutdown for a stop that arrives several times at once', async () => {
+    await Promise.all([apiServer.handleSigterm(), apiServer.handleSigterm(), apiServer.handleSigterm()]);
+
+    sinon.assert.calledOnce(setShutdownStub);
+    sinon.assert.calledOnce(drainStub);
+    sinon.assert.calledOnce(exitStub);
+  });
+
   it('answers SIGINT with the same handler as SIGTERM', () => {
     expect(process.listeners('SIGINT')).to.include(apiServer.handleSigterm);
     expect(process.listeners('SIGTERM')).to.include(apiServer.handleSigterm);

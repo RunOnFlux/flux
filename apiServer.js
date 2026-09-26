@@ -414,7 +414,7 @@ async function stopFluxAppContainers() {
  * Only broadcasts fluxnodesigterm message if the system is actually rebooting/shutting down,
  * not when the service is just being restarted by systemd/pm2.
  */
-async function handleSigterm() {
+async function shutDown() {
   log.info('SIGTERM received, checking if system is shutting down...');
 
   // Small delay to allow systemd to update its state before we check
@@ -496,6 +496,23 @@ async function handleSigterm() {
   verifyPool.stop();
   log.info('Graceful shutdown complete, exiting...');
   process.exit(0);
+}
+
+let shutdownInFlight = null;
+
+/**
+ * The SIGTERM and SIGINT handler. One stop can arrive several times: pm2
+ * signals every process in its tree at once, and the processes between pm2 and
+ * this one pass the signal on again. A signal that arrives while a shutdown is
+ * under way joins it.
+ *
+ * @returns {Promise<void>}
+ */
+function handleSigterm() {
+  if (!shutdownInFlight) {
+    shutdownInFlight = shutDown().finally(() => { shutdownInFlight = null; });
+  }
+  return shutdownInFlight;
 }
 
 // Register SIGTERM handler for graceful shutdown on system reboot/shutdown
