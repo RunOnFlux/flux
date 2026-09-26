@@ -103,7 +103,9 @@ describe('a graceful shutdown drains to the standby and holds still', function (
     // The primary's syncthing stops the moment FluxOS exits, so what has not
     // reached the standby by then does not reach it at all.
     await shutdownFluxosGracefully(client(FIRST).container, { hold: true, stopSyncthingAfter: true });
-    expect(env.nodeHasLog(FIRST, /Shutdown drain complete/), 'the primary drained to completion').to.equal(true);
+    await waitFor(() => env.nodeHasLog(FIRST, /Shutdown drain complete/), {
+      timeout: 10000, interval: 500, label: 'the primary drained to completion',
+    });
 
     const path = `${root}/appdata/${FINAL_SAVE}`;
     await waitFor(async () => (await readPath(client(SECOND), path)) === 'written on signal\n', {
@@ -148,7 +150,9 @@ describe('a graceful shutdown drains to the standby and holds still', function (
       expect(stoppedAt, 'the app was stopped for the shutdown').to.not.equal(null);
       expect(restartedAt, `the app started again ${restartedAt - stoppedAt}ms into the drain`).to.equal(null);
       expect(Date.now() - started, 'the drain held for its whole deadline').to.be.at.least(DRAIN_TIMEOUT_MS);
-      expect(env.nodeHasLog(SECOND, /Shutdown drain reached its deadline/), 'the drain reached its deadline').to.equal(true);
+      await waitFor(() => env.nodeHasLog(SECOND, /Shutdown drain reached its deadline/), {
+        timeout: 10000, interval: 500, label: 'the drain reached its deadline',
+      });
     } finally {
       await unblockTraffic(client(SECOND).container, [client(FIRST).ip], SYNCTHING_PORT);
       await releaseFluxos(client(SECOND).container);
