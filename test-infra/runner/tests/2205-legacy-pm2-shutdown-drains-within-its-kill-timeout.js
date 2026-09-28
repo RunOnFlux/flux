@@ -1,14 +1,13 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { shutdownFluxosUnderPm2 } from '../framework/container.js';
+import { pm2Registration, shutdownFluxosUnderPm2 } from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import { isDaemonUp, isFolderSynced, readPath } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A legacy node's shutdown, with FluxOS run by pm2 the way the multitool starts
@@ -22,9 +21,11 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // finishes inside pm2's kill timeout.
 //
 // Two single-writer apps, each with its primary on a pm2 node and its standby
-// on a third. One pm2 node has the multitool's kill timeout, 60 s; the other
-// has pm2's default, 1.6 s. The app takes 3 s over its final save, as a game
-// server does: inside the first timeout, and longer than the second.
+// on a third. One pm2 node is registered with the multitool's kill timeout,
+// 60 s. The other is registered with pm2's default, 1.6 s, as every node the
+// multitool installed before it set one: FluxOS raises it to 60 s at boot. The
+// app takes 3 s over its final save, as a game server does: longer than pm2's
+// default, inside 60 s.
 
 const APP_UID = 1000;
 const FINAL_SAVE = 'final.sav';
@@ -142,18 +143,24 @@ describe('a legacy node under pm2 drains within its kill timeout', function () {
     });
   });
 
-  it('cuts the shutdown short at pm2\'s default kill timeout, and the final save stays behind', async function () {
+  it('gives a registration with pm2\'s default the kill timeout, and then delivers the final save', async function () {
     this.timeout(300000);
+    // FluxOS raised it at boot, before any of the above, and saved it so the
+    // registration pm2 resurrects after a reboot carries it too.
+    const registration = await pm2Registration(client(DEFAULT).container);
+    expect(registration.live, 'the kill timeout pm2 holds').to.equal(MULTITOOL_KILL_TIMEOUT_MS);
+    expect(registration.saved, 'the kill timeout pm2 saved for the next boot').to.equal(MULTITOOL_KILL_TIMEOUT_MS);
+    expect(await readPath(client(STANDBY), saveOnStandby(DEFAULT)), 'fixture: no final save yet').to.equal(null);
     const mark = client(DEFAULT).getLastEventId();
+
     const { stopMs } = await shutdownFluxosUnderPm2(client(DEFAULT).container, { stopSyncthingAfter: true });
 
-    expect(stopMs, 'pm2 gave FluxOS its default time').to.be.below(SAVE_TAKES_MS);
-    await client(DEFAULT).waitForEvent('shutdown:started', () => true, DELIVERY_MS, { afterId: mark });
-
-    // Long past the save landing on the node that left: it never leaves, and
-    // FluxOS never finished a drain.
-    await sleepUnlessInfraDead(SAVE_TAKES_MS + 20000);
-    expect(await readPath(client(STANDBY), saveOnStandby(DEFAULT)), 'the final save on the standby').to.equal(null);
-    expect(eventsSince(DEFAULT, 'shutdown:drained', mark), 'drains that finished').to.have.length(0);
+    expect(stopMs, 'pm2 waited longer than its default, for FluxOS itself').to.be.above(SAVE_TAKES_MS)
+      .and.below(MULTITOOL_KILL_TIMEOUT_MS);
+    const drained = await client(DEFAULT).waitForEvent('shutdown:drained', () => true, DELIVERY_MS, { afterId: mark });
+    expect(drained.data, 'the drain completed').to.include({ complete: true });
+    await waitFor(async () => (await readPath(client(STANDBY), saveOnStandby(DEFAULT))) === 'written on signal\n', {
+      timeout: 30000, interval: 1000, label: 'the final save on the standby',
+    });
   });
 });
