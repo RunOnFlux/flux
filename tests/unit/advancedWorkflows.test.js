@@ -2418,6 +2418,42 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.neverCalledWith(setControllerDesired, appName, 'running');
     });
 
+    it('starts a primary once a flip syncthing did not answer shows in its config', async function () {
+      this.timeout(10000);
+      const appName = 'flipunansweredapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+      sinon.stub(appReconciler, 'claimStarting');
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const syncthingService = require('../../ZelBack/src/services/syncthingService');
+      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      // the wait for the type to show polls once a second
+      serviceHelperDelayStub.withArgs(1000).callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
+      let applied = false;
+      syncthingServiceStub.callsFake(async () => [{
+        id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: applied ? 'sendreceive' : 'receiveonly',
+      }]);
+      sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async () => {
+        applied = true;
+        return { status: 'error', data: { code: 'ECONNABORTED', message: 'timeout of 5000ms exceeded', httpStatus: null } };
+      });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      const released = () => releaseStarting.getCalls().some((c) => c.args[0] === appName);
+      for (let tick = 0; tick < 150 && !released(); tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+      }
+
+      expect(released(), 'the start was never attempted, so this proves nothing').to.equal(true);
+      sinon.assert.calledWith(setControllerDesired, appName, 'running');
+    });
+
     it('does NOT stop its own container when it is the primary on a UPnP (non-default) port', async () => {
       // Regression: FDM returns a bare master IP (production format). A UPnP node (e.g.
       // :16157) that IS the primary must recognise itself and keep running. The pre-fix
@@ -6350,5 +6386,55 @@ describe('changeSyncthingFolderType', () => {
 
     expect(changed).to.equal(true);
     sinon.assert.notCalled(adjust);
+  });
+
+  describe('a write syncthing did not answer', () => {
+    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+    const unanswered = { status: 'error', data: { code: 'ECONNABORTED', httpStatus: null } };
+    const folderOfType = (type) => [{ id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type }];
+
+    beforeEach(() => {
+      sinon.stub(serviceHelper, 'delay').callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
+    });
+
+    it('succeeds when the type shows in the config within the wait', async () => {
+      const read = sinon.stub(syncthingService, 'getConfigFolders');
+      read.onFirstCall().resolves(folderOfType('receiveonly'));
+      read.resolves(folderOfType('sendreceive'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 1000 });
+
+      expect(changed).to.equal(true);
+    });
+
+    it('fails when the type never shows within the wait', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 50 });
+
+      expect(changed).to.equal(false);
+    });
+
+    it('fails at once without a wait', async () => {
+      const read = sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive');
+
+      expect(changed).to.equal(false);
+      sinon.assert.calledOnce(read);
+    });
+
+    it('a write syncthing refused fails at once, even with a wait', async () => {
+      const read = sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { httpStatus: 400 } });
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 1000 });
+
+      expect(changed).to.equal(false);
+      sinon.assert.calledOnce(read);
+    });
   });
 });
