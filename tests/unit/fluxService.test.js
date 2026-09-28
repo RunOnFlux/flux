@@ -1,3 +1,4 @@
+const childProcess = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -36,6 +37,7 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
+const log = require('../../ZelBack/src/lib/log');
 
 // Mock adminConfig for consistent testing
 const adminConfig = {
@@ -3399,6 +3401,86 @@ describe('fluxService tests', () => {
       await fluxService.enterMasterApi({}, generateResponse());
 
       sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', 'master'] });
+    });
+  });
+
+  describe('the kill timeout of FluxOS\'s pm2 registration', () => {
+    const savedPm2Id = process.env.pm_id;
+    let runCmdStub;
+    let spawnStub;
+    let unref;
+    const registration = (killTimeout) => JSON.stringify([
+      { pm_id: 2, name: 'watchdog', pm2_env: {} },
+      { pm_id: 3, name: 'flux', pm2_env: killTimeout === undefined ? {} : { kill_timeout: killTimeout } },
+    ]);
+
+    beforeEach(() => {
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ stdout: registration(undefined), error: null });
+      unref = sinon.stub();
+      spawnStub = sinon.stub(childProcess, 'spawn').returns({ unref });
+      process.env.pm_id = '3';
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      if (savedPm2Id === undefined) delete process.env.pm_id; else process.env.pm_id = savedPm2Id;
+    });
+
+    it('re-registers with the kill timeout and saves, detached from this process, when pm2\'s default is in force', async () => {
+      expect(await fluxService.ensurePm2KillTimeout()).to.equal(true);
+
+      sinon.assert.calledOnce(spawnStub);
+      const [cmd, args, opts] = spawnStub.firstCall.args;
+      expect(cmd).to.equal('sh');
+      expect(args[1]).to.equal(`setsid sh -c 'pm2 restart 3 --kill-timeout ${fluxService.PM2_KILL_TIMEOUT_MS} && pm2 save' >/dev/null 2>&1 </dev/null &`);
+      expect(opts).to.include({ detached: true, stdio: 'ignore' });
+      sinon.assert.calledOnce(unref);
+    });
+
+    it('re-registers when the kill timeout is shorter than the shutdown needs', async () => {
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+
+      expect(await fluxService.ensurePm2KillTimeout()).to.equal(true);
+      sinon.assert.calledOnce(spawnStub);
+    });
+
+    it('leaves a registration that already has the kill timeout', async () => {
+      runCmdStub.resolves({ stdout: registration(fluxService.PM2_KILL_TIMEOUT_MS), error: null });
+
+      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      sinon.assert.notCalled(spawnStub);
+    });
+
+    it('asks nothing of pm2, and says nothing, when pm2 does not run FluxOS', async () => {
+      const warn = sinon.stub(log, 'warn');
+      delete process.env.pm_id;
+
+      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      sinon.assert.notCalled(runCmdStub);
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.notCalled(warn);
+    });
+
+    it('leaves the registration alone when the pm2 id is not a number', async () => {
+      process.env.pm_id = '3; reboot';
+
+      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      sinon.assert.notCalled(runCmdStub);
+      sinon.assert.notCalled(spawnStub);
+    });
+
+    it('leaves the registration alone when pm2 cannot list it', async () => {
+      runCmdStub.resolves({ stdout: '', error: new Error('pm2 not found') });
+
+      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      sinon.assert.notCalled(spawnStub);
+    });
+
+    it('leaves the registration alone when pm2 lists no process with this id', async () => {
+      process.env.pm_id = '9';
+
+      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      sinon.assert.notCalled(spawnStub);
     });
   });
 

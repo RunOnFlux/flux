@@ -2,6 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const { promisify } = require('node:util');
+const childProcess = require('node:child_process');
 
 const config = require('config');
 const configDefault = require('../../config/default');
@@ -206,6 +207,56 @@ async function runNewCode(before, { always = false } = {}) {
     const { error } = await serviceHelper.runCommand('pm2', { params: ['restart', String(pm2Id)] });
     if (error) log.error(`pm2 could not restart FluxOS to run its new code: ${error.message}`);
   }, RESTART_AFTER_REPLY_MS);
+  return true;
+}
+
+// How long pm2 waits for FluxOS to exit on a stop before killing it. The whole
+// shutdown has to fit: the containers stopped, then up to
+// SHUTDOWN_DRAIN_TIMEOUT_MS (apiServer.js) draining folders to peers. pm2's
+// systemd unit stops through `pm2 kill`, which waits this long, inside
+// systemd's 90s default stop timeout. The multitool registers new nodes with
+// the same value.
+const PM2_KILL_TIMEOUT_MS = 60000;
+
+/**
+ * Gives this FluxOS's pm2 registration a kill timeout of at least
+ * PM2_KILL_TIMEOUT_MS, on a node whose FluxOS runs under pm2.
+ *
+ * The timeout belongs to the registration, so it is changed by a pm2 restart
+ * with the new value, and saved so the registration pm2 resurrects at boot
+ * carries it. The restart ends this process and pm2 kills its process tree, so
+ * the command runs in a new session re-parented away from it. A registration
+ * that cannot be read is left alone.
+ *
+ * @returns {Promise<boolean>} Whether a re-registration was asked for
+ */
+async function ensurePm2KillTimeout() {
+  const pm2Id = process.env.pm_id;
+  if (pm2Id === undefined) return false;
+  if (!/^\d+$/.test(pm2Id)) {
+    log.warn(`pm2 id ${pm2Id} is not a number; leaving FluxOS's pm2 registration alone`);
+    return false;
+  }
+  const { stdout, error } = await serviceHelper.runCommand('pm2', { params: ['jlist'], maxBuffer: 16 * 1024 * 1024 });
+  let killTimeout;
+  try {
+    if (error) throw error;
+    const own = JSON.parse(stdout).find((proc) => String(proc.pm_id) === pm2Id);
+    if (!own) throw new Error(`process ${pm2Id} is not in pm2's list`);
+    killTimeout = own.pm2_env?.kill_timeout;
+  } catch (err) {
+    log.warn(`Could not read FluxOS's pm2 registration, leaving it alone: ${err.message}`);
+    return false;
+  }
+  if (Number(killTimeout) >= PM2_KILL_TIMEOUT_MS) return false;
+
+  log.info(`FluxOS's pm2 kill timeout is ${killTimeout ?? "pm2's default"}; re-registering process ${pm2Id} with ${PM2_KILL_TIMEOUT_MS}ms`);
+  const reregister = `pm2 restart ${pm2Id} --kill-timeout ${PM2_KILL_TIMEOUT_MS} && pm2 save`;
+  const child = childProcess.spawn('sh', ['-c', `setsid sh -c '${reregister}' >/dev/null 2>&1 </dev/null &`], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
   return true;
 }
 
@@ -2183,6 +2234,8 @@ async function isArcaneOs(req, res) {
 
 module.exports = {
   runNewCode,
+  ensurePm2KillTimeout,
+  PM2_KILL_TIMEOUT_MS,
   adjustAPIPort,
   adjustKadenaAccount,
   adjustRouterIP,
