@@ -336,6 +336,25 @@ export async function crashFluxos(container, { hold = false, exitTimeoutMs = 300
   throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
 }
 
+// The kill timeout of FluxOS's pm2 registration on a legacy node whose FluxOS
+// pm2 runs (createTestEnv pm2Nodes), as the daemon holds it and as `pm2 save`
+// stored it for the next boot. null where pm2 has none, which is its default.
+//
+// @returns {Promise<{live: number|null, saved: number|null, restarts: number}>}
+export async function pm2Registration(container) {
+  const jlist = await execInContainer(container, 'pm2 jlist');
+  if (jlist.exitCode !== 0) throw new Error(`pm2Registration: pm2 jlist failed: ${jlist.output}`);
+  const live = JSON.parse(jlist.stdout.trim()).find((p) => p.name === 'flux');
+  if (!live) throw new Error('pm2Registration: pm2 lists no process named flux');
+  const dump = await execInContainer(container, 'cat "$HOME/.pm2/dump.pm2" 2>/dev/null || echo "[]"');
+  const saved = JSON.parse(dump.stdout.trim()).find((p) => p.name === 'flux');
+  return {
+    live: live.pm2_env.kill_timeout ?? null,
+    saved: saved?.kill_timeout ?? null,
+    restarts: live.pm2_env.restart_time,
+  };
+}
+
 // A system shutdown of a legacy node whose FluxOS pm2 runs (createTestEnv
 // pm2Nodes): the shutdown marker FluxOS checks for is put in place and pm2
 // stops FluxOS, as the OS stops pm2 on its way down. pm2 returns once FluxOS
