@@ -11,9 +11,13 @@
 // 127.0.0.1 inside it and its API key is whatever it generated for itself.
 import { execInContainer } from './container.js';
 
+// The daemon's home as FluxOS resolves it: SYNCTHING_PATH where the node sets it
+// (Arcane), otherwise ~/.config/syncthing of the account FluxOS runs as (legacy).
+const CONFIG_XML = '"${SYNCTHING_PATH:-$(getent passwd "${FLUX_FLUXOS_USER:-root}" | cut -d: -f6)/.config/syncthing}/config.xml"';
+
 async function apiKey(client) {
   const r = await execInContainer(client.container,
-    "sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' /dat/usr/lib/syncthing/config.xml | head -1");
+    `sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' ${CONFIG_XML} | head -1`);
   const key = r.stdout.trim();
   if (!key) throw new Error('syncthing-real: no api key in the node\'s config.xml - is this env booted with syncthing: "binary"?');
   return key;
@@ -140,9 +144,13 @@ export async function stopDaemon(client) {
 // StateChanged (a folder starting a scan) and ConfigSaved (a folder's type
 // changed). Event ids are ordered, so two events can be put in order, and
 // they restart from 1 when the daemon does.
+//
+// Filtered here, not with the API's `events=`: syncthing creates the
+// subscription for a filter the first time it is asked for, so a filtered read
+// holds nothing from before that. The default subscription runs from start-up.
 export async function getDaemonEvents(client, { since = 0, events = [] } = {}) {
-  const types = events.length ? `&events=${events.join(',')}` : '';
-  return api(client, `/rest/events?since=${since}&timeout=1${types}`);
+  const all = await api(client, `/rest/events?since=${since}&timeout=1`);
+  return events.length ? all.filter((e) => events.includes(e.type)) : all;
 }
 
 // The id of the newest event the daemon holds, to measure later events from.
