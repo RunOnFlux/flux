@@ -280,17 +280,14 @@ describe('primary election under a divergent placement order', function () {
     expect(recovered, 'the app never came back on any holder').to.equal(true);
   });
 
-  it('starts only one holder while the seed is still fixing ownership', async function () {
+  it('starts only one holder while the seed waits for its folder to send', async function () {
     this.timeout(600000);
-    // The seed does not start its container the moment it is elected: it flips the
-    // folder to receiveonly, chowns the persistent data and flips back first. For
-    // that whole window it has committed but runs nothing, and a peer that asks
-    // only for running containers is told the component is free.
-    //
-    // The window is normally as long as a chown takes, which is not a length a
-    // test can rely on - held open at the stub, it is a chosen one, and the peer's
-    // probe lands inside it every run.
-    await setFolderPatchDelay({ ms: 45000 });
+    // A seed that has committed runs nothing until its folder sends, and a peer
+    // deciding in that window must be told the component is held. Held at the
+    // stub, the folder change is slower than syncthing's API answers but inside
+    // the time a start waits for it, so the window is open for a chosen length.
+    // Every holder is held alike: which of them seeds is the election's decision.
+    await setFolderPatchDelay({ ms: 40000 });
     try {
       await deploy(windowApp);
       const position = await electionIndexOf(env, windowApp, seedIndex);
@@ -304,11 +301,19 @@ describe('primary election under a divergent placement order', function () {
       while (Date.now() < deadline) {
         // eslint-disable-next-line no-await-in-loop
         started = await countUp(windowApp);
-        expect(started, 'a peer started while the seed was still fixing ownership').to.be.lessThan(2);
+        expect(started, 'a peer started while the seed was waiting for its folder').to.be.lessThan(2);
         // eslint-disable-next-line no-await-in-loop
         await sleepUnlessInfraDead(2000);
       }
       expect(started, 'nothing ever started').to.equal(1);
+
+      // The canary: at least one peer reached its own start decision while the
+      // seed held the component. Without one, nothing above was tested.
+      const identifier = `${windowApp}_${windowApp}`;
+      const heldOnPeer = (await Promise.all(holders.map(
+        (i) => env.clients[i].getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer'),
+      ))).reduce((a, b) => a + b, 0);
+      expect(heldOnPeer, 'fixture: no peer decided while the seed was committed').to.be.greaterThan(0);
     } finally {
       await setFolderPatchDelay({ ms: 0 }).catch(() => {});
     }
