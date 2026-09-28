@@ -283,16 +283,17 @@ export async function releaseFluxos(container, { apiPort = 16127, readyTimeoutMs
   throw new Error(`releaseFluxos: FluxOS did not answer within ${readyTimeoutMs}ms`);
 }
 
-// Drop every packet between this node and each peer on one TCP port, in both
-// directions and whichever side dialled - a link that is up but carries nothing
-// for that service. The syncthing port is apiport+2.
+// Drop every packet between this node and each peer on one port, TCP and UDP,
+// in both directions and whichever side dialled - a link that is up but carries
+// nothing for that service. The syncthing port is apiport+2, and syncthing
+// listens on it for both TCP and QUIC.
 function trafficRules(peerIp, port) {
-  return [
-    `INPUT -p tcp -s ${peerIp} --dport ${port} -j DROP`,
-    `INPUT -p tcp -s ${peerIp} --sport ${port} -j DROP`,
-    `OUTPUT -p tcp -d ${peerIp} --dport ${port} -j DROP`,
-    `OUTPUT -p tcp -d ${peerIp} --sport ${port} -j DROP`,
-  ];
+  return ['tcp', 'udp'].flatMap((proto) => [
+    `INPUT -p ${proto} -s ${peerIp} --dport ${port} -j DROP`,
+    `INPUT -p ${proto} -s ${peerIp} --sport ${port} -j DROP`,
+    `OUTPUT -p ${proto} -d ${peerIp} --dport ${port} -j DROP`,
+    `OUTPUT -p ${proto} -d ${peerIp} --sport ${port} -j DROP`,
+  ]);
 }
 
 export async function blockTraffic(container, peerIps, port) {
