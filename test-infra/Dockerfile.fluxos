@@ -167,16 +167,19 @@ COPY package.json ./
 RUN npm install --production \
     && cp package-lock.json /tmp/image-package-lock.json
 
-# pm2, for a legacy node started the way the multitool starts one. Pinned: the
-# multitool installs pm2@latest, and a suite measuring its stop must know which
-# pm2 it measured.
+# pm2, for a legacy node started the way the multitool starts one, at the
+# version in test-infra/pm2-version: the multitool installs pm2@latest, and a
+# suite measuring its stop must know which pm2 it measured. The file is in the
+# build context, so changing it marks the image stale.
 #
 # pm2 reports to version.pm2.io the first time it runs in a pm2 home that has
 # no `touch` marker, and daily from its daemon unless PM2_DISABLE_VERSION_CHECK
 # is set. The fleet has no route out, so both are off, for each account that
 # runs pm2: root, and fluxuser when FluxOS runs as that user.
 ENV PM2_DISABLE_VERSION_CHECK=1
-RUN npm install -g pm2@6.0.14 \
+COPY test-infra/pm2-version /tmp/pm2-version
+RUN PM2_VERSION="$(tr -d '[:space:]' < /tmp/pm2-version)" \
+    && test -n "$PM2_VERSION" && npm install -g "pm2@${PM2_VERSION}" \
     && mkdir -p /root/.pm2 /home/fluxuser/.pm2 \
     && touch /root/.pm2/touch /home/fluxuser/.pm2/touch \
     && chown -R fluxuser:fluxuser /home/fluxuser/.pm2
