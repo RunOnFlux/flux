@@ -12,6 +12,12 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const log = require('../../ZelBack/src/lib/log');
+const https = require('https');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -698,7 +704,7 @@ describe('advancedWorkflows tests', () => {
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
 
       try {
-        await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, require('https'));
+        await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
       } finally {
         shutdown.restore();
       }
@@ -2350,15 +2356,13 @@ describe('advancedWorkflows tests', () => {
     // never sends, whether or not its component ever ran, and the primary's sends
     // while its container runs here.
     describe('the folder type follows the election', () => {
-      const syncthingService = require('../../ZelBack/src/services/syncthingService');
-      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
       const gApp = (name) => ({ name, version: 8, compose: [{ name: 'n8n', containerData: 'g:/home/node/.n8n' }] });
 
       const pass = async ({ primaryIp, running, folderType }) => {
         dockerServiceStub.returns('fluxn8n_n8napp');
         syncthingServiceStub.resolves([{ id: 'fluxn8n_n8napp', path: `${appsFolder}fluxn8n_n8napp`, type: folderType }]);
         const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
-        sinon.stub(require('../../ZelBack/src/services/appMonitoring/appReconciler'), 'setControllerDesired');
+        sinon.stub(appReconciler, 'setControllerDesired');
         serviceHelperStub.resolves({ data: { status: 'success', data: { ips: [primaryIp] } } });
         fluxNetworkHelperStub.resolves('192.168.1.5:16127');
 
@@ -2366,7 +2370,7 @@ describe('advancedWorkflows tests', () => {
           globalState,
           sinon.stub().resolves({ status: 'success', data: [gApp('n8napp')] }),
           sinon.stub().resolves({ status: 'success', data: running.map((n) => ({ Names: [`/${n}`] })) }),
-          require('https'),
+          https,
         );
         return adjust;
       };
@@ -2393,12 +2397,9 @@ describe('advancedWorkflows tests', () => {
     it('does not start a primary whose folder could not be made to send', async () => {
       const appName = 'flipfailsapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
       const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
       sinon.stub(appReconciler, 'claimStarting');
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
-      const syncthingService = require('../../ZelBack/src/services/syncthingService');
-      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
@@ -2422,12 +2423,9 @@ describe('advancedWorkflows tests', () => {
       this.timeout(10000);
       const appName = 'flipunansweredapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
       const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
       sinon.stub(appReconciler, 'claimStarting');
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
-      const syncthingService = require('../../ZelBack/src/services/syncthingService');
-      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       // the wait for the type to show polls once a second
       serviceHelperDelayStub.withArgs(1000).callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
@@ -5806,7 +5804,6 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // syncthing stops; the safety check has to be told which peers those are.
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
       sinon.stub(registryManager, 'shuttingDownNodes').resolves(['5.6.7.8:16127']);
-      const syncthingService = require('../../ZelBack/src/services/syncthingService');
       sinon.stub(syncthingService, 'getConfigDevices').resolves([
         { name: '5.6.7.8:16127', deviceID: 'DEV-LEAVING' },
         { name: '9.9.9.9:16127', deviceID: 'DEV-STAYING' },
@@ -6355,9 +6352,6 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
 });
 
 describe('changeSyncthingFolderType', () => {
-  const syncthingService = require('../../ZelBack/src/services/syncthingService');
-  const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
-  const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 
   afterEach(() => {
     sinon.restore();
@@ -6389,7 +6383,6 @@ describe('changeSyncthingFolderType', () => {
   });
 
   describe('a write syncthing did not answer', () => {
-    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
     const unanswered = { status: 'error', data: { code: 'ECONNABORTED', httpStatus: null } };
     const folderOfType = (type) => [{ id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type }];
 

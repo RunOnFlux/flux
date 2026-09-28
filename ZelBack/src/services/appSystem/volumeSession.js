@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
+const syncthingService = require('../syncthingService');
 const verificationHelper = require('../verificationHelper');
 const {
   sanitizePath, verifyRealPath, verifyRealPathOfExistingPath,
@@ -603,8 +604,7 @@ class VolumeSession {
 async function refuseReadOnlyCopy(identifier) {
   let folders;
   try {
-    // eslint-disable-next-line global-require
-    folders = await require('../syncthingService').getConfigFolders();
+    folders = await syncthingService.getConfigFolders();
   } catch (error) {
     log.warn(`refuseReadOnlyCopy - could not read the syncthing folders for ${identifier}: ${error.message}`);
     return;

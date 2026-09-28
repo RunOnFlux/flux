@@ -42,6 +42,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
+const registryManagerModule = require('../appDatabase/registryManager');
 const { getContainerDataFlags, requiresSyncing, OWNED_FOLDER_SETTINGS } = require('../appMonitoring/syncthingMonitorHelpers');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
@@ -2217,14 +2218,12 @@ const FOLDER_TYPE_POLL_MS = 1000;
  * @returns {Promise<boolean>}
  */
 async function folderTypeSettles(folderPath, folderType, settleMs) {
-  // eslint-disable-next-line global-require
-  const syncthingService = require('../syncthingService');
   const deadline = Date.now() + settleMs;
   while (Date.now() < deadline) {
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(FOLDER_TYPE_POLL_MS);
     // eslint-disable-next-line no-await-in-loop
-    const folders = await syncthingService.getConfigFolders().catch(() => null);
+    const folders = await syncthingServiceModule.getConfigFolders().catch(() => null);
     if (folders?.find((f) => f.path === folderPath)?.type === folderType) return true;
   }
   return false;
@@ -2635,9 +2634,7 @@ async function appDockerRestart(appname) {
  * @returns {Promise<Set<string>>}
  */
 async function shuttingDownDevices() {
-  // eslint-disable-next-line global-require
-  const registryManager = require('../appDatabase/registryManager');
-  const departing = await registryManager.shuttingDownNodes();
+  const departing = await registryManagerModule.shuttingDownNodes();
   if (!departing.length) return new Set();
   const devices = await syncthingServiceModule.getConfigDevices();
   return new Set((devices || [])

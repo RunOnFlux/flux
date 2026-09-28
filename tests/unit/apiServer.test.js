@@ -1,5 +1,15 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const fs = require('node:fs');
+const apiServer = require('../../apiServer');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dockerService = require('../../ZelBack/src/services/dockerService');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 
 /**
  * These tests isolate and test the SIGTERM handling logic from apiServer.js
@@ -578,24 +588,10 @@ describe('apiServer SIGTERM handling tests', () => {
 });
 
 describe('handleSigterm drains syncthing folders before it exits', () => {
-  const fs = require('node:fs');
-  const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-  const dockerService = require('../../ZelBack/src/services/dockerService');
-  const syncthingService = require('../../ZelBack/src/services/syncthingService');
-  const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
-  const globalState = require('../../ZelBack/src/services/utils/globalState');
-  const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-  const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
-  const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
-  let apiServer;
   let exitStub;
   let drainStub;
   let stopStub;
   let setShutdownStub;
-
-  before(() => {
-    apiServer = require('../../apiServer');
-  });
 
   beforeEach(() => {
     // Method 1 of isSystemShuttingDown: the scheduled-shutdown marker exists.
