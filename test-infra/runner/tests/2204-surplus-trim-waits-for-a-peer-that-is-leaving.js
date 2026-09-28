@@ -47,17 +47,19 @@ describe('a surplus trim waits for a peer that is leaving', function () {
   const SURPLUS = 1;
   const client = (i) => env.clients[i];
 
-  // One block at a time until the surplus holder's trim pass reports its safety
-  // verdict on the app, which it does only when it wants to give the app up.
-  const nextSafetyVerdict = async () => {
-    const afterId = client(SURPLUS).getLastEventId();
+  // One block at a time until `holder`'s trim pass reports its safety verdict on
+  // the app, which it does only when it wants to give the app up. `beforeBlock`
+  // runs before every block driven.
+  const nextSafetyVerdict = async (holder, { beforeBlock = async () => {} } = {}) => {
+    const afterId = client(holder).getLastEventId();
     let verdict = null;
-    await driveUntil(client(SURPLUS), async () => {
-      const event = client(SURPLUS).getEventBuffer().find((e) => e.id > afterId
+    await driveUntil(client(holder), async () => {
+      await beforeBlock();
+      const event = client(holder).getEventBuffer().find((e) => e.id > afterId
         && e.event === 'giveUp:safety' && e.data?.appName === appName);
       verdict = event?.data ?? null;
       return verdict !== null;
-    }, { blocks: 2 * TRIM_PERIOD, label: 'the surplus holder\'s trim pass reports its safety verdict' });
+    }, { blocks: 2 * TRIM_PERIOD, label: `node ${holder}'s trim pass reports its safety verdict` });
     return verdict;
   };
 
@@ -147,7 +149,7 @@ describe('a surplus trim waits for a peer that is leaving', function () {
     const [sigterm] = await dbClient(SURPLUS + 1).getAppStateEvents({ ip: socketAddr(PRIMARY + 1), type: 'sigterm' });
     expect(sigterm, 'fixture: the surplus holder heard the shutdown').to.not.equal(undefined);
 
-    const verdict = await nextSafetyVerdict();
+    const verdict = await nextSafetyVerdict(SURPLUS);
     const sinceShutdown = Date.now() - sigterm.broadcastedAt.getTime();
     expect(sinceShutdown, 'fixture: the pass ran after the shutdown\'s window closed')
       .to.be.below(SIGTERM_EXPIRY_S * 1000);
@@ -156,20 +158,32 @@ describe('a surplus trim waits for a peer that is leaving', function () {
       .to.include(appName);
   });
 
-  it('trims the surplus copy once that peer is back and holding again', async function () {
+  it('trims the returning copy once no holder is leaving, and never stops the writer', async function () {
     this.timeout(600000);
+    // The shutdown handed the writer to the surplus holder, so the primary comes
+    // back as a standby and its copy is the one over the count. Its full peer is
+    // the new writer, which is not leaving, so its pass may trim.
     await releaseFluxos(client(PRIMARY).container);
-    await waitForUp(client(PRIMARY), appName, 'the primary runs the app again', { timeout: 300000, interval: 3000 });
     await waitFor(async () => {
       const events = await dbClient(SURPLUS + 1).getAppStateEvents({ ip: socketAddr(PRIMARY + 1) });
       const sigterm = events.find((e) => e.type === 'sigterm');
       const running = events.find((e) => e.type === 'apprunning');
       return running && (!sigterm || running.broadcastedAt > sigterm.broadcastedAt);
-    }, { timeout: 180000, interval: 2000, label: 'the primary reported running after its shutdown' });
+    }, { timeout: 180000, interval: 2000, label: 'the returning node reported the app after its shutdown' });
+    expect(await isAppContainerRunning(client(SURPLUS).container, appName), 'fixture: the writer moved to the surplus holder')
+      .to.equal(true);
+    expect(await isAppContainerRunning(client(PRIMARY).container, appName), 'fixture: the returning node runs nothing')
+      .to.equal(false);
 
-    const verdict = await nextSafetyVerdict();
-    expect(verdict.safe, `the trim refused a peer that is back: ${JSON.stringify(verdict)}`).to.equal(true);
-    await waitForAppRemoved(client(SURPLUS), appName, 180000);
-    expect(await isAppContainerRunning(client(PRIMARY).container, appName), 'the primary still runs the app').to.equal(true);
+    const writerRuns = async () => {
+      expect(await isAppContainerRunning(client(SURPLUS).container, appName), 'the writer stopped during the trim')
+        .to.equal(true);
+    };
+    const verdict = await nextSafetyVerdict(PRIMARY, { beforeBlock: writerRuns });
+    expect(verdict.safe, `the trim refused a peer that is not leaving: ${JSON.stringify(verdict)}`).to.equal(true);
+    await waitForAppRemoved(client(PRIMARY), appName, 180000);
+    await writerRuns();
+    expect(await client(SURPLUS).getInstalledApps().then((r) => r.data.map((a) => a.name)), 'the one copy left')
+      .to.include(appName);
   });
 });
