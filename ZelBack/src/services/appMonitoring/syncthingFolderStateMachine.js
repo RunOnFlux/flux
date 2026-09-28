@@ -1482,10 +1482,11 @@ async function handleReceiveOnlyTransition(params) {
         log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
         return { syncthingFolder, cache };
       }
-      log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
       // A single-writer folder sends only while the elected primary runs here;
       // the election flips it, this pass only records that the copy is whole.
-      syncthingFolder.type = containerDataFlags.includes('g') ? 'receiveonly' : 'sendreceive';
+      const singleWriter = containerDataFlags.includes('g');
+      log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), ${singleWriter ? 'stays receiveonly until elected primary' : 'switching to sendreceive'}`);
+      syncthingFolder.type = singleWriter ? 'receiveonly' : 'sendreceive';
       if (containerDataFlags.includes('r')) {
         log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (synced)`);
         appReconciler.setControllerDesired(appId, 'running', 'syncthing synced start');
