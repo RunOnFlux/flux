@@ -5,7 +5,10 @@ import { isAppContainerRunning, shutdownFluxosGracefully, releaseFluxos } from '
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { advanceBlock, driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
+import {
+  advanceBlock, driveUntil, getState, startTicker, stopTicker,
+} from '../framework/daemon-control.js';
+import { loadSharedConfig, PON_SPEED_MULTIPLIER } from '../framework/coupled-knobs.js';
 import { waitFor, waitForUp, waitForAppRemoved } from '../framework/wait.js';
 import { isDaemonUp, isFolderSynced } from '../framework/syncthing-real.js';
 import { dbClient } from '../framework/db-client.js';
@@ -31,6 +34,8 @@ const APP_UID = 1000;
 // The shutdown's window, widened from the fleet's 30s so that a trim pass driven
 // after the announcement lands inside it; still below the location lifetime.
 const SIGTERM_EXPIRY_S = 55;
+// The trim pass runs on the heights divisible by this (explorerService).
+const TRIM_PERIOD = loadSharedConfig().fluxapps.removeFluxAppsPeriod * PON_SPEED_MULTIPLIER;
 
 describe('a surplus trim waits for a peer that is leaving', function () {
   let env;
@@ -52,8 +57,20 @@ describe('a surplus trim waits for a peer that is leaving', function () {
         && e.event === 'giveUp:safety' && e.data?.appName === appName);
       verdict = event?.data ?? null;
       return verdict !== null;
-    }, { blocks: 40, label: 'the surplus holder\'s trim pass reports its safety verdict' });
+    }, { blocks: 2 * TRIM_PERIOD, label: 'the surplus holder\'s trim pass reports its safety verdict' });
     return verdict;
+  };
+
+  // Leaves the chain one block short of a trim-pass height, crossing none on the
+  // way, so no pass runs now and the next block driven runs one.
+  const alignToTrimPass = async () => {
+    let { currentHeight } = await getState();
+    const afterId = client(SURPLUS).getLastEventId();
+    while ((currentHeight + 1) % TRIM_PERIOD !== 0) {
+      // eslint-disable-next-line no-await-in-loop
+      ({ currentHeight } = await advanceBlock());
+    }
+    await client(SURPLUS).waitForEvent('block:processed', (d) => d.height >= currentHeight, 120000, { afterId });
   };
 
   before(async function () {
@@ -122,6 +139,9 @@ describe('a surplus trim waits for a peer that is leaving', function () {
 
   it('keeps the surplus copy while its only full peer is shutting down', async function () {
     this.timeout(300000);
+    // The pass lands on the first block after the shutdown, well inside its
+    // window, and the primary is back before its location rows lapse.
+    await alignToTrimPass();
     // Held down with its syncthing still running: connected, and complete.
     await shutdownFluxosGracefully(client(PRIMARY).container, { hold: true });
     const [sigterm] = await dbClient(SURPLUS + 1).getAppStateEvents({ ip: socketAddr(PRIMARY + 1), type: 'sigterm' });
