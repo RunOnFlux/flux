@@ -7,6 +7,7 @@ const appReconciler = require('./appReconciler');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
+const appQueryService = require('../appQuery/appQueryService');
 const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
@@ -1655,8 +1656,7 @@ async function manageFolderSyncState(params) {
 
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
-  // eslint-disable-next-line global-require
-  if (folderAlreadySyncing && containerDataFlags.includes('g') && (await require('../appQuery/appQueryService').holdsComponent(appId)) === false) {
+  if (folderAlreadySyncing && containerDataFlags.includes('g') && (await appQueryService.holdsComponent(appId)) === false) {
     // A single-writer folder sends only from the node that holds the primary:
     // running it, committed to start it, or stopped by its owner to work on its
     // data. Found sendreceive with none of those, this is a primary that lost
