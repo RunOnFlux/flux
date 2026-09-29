@@ -263,6 +263,7 @@ export function nodeClient(nodeNum) {
         'syncthing:localChangesReverted',
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
+        'checkpoint:held',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
@@ -287,6 +288,7 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:peerTimedOut',
         'ephemeralSync:peerUnverified',
         'ephemeralSync:peerDisconnected',
+        'ephemeralSync:budgetSpent',
         'sync:chunkVerified',
         'hashSync:complete',
         'hashSync:failed',
@@ -412,6 +414,17 @@ export function nodeClient(nodeNum) {
     return res.status === 'success' ? res.data : {};
   }
 
+  // Pauses a named code path on this node until released - see checkpoint() in
+  // fluxEventBus.js. A paused path announces itself as checkpoint:held. The node
+  // refuses a name no code path declares, and that refusal throws here.
+  async function checkpointControl(body) {
+    const res = await post('/flux/testcheckpoints', body);
+    if (res.status !== 'success') {
+      throw new Error(`checkpoint ${body.action} ${body.name ?? ''} refused: ${res.data?.message ?? JSON.stringify(res)}`);
+    }
+    return res.data;
+  }
+
   // Times a loop has been observed taking a given decision about a component.
   // Absent counters read as 0, so a caller can difference two reads without
   // caring whether the loop has run yet.
@@ -442,6 +455,9 @@ export function nodeClient(nodeNum) {
     waitForEvent,
     getTestCounters,
     getDecisionCount,
+    holdCheckpoint: (name, key) => checkpointControl({ name, key, action: 'hold' }),
+    releaseCheckpoint: (name, key) => checkpointControl({ name, key, action: 'release' }),
+    releaseAllCheckpoints: () => checkpointControl({ action: 'releaseAll' }),
     getLastEventId,
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),

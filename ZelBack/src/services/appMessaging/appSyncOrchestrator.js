@@ -727,16 +727,22 @@ class AppSyncOrchestrator {
     });
 
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
-      this.#syncTimeout = setTimeout(() => {
+      const budget = setTimeout(async () => {
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.APPSYNC_BEFORE_BUDGET_SPENT);
+        // Held at the checkpoint, the attempt may have been reset and a new one
+        // opened; this budget then belongs to neither.
+        if (this.#syncTimeout !== budget) return;
         this.#syncTimeout = null;
         if (this.#stateSyncComplete) return;
         this.#closeRound('the budget ran out');
         this.#syncBudgetSpent = true;
         this.#requests.discardAll();
-        const answered = Object.entries(this.#completionCounts())
-          .map(([type, count]) => `${type}=${count}`).join(' ');
+        const counts = this.#completionCounts();
+        const answered = Object.entries(counts).map(([type, count]) => `${type}=${count}`).join(' ');
         log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: ${answered}`);
+        fluxEventBus.publish('ephemeralSync:budgetSpent', { answered: counts });
       }, SYNC_TIMEOUT_MS);
+      this.#syncTimeout = budget;
     }
   }
 
