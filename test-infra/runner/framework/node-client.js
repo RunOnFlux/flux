@@ -229,6 +229,11 @@ export function nodeClient(nodeNum) {
         // just as happily.
         'peerSetStability:dos',
         'peerSetStability:released',
+        // Whether this node's calls to other nodes reach them: proven redirected
+        // by two observers answering as other nodes, and clear again once one
+        // answers as itself. dos:changed cannot carry it, for the same reason.
+        'outboundPath:redirected',
+        'outboundPath:clear',
         // The bundle this node holds changed, from whichever rung produced it. What makes
         // it worth a stream rather than a counter is that things DOWNSTREAM of policy are
         // driven by it - the location table is fetched on this, not on a timer - so a suite

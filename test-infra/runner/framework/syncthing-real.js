@@ -73,6 +73,23 @@ export async function isFolderSynced(client, folderId) {
   }
 }
 
+// The devices this node's syncthing is configured with, as {deviceID, name}.
+export async function getConfiguredDevices(client) {
+  const devices = await api(client, '/rest/config/devices');
+  return devices.map(({ deviceID, name }) => ({ deviceID, name }));
+}
+
+// Configure a device on this node's syncthing directly, as an older FluxOS that
+// took any answer at an address for that address's device would have left it.
+export async function addDevice(client, { deviceID, name, address }) {
+  const key = await apiKey(client);
+  const body = Buffer.from(JSON.stringify({ deviceID, name, addresses: [address] })).toString('base64');
+  const r = await execInContainer(client.container,
+    `echo ${body} | base64 -d | curl -sS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" `
+    + '--data-binary @- "http://127.0.0.1:8384/rest/config/devices"');
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: adding device ${name} failed: ${r.stderr || r.output}`);
+}
+
 // Which peers this node is actually connected to, by device id.
 export async function getConnectedDevices(client) {
   const conns = await api(client, '/rest/system/connections');
