@@ -1185,7 +1185,12 @@ async function uploadAppsFiles(req, res) {
     onStall: () => abandon(new Error(`The upload held a slot without sending the ${minUploadBitsPerSecond} bit/s a transfer has to keep`)),
   });
 
-  form.parse(req);
+  // Without a callback, parse returns a promise that rejects with the form's
+  // error - the same error its 'error' event carries to abandon above. Left
+  // unhandled, that rejection takes the process down; routed to abandon, which
+  // settles once whichever reports first, it also covers a failure that never
+  // reaches the event, such as headers the parser refuses.
+  form.parse(req).catch(abandon);
 }
 
 module.exports = {
