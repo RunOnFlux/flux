@@ -805,10 +805,15 @@ async function trySpawningGlobalApplication() {
         for (const node of runningAppList) {
           const ip = extractIp(node.ip);
           const port = extractPort(node.ip);
+          // The API port says the node is up. What a replica needs is the peer's
+          // syncthing, which listens two ports above it - the port the device is
+          // configured with in buildDeviceConfiguration - so both have to answer.
           // eslint-disable-next-line no-await-in-loop
-          const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
+          const isOpen = await fluxNetworkHelper.isPortOpen(ip, port)
+            // eslint-disable-next-line no-await-in-loop
+            && await fluxNetworkHelper.isPortOpen(ip, port + 2);
           if (!isOpen) {
-            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 27m if remaining missing instances`);
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable (API or syncthing port ${port + 2}), possible conenctivity issue, will be installed in 27m if remaining missing instances`);
             const appToCheck = {
               timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
               appName: appToRun,
@@ -825,9 +830,11 @@ async function trySpawningGlobalApplication() {
           const ip = extractIp(node.ip);
           const port = extractPort(node.ip);
           // eslint-disable-next-line no-await-in-loop
-          const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
+          const isOpen = await fluxNetworkHelper.isPortOpen(ip, port)
+            // eslint-disable-next-line no-await-in-loop
+            && await fluxNetworkHelper.isPortOpen(ip, port + 2);
           if (!isOpen) {
-            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance being installed on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 27m if remaining missing instances`);
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance being installed on ${ip}:${port} is not reachable (API or syncthing port ${port + 2}), possible conenctivity issue, will be installed in 27m if remaining missing instances`);
             const appToCheck = {
               timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
               appName: appToRun,

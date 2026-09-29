@@ -148,7 +148,7 @@ describe('appSpawner tests', () => {
         }),
       },
       '../fluxNetworkHelper': {
-        isPortOpen: sinon.stub().resolves(true),
+        isPortOpen: opts.isPortOpen ?? sinon.stub().resolves(true),
         isNodeDos: sinon.stub().returns(false),
         isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
         getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
@@ -1151,6 +1151,57 @@ describe('appSpawner tests', () => {
       const { installStub, deferredForSyncthing } = await runSpawnAttempt(composedSpec('logs:/var/log'));
       expect(deferredForSyncthing).to.be.false;
       expect(installStub.called).to.be.true;
+    });
+  });
+
+  describe('syncthing reachability before placement', () => {
+    // A replica joins a running app over syncthing, which listens two ports above the
+    // API. A peer whose API answers but whose syncthing does not is one this node could
+    // be placed beside and never sync from.
+    const spawnableApp = {
+      name: 'testApp',
+      actual: 1,
+      required: 2,
+      nodes: [],
+      geolocation: [],
+      hash: 'abc123',
+      version: 7,
+      enterprise: false,
+      owner: 'testOwner',
+    };
+    const spec = {
+      name: 'testApp',
+      hash: 'abc123',
+      version: 7,
+      instances: 2,
+      compose: [{ name: 'comp0', repotag: 'testimage:latest', containerData: 'g:/data' }],
+    };
+
+    async function attempt(isPortOpen) {
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: spec,
+        appLocations: [{ ip: '10.20.30.40:16127' }],
+        installStub,
+        isPortOpen,
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      return installStub;
+    }
+
+    it('asks the running peer on its syncthing port as well as its API port', async () => {
+      const isPortOpen = sinon.stub().resolves(true);
+      await attempt(isPortOpen);
+      sinon.assert.calledWith(isPortOpen, '10.20.30.40', 16127);
+      sinon.assert.calledWith(isPortOpen, '10.20.30.40', 16129);
+    });
+
+    it('holds the placement back when the peer\'s syncthing port does not answer', async () => {
+      const isPortOpen = sinon.stub().callsFake(async (ip, port) => port !== 16129);
+      const installStub = await attempt(isPortOpen);
+      expect(installStub.called).to.be.false;
+      expect(globalStateStub.appsSyncthingToBeCheckedLater.map((app) => app.appName)).to.include('testApp');
     });
   });
 
