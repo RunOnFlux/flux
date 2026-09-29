@@ -83,6 +83,47 @@ export async function unblockPeerAccess(container, peerIps, apiPort) {
   }
 }
 
+// A router that forwards by port alone, as seen from the node behind it: every
+// call this node makes to `ports` on one of `toIps` arrives at `landsOn` instead,
+// port for port. A DNAT in the node's own nat OUTPUT chain, so it moves only
+// connections this node originates - traffic arriving at the node, and every
+// other node's traffic, are untouched, which is exactly the half of the fault
+// that makes it invisible from outside. TCP and UDP both, because syncthing
+// dials QUIC on the same port as TCP.
+//
+// Moves new connections only. One already open to a target keeps going to it
+// until it closes, as it would through a real router whose forwarding changed.
+//
+// Returns the rules it added, for clearOutboundRedirect.
+//
+// @param {object} container The node's container.
+// @param {{toIps: string[], ports: string, landsOn: string}} redirect
+//   `ports` as iptables takes it, e.g. '16127:16129'.
+export async function redirectOutbound(container, { toIps, ports, landsOn }) {
+  const rules = [];
+  for (const toIp of toIps) {
+    for (const proto of ['tcp', 'udp']) {
+      const rule = `OUTPUT -p ${proto} -d ${toIp} --dport ${ports} -j DNAT --to-destination ${landsOn}`;
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables -t nat -A ${rule}`);
+      if (r.exitCode !== 0) {
+        throw new Error(`redirectOutbound: could not send ${toIp}:${ports}/${proto} to ${landsOn}: ${r.output}`);
+      }
+      rules.push(rule);
+    }
+  }
+  return rules;
+}
+
+// Undo redirectOutbound. Tolerates a rule that is already gone so teardown after
+// a failed test cannot fail in its own right.
+export async function clearOutboundRedirect(container, rules) {
+  for (const rule of rules) {
+    // eslint-disable-next-line no-await-in-loop
+    await execInContainer(container, `iptables -t nat -D ${rule}`);
+  }
+}
+
 // THE READ CAN FAIL, AND SAYS SO. `2>/dev/null || echo ""` gave a broken docker
 // exec the same answer as a node with no containers on it - an empty list - so
 // every caller read "the app is not running" and every wait built on one spent
