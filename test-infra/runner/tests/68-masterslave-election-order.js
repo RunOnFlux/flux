@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, setPeerHasData, resetSyncState, setFolderPatchDelay, getSyncthingState,
+  setSynced, setPeerHasData, resetSyncState, setFolderPatchDelay,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -17,7 +17,6 @@ import {
   bootAndPeer, placeGAppInOrder, electionIndexOf,
 } from '../framework/reconciler-suite.js';
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
-import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // MUST-PASS gate. Primary election when the election order DISAGREES with the
@@ -39,8 +38,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
 
-// Election passes a standby is watched deciding the same way, after the change
-// it is deciding on.
+// Passes each node is counted deciding, after the change it is deciding on.
 const HELD_PASSES = 3;
 
 async function isUp(client, appName) {
@@ -54,7 +52,7 @@ describe('primary election under a divergent placement order', function () {
   const holders = [0, 1, 2];
   const seedIndex = syncthingSeedIndex(holders);
   // Placed in this order, so the seed carries the MIDDLE runningSince and node 2 sits
-  // above it - the peer a lower-index-only probe cannot see.
+  // above it.
   const placementOrder = placementOrderWithSeedAt(holders, 1);
   const stamp = Date.now();
 
@@ -72,21 +70,36 @@ describe('primary election under a divergent placement order', function () {
   const windowApp = `e2ewindow${stamp}`;
   const pairApp = `e2epair${stamp}`;
 
+  // Each holder's last event before orderApp was placed.
+  let orderDeployedFrom = [];
+
   const countUp = async (appName) => (await Promise.all(
     holders.map((i) => isUp(env.clients[i], appName)),
   )).filter(Boolean).length;
 
-  // Nodes whose folder for this app is sendreceive - the ones holding a WRITABLE
-  // copy. Distinct from countUp: running the container and owning the data are
-  // separate decisions, made by different code on different orderings, and the
-  // failure this suite exists for is two nodes owning the data.
-  const writableHolders = async (appName) => {
-    const folder = `flux${appName}_${appName}`;
-    const state = await getSyncthingState();
-    return (state.nodes || [])
-      .filter((node) => (node.folders || []).some((f) => f.id === folder && f.type === 'sendreceive'))
-      .map((node) => node.ip);
+  const identifierOf = (appName) => `${appName}_${appName}`;
+  const folderOf = (appName) => `flux${appName}_${appName}`;
+  // One node's count of an election decision about an app.
+  const electionCount = (i, appName, decision) => electionDecisionCount(env.clients[i], identifierOf(appName), decision);
+  // One node's count of folder-election passes over an app's folder.
+  const folderPasses = (i, appName) => env.clients[i].getDecisionCount('syncthing:folderPass', folderOf(appName), 'evaluated');
+  // The g: starts the given nodes have committed to for an app.
+  const startsOf = async (nodes, appName) => (await Promise.all(nodes.map((i) => electionCount(i, appName, 'started'))))
+    .reduce((sum, n) => sum + n, 0);
+  // Resolves once each node has run HELD_PASSES more passes, as `passes` counts
+  // them, than when this was called: every one of them has decided since.
+  const passesFromNow = async (nodes, passes, label) => {
+    const from = await Promise.all(nodes.map(passes));
+    await Promise.all(nodes.map((i, k) => waitFor(async () => (await passes(i)) >= from[k] + HELD_PASSES, {
+      timeout: 180000, interval: 1000, label: `node ${i} ran ${HELD_PASSES} ${label} passes`,
+    })));
   };
+  const electionPasses = (appName) => (i) => electionCount(i, appName, 'evaluated');
+  const folderElectionPasses = (appName) => (i) => folderPasses(i, appName);
+  // The nodes that turned the app's folder writable after `from`, one event id
+  // per node in `nodes`.
+  const writableSince = (nodes, appName, from) => nodes.filter((i, k) => env.clients[i].getEventBuffer()
+    .some((e) => e.event === 'syncthing:folderWritable' && e.data?.folder === folderOf(appName) && e.id > from[k]));
 
   const deploy = async (appName) => {
     await pushImage(appName, 'v1');
@@ -105,6 +118,7 @@ describe('primary election under a divergent placement order', function () {
     await bootAndPeer(env);
     await resetFdm(); // no FDM primary by default: these are the self-selection paths
     await resetSyncState();
+    orderDeployedFrom = holders.map((i) => env.clients[i].getLastEventId());
     await deploy(orderApp);
   });
 
@@ -149,7 +163,7 @@ describe('primary election under a divergent placement order', function () {
   });
 
   it('leaves exactly one holder seeding the empty folder at cold start', async function () {
-    this.timeout(240000);
+    this.timeout(420000);
     // The mastership invariant is exactly one RUNNING CONTAINER - never "exactly one
     // writable folder". A standby that has genuinely synced promotes its own folder to
     // sendreceive with no reference to who the primary is, and that is correct: with a
@@ -164,24 +178,18 @@ describe('primary election under a divergent placement order', function () {
     // tiebreak among the holders IT can see and seeds too, and neither revisits it,
     // because a promoted folder never re-enters the election.
     //
-    // The container count rides along on the same loop: it is the invariant that holds
-    // at every point in the app's life, cold start included.
+    // The container count is asserted with it: it is the invariant that holds at
+    // every point in the app's life, cold start included.
     //
-    // Held rather than sampled: the second promotion arrives seconds after the
-    // first, so a single reading taken early passes on a fleet that is about to
-    // diverge.
-    const deadline = Date.now() + 90000;
-    let holdersWritable = [];
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      holdersWritable = await writableHolders(orderApp);
-      expect(holdersWritable.length, `more than one node seeded the empty folder: ${holdersWritable.join(', ')}`).to.be.lessThan(2);
-      // eslint-disable-next-line no-await-in-loop
-      expect(await countUp(orderApp), 'two holders ran the g: component at once').to.be.lessThan(2);
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(3000);
-    }
-    expect(holdersWritable.length, 'nobody ever seeded the folder').to.equal(1);
+    // The second promotion arrives seconds after the first, so every holder runs
+    // HELD_PASSES folder-election passes and election passes after the app has
+    // started, and only then are the seeds and the starts counted.
+    await passesFromNow(holders, folderElectionPasses(orderApp), 'folder-election');
+    await passesFromNow(holders, electionPasses(orderApp), 'election');
+    const seeders = writableSince(holders, orderApp, orderDeployedFrom);
+    expect(seeders, `more than one node seeded the empty folder: ${seeders.join(', ')}`).to.have.lengthOf(1);
+    expect(await startsOf(holders, orderApp), 'two holders started the g: component').to.equal(1);
+    expect(await countUp(orderApp), 'two holders ran the g: component at once').to.equal(1);
   });
 
   // The peer probe no longer reads a silence as a clearance: a holder whose FluxOS is
@@ -191,7 +199,7 @@ describe('primary election under a divergent placement order', function () {
   // to put a second writer on the volume - which is what makes it worth keeping rather
   // than trusting the unit coverage alone.
   it('does not read a restarting holder as free to start alongside', async function () {
-    this.timeout(420000);
+    this.timeout(720000);
     // A node that has just restarted has not yet read its own folder config, so it
     // cannot tell "I hold nothing" from "I have not looked". It must answer the
     // second: answering the first tells a peer the component is going unrun and
@@ -230,24 +238,26 @@ describe('primary election under a divergent placement order', function () {
     const running = holders[runningFlags.indexOf(true)];
     expect(running, 'fixture: a running holder must be identifiable to restart').to.not.equal(undefined);
 
+    const peers = holders.filter((i) => i !== running);
+    const peersStartedBefore = await startsOf(peers, orderApp);
+
     await restartFluxos(env.clients[running].container);
 
-    // Watched across the whole restart: the window is exactly while the node is
-    // back up and answering but has not completed a monitor pass. Only the FluxOS
-    // process cycles, so the holder's own app container stays up throughout - a
-    // count above one is a PEER starting a second writer on the shared volume while
-    // the holder was still booting.
-    const deadline = Date.now() + 180000;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(await countUp(orderApp), 'a peer started a second container while a holder was restarting').to.be.lessThan(2);
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(3000);
-    }
+    // The window is while the restarted node is back up and answering but has not
+    // completed a pass of its own. Only the FluxOS process cycles, so the holder's
+    // own app container stays up throughout, and a start by a PEER across it is a
+    // second writer on the shared volume. The restarted node's counters begin
+    // again from zero; once it has run HELD_PASSES election passes its window is
+    // over, and each peer then runs HELD_PASSES more.
+    await waitForElectionDecisions(env.clients[running], identifierOf(orderApp), 'evaluated', HELD_PASSES, { timeout: 240000 });
+    await passesFromNow(peers, electionPasses(orderApp), 'election');
+    expect(await startsOf(peers, orderApp), 'a peer started a second writer while a holder was restarting').to.equal(peersStartedBefore);
+    expect(await electionCount(running, orderApp, 'started'), 'the restarted holder started the component again').to.equal(0);
+    expect(await countUp(orderApp)).to.equal(1);
   });
 
   it('starts no second writer when the primary is released back to the election', async function () {
-    this.timeout(300000);
+    this.timeout(540000);
     // Exactly one holder runs the component, through the window where the primary is
     // stopped and handed back to the election. Two things can put a second writer on
     // the shared volume here: a seed claim still standing after genesis, which leaves
@@ -267,25 +277,26 @@ describe('primary election under a divergent placement order', function () {
     // election. The operator-stop recovery suite's recipe - here with the seed at index > 0.
     const seedClient = env.clients[seedIndex];
     const auth = await authenticate(seedClient.url, appOwnerKey());
+    const startedBefore = await startsOf(holders, orderApp);
     await seedClient.getAuthed(`/apps/appstop/${orderApp}`, auth.zelidauth);
     await waitFor(async () => !(await isUp(seedClient, orderApp)), {
       timeout: 90000, interval: 2000, label: 'primary goes down',
     });
     await seedClient.getAuthed(`/apps/appstart/${orderApp}`, auth.zelidauth);
 
-    // Watch the whole recovery rather than sampling its end: the double start is a
-    // same-pass race, so a count taken after it settles would miss it entirely.
-    let recovered = false;
-    const deadline = Date.now() + 150000;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      const up = await countUp(orderApp);
-      expect(up, 'two holders ran the g: component at once - split brain on the shared volume').to.be.lessThan(2);
-      if (up === 1) recovered = true;
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(2000);
-    }
-    expect(recovered, 'the app never came back on any holder').to.equal(true);
+    // The double start is a same-pass race, and a container that lost it may be
+    // stopped again before anyone looks, so the starts are counted, not sampled:
+    // one holder commits to the start, then every holder runs HELD_PASSES election
+    // passes, and no second commitment may appear.
+    await waitFor(async () => (await startsOf(holders, orderApp)) > startedBefore, {
+      timeout: 150000, interval: 1000, label: 'a holder commits to starting the released app',
+    });
+    await passesFromNow(holders, electionPasses(orderApp), 'election');
+    expect(await startsOf(holders, orderApp) - startedBefore, 'two holders started the g: component - split brain on the shared volume')
+      .to.equal(1);
+    await waitFor(async () => (await countUp(orderApp)) === 1, {
+      timeout: 120000, interval: 2000, label: 'the app is back on one holder',
+    });
   });
 
   it('starts only one holder while the seed waits for its folder to send', async function () {
@@ -297,38 +308,34 @@ describe('primary election under a divergent placement order', function () {
     // Every holder is held alike: which of them seeds is the election's decision.
     await setFolderPatchDelay({ ms: 40000 });
     try {
+      const deployedFrom = holders.map((i) => env.clients[i].getLastEventId());
       await deploy(windowApp);
       const position = await electionIndexOf(env, windowApp, seedIndex);
       expect(position, 'fixture: seed must be off index 0').to.be.greaterThan(0);
 
-      // Watched across the whole window rather than sampled after it: a second
-      // start inside it is the failure, and it is invisible to a later count once
-      // the losing container has been stopped again.
-      const deadline = Date.now() + 180000;
-      let started = 0;
-      while (Date.now() < deadline) {
-        // eslint-disable-next-line no-await-in-loop
-        started = await countUp(windowApp);
-        expect(started, 'a peer started while the seed was waiting for its folder').to.be.lessThan(2);
-        // eslint-disable-next-line no-await-in-loop
-        await sleepUnlessInfraDead(2000);
-      }
-      expect(started, 'nothing ever started').to.equal(1);
+      // The window opens when a holder commits to the start and closes when its
+      // container is running. Each peer runs HELD_PASSES election passes inside it,
+      // and a start by any of them is the failure.
+      const identifier = identifierOf(windowApp);
+      const committed = await Promise.any(holders.map((i, k) => env.clients[i].waitForEvent('masterSlave:started',
+        (d) => d.identifier === identifier, 240000, { afterId: deployedFrom[k] }).then((event) => ({ i, event }))));
+      const peers = holders.filter((i) => i !== committed.i);
+      await passesFromNow(peers, electionPasses(windowApp), 'election');
+      const running = env.clients[committed.i].getEventBuffer().some((e) => e.event === 'reconciler:actuated'
+        && e.data?.identifier === identifier && e.data?.action === 'started' && e.id > committed.event.id);
+      expect(running, 'fixture: the ownership fix ended before the peers had decided inside it').to.equal(false);
+      expect(await startsOf(peers, windowApp), 'a peer started while the seed was still fixing ownership').to.equal(0);
 
-      // The canary: at least one peer reached its own start decision while the
-      // seed held the component. Without one, nothing above was tested.
-      const identifier = `${windowApp}_${windowApp}`;
-      const heldOnPeer = (await Promise.all(holders.map(
-        (i) => env.clients[i].getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer'),
-      ))).reduce((a, b) => a + b, 0);
-      expect(heldOnPeer, 'fixture: no peer decided while the seed was committed').to.be.greaterThan(0);
+      await waitFor(async () => (await countUp(windowApp)) === 1, {
+        timeout: 180000, interval: 2000, label: 'the seed starts once its ownership fix is done',
+      });
     } finally {
       await setFolderPatchDelay({ ms: 0 }).catch(() => {});
     }
   });
 
   it('settles a two-holder app on one writable copy, with the seed off index 0', async function () {
-    this.timeout(420000);
+    this.timeout(660000);
     // Two holders is the ordinary shape for a g: app, and the one every other suite
     // installs in parallel - which collapses the two orderings onto the same node
     // and hides every disagreement between them. Placed one at a time the seed is
@@ -336,6 +343,8 @@ describe('primary election under a divergent placement order', function () {
     // whatever the pair decides is the answer.
     const app = await buildSeedableSyncthingApp({ name: pairApp, mode: 'g' });
     await pushImage(pairApp, 'v1');
+    const pair = [0, 1];
+    const placedFrom = pair.map((i) => env.clients[i].getLastEventId());
     await placeGAppInOrder(env, app, {
       placementOrder: placementOrderWithSeedAt([0, 1], 1),
       folder: `flux${pairApp}_${pairApp}`,
@@ -345,7 +354,6 @@ describe('primary election under a divergent placement order', function () {
     const position = await electionIndexOf(env, pairApp, seedIndex);
     expect(position, 'fixture: the seed must not be index 0, or this is operator-stop recovery again').to.be.greaterThan(0);
 
-    const pair = [0, 1];
     const pairUp = async () => (await Promise.all(
       pair.map((i) => isUp(env.clients[i], pairApp)),
     )).filter(Boolean).length;
@@ -354,16 +362,14 @@ describe('primary election under a divergent placement order', function () {
       timeout: 240000, interval: 3000, label: 'the pair starts the app on one of them',
     });
 
-    const deadline = Date.now() + 90000;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      const writable = await writableHolders(pairApp);
-      expect(writable.length, `both holders took the writable copy: ${writable.join(', ')}`).to.be.lessThan(2);
-      // eslint-disable-next-line no-await-in-loop
-      expect(await pairUp(), 'both holders ran the component').to.be.lessThan(2);
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(3000);
-    }
+    // Both holders run HELD_PASSES folder-election and election passes after the
+    // start; then exactly one of them may hold the writable copy or have started.
+    await passesFromNow(pair, folderElectionPasses(pairApp), 'folder-election');
+    await passesFromNow(pair, electionPasses(pairApp), 'election');
+    const writable = writableSince(pair, pairApp, placedFrom);
+    expect(writable, `both holders took the writable copy: ${writable.join(', ')}`).to.have.lengthOf(1);
+    expect(await startsOf(pair, pairApp), 'both holders started the component').to.equal(1);
+    expect(await pairUp(), 'both holders ran the component').to.equal(1);
   });
 
   it('elects a new seed when the designated leader dies mid-genesis', async function () {
@@ -457,8 +463,8 @@ describe('primary election under a divergent placement order', function () {
     // routine state, not an exotic one. The seed must not read that silence as
     // permission to start alongside.
     //
-    // The watch pins the subject - no SECOND holder - and not continuous uptime:
-    // the reconciler may legitimately blip the primary's container mid-window (a
+    // The subject is no SECOND holder, not continuous uptime: the reconciler may
+    // legitimately blip the primary's container meanwhile (a
     // detached-endpoint recreate, a restart backoff), and its commitment keeps
     // peers deferring throughout, so a dip to zero is recovery in progress, not a
     // second writer. What must then hold is that the same primary comes back.
