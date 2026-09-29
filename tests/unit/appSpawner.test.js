@@ -37,6 +37,7 @@ describe('appSpawner tests', () => {
         daemonPONFork: 2020000,
         blocksLasting: 22000,
         newMinBlocksAllowance: 100,
+        spawnDeferrals: { domainShareMs: { enterprise: 1920000, standard: 7320000 } },
         ...overrides,
       },
     };
@@ -71,6 +72,8 @@ describe('appSpawner tests', () => {
     if (opts.globalStateOverrides) {
       Object.assign(globalStateStub, opts.globalStateOverrides);
     }
+    // Getter-only on the real module, so queued entries go in rather than over it.
+    if (opts.checkLater) globalStateStub.appsToBeCheckedLater.push(...opts.checkLater);
 
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
     placementFeasibilityStub = {
@@ -1264,6 +1267,72 @@ describe('appSpawner tests', () => {
 
     it('stands aside when many domains are eligible and this one holds its share', async () => {
       const { installStub, logged } = await runAttempt({
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('already holds 1 of its 1-instance share')).to.be.true;
+    });
+
+    // The share counts every node the geolocation admits, whether or not it has room,
+    // so the better-placed domain it steps aside for can be full. Refusing outright left
+    // such an app one short for good; stepping aside for a while and then placing does not.
+    it('steps aside for a while instead of refusing, and says when it will look again', async () => {
+      const { installStub, logged } = await runAttempt({
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('will check in around 122m if instances are still missing')).to.be.true;
+      const deferred = globalStateStub.appsToBeCheckedLater.find((app) => app.appName === 'testApp');
+      expect(deferred, 'the app was not queued for a later look').to.exist;
+      expect(deferred.reason).to.equal('domain_share');
+      expect(deferred.required).to.equal(3);
+      expect(deferred.timeToCheck - Date.now()).to.be.within(7300000, 7320000);
+      // The twelve-hour selection cache would otherwise keep the app from this node
+      // long after the deferral is up.
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.false;
+    });
+
+    it('steps aside for the shorter enterprise deferral when the spec is enterprise', async () => {
+      await runAttempt({
+        appSpec: { ...syncedSpec, version: 8, enterprise: 'sealed' },
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      const deferred = globalStateStub.appsToBeCheckedLater.find((app) => app.appName === 'testApp');
+      expect(deferred.timeToCheck - Date.now()).to.be.within(1900000, 1920000);
+    });
+
+    it('places the app in its own domain when it is still short after the deferral', async () => {
+      const { installStub, logged } = await runAttempt({
+        checkLater: [{
+          timeToCheck: Date.now() - 1, appName: 'testApp', hash: 'abc123', required: 3, reason: 'domain_share',
+        }],
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called, 'still refused after the other domains had their turn').to.be.true;
+      expect(logged('back from its domain-share deferral')).to.be.true;
+      expect(placementFeasibilityStub.placementComputation.called).to.be.false;
+    });
+
+    it('does not place the app when it filled up during the deferral', async () => {
+      const { installStub } = await runAttempt({
+        checkLater: [{
+          timeToCheck: Date.now() - 1, appName: 'testApp', hash: 'abc123', required: 3, reason: 'domain_share',
+        }],
+        appLocations: [{ ip: '10.1.0.1:16127' }, { ip: '10.2.0.1:16127' }, { ip: '10.3.0.1:16127' }],
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+    });
+
+    it('still applies the share to an app back from a deferral of another kind', async () => {
+      const { installStub, logged } = await runAttempt({
+        checkLater: [{
+          timeToCheck: Date.now() - 1, appName: 'testApp', hash: 'abc123', required: 3,
+        }],
         appLocations: sameDomainLocation,
         placementShare: { domainCount: 10, maxPerDomain: 1 },
       });

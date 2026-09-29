@@ -399,9 +399,11 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
 // over) so each node's spawner sees it as missing-instances and self-selects. No
 // running/installing locations are seeded, so `actual` starts at 0 and the spawner
 // drives real placement + collision-resolution. The app image must be pushed first.
-export async function seedSpawnerApp(env, app) {
-  const all = env.clients.map((_, i) => i);
-  await seedGlobalSpec(env, app, all);
+//
+// `indices` limits the seed to those nodes, which orders placement by construction:
+// a node the spec has not reached cannot select the app.
+export async function seedSpawnerApp(env, app, indices = env.clients.map((_, i) => i)) {
+  await seedGlobalSpec(env, app, indices);
 }
 
 // Ground-truth count of where an app is actually installed across the fleet

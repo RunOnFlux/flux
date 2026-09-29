@@ -333,6 +333,9 @@ async function trySpawningGlobalApplication() {
     let minInstances = null;
     let appFromAppsToBeCheckedLater = false;
     let appFromAppsSyncthingToBeCheckedLater = false;
+    // Set when the app comes back from a domain-share deferral: the better-placed
+    // domains have had their turn and did not take it.
+    let shareDeferralServed = false;
     const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater } = globalState;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
     const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
@@ -343,6 +346,8 @@ async function trySpawningGlobalApplication() {
       appToRun = appsToBeCheckedLater[appIndex].appName;
       appHash = appsToBeCheckedLater[appIndex].hash;
       minInstances = appsToBeCheckedLater[appIndex].required;
+      shareDeferralServed = appsToBeCheckedLater[appIndex].reason === 'domain_share';
+      fluxEventBus.publish('spawner:deferralMatured', { appName: appToRun, reason: appsToBeCheckedLater[appIndex].reason ?? null });
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
       appsCountAvailableToInstallOnMyNode = Math.max(0, appsCountAvailableToInstallOnMyNode - 1);
@@ -735,7 +740,10 @@ async function trySpawningGlobalApplication() {
     let placementShare = null;
     let placementDomainOf = null;
     let myDomain = null;
-    if (syncthingApp && !ownerNamedThisNode) {
+    if (syncthingApp && !ownerNamedThisNode && shareDeferralServed) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and is back from its domain-share deferral, the share no longer applies`);
+    }
+    if (syncthingApp && !ownerNamedThisNode && !shareDeferralServed) {
       // placementComputation refuses a geo-restricted question while the location
       // table is still loading, because answering it over the whole network would
       // advise on numbers that mean nothing. That refusal is addressed to the HTTP
@@ -761,7 +769,31 @@ async function trySpawningGlobalApplication() {
       const heldInMine = await placementFeasibility.countHeldInDomain(runningAppList, myDomain, placementDomainOf)
         + await placementFeasibility.countHeldInDomain(installingAppList, myDomain, placementDomainOf);
       if (heldInMine >= placementShare.maxPerDomain) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains)`);
+        // A deferral, not a refusal. The share is computed over every node the
+        // geolocation admits, with no regard for whether those nodes have room
+        // or take apps at all, so the better-placed candidate it assumes may not
+        // exist in practice: the other domains can be full, and the refusal also
+        // left the hash in the twelve-hour spawn cache. Seen on mainnet: synced
+        // apps pinned to Minnesota and to Missouri sat at 1 of 2, with 41 of 50
+        // and 105 of 122 of those states' nodes in the running copy's own domain.
+        //
+        // So this node steps aside for longer than any spawn deferral a node in
+        // another domain may be sitting out, and if the app is still short when
+        // it comes back (the instance count is re-checked above, before this), a
+        // second copy in this domain beats no second copy.
+        const deferral = config.fluxapps.spawnDeferrals.domainShareMs;
+        const delayMs = appSpecifications.enterprise ? deferral.enterprise : deferral.standard;
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains), `
+          + `will check in around ${Math.round(delayMs / 60000)}m if instances are still missing`);
+        globalState.appsToBeCheckedLater.push({
+          timeToCheck: Date.now() + delayMs,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+          reason: 'domain_share',
+        });
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+        fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'domain_share', delayMs });
         return shortDelayTime;
       }
     }

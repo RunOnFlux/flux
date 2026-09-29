@@ -612,6 +612,13 @@ module.exports = {
         mediumMs: { enterprise: 1260000, standard: 5220000 },
         smallMs: { enterprise: 720000, standard: 3420000 },
       },
+      // A synced app's node steps aside for a better-placed fault domain this long
+      // before it places the copy in its own; another domain is preferred if it takes
+      // the copy within the window. Kept above every deferral above, so a node in
+      // another domain that picked the app up at the same moment is not beaten by
+      // sitting one of them out. Each node picks apps on its own schedule, so the
+      // window says nothing about a node that picks the app up later.
+      domainShareMs: { enterprise: 1920000, standard: 7320000 },
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
