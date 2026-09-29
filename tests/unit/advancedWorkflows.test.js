@@ -2453,6 +2453,84 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.notCalled(adoptStub);
       });
     });
+
+    // The election loop's decision table, one row per cell. FDM naming nobody for
+    // a stopped component is an election, covered by the election tests above.
+    describe('decision table', () => {
+      const appName = 'valheim1777035136949';
+      const identifier = `valheim_${appName}`;
+      const here = '90.228.196.203:16127';
+      const elsewhere = '192.168.1.5:16127';
+      const ROWS = [
+        { fdm: 'here', running: true, opinion: false, expect: ['adopt', 'running', 'masterSlave primary'] },
+        { fdm: 'here', running: true, opinion: true, expect: ['nothing'] },
+        { fdm: 'here', running: false, opinion: false, expect: ['start'] },
+        { fdm: 'here', running: false, opinion: true, expect: ['start'] },
+        { fdm: 'other', running: true, opinion: false, expect: ['set', 'stopped', 'masterSlave standby'] },
+        { fdm: 'other', running: true, opinion: true, expect: ['set', 'stopped', 'masterSlave standby'] },
+        { fdm: 'other', running: false, opinion: false, expect: ['adopt', 'stopped', 'masterSlave standby'] },
+        { fdm: 'other', running: false, opinion: true, expect: ['nothing'] },
+        { fdm: 'none', running: true, opinion: false, expect: ['adopt', 'running', 'masterSlave holder, no primary named'] },
+        { fdm: 'none', running: true, opinion: true, expect: ['nothing'] },
+        {
+          fdm: 'here', running: true, opinion: false, operatorStopped: true, expect: ['nothing'],
+        },
+      ];
+
+      ROWS.forEach((row) => {
+        const label = `FDM names ${row.fdm === 'here' ? 'this node' : row.fdm === 'other' ? 'another node' : 'nobody'}, `
+          + `${row.running ? 'running' : 'stopped'} here, opinion ${row.opinion ? 'held' : 'unknown'}`
+          + `${row.operatorStopped ? ', operator-stopped' : ''} -> ${row.expect.join(' ')}`;
+
+        it(label, async () => {
+          dockerServiceStub.returns(`flux${identifier}`);
+          const adopt = sinon.stub(appReconciler, 'adoptControllerDesired').resolves(true);
+          const set = sinon.stub(appReconciler, 'setControllerDesired');
+          sinon.stub(appReconciler, 'hasControllerOpinion').returns(row.opinion);
+          const claimStarting = sinon.stub(appReconciler, 'claimStarting');
+          const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+          sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(row.operatorStopped === true);
+          globalState.receiveOnlySyncthingAppsCache.set(`flux${identifier}`, { restarted: true });
+          const ips = { here: ['90.228.196.203'], other: ['10.9.9.9'], none: [] }[row.fdm];
+          serviceHelperStub.resolves({ data: { status: 'success', data: { ips } } });
+          fluxNetworkHelperStub.resolves(row.fdm === 'other' ? elsewhere : here);
+          const installedApps = sinon.stub().resolves({
+            status: 'success',
+            data: [{ name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] }],
+          });
+          const listRunningApps = sinon.stub().resolves({
+            status: 'success',
+            data: row.running ? [{ Names: [`/flux${identifier}`] }] : [],
+          });
+
+          await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+
+          const [what, state, reason] = row.expect;
+          if (what === 'adopt') {
+            sinon.assert.calledOnceWithExactly(adopt, identifier, state, reason);
+            sinon.assert.notCalled(set);
+            sinon.assert.notCalled(claimStarting);
+          } else if (what === 'set') {
+            sinon.assert.calledOnceWithExactly(set, identifier, state, reason);
+            sinon.assert.notCalled(adopt);
+            sinon.assert.notCalled(claimStarting);
+          } else if (what === 'start') {
+            // The start is not awaited by the pass; wait for this attempt to end.
+            for (let tick = 0; tick < 100 && !releaseStarting.calledWith(identifier); tick += 1) {
+              // eslint-disable-next-line no-await-in-loop
+              await new Promise((resolve) => { setTimeout(resolve, 20); });
+            }
+            sinon.assert.calledWith(claimStarting, identifier);
+            sinon.assert.notCalled(adopt);
+            sinon.assert.neverCalledWith(set, identifier, 'stopped');
+          } else {
+            sinon.assert.notCalled(adopt);
+            sinon.assert.notCalled(set);
+            sinon.assert.notCalled(claimStarting);
+          }
+        });
+      });
+    });
   });
 
   describe('validateApplicationUpdateCompatibility tests', () => {

@@ -1882,6 +1882,71 @@ describe('appReconciler tests', () => {
       }
     });
   });
+  // The reconcile pass's decision table for a synced component, one row per cell.
+  describe('decision table for a synced component', () => {
+    // lock, opinion, container, restart pending -> what the pass does, and whether
+    // the pending request is carried out.
+    const cells = [
+      { lock: false, opinion: 'unknown', running: true, pending: true, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'unknown', running: true, pending: false, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'unknown', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'unknown', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'running', running: true, pending: true, action: 'bounce', carriedOut: true },
+      { lock: false, opinion: 'running', running: true, pending: false, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'running', running: false, pending: true, action: 'start', carriedOut: true },
+      { lock: false, opinion: 'running', running: false, pending: false, action: 'start', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'running', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'running', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'running', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'running', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: false, pending: false, action: 'nothing', carriedOut: false },
+    ];
+
+    cells.forEach((c) => {
+      const label = `lock ${c.lock ? 'on' : 'off'}, opinion ${c.opinion}, ${c.running ? 'running' : 'stopped'}, `
+        + `${c.pending ? 'restart pending' : 'no restart pending'} -> ${c.action}${c.carriedOut ? ', request carried out' : ''}`;
+
+      it(label, async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+        stubs.appsRuntimeState.operatorStopState.resolves({ stopped: c.lock, force: false });
+        stubs.appsRuntimeState.getState.resolves(c.pending
+          ? { restartGeneration: 2, actuatedRestartGeneration: 1 }
+          : { restartGeneration: 1, actuatedRestartGeneration: 1 });
+        stubs.dockerService.dockerContainerInspect.resolves(c.running
+          ? { State: { Running: true, Status: 'running', ExitCode: 0 } }
+          : { State: { Running: false, Status: 'exited', ExitCode: 0 } });
+        if (c.opinion !== 'unknown') {
+          stubs.globalState.bootContainerStateSettled = false;
+          appReconciler.setControllerDesired('db_App', c.opinion, 'decision table');
+          stubs.globalState.bootContainerStateSettled = true;
+        }
+
+        try {
+          await appReconciler.reconcile('db_App');
+        } finally {
+          appReconciler.forgetDesiredState('db_App');
+        }
+
+        const docker = stubs.dockerService;
+        expect(docker.appDockerStop.called, 'stop').to.equal(c.action === 'stop');
+        expect(docker.appDockerRestart.called, 'bounce').to.equal(c.action === 'bounce');
+        expect(docker.appDockerStart.called, 'start').to.equal(c.action === 'start');
+        expect(stubs.appsRuntimeState.recordRestartGeneration.calledWith('db_App', 2), 'request carried out').to.equal(c.carriedOut);
+      });
+    });
+  });
+
   describe('adoptControllerDesired', () => {
     const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
     const settle = () => new Promise((resolve) => { setTimeout(resolve, 50); });
