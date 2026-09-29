@@ -347,6 +347,7 @@ async function trySpawningGlobalApplication() {
       appHash = appsToBeCheckedLater[appIndex].hash;
       minInstances = appsToBeCheckedLater[appIndex].required;
       shareDeferralServed = appsToBeCheckedLater[appIndex].reason === 'domain_share';
+      fluxEventBus.publish('spawner:deferralMatured', { appName: appToRun, reason: appsToBeCheckedLater[appIndex].reason ?? null });
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
       appsCountAvailableToInstallOnMyNode = Math.max(0, appsCountAvailableToInstallOnMyNode - 1);

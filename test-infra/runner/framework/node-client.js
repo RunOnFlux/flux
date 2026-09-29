@@ -257,6 +257,7 @@ export function nodeClient(nodeNum) {
         'system:apt-command',
         'spawner:blocked',
         'spawner:deferred',
+        'spawner:deferralMatured',
         'spawner:installFailed',
         'spawner:networkErrorSkip',
         'spawner:paused',

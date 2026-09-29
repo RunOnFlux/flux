@@ -237,7 +237,8 @@ module.exports = {
       },
       // Not scaled like the rest, and longer than any suite waits: the placement-split
       // suite (77) asserts three distinct domains, and a deferred node returning inside
-      // its window would be allowed to co-locate and turn that assertion flaky.
+      // its window would be allowed to co-locate and turn that assertion flaky. The
+      // suite that watches the placement after the window (223) sets its own.
       domainShareMs: { enterprise: 600000, standard: 600000 },
     },
     spawnDelayMultiplier: 0.002,
