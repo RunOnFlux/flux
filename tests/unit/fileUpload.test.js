@@ -1,7 +1,8 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
-const { Readable, PassThrough } = require('node:stream');
+const { Readable, PassThrough, Writable } = require('node:stream');
+const pathSecurity = require('../../ZelBack/src/services/utils/pathSecurity');
 
 // Receiving an upload, driven through a REAL multipart body and a real parser.
 //
@@ -61,6 +62,29 @@ describe('fileSystemManager upload tests', () => {
     res.json = sinon.stub().callsFake(() => resolve('answered'));
   });
 
+  const loadManager = (volumeOperations) => proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+    config: { fluxapps: { volumeOperations } },
+    '../messageHelper': {
+      createSuccessMessage: sinon.stub().callsFake((message) => ({ status: 'success', data: { message } })),
+      createErrorMessage: sinon.stub().callsFake((message) => ({ status: 'error', data: { message } })),
+      errUnauthorizedMessage: sinon.stub().returns({ status: 'error', data: { message: 'Unauthorized' } }),
+    },
+    '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+    '../serviceHelper': {
+      ensureString: sinon.stub().callsFake((v) => (typeof v === 'string' ? v : JSON.stringify(v))),
+      ensureObject: sinon.stub().callsFake((v) => (typeof v === 'object' && v !== null ? v : {})),
+    },
+    '../IOUtils': { getVolumeInfo: sinon.stub() },
+    '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+    // The REAL one. Rejecting a filename that would leave its folder is the
+    // behaviour under test, and a stub would decide the answer.
+    '../utils/pathSecurity': pathSecurity,
+    './volumeSession': { openVolume: sinon.stub().resolves(sessionStub), SPACE_HEADROOM: 1.05 },
+    './volumeExecutor': executorStub,
+    '../utils/fileTransfer': { sendFile: sinon.stub().resolves() },
+    archiver: sinon.stub(),
+  });
+
   beforeEach(() => {
     sessionStub = {
       mount: MOUNT,
@@ -93,28 +117,7 @@ describe('fileSystemManager upload tests', () => {
       status: sinon.stub().callsFake((code) => { res.statusCode = code; return res; }),
     };
 
-    fileSystemManager = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
-      config: { fluxapps: { volumeOperations: { minUploadBitsPerSecond: 64 * 1000, stallTimeoutMs: 10 * 60 * 1000 } } },
-      '../messageHelper': {
-        createSuccessMessage: sinon.stub().callsFake((message) => ({ status: 'success', data: { message } })),
-        createErrorMessage: sinon.stub().callsFake((message) => ({ status: 'error', data: { message } })),
-        errUnauthorizedMessage: sinon.stub().returns({ status: 'error', data: { message: 'Unauthorized' } }),
-      },
-      '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
-      '../serviceHelper': {
-        ensureString: sinon.stub().callsFake((v) => (typeof v === 'string' ? v : JSON.stringify(v))),
-        ensureObject: sinon.stub().callsFake((v) => (typeof v === 'object' && v !== null ? v : {})),
-      },
-      '../IOUtils': { getVolumeInfo: sinon.stub() },
-      '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
-      // The REAL one. Rejecting a filename that would leave its folder is the
-      // behaviour under test, and a stub would decide the answer.
-      '../utils/pathSecurity': require('../../ZelBack/src/services/utils/pathSecurity'),
-      './volumeSession': { openVolume: sinon.stub().resolves(sessionStub), SPACE_HEADROOM: 1.05 },
-      './volumeExecutor': executorStub,
-      '../utils/fileTransfer': { sendFile: sinon.stub().resolves() },
-      archiver: sinon.stub(),
-    });
+    fileSystemManager = loadManager({ minUploadBitsPerSecond: 64 * 1000, stallTimeoutMs: 10 * 60 * 1000 });
   });
 
   afterEach(() => sinon.restore());
@@ -242,6 +245,48 @@ describe('fileSystemManager upload tests', () => {
     await done;
 
     expect(release.called, 'the slot was leaked when the client disconnected').to.equal(true);
+  });
+
+  // The executor stops a sender below its own floor, and while that operation is
+  // still settling the request's floor stops it too. That second stop reaches the
+  // parser, whose promise rejects with it - and an unhandled rejection exits FluxOS.
+  it('settles an upload the request floor stops while the executor is still stopping it', async function () {
+    this.timeout(10000);
+    const escaped = [];
+    const onRejection = (reason) => escaped.push(reason);
+    process.on('unhandledRejection', onRejection);
+    try {
+      executorStub.run.callsFake(async (volume, argv, { input }) => {
+        input.pipe(new Writable({ write: (chunk, encoding, done) => done() }), { end: false });
+        // Still settling its own stop when the request floor fires.
+        await new Promise((resolve) => { setTimeout(resolve, 400); });
+        throw new Error('The upload did not complete');
+      });
+      fileSystemManager = loadManager({ minUploadBitsPerSecond: 64 * 1000, stallTimeoutMs: 100 });
+
+      const req = new PassThrough();
+      req.headers = {
+        'content-type': 'multipart/form-data; boundary=----fluxuploadtest',
+        'content-length': '9999',
+      };
+      req.params = { appname: 'myapp', component: 'comp', folder: 'photos' };
+      req.query = {};
+      req.body = {};
+
+      const done = concluded();
+      fileSystemManager.uploadAppsFiles(req, res);
+      req.write('------fluxuploadtest\r\nContent-Disposition: form-data; name="slow.txt"; filename="slow.txt"\r\n'
+        + 'Content-Type: application/octet-stream\r\n\r\np');
+      await done;
+      // A rejection is reported after the turn that produced it.
+      await new Promise((resolve) => { setTimeout(resolve, 500); });
+
+      expect(executorStub.run.called, 'the upload never reached the executor, so nothing was stopping it').to.equal(true);
+      expect(escaped.map((reason) => reason?.message ?? reason), 'a rejection escaped the upload').to.deep.equal([]);
+      expect(release.called, 'the slot was leaked').to.equal(true);
+    } finally {
+      process.removeListener('unhandledRejection', onRejection);
+    }
   });
 
   it('refuses before taking a slot when the caller is not the owner', async () => {
