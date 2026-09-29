@@ -21,6 +21,7 @@ const syncthingService = require('../syncthingService');
 const globalState = require('../utils/globalState');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const { nodeSigner } = require('../utils/nodeSigner');
+const peerIdentityService = require('../peerIdentityService');
 
 // Bounded because this runs on the pass a node is about to promote, and a slow
 // peer must not hold the promotion open.
@@ -61,8 +62,11 @@ const MIN_RESPONDING_PEER_FRACTION = 0.5;
  *   NOT REACHABLE - no reply at all. Whether the peer is dead or this node is cut
  *   off is the question its callers then have to answer.
  *
+ *   MISROUTED - a different node answered at the address. Reachable and not
+ *   answerable, and flagged `misrouted` so a caller can tell it from an old peer.
+ *
  * @param {string} socketAddr Peer socket address
- * @returns {Promise<{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object}>}
+ * @returns {Promise<{reachable: boolean, answerable: boolean, misrouted?: boolean, ready: boolean, folders: string[], holding: object}>}
  */
 /**
  * The signed body that asks a peer for what it holds, or null when this node cannot
@@ -89,6 +93,18 @@ async function holdingsRequest(socketAddr) {
 async function probePeer(socketAddr) {
   const ip = extractIp(socketAddr);
   const port = extractPort(socketAddr);
+
+  // Answered by another node: something is alive at the address, and nothing
+  // it says is this peer's. `misrouted` lets a promotion hold on it, because
+  // the peer itself may be holding the copy.
+  const identity = await peerIdentityService.verifyPeer(socketAddr);
+  if (identity.verdict === peerIdentityService.IdentityVerdict.MISROUTED) {
+    log.info(`peerFolderLiveness - a call to ${ip} was answered by ${identity.answeredAs}; nothing it holds is known`);
+    return {
+      reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {},
+    };
+  }
+
   try {
     // Signed, because `holding` is the tenant's data and the peer serves it to a node
     // or to the Flux team and to nobody else. A peer that has not upgraded has no POST

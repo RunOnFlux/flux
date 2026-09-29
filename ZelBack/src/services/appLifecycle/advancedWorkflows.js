@@ -40,6 +40,7 @@ const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
+const peerIdentityService = require('../peerIdentityService');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
 const registryManagerModule = require('../appDatabase/registryManager');
@@ -4886,6 +4887,18 @@ async function peerComponentState(peerSocketAddr, {
   );
   const ipToCheck = extractIp(peerSocketAddr);
   const portToCheck = extractPort(peerSocketAddr);
+
+  // Whatever answers below is taken as the answer of the node at this address,
+  // and "not running" from another node is a clearance to start a second
+  // writer. A call this node can show was answered by someone else rules
+  // nothing out.
+  const identity = await peerIdentityService.verifyPeer(peerSocketAddr);
+  if (identity.verdict === peerIdentityService.IdentityVerdict.MISROUTED) {
+    fluxEventBus.count('masterSlave:decision', identifier, 'peerMisrouted');
+    log.info(`${logPrefix}: a call to peer node (${label}) at ${ipToCheck} was answered by ${identity.answeredAs} for app:${appName} - what it runs is unknown, will not start`);
+    return PeerComponent.UNKNOWN;
+  }
+
   const { CancelToken } = axios;
   const source = CancelToken.source();
   // Cleared once the request settles: every probe otherwise leaves a

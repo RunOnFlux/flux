@@ -59,6 +59,7 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
 const peerSetStabilityService = require('./peerSetStabilityService');
+const outboundPathService = require('./outboundPathService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -525,6 +526,11 @@ async function startFluxFunctions() {
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       isAboveThreshold: () => peerManager.isAboveThreshold(),
     });
+
+    // Whether this node's calls to other nodes reach them. Started beside the
+    // peer-set watch because it draws its observer from the same network state,
+    // and like it the check says why a node is out rather than leaving it silent.
+    outboundPathService.start();
 
     // Network policy, started here rather than at the top of boot because it needs both of
     // the things that only exist by now: mongo, to restore and re-verify the bundle this
