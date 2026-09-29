@@ -2114,6 +2114,24 @@ describe('advancedWorkflows tests', () => {
 
     // A pass that cannot start the component yet is a decision like any other, and
     // a harness suite counts it to tell a standby still syncing from one holding.
+    // Every start counts 'started', so a suite reads passes counted from an event
+    // with no new start as that many decisions not to start. Counted whatever the
+    // pass decides, an operator-stopped component included.
+    it('counts every pass over a g: component, whatever it decides', async () => {
+      const appName = 'evaluatedapp';
+      const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
+      const count = sinon.stub(fluxEventBus, 'count');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+
+      await runPass();
+      operatorStopped.resolves(false);
+      await runPass();
+
+      expect(count.withArgs('masterSlave:decision', appName, 'evaluated').callCount).to.equal(2);
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'operatorStopped');
+    });
+
     it('counts a pass that finds the folder not ready yet', async () => {
       const appName = 'notreadyapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);

@@ -5186,6 +5186,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         }
       }
       if (needsToBeChecked) {
+        // One per pass per g: component, whatever the pass decides. Every start
+        // counts 'started', so passes counted from an event with no new start
+        // is a decision not to start, taken that many times.
+        fluxEventBus.count('masterSlave:decision', identifier, 'evaluated');
         // This node stopped the component in order to hand the app back, so it
         // is not a candidate. Without this the election restores it within one
         // cycle: the component is not running here, this node's own stale
