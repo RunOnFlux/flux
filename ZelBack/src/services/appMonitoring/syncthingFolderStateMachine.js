@@ -1677,6 +1677,10 @@ async function manageFolderSyncState(params) {
     liveness,
   } = params;
 
+  // One per pass per folder, whatever the pass decides: a harness suite counts
+  // passes from an event to know every holder has decided since it.
+  fluxEventBus.count('syncthing:folderPass', appId, 'evaluated');
+
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
   if (folderAlreadySyncing && containerDataFlags.includes('g') && (await appQueryService.holdsComponent(appId)) === false) {

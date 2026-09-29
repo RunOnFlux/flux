@@ -698,6 +698,25 @@ describe('syncthingFolderStateMachine tests', () => {
       };
     });
 
+    // A harness suite counts these from an event to know each holder has decided
+    // since it, so every pass counts once, whichever way the folder stands.
+    it('counts every pass over a folder, writable or not', async () => {
+      const count = sinon.stub(fluxEventBus, 'count');
+      try {
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+        mockParams.syncFolder = { type: 'sendreceive' };
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        mockParams.syncFolder = { type: 'receiveonly' };
+        mockParams.syncthingAppsFirstRun = true;
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(count.withArgs('syncthing:folderPass', 'test-app', 'evaluated').callCount).to.equal(2);
+      } finally {
+        count.restore();
+      }
+    });
+
     it('asks a stopped r: container to run and keeps the cache entry when the folder is already syncing', async () => {
       // The folder config comes back untouched on this path, so the two side
       // effects are the whole of what it does: an r: container that has stopped
