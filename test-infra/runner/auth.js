@@ -1,5 +1,4 @@
-import crypto from 'node:crypto';
-import { signAsync, getPublicKey } from '@noble/secp256k1';
+import { signAsync, getPublicKey, Signature } from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { ripemd160 } from '@noble/hashes/ripemd160.js';
 
@@ -83,4 +82,22 @@ export async function authenticate(nodeUrl, keypair) {
   return { zelidauth, zelid, loginPhrase, signature };
 }
 
-export { signBtcMessage, privkeyToZelid };
+// Whether `signatureB64` is a Bitcoin message signature over `message` by
+// `pubkeyHex` - the key recovered from the signature, compared in the
+// compression the signature itself declares.
+function verifyBtcMessage(message, signatureB64, pubkeyHex) {
+  try {
+    const raw = Buffer.from(signatureB64, 'base64');
+    if (raw.length !== 65) return false;
+    const flag = raw[0] - 27;
+    const compressed = flag >= 4;
+    const recovery = flag % 4;
+    const sig = Signature.fromCompact(raw.subarray(1)).addRecoveryBit(recovery);
+    const recovered = sig.recoverPublicKey(btcMagicHash(message)).toHex(compressed);
+    return recovered === pubkeyHex.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+export { signBtcMessage, privkeyToZelid, verifyBtcMessage };
