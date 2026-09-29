@@ -871,6 +871,11 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
   if (holder) return { ip: holder.ip, reason: 'already holds the writable copy' };
   const unready = answers.find((answer) => answer.reachable && answer.answerable && !answer.ready);
   if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
+  // Unlike an old peer, whose silence on this question is its version, a call
+  // another node answered says nothing about the peer at all - and that peer
+  // may be the one holding the copy.
+  const misrouted = answers.find((answer) => answer.misrouted);
+  if (misrouted) return { ip: misrouted.ip, reason: 'is answered by a different node when this node calls it' };
 
   // Recorded, not blocked - see UNANSWERABLE above. Worth a line of its own so a
   // promotion made without full cover is visible as that, and so the remedy reads

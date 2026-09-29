@@ -7,6 +7,7 @@ const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
 const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
+const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
@@ -608,6 +609,11 @@ describe('advancedWorkflows tests', () => {
       // Setup stubs
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       serviceHelperStub = sinon.stub(serviceHelper, 'axiosGet');
+      // Every peer predates the identity endpoint unless a test says otherwise,
+      // which is the one verdict the election treats as it treated every peer
+      // before identities existed.
+      sinon.stub(peerIdentityService, 'verifyPeer')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, reason: 'answered 404' });
 
       // Stub delay to prevent recursive calls - after first call, block recursion
       serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
@@ -1203,6 +1209,65 @@ describe('advancedWorkflows tests', () => {
 
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+    });
+
+    // The palworld case. The peer at .90 is running the component; this node's
+    // router hands every call for .90 to a machine beside it, which truthfully
+    // is not. Taken as .90's answer, that is a clearance to start a second writer.
+    it('does not start at index 0 when a call to the peer is answered by a different node', async () => {
+      const appName = 'misroutedpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.verifyPeer.withArgs('192.168.1.90:16127')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: '192.168.1.5:16137' });
+
+      // What answers at .90 holds nothing - it is not .90.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'was answered by 192.168.1.5:16137')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'could not be ruled out')).to.have.lengthOf(1);
+    });
+
+    it('does not ask a peer another node answered for what it runs', async () => {
+      const appName = 'misroutedunaskedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.verifyPeer.withArgs('192.168.1.90:16127')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: '192.168.1.5:16137' });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      const peerQueries = axiosGetStub.getCalls().map((call) => call.args[0])
+        .filter((url) => /192\.168\.1\.90:16127\/apps\/(heldcomponents|listrunningapps)/.test(url));
+      expect(peerQueries).to.deep.equal([]);
+    });
+
+    it('still starts at index 0 when the peer proves who it is and is not running the component', async () => {
+      const appName = 'verifiedpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.verifyPeer.withArgs('192.168.1.90:16127').resolves({
+        verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+        identity: { socketAddress: '192.168.1.90:16127', pubKey: 'PUB', deviceId: 'D' },
+      });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
     it('does not re-elect a component this node stood down to hand its app back', async () => {

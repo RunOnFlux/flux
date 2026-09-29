@@ -49,6 +49,8 @@ const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const portManager = require('./services/appNetwork/portManager');
+const peerIdentityService = require('./services/peerIdentityService');
+const outboundPathService = require('./services/outboundPathService');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
@@ -363,6 +365,18 @@ module.exports = (app) => {
   // portsInUseApi, with the code that enforces it.
   app.post('/flux/portsinuse', asyncRoute((req, res) => {
     return portManager.portsInUseApi(req, res);
+  }));
+  // Which node this is, signed over the caller's challenge. POST because the
+  // challenge is a body, and uncached because every answer is to one challenge:
+  // a cached one would be a recording, which is what the challenge exists to
+  // refuse.
+  app.post('/flux/identity', asyncRoute((req, res) => {
+    return peerIdentityService.identityAnswerAPI(req, res);
+  }));
+  // Whether this node's calls to other nodes reach them. Served from the state
+  // the scheduled check holds, so a request does no work.
+  app.get('/flux/outboundpath', rejectQueryParameters, asyncRoute((req, res) => {
+    return outboundPathService.outboundPathAPI(req, res);
   }));
 
   // ArcaneOS Authentication Endpoints (HTTPS only)

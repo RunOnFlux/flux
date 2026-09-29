@@ -1168,6 +1168,33 @@ describe('networkStateManager tests', () => {
 
         await nsm.stop();
       });
+
+      it('draws only nodes whose API listens on the port asked for', async () => {
+        const nsm = await fleetOf('10.0.0.1:16157', '203.0.113.9:16127', '203.0.113.10:16157', '203.0.113.11');
+
+        for (let i = 0; i < 50; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          expect(await nsm.getRandomExternalObserver('10.0.0.1:16157', { port: 16157 })).to.equal('203.0.113.10:16157');
+        }
+
+        await nsm.stop();
+      });
+
+      it('counts a bare address as the default port when a port is asked for', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '203.0.113.9:16137', '203.0.113.11');
+
+        expect(await nsm.getRandomExternalObserver('10.0.0.1:16127', { port: 16127 })).to.equal('203.0.113.11');
+
+        await nsm.stop();
+      });
+
+      it('is absent when no node on another IP listens on the port asked for', async () => {
+        const nsm = await fleetOf('10.0.0.1:16157', '10.0.0.1:16167', '203.0.113.9:16127');
+
+        expect(await nsm.getRandomExternalObserver('10.0.0.1:16157', { port: 16157 })).to.equal(null);
+
+        await nsm.stop();
+      });
     });
   });
 });

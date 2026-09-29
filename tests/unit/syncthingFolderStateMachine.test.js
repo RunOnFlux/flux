@@ -6,6 +6,7 @@ const sinon = require('sinon');
 const { globalState } = require('./fixtures/globalState');
 const { syncthingIgnoreLines } = require('../../ZelBack/src/services/appSystem/volumeReservedNames');
 const proxyquire = require('proxyquire').noCallThru();
+const { makePeerIdentityDouble } = require('./peerIdentityTestDouble');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 
@@ -149,7 +150,9 @@ const dirent = (name, isFile = true) => ({
 // node's own connectivity. Loaded before the state machine because the state
 // machine is handed this same mocked copy: a second, unmocked one would reach the
 // real syncthing service and answer every evidence question with silence.
+const peerIdentityMock = makePeerIdentityDouble();
 const peerFolderLivenessMock = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
+  '../peerIdentityService': peerIdentityMock,
   '../fluxCommunication': fluxCommunicationMock,
   '../syncthingService': syncthingServiceMock,
   '../utils/globalState': globalStateMock,
@@ -177,6 +180,7 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
 
 describe('syncthingFolderStateMachine tests', () => {
   beforeEach(() => {
+    peerIdentityMock.reset();
     // Reset only this file's own stubs (NOT a global sinon.reset(), which would
     // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
@@ -1350,6 +1354,66 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.not.equal(true);
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    describe('a peer whose address another node answers', () => {
+      const leaderWithOnePeer = () => {
+        // A cold start holds nothing, so the volume is empty too.
+        fsMock.promises.readdir.resolves([]);
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        });
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false,
+          numberOfExecutions: 1,
+          leaderStreak: 5,
+        });
+        mockParams.appLocation.resolves([
+          { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+          { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+        ]);
+        // Whatever answers holds nothing.
+        axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
+        axiosMock.post.resolves({ data: { data: { ready: true, folders: [] } } });
+      };
+
+      it('promotes the elected node when the peer proves it holds nothing - the control', async () => {
+        leaderWithOnePeer();
+        peerIdentityMock.verified('10.0.0.2:16127');
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+      });
+
+      it('does not promote on "holds nothing" from a different node, because the peer may hold the copy', async () => {
+        leaderWithOnePeer();
+        peerIdentityMock.misrouted('10.0.0.2:16127', '10.0.0.7:16137');
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache.restarted).to.not.equal(true);
+      });
+
+      it('keeps a holder another node answers for in the election, rather than dropping it as gone', async () => {
+        mockParams.localSocketAddr = '10.0.0.2:16127';
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false,
+          numberOfExecutions: 1,
+          leaderStreak: 5,
+        });
+        mockParams.appLocation.resolves([
+          { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+          { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+        ]);
+        peerIdentityMock.misrouted('10.0.0.1:16127', '10.0.0.7:16137');
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache.restarted).to.not.equal(true);
+      });
     });
 
     it('withdraws the designation when a gate turns the winner back', async () => {
