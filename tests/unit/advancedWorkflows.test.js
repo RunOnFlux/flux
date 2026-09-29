@@ -2433,6 +2433,17 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.notCalled(setControllerDesiredStub);
       });
 
+      // FDM stops naming a primary whose app stops answering its health check,
+      // and that is when an owner reaches for a restart.
+      it('adopts running on the holder when FDM names no primary', async () => {
+        serviceHelperStub.resolves(fdmNoPrimary());
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        await advancedWorkflows.masterSlaveApps(globalState, installed(), running([`flux${identifier}`]), https);
+
+        sinon.assert.calledOnceWithExactly(adoptStub, identifier, 'running', 'masterSlave holder, no primary named');
+        sinon.assert.notCalled(setControllerDesiredStub);
+      });
+
       it('leaves an opinion this process already holds alone', async () => {
         hasOpinionStub.returns(true);
         fluxNetworkHelperStub.resolves('90.228.196.203:16127');

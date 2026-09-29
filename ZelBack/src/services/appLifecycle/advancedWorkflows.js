@@ -5465,6 +5465,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // All other cases: don't start
                   log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - conditions not met for primary selection`);
                 }
+              } else if (!appReconciler.hasControllerOpinion(identifier)) {
+                // Running here with no primary named: this node holds the app, and
+                // the election leaves it running. A named primary elsewhere moves
+                // it to stopped through the standby branch below.
+                // eslint-disable-next-line no-await-in-loop
+                if (await appReconciler.adoptControllerDesired(identifier, 'running', 'masterSlave holder, no primary named')) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'adopted');
+                }
               }
             } else {
               // This pass read a primary off FDM. Counted rather than published:
