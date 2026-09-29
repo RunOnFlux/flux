@@ -1610,18 +1610,23 @@ async function handleNewApp(params) {
 }
 
 /**
- * Ensure container is running if needed
+ * Ensure an r: component whose folder is syncing is desired running: requested
+ * when it is not running, adopted when it already is and this process holds no
+ * opinion.
  * @param {string} appId - App ID
  * @param {string} containerDataFlags - Container flags
  * @returns {Promise<void>}
  */
 async function ensureContainerRunning(appId, containerDataFlags) {
   try {
+    if (!containerDataFlags.includes('r')) return;
     const containerInspect = await dockerService.dockerContainerInspect(appId);
 
-    if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
+    if (!containerInspect.State.Running) {
       log.info(`ensureContainerRunning - ${appId} is not running, requesting start`);
       appReconciler.setControllerDesired(appId, 'running', 'syncthing r: ensure-running');
+    } else if (!appReconciler.hasControllerOpinion(appId)) {
+      await appReconciler.adoptControllerDesired(appId, 'running', 'syncthing r: running');
     }
   } catch (error) {
     log.error(`ensureContainerRunning - Error checking/starting ${appId}: ${error.message}`);

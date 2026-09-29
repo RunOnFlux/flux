@@ -59,6 +59,8 @@ const appReconcilerMock = {
   setControllerDesired: sinon.stub(),
   requestStopAndClearData: sinon.stub(),
   enqueue: sinon.stub(),
+  hasControllerOpinion: sinon.stub(),
+  adoptControllerDesired: sinon.stub(),
 };
 const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
 // the pre-promotion peer probe (/apps/promotedfolders)
@@ -662,15 +664,46 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder).to.equal(mockParams.syncthingFolder);
     });
 
-    it('leaves an already-running container alone when the folder is already syncing', async () => {
-      mockParams.syncFolder = { type: 'sendreceive' };
-      dockerServiceMock.dockerContainerInspect.resolves({
-        State: { Running: true },
+    describe('an r: container already running on a syncing folder', () => {
+      beforeEach(() => {
+        mockParams.syncFolder = { type: 'sendreceive' };
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+        appReconcilerMock.setControllerDesired.resetHistory();
+        appReconcilerMock.hasControllerOpinion.reset();
+        appReconcilerMock.adoptControllerDesired.reset();
+        appReconcilerMock.adoptControllerDesired.resolves(true);
       });
 
-      await stateMachine.manageFolderSyncState(mockParams);
+      it('leaves an opinion this process holds alone', async () => {
+        appReconcilerMock.hasControllerOpinion.returns(true);
 
-      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledWith(appReconcilerMock.hasControllerOpinion, 'test-app');
+        sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+        sinon.assert.notCalled(appReconcilerMock.adoptControllerDesired);
+      });
+
+      // A FluxOS restart leaves the container running with no opinion in this
+      // process. Nothing needs starting, so the verdict is adopted, not requested.
+      it('adopts running when this process holds no opinion', async () => {
+        appReconcilerMock.hasControllerOpinion.returns(false);
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledOnceWithExactly(appReconcilerMock.adoptControllerDesired, 'test-app', 'running', sinon.match.string);
+        sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+      });
+
+      it('leaves a g: component to the election', async () => {
+        mockParams.containerDataFlags = 'g';
+        appReconcilerMock.hasControllerOpinion.returns(false);
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(appReconcilerMock.adoptControllerDesired);
+        sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+      });
     });
 
     it('should handle first run with no sync folder', async () => {

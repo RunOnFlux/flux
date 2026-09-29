@@ -23,7 +23,7 @@ import {
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import { derivePeerThresholds, ringArc, dialerCount } from './peer-topology.js';
-import { pushImage } from './registry-helper.js';
+import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
@@ -1045,9 +1045,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // boot — EMFILE panics WT (directory-sync fails) and mongod dies with what
   // presents as a SIGSEGV. The compose envs already run mongo at 65536; this
   // path was the only one still on the Docker default.
+  // Data on tmpfs: every node of a fleet creates its collections and indexes on
+  // this one mongod at boot, and on disk each creation waits on a sync, which
+  // makes a ten-node fleet's setup take about a minute; on tmpfs, a few seconds.
+  // The data lives as long as the container, which is the fleet's lifetime.
   const mongo = await new StaticIpContainer('mongo:8@sha256:a706cb4e493bcd0262f345b3b0c78732ca0e54301f0d7bbe2b66f26313ce7ccb')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withUlimits({ nofile: { soft: 65536, hard: 65536 } })
+    .withTmpFs({ '/data/db': 'rw,size=4g' })
     .withStaticIp(networkName, MONGO_IP)
     .withWaitStrategy(new TcpPollWaitStrategy(MONGO_IP, 27017))
     .start();
@@ -1251,6 +1256,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // so this costs milliseconds and never contacts Docker Hub.
   await pushImage('e2e-pause', 'v1');
 
+  // The file operation image, which every node fetches at boot and production
+  // nodes get from a registry or a peer. Unset, a node asks the public registry,
+  // which a fleet cannot reach, and keeps retrying a pull that can only fail for
+  // the whole of the suite. Copied before any node boots, from the box's cache.
+  await mirrorExecutorImage();
+
   const rtClient = await getContainerRuntimeClient();
   const { getReaper: getReaperFn } = await import('testcontainers');
   const reaper = await getReaperFn(rtClient);
@@ -1412,6 +1423,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       },
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
+    // The fleet's own registry serves the file operation image unless the suite
+    // names another source; any other volumeOperations setting it makes stands.
+    nodeConfig.fluxapps = {
+      ...nodeConfig.fluxapps,
+      volumeOperations: { image: executorImageReference(), ...nodeConfig.fluxapps?.volumeOperations },
+    };
     // Checked on the EFFECTIVE config, per node, before anything boots. A
     // compressed harness is a set of ratios and this is where a suite's
     // override lands on top of them - which is exactly where the queue step

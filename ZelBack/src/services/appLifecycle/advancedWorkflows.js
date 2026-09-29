@@ -2619,6 +2619,21 @@ async function appDockerRestart(appname) {
 }
 
 /**
+ * Announce each component a specification update replaced, once the whole app
+ * is back. The same event a component redeploy publishes: the only report that
+ * a single component was replaced, since the app stays installed throughout.
+ * @param {string} appName
+ * @param {Array<{component: string, hard: boolean}>} replaced
+ */
+function announceComponentsRedeployed(appName, replaced) {
+  replaced.forEach(({ component, hard }) => {
+    fluxEventBus.publish('app:componentRedeployed', {
+      name: appName, component, identifier: `${component}_${appName}`, hard,
+    });
+  });
+}
+
+/**
  * Helper function to restart app with permissions fix workflow for new primary
  * This is specifically for g: mode apps becoming primary
  * @param {string} appname - App name
@@ -2659,9 +2674,13 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
       return;
     }
 
-    // hand the run-state decision to the reconciler (the single container actuator)
-    appReconciler.setControllerDesired(appname, 'running', 'masterSlave primary (synced)');
-    log.info(`Requested start for masterSlave primary ${appname}`);
+    // hand the run-state decision to the reconciler (the single container actuator);
+    // an operator stop that landed during the ownership fix outranks it
+    if (await appReconciler.setControllerRunning(appname, 'masterSlave primary (synced)')) {
+      log.info(`Requested start for masterSlave primary ${appname}`);
+    } else {
+      log.info(`Not starting masterSlave primary ${appname}: its operator stopped it during the ownership fix`);
+    }
   } catch (error) {
     log.error(`Error preparing masterSlave primary ${appname}: ${error.message}`);
     // leave it stopped if the permissions-fix workflow failed
@@ -4367,8 +4386,9 @@ async function reinstallOldApplications() {
             log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (version upgrade path)`);
 
             // Now install components - containers will be created but app is already in DB
-            // eslint-disable-next-line no-restricted-syntax
             let allComponentsBack = true;
+            const replaced = [];
+            // eslint-disable-next-line no-restricted-syntax
             for (const appComponent of appSpecifications.compose) {
               log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
               // eslint-disable-next-line no-await-in-loop
@@ -4381,6 +4401,7 @@ async function reinstallOldApplications() {
                 allComponentsBack = false;
                 break;
               }
+              replaced.push({ component: appComponent.name, hard: true });
             }
             // Announced and restarted only if it is actually back. Saying so
             // regardless is what turned a refused install into a node reporting
@@ -4390,6 +4411,7 @@ async function reinstallOldApplications() {
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
               await appDockerRestart(appSpecifications.name);
+              announceComponentsRedeployed(appSpecifications.name, replaced);
             }
           } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
@@ -4595,6 +4617,7 @@ async function reinstallOldApplications() {
               log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (composed redeployment path)`);
 
               let allComponentsBack = true;
+              const replaced = [];
               // Now install components - containers will be created but app is already in DB
               // eslint-disable-next-line no-restricted-syntax
               for (const appComponent of appSpecifications.compose) {
@@ -4623,6 +4646,7 @@ async function reinstallOldApplications() {
                     allComponentsBack = false;
                     break;
                   }
+                  replaced.push({ component: appComponent.name, hard: false });
                 } else {
                   log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // eslint-disable-next-line no-await-in-loop
@@ -4635,6 +4659,7 @@ async function reinstallOldApplications() {
                     allComponentsBack = false;
                     break;
                   }
+                  replaced.push({ component: appComponent.name, hard: true });
                 }
               }
               // Announced and restarted only if it is actually back.
@@ -4643,6 +4668,7 @@ async function reinstallOldApplications() {
                 log.warn(`Restarting application ${appSpecifications.name}`);
                 // eslint-disable-next-line no-await-in-loop, no-use-before-define
                 await appDockerRestart(appSpecifications.name);
+                announceComponentsRedeployed(appSpecifications.name, replaced);
               }
             } catch (error) {
               log.error(error);
@@ -5465,6 +5491,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // All other cases: don't start
                   log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - conditions not met for primary selection`);
                 }
+              } else if (!appReconciler.hasControllerOpinion(identifier)) {
+                // Running here with no primary named: this node holds the app, and
+                // the election leaves it running. A named primary elsewhere moves
+                // it to stopped through the standby branch below.
+                // eslint-disable-next-line no-await-in-loop
+                if (await appReconciler.adoptControllerDesired(identifier, 'running', 'masterSlave holder, no primary named')) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'adopted');
+                }
               }
             } else {
               // This pass read a primary off FDM. Counted rather than published:
@@ -5514,6 +5548,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 } else {
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
+                }
+              } else if (!appReconciler.hasControllerOpinion(identifier)) {
+                // The container already shows the verdict - running on the primary,
+                // stopped on a standby - so there is nothing to actuate, and this
+                // process has no opinion recording it.
+                const verdict = ipsMatch(localSocketAddr, ip) ? 'running' : 'stopped';
+                // eslint-disable-next-line no-await-in-loop
+                if (await appReconciler.adoptControllerDesired(identifier, verdict, verdict === 'running' ? 'masterSlave primary' : 'masterSlave standby')) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'adopted');
                 }
               }
             }

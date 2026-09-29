@@ -343,7 +343,6 @@ describe('policy reaching a node from its peers', function () {
     for (let i = 0; i < 2; i += 1) {
       await env.partitionGroups([TWO_HOPS], REST);
       await env.healPartition([TWO_HOPS], REST);
-      await env.startDiscovery([TWO_HOPS]);
       // Counted rather than named: the node is cut off from the whole fleet, so its peers
       // go to zero and coming back is unambiguous.
       await waitFor(
@@ -575,6 +574,13 @@ describe('a node whose source answered with something that did not verify', func
 
   it('refuses it, and holds nothing', async function () {
     this.timeout(120000);
+    // A node goes to the source only once peering has left it unsettled, and nothing that
+    // node holds changes when it refuses what it was served - so the refusal is waited for
+    // as an announcement, not inferred from a store that reads the same before it.
+    const answer = await Promise.any(env.clients.map(
+      (c) => c.waitForEvent('policy:backstopAnswered', (d) => d.served, 90000),
+    ));
+    expect(answer.data.verdict, 'the source served a body, and the node refused it').to.equal('rejected');
     const held = await Promise.all([0, 1, 2].map(heldSeq));
     expect(held, 'a valid signature from an untrusted signer is not policy').to.deep.equal([null, null, null]);
     // It ANSWERED, which is the half that matters here - the fleet met a body, not silence.

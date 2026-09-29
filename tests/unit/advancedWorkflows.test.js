@@ -10,8 +10,25 @@ const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advan
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const https = require('https');
+const proxyquire = require('proxyquire');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const log = require('../../ZelBack/src/lib/log');
+const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
+const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
+
+// The masterSlave start fixes ownership through node-cmd, which runs sudo. This
+// copy answers every shell command with success, so the start runs to its end.
+const advancedWorkflowsNoShell = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+  'node-cmd': { run: (command, callback) => callback(null, '', '') },
+});
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -660,7 +677,6 @@ describe('advancedWorkflows tests', () => {
 
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const https = require('https');
 
       await advancedWorkflows.masterSlaveApps(
         globalState,
@@ -677,7 +693,6 @@ describe('advancedWorkflows tests', () => {
 
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const https = require('https');
 
       await advancedWorkflows.masterSlaveApps(
         globalState,
@@ -698,7 +713,7 @@ describe('advancedWorkflows tests', () => {
         globalState,
         installedApps,
         listRunningApps,
-        require('https'),
+        https,
       );
 
       // guard returns before any election work, so installed apps are never read
@@ -722,7 +737,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const https = require('https');
 
       // Mock FDM to return no errors
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -758,7 +772,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const https = require('https');
 
       serviceHelperStub.resolves(fdmNoPrimary());
 
@@ -846,7 +859,7 @@ describe('advancedWorkflows tests', () => {
         delayCalls = 0;
         globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
-          globalState, installedApps, listRunningApps, require('https'),
+          globalState, installedApps, listRunningApps, https,
         );
       };
     };
@@ -1380,7 +1393,6 @@ describe('advancedWorkflows tests', () => {
       // that failed must stop claiming rather than block the fleet.
       const appName = 'claimlifecycleapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
       const claimStarting = sinon.stub(appReconciler, 'claimStarting');
       const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
@@ -2036,7 +2048,7 @@ describe('advancedWorkflows tests', () => {
         delayCalls = 0;
         globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
-          globalState, installedApps, listRunningApps, require('https'),
+          globalState, installedApps, listRunningApps, https,
         );
       };
 
@@ -2081,7 +2093,6 @@ describe('advancedWorkflows tests', () => {
       });
 
       globalState.receiveOnlySyncthingAppsCache.set('zel_masterslaveapp', { restarted: true });
-      const https = require('https');
 
       // Mock FDM responses (no IP)
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2146,7 +2157,6 @@ describe('advancedWorkflows tests', () => {
       });
 
       globalState.receiveOnlySyncthingAppsCache.set('zel_masterslaveapp', { restarted: true });
-      const https = require('https');
 
       // Mock FDM responses (no IP)
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2198,7 +2208,6 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.returns('fluxn8n_n8napp');
       const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
       // post-inversion, a standby records desired-stopped through the reconciler seam
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
       const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
 
       // Mixed compose app: n8n uses g: master/slave, pgcluster needs all instances running
@@ -2224,7 +2233,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const https = require('https');
 
       // FDM reports the primary is another node
       serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } });
@@ -2275,7 +2283,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const https = require('https');
 
       // FDM reports the primary is another node
       serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } });
@@ -2303,6 +2310,8 @@ describe('advancedWorkflows tests', () => {
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub.returns('fluxvalheim_valheim1777035136949');
       const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      sinon.stub(appReconciler, 'hasControllerOpinion').returns(false);
+      const adoptStub = sinon.stub(appReconciler, 'adoptControllerDesired').resolves(true);
 
       // Compose app with a g: component so the identifier is component_app: this makes the
       // (mistaken) stop call hit dockerService.appDockerStop directly, so the assertion
@@ -2327,7 +2336,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const https = require('https');
 
       // FDM returns a bare IP (current production behavior - no FDM change required).
       serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203'] } } });
@@ -2343,6 +2351,7 @@ describe('advancedWorkflows tests', () => {
 
       // We are the primary - the container must be left running, never stopped.
       expect(appDockerStopStub.called).to.be.false;
+      sinon.assert.calledOnceWithExactly(adoptStub, 'valheim_valheim1777035136949', 'running', 'masterSlave primary');
     });
 
     it('stops the g: component on a UPnP standby when FDM names a different primary IP', async () => {
@@ -2352,7 +2361,6 @@ describe('advancedWorkflows tests', () => {
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub.returns('fluxn8n_n8napp');
       const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
       const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
 
       const installedApps = sinon.stub().resolves({
@@ -2376,7 +2384,6 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      const https = require('https');
 
       // FDM primary is a different node, returned as a bare IP (production format).
       serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } });
@@ -2395,6 +2402,204 @@ describe('advancedWorkflows tests', () => {
       expect(setControllerDesiredStub.calledWith('n8n_n8napp', 'stopped', 'masterSlave standby')).to.be.true;
       expect(setControllerDesiredStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
       expect(appDockerStopStub.called).to.be.false;
+    });
+
+    // The loop re-arms itself after its delay, and the re-armed pass runs beside
+    // the test's assertions. It finds no apps, so each test sees exactly one pass.
+    const installedOnFirstPass = (apps) => {
+      const stub = sinon.stub().resolves({ status: 'success', data: [] });
+      stub.onFirstCall().resolves({ status: 'success', data: apps });
+      return stub;
+    };
+
+    // A FluxOS restart empties the reconciler's controller opinions while the
+    // containers keep running. A verdict the container already shows actuates
+    // nothing, so it has to be recorded some other way, or every reconcile pass
+    // takes no action on the component - including an operator's restart.
+    describe('a verdict the container already shows', () => {
+      const appName = 'valheim1777035136949';
+      const identifier = `valheim_${appName}`;
+      let adoptStub;
+      let setControllerDesiredStub;
+      let hasOpinionStub;
+
+      const installed = () => installedOnFirstPass([
+        { name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] },
+      ]);
+      const running = (names) => sinon.stub().resolves({
+        status: 'success',
+        data: names.map((n) => ({ Names: [`/${n}`] })),
+      });
+
+      beforeEach(() => {
+        dockerServiceStub.returns(`flux${identifier}`);
+        adoptStub = sinon.stub(appReconciler, 'adoptControllerDesired').resolves(true);
+        setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
+        hasOpinionStub = sinon.stub(appReconciler, 'hasControllerOpinion').returns(false);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203'] } } });
+      });
+
+      it('adopts running on the primary that is already running it', async () => {
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        await advancedWorkflows.masterSlaveApps(globalState, installed(), running([`flux${identifier}`]), https);
+
+        sinon.assert.calledOnceWithExactly(adoptStub, identifier, 'running', 'masterSlave primary');
+        sinon.assert.notCalled(setControllerDesiredStub);
+      });
+
+      it('adopts stopped on a standby that is not running it', async () => {
+        fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+        await advancedWorkflows.masterSlaveApps(globalState, installed(), running([]), https);
+
+        sinon.assert.calledOnceWithExactly(adoptStub, identifier, 'stopped', 'masterSlave standby');
+        sinon.assert.notCalled(setControllerDesiredStub);
+      });
+
+      // FDM stops naming a primary whose app stops answering its health check,
+      // and that is when an owner reaches for a restart.
+      it('adopts running on the holder when FDM names no primary', async () => {
+        serviceHelperStub.resolves(fdmNoPrimary());
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        await advancedWorkflows.masterSlaveApps(globalState, installed(), running([`flux${identifier}`]), https);
+
+        sinon.assert.calledOnceWithExactly(adoptStub, identifier, 'running', 'masterSlave holder, no primary named');
+        sinon.assert.notCalled(setControllerDesiredStub);
+      });
+
+      it('leaves an opinion this process already holds alone', async () => {
+        hasOpinionStub.returns(true);
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        await advancedWorkflows.masterSlaveApps(globalState, installed(), running([`flux${identifier}`]), https);
+
+        sinon.assert.calledWith(hasOpinionStub, identifier);
+        sinon.assert.notCalled(adoptStub);
+      });
+    });
+
+    // The primary's start records its run opinion only after the ownership fix,
+    // and an operator stop that landed during that fix outranks it.
+    describe('the primary start after the ownership fix', () => {
+      const appName = 'valheim1777035136949';
+      const identifier = `valheim_${appName}`;
+      const appId = `flux${identifier}`;
+
+      const runStart = async (recorded) => {
+        dockerServiceStub.returns(appId);
+        const setRunning = sinon.stub(appReconciler, 'setControllerRunning').resolves(recorded);
+        const set = sinon.stub(appReconciler, 'setControllerDesired');
+        sinon.stub(appReconciler, 'hasControllerOpinion').returns(false);
+        sinon.stub(appReconciler, 'claimStarting');
+        const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+        const logInfo = sinon.stub(log, 'info');
+        globalState.receiveOnlySyncthingAppsCache.set(appId, { restarted: true });
+        syncthingServiceStub.resolves([{ id: appId, path: `${appsFolder}${appId}`, type: 'sendreceive' }]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203'] } } });
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        const installedApps = installedOnFirstPass([
+          { name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] },
+        ]);
+        const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+
+        await advancedWorkflowsNoShell.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+        for (let tick = 0; tick < 100 && !releaseStarting.calledWith(identifier); tick += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setTimeout(resolve, 20); });
+        }
+        return { setRunning, set, logInfo };
+      };
+
+      it('records running through the lock-checked write', async () => {
+        const { setRunning, set, logInfo } = await runStart(true);
+
+        sinon.assert.calledOnceWithExactly(setRunning, identifier, 'masterSlave primary (synced)');
+        sinon.assert.neverCalledWith(set, identifier, 'running');
+        expect(logInfo.getCalls().some((c) => String(c.args[0]).includes(`Requested start for masterSlave primary ${identifier}`))).to.equal(true);
+      });
+
+      it('says so when an operator stop outranked it', async () => {
+        const { setRunning, logInfo } = await runStart(false);
+
+        sinon.assert.calledOnce(setRunning);
+        expect(logInfo.getCalls().some((c) => String(c.args[0]).includes('its operator stopped it during the ownership fix'))).to.equal(true);
+        expect(logInfo.getCalls().some((c) => String(c.args[0]).includes('Requested start for masterSlave primary'))).to.equal(false);
+      });
+    });
+
+    // The election loop's decision table, one row per cell. FDM naming nobody for
+    // a stopped component is an election, covered by the election tests above.
+    describe('decision table', () => {
+      const appName = 'valheim1777035136949';
+      const identifier = `valheim_${appName}`;
+      const here = '90.228.196.203:16127';
+      const elsewhere = '192.168.1.5:16127';
+      const ROWS = [
+        { fdm: 'here', running: true, opinion: false, expect: ['adopt', 'running', 'masterSlave primary'] },
+        { fdm: 'here', running: true, opinion: true, expect: ['nothing'] },
+        { fdm: 'here', running: false, opinion: false, expect: ['start'] },
+        { fdm: 'here', running: false, opinion: true, expect: ['start'] },
+        { fdm: 'other', running: true, opinion: false, expect: ['set', 'stopped', 'masterSlave standby'] },
+        { fdm: 'other', running: true, opinion: true, expect: ['set', 'stopped', 'masterSlave standby'] },
+        { fdm: 'other', running: false, opinion: false, expect: ['adopt', 'stopped', 'masterSlave standby'] },
+        { fdm: 'other', running: false, opinion: true, expect: ['nothing'] },
+        { fdm: 'none', running: true, opinion: false, expect: ['adopt', 'running', 'masterSlave holder, no primary named'] },
+        { fdm: 'none', running: true, opinion: true, expect: ['nothing'] },
+        {
+          fdm: 'here', running: true, opinion: false, operatorStopped: true, expect: ['nothing'],
+        },
+      ];
+
+      ROWS.forEach((row) => {
+        const label = `FDM names ${row.fdm === 'here' ? 'this node' : row.fdm === 'other' ? 'another node' : 'nobody'}, `
+          + `${row.running ? 'running' : 'stopped'} here, opinion ${row.opinion ? 'held' : 'unknown'}`
+          + `${row.operatorStopped ? ', operator-stopped' : ''} -> ${row.expect.join(' ')}`;
+
+        it(label, async () => {
+          dockerServiceStub.returns(`flux${identifier}`);
+          const adopt = sinon.stub(appReconciler, 'adoptControllerDesired').resolves(true);
+          const set = sinon.stub(appReconciler, 'setControllerDesired');
+          sinon.stub(appReconciler, 'hasControllerOpinion').returns(row.opinion);
+          const claimStarting = sinon.stub(appReconciler, 'claimStarting');
+          const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+          sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(row.operatorStopped === true);
+          globalState.receiveOnlySyncthingAppsCache.set(`flux${identifier}`, { restarted: true });
+          const ips = { here: ['90.228.196.203'], other: ['10.9.9.9'], none: [] }[row.fdm];
+          serviceHelperStub.resolves({ data: { status: 'success', data: { ips } } });
+          fluxNetworkHelperStub.resolves(row.fdm === 'other' ? elsewhere : here);
+          const installedApps = installedOnFirstPass([
+            { name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] },
+          ]);
+          const listRunningApps = sinon.stub().resolves({
+            status: 'success',
+            data: row.running ? [{ Names: [`/flux${identifier}`] }] : [],
+          });
+
+          await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+
+          const [what, state, reason] = row.expect;
+          if (what === 'adopt') {
+            sinon.assert.calledOnceWithExactly(adopt, identifier, state, reason);
+            sinon.assert.notCalled(set);
+            sinon.assert.notCalled(claimStarting);
+          } else if (what === 'set') {
+            sinon.assert.calledOnceWithExactly(set, identifier, state, reason);
+            sinon.assert.notCalled(adopt);
+            sinon.assert.notCalled(claimStarting);
+          } else if (what === 'start') {
+            // The start is not awaited by the pass; wait for this attempt to end.
+            for (let tick = 0; tick < 100 && !releaseStarting.calledWith(identifier); tick += 1) {
+              // eslint-disable-next-line no-await-in-loop
+              await new Promise((resolve) => { setTimeout(resolve, 20); });
+            }
+            sinon.assert.calledWith(claimStarting, identifier);
+            sinon.assert.notCalled(adopt);
+            sinon.assert.neverCalledWith(set, identifier, 'stopped');
+          } else {
+            sinon.assert.notCalled(adopt);
+            sinon.assert.notCalled(set);
+            sinon.assert.notCalled(claimStarting);
+          }
+        });
+      });
     });
   });
 
@@ -3591,11 +3796,9 @@ describe('advancedWorkflows tests', () => {
     // eslint-disable-next-line global-require
     const appController = require('../../ZelBack/src/services/appManagement/appController');
     // eslint-disable-next-line global-require
-    const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
     // eslint-disable-next-line global-require
     const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
     // eslint-disable-next-line global-require
-    const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 
     const appname = 'palworld1785719281005';
     const folderId = `fluxpalworld_${appname}`;
@@ -5241,6 +5444,54 @@ describe('advancedWorkflows tests', () => {
       expect(appName, 'softUninstallComponent takes the bare app name').to.equal('myapp');
       expect(appId, 'and the component docker id').to.equal('fluxweb_myapp');
     });
+
+    // The node records the new specification before it builds the replacement,
+    // so the row cannot say the reinstall is done. The announcement does, once
+    // every replaced component is back and the app restarted.
+    describe('announcing the replaced components', () => {
+      let publish;
+      let appDockerRestart;
+      let installApplicationSoft;
+
+      beforeEach(() => {
+        sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+        sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+        sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({});
+        sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ acknowledged: true });
+        sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        installApplicationSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+        sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+        sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
+        sinon.stub(registryManager, 'getApplicationSpecifications').resolves(newSpec);
+        sinon.stub(volumeService, 'ensureMountPathsExist').resolves();
+        sinon.stub(appInspector, 'startAppMonitoring');
+        appDockerRestart = sinon.stub(dockerServiceModule, 'appDockerRestart').resolves();
+        publish = sinon.spy(fluxEventBus, 'publish');
+      });
+
+      const redeployedEvents = () => publish.getCalls().filter((c) => c.args[0] === 'app:componentRedeployed');
+
+      it('announces each replaced component after the app is back and restarted', async () => {
+        await advancedWorkflows.reinstallOldApplications();
+
+        const events = redeployedEvents();
+        expect(events, 'one announcement for the one replaced component').to.have.lengthOf(1);
+        expect(events[0].args[1]).to.deep.equal({
+          name: 'myapp', component: 'web', identifier: 'web_myapp', hard: false,
+        });
+        sinon.assert.calledWith(appDockerRestart, 'web_myapp');
+        expect(appDockerRestart.lastCall.calledBefore(events[0]), 'announced after the restart').to.equal(true);
+      });
+
+      it('announces nothing when a component does not come back', async () => {
+        installApplicationSoft.rejects(new Error('image pull failed'));
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        expect(installApplicationSoft.called, 'the fixture reached the reinstall').to.equal(true);
+        expect(redeployedEvents()).to.have.lengthOf(0);
+      });
+    });
   });
 
   // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
@@ -5844,7 +6095,6 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // sweep. The stand-down then reports success, the component keeps running,
       // and every later pass refuses with ELECTION_UNKNOWN because this node has
       // excluded itself from the election that would refresh the verdict.
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
       const desiredStub = sinon.stub(appReconciler, 'setControllerDesired');
 
       await advancedWorkflows.checkAndRemoveApplicationInstance();
@@ -5959,7 +6209,6 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // Marking it there excludes this node from the election for a component it
       // is still running - precisely the state the guard's own comment says it
       // exists to avoid - for up to STAND_DOWN_PASSES_BEFORE_GIVING_UP passes.
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
       sinon.stub(appReconciler, 'dockerActual')
         .resolves({ reachable: true, indeterminate: false, running: true });
       const logWarn = sinon.stub(log, 'warn');

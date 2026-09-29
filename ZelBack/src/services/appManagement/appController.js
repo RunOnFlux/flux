@@ -287,17 +287,33 @@ async function containersReachedStopped(ids) {
   return { settled: true, reason: null };
 }
 
-// Why the reconciler is not running a component, in the operator's terms. The
-// election cases are not failures: a synced component runs on the node the
-// election made the writer, so "not started" is the correct outcome elsewhere
-// and saying so is more use than a generic wait.
-const NOT_RUNNING_REASONS = {
+// Why the reconciler has not done what the operator asked, in the operator's
+// terms. The election cases are not failures: a synced component runs on the
+// node the election made the writer, so "not started" is the correct outcome
+// elsewhere and saying so is more use than a generic wait.
+const PENDING_REASONS = {
   awaitingController: 'waiting for the election',
   controllerDesired: 'the election has not made this node the writer',
   policy: 'its restart policy does not allow it to run',
   invalidSpec: 'its specification cannot be actuated',
   notInstalled: 'it is not installed on this node',
 };
+
+/**
+ * The reconciler's own reason for leaving a component as it is.
+ * @param {string} id Component identifier.
+ * @param {string} fallback Said when the verdict carries no reason to report.
+ * @returns {Promise<string>}
+ */
+async function pendingReason(id, fallback) {
+  let verdict;
+  try {
+    verdict = await appReconciler.desiredRunState(id);
+  } catch (err) {
+    return `its state could not be read: ${err.message}`;
+  }
+  return PENDING_REASONS[verdict.reason] || fallback;
+}
 
 /**
  * What the containers are actually doing, once the reconciler has had its pass.
@@ -319,19 +335,36 @@ async function containersReachedRunning(ids) {
       // eslint-disable-next-line no-continue
       continue;
     }
-    let verdict;
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      verdict = await appReconciler.desiredRunState(id);
-    } catch (err) {
-      return { settled: false, reason: `its state could not be read: ${err.message}` };
-    }
-    return {
-      settled: false,
-      reason: NOT_RUNNING_REASONS[verdict.reason] || 'the reconciler has not started it yet',
-    };
+    // eslint-disable-next-line no-await-in-loop
+    return { settled: false, reason: await pendingReason(id, 'the reconciler has not started it yet') };
   }
   return { settled: true, reason: null };
+}
+
+/**
+ * Whether the restart the operator asked for has been carried out, once the
+ * reconciler has had its pass.
+ *
+ * A running container is not the answer: a pass that takes no action leaves it
+ * running exactly as it was. The restart is carried out when the generation the
+ * request raised has been actuated - by a bounce of a running container, or by
+ * the start of a stopped one.
+ *
+ * @param {string[]} ids Component identifiers.
+ * @returns {Promise<{settled: boolean, reason: string|null}>}
+ */
+async function containersRestarted(ids) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    const state = await appsRuntimeState.getState(id);
+    if (!state) return { settled: false, reason: 'its state could not be read' };
+    if ((state.actuatedRestartGeneration ?? 0) < (state.restartGeneration ?? 0)) {
+      // eslint-disable-next-line no-await-in-loop
+      return { settled: false, reason: await pendingReason(id, 'the reconciler has not restarted it yet') };
+    }
+  }
+  return containersReachedRunning(ids);
 }
 
 async function appStart(req, res) {
@@ -554,7 +587,7 @@ async function appRestart(req, res) {
     const { ids, actuated, appName: restartedName } = await setAppOperatorStopped(appname, false, { awaitPass: true, alsoRestart: true });
 
     const outcome = actuated
-      ? await containersReachedRunning(ids)
+      ? await containersRestarted(ids)
       : { settled: false, reason: 'no reconcile has run yet' };
 
     if (!outcome.settled) {
