@@ -247,6 +247,27 @@ describe('fileSystemManager upload tests', () => {
     expect(release.called, 'the slot was leaked when the client disconnected').to.equal(true);
   });
 
+  // Answering the caller is the last step of every way an upload settles, inside a
+  // promise chain, so a response that cannot be sent must not become a rejection.
+  it('settles when the refusal itself cannot be sent', async () => {
+    const escaped = [];
+    const onRejection = (reason) => escaped.push(reason);
+    process.on('unhandledRejection', onRejection);
+    try {
+      executorStub.run.rejects(new Error('File operation failed (exit 3): over the limit'));
+      res.json = sinon.stub().throws(new Error('the socket is gone'));
+
+      await fileSystemManager.uploadAppsFiles(multipartRequest({ 'toobig.bin': 'x' }), res);
+      await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+      expect(res.json.called, 'the refusal was never attempted, so nothing could have thrown').to.equal(true);
+      expect(escaped.map((reason) => reason?.message ?? reason), 'a rejection escaped the upload').to.deep.equal([]);
+      expect(release.callCount, 'the slot is released exactly once').to.equal(1);
+    } finally {
+      process.removeListener('unhandledRejection', onRejection);
+    }
+  });
+
   // The executor stops a sender below its own floor, and while that operation is
   // still settling the request's floor stops it too. That second stop reaches the
   // parser, whose promise rejects with it - and an unhandled rejection exits FluxOS.
@@ -283,7 +304,7 @@ describe('fileSystemManager upload tests', () => {
 
       expect(executorStub.run.called, 'the upload never reached the executor, so nothing was stopping it').to.equal(true);
       expect(escaped.map((reason) => reason?.message ?? reason), 'a rejection escaped the upload').to.deep.equal([]);
-      expect(release.called, 'the slot was leaked').to.equal(true);
+      expect(release.callCount, 'the slot is released exactly once').to.equal(1);
     } finally {
       process.removeListener('unhandledRejection', onRejection);
     }
