@@ -332,6 +332,8 @@ async function processContainerData(params) {
 
   // Handle receive-only or global sync flags
   if (primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g')) {
+    // Read before the pass: the state machine updates the entry in place.
+    const wasReady = !!state.receiveOnlySyncthingAppsCache.get(appId)?.restarted;
     // Use state machine to manage folder sync transitions
     const { syncthingFolder: updatedFolder, cache, skipProcessing } = await manageFolderSyncState({
       appId,
@@ -350,6 +352,10 @@ async function processContainerData(params) {
     // Update cache if provided
     if (cache !== null) {
       state.receiveOnlySyncthingAppsCache.set(appId, cache);
+      // From here the election reads this holder as ready to take over. A
+      // single-writer standby stays receiveonly, so this, not the folder type,
+      // is when it becomes eligible.
+      if (cache.restarted && !wasReady) fluxEventBus.publish('syncthing:folderReady', { folder: appId });
     }
 
     // Skip processing if marked to skip

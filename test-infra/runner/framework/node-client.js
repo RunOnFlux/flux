@@ -265,6 +265,7 @@ export function nodeClient(nodeNum) {
         'pm2:killTimeoutUnchanged',
         'checkpoint:held',
         'syncthing:folderWritable',
+        'syncthing:folderReady',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
