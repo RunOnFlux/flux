@@ -1329,4 +1329,10 @@ module.exports = (app) => {
   app.get('/flux/testcounters', asyncRoute((req, res) => {
     return fluxEventBus.countersHandler(req, res);
   }));
+
+  // Pauses a named code path while a test holds a window open - see
+  // checkpoint() in fluxEventBus.js. 404s in production, like the counters.
+  app.post('/flux/testcheckpoints', asyncRoute((req, res) => {
+    return fluxEventBus.checkpointsHandler(req, res);
+  }));
 };
