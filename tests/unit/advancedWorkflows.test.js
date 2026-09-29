@@ -16,6 +16,13 @@ const proxyquire = require('proxyquire');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const log = require('../../ZelBack/src/lib/log');
+const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
+const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
 
 // The masterSlave start fixes ownership through node-cmd, which runs sudo. This
 // copy answers every shell command with success, so the start runs to its end.
@@ -2397,6 +2404,14 @@ describe('advancedWorkflows tests', () => {
       expect(appDockerStopStub.called).to.be.false;
     });
 
+    // The loop re-arms itself after its delay, and the re-armed pass runs beside
+    // the test's assertions. It finds no apps, so each test sees exactly one pass.
+    const installedOnFirstPass = (apps) => {
+      const stub = sinon.stub().resolves({ status: 'success', data: [] });
+      stub.onFirstCall().resolves({ status: 'success', data: apps });
+      return stub;
+    };
+
     // A FluxOS restart empties the reconciler's controller opinions while the
     // containers keep running. A verdict the container already shows actuates
     // nothing, so it has to be recorded some other way, or every reconcile pass
@@ -2408,10 +2423,9 @@ describe('advancedWorkflows tests', () => {
       let setControllerDesiredStub;
       let hasOpinionStub;
 
-      const installed = () => sinon.stub().resolves({
-        status: 'success',
-        data: [{ name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] }],
-      });
+      const installed = () => installedOnFirstPass([
+        { name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] },
+      ]);
       const running = (names) => sinon.stub().resolves({
         status: 'success',
         data: names.map((n) => ({ Names: [`/${n}`] })),
@@ -2481,10 +2495,9 @@ describe('advancedWorkflows tests', () => {
         syncthingServiceStub.resolves([{ id: appId, path: `${appsFolder}${appId}`, type: 'sendreceive' }]);
         serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203'] } } });
         fluxNetworkHelperStub.resolves('90.228.196.203:16127');
-        const installedApps = sinon.stub().resolves({
-          status: 'success',
-          data: [{ name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] }],
-        });
+        const installedApps = installedOnFirstPass([
+          { name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] },
+        ]);
         const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
 
         await advancedWorkflowsNoShell.masterSlaveApps(globalState, installedApps, listRunningApps, https);
@@ -2552,10 +2565,9 @@ describe('advancedWorkflows tests', () => {
           const ips = { here: ['90.228.196.203'], other: ['10.9.9.9'], none: [] }[row.fdm];
           serviceHelperStub.resolves({ data: { status: 'success', data: { ips } } });
           fluxNetworkHelperStub.resolves(row.fdm === 'other' ? elsewhere : here);
-          const installedApps = sinon.stub().resolves({
-            status: 'success',
-            data: [{ name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] }],
-          });
+          const installedApps = installedOnFirstPass([
+            { name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] },
+          ]);
           const listRunningApps = sinon.stub().resolves({
             status: 'success',
             data: row.running ? [{ Names: [`/flux${identifier}`] }] : [],
@@ -5431,6 +5443,54 @@ describe('advancedWorkflows tests', () => {
       // that is being removed.
       expect(appName, 'softUninstallComponent takes the bare app name').to.equal('myapp');
       expect(appId, 'and the component docker id').to.equal('fluxweb_myapp');
+    });
+
+    // The node records the new specification before it builds the replacement,
+    // so the row cannot say the reinstall is done. The announcement does, once
+    // every replaced component is back and the app restarted.
+    describe('announcing the replaced components', () => {
+      let publish;
+      let appDockerRestart;
+      let installApplicationSoft;
+
+      beforeEach(() => {
+        sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+        sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+        sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({});
+        sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ acknowledged: true });
+        sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        installApplicationSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+        sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+        sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
+        sinon.stub(registryManager, 'getApplicationSpecifications').resolves(newSpec);
+        sinon.stub(volumeService, 'ensureMountPathsExist').resolves();
+        sinon.stub(appInspector, 'startAppMonitoring');
+        appDockerRestart = sinon.stub(dockerServiceModule, 'appDockerRestart').resolves();
+        publish = sinon.spy(fluxEventBus, 'publish');
+      });
+
+      const redeployedEvents = () => publish.getCalls().filter((c) => c.args[0] === 'app:componentRedeployed');
+
+      it('announces each replaced component after the app is back and restarted', async () => {
+        await advancedWorkflows.reinstallOldApplications();
+
+        const events = redeployedEvents();
+        expect(events, 'one announcement for the one replaced component').to.have.lengthOf(1);
+        expect(events[0].args[1]).to.deep.equal({
+          name: 'myapp', component: 'web', identifier: 'web_myapp', hard: false,
+        });
+        sinon.assert.calledWith(appDockerRestart, 'web_myapp');
+        expect(appDockerRestart.lastCall.calledBefore(events[0]), 'announced after the restart').to.equal(true);
+      });
+
+      it('announces nothing when a component does not come back', async () => {
+        installApplicationSoft.rejects(new Error('image pull failed'));
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        expect(installApplicationSoft.called, 'the fixture reached the reinstall').to.equal(true);
+        expect(redeployedEvents()).to.have.lengthOf(0);
+      });
     });
   });
 
