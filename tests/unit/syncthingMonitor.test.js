@@ -1343,6 +1343,61 @@ describe('syncthingMonitor tests', () => {
         sinon.assert.neverCalledWith(publish, 'syncthing:folderWritable');
       });
     });
+
+    // A single-writer standby stays receiveonly, so readiness, not the folder
+    // type, is when the election first reads it as eligible to take over.
+    describe('a holder becoming ready', () => {
+      // eslint-disable-next-line global-require
+      const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+      let publish;
+
+      beforeEach(() => {
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      afterEach(() => {
+        publish.restore();
+      });
+
+      const passReturns = (restarted) => syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+        syncthingFolder: { type: 'receiveonly' },
+        cache: { restarted, numberOfExecutions: 1 },
+      });
+
+      it('publishes it on the pass that makes the holder ready', async () => {
+        writesAFolder();
+        passReturns(true);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(mockState.receiveOnlySyncthingAppsCache.get('testapp')?.restarted, 'the pass never stored the entry').to.equal(true);
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderReady'), 'syncthing:folderReady', { folder: 'testapp' });
+      });
+
+      it('does not publish it for a holder that was already ready', async () => {
+        writesAFolder();
+        mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: true, numberOfExecutions: 1 });
+        passReturns(true);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+      });
+
+      it('does not publish it while the holder is not ready', async () => {
+        writesAFolder();
+        passReturns(false);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+      });
+    });
   });
 
   describe('ignore-policy convergence', () => {

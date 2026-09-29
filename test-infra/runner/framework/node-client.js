@@ -268,6 +268,7 @@ export function nodeClient(nodeNum) {
         'pm2:registrationUnread',
         'checkpoint:held',
         'syncthing:folderWritable',
+        'syncthing:folderReady',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
