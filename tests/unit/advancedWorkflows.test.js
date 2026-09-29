@@ -20,6 +20,7 @@ const appReconciler = require('../../ZelBack/src/services/appMonitoring/appRecon
 const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 const syncthingFolderStateMachine = require('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -2110,6 +2111,44 @@ describe('advancedWorkflows tests', () => {
         'started without asking anyone - a second writer on the shared volume',
       ).to.have.lengthOf(0);
       clock.restore();
+    });
+
+    // A pass that cannot start the component yet is a decision like any other, and
+    // a harness suite counts it to tell a standby still syncing from one holding.
+    it('counts a pass that finds the folder not ready yet', async () => {
+      const appName = 'notreadyapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const count = sinon.stub(fluxEventBus, 'count');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { receiveOnlyCache: new Map([[`flux${appName}`, { restarted: false }]]) },
+      );
+      syncthingServiceStub.resolves([{ path: `/root/.flux/ZelApps/flux${appName}`, type: 'receiveonly' }]);
+      serviceHelperStub.resolves(fdmNoPrimary());
+
+      await runPass();
+
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'notReady');
+      sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+    });
+
+    it('counts a pass FDM names this node primary on while its folder is not ready yet', async () => {
+      const appName = 'notreadyprimaryapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const count = sinon.stub(fluxEventBus, 'count');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { receiveOnlyCache: new Map([[`flux${appName}`, { restarted: false }]]) },
+      );
+      syncthingServiceStub.resolves([{ path: `/root/.flux/ZelApps/flux${appName}`, type: 'receiveonly' }]);
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.5'] } } });
+
+      await runPass();
+
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'primaryObserved');
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'notReady');
     });
 
     it('takes the per-place stagger from config, not from a literal', async () => {

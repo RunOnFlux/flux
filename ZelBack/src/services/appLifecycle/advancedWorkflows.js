@@ -5280,8 +5280,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (!isReady) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'notReady');
                   log.info(`masterSlaveApps: app:${installedApp.name} is not ready yet (syncthing not synced), skipping primary selection for this cycle`);
-                  // eslint-disable-next-line global-require
                   // eslint-disable-next-line no-continue
                   continue;
                 }
@@ -5562,6 +5562,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   requestMasterStart(identifier, appId);
                   log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 } else {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'notReady');
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
                 }
               }

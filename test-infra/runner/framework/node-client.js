@@ -267,6 +267,7 @@ export function nodeClient(nodeNum) {
         'pm2:killTimeoutRaiseFailedLate',
         'pm2:registrationUnread',
         'checkpoint:held',
+        'syncthing:folderWritable',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
