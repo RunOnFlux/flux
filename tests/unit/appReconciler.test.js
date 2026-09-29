@@ -1924,6 +1924,22 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerRestart.calledOnceWith('db_App')).to.equal(true);
     });
 
+    // A restart never runs a component the controller holds stopped: the request
+    // waits, and a later start satisfies it.
+    it('stops, and does not restart, a component held stopped with a restart pending', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 2, actuatedRestartGeneration: 1 });
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+      stubs.globalState.bootContainerStateSettled = true;
+
+      await appReconciler.reconcile('db_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('db_App')).to.equal(true);
+      expect(stubs.dockerService.appDockerRestart.called).to.equal(false);
+      expect(stubs.appsRuntimeState.recordRestartGeneration.called, 'the request stays pending').to.equal(false);
+    });
+
     it('adopts stopped for a container that is stopped', async () => {
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
 
