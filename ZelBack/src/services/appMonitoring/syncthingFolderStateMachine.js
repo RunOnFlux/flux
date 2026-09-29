@@ -10,7 +10,8 @@ const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
-const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
+const { socketAddressesMatch, extractIp, extractPort } = require('../utils/socketAddressUtils');
+const { RemovalOutcome } = require('../utils/removalOutcome');
 const fluxEventBus = require('../utils/fluxEventBus');
 const {
   silenceVerdict, SilenceVerdict, peerSyncthingConnection, PeerConnection,
@@ -24,6 +25,8 @@ const {
   STALL_REMOVE_MIN_WINDOW_MS,
   STALL_REMOVE_MIN_NUDGES,
   JOIN_CONNECT_DEADLINE_MS,
+  JOIN_STEP_CAP_MS,
+  JOIN_REMOVAL_RETRY_MS,
   ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
 
@@ -985,71 +988,110 @@ async function liveHoldersReached(appId, peers, localSocketAddr, liveness) {
  *
  * So the join is given a deadline. Removing the replica at the deadline is safe for
  * one reason, and every condition here is that reason: it holds nothing. The index
- * says the cluster has advertised nothing to it (globalBytes 0), the disk read says
- * none of the owner's bytes are here, and a live peer says it holds the writable copy.
- * An unreadable status or holdings is not "nothing", so neither ever reaches the
- * removal. And a node whose own peers have gone quiet is not judged on its join at
- * all: it is the one cut off, and the clock restarts once it can see the fleet again.
+ * says the cluster has advertised nothing to it (globalBytes 0), syncthing's record of
+ * local changes holds none of the owner's bytes, the disk itself is read before the
+ * removal, and a live peer says it holds the writable copy. An unreadable status,
+ * holdings or disk is not "nothing", so none of them ever reaches the removal.
+ *
+ * The deadline counts time spent failing to join, not time since the first failure:
+ * a pass where the holder cannot be seen, or where this node is itself cut off from
+ * the fleet, pauses the count rather than resetting it. Resetting would let one
+ * flaky probe per half hour keep a replica that never joins forever; not pausing
+ * would charge this node for the holder's own outage. Only a connection, or data
+ * arriving, clears it.
  *
  * Also records what the seed guard needs: that a live holder was seen, and whether
  * this node ever reached one.
  *
  * @param {Object} params
- * @returns {Promise<boolean>} true when the replica was removed
+ * @returns {Promise<boolean>} true when this pass must end here, receiveonly
  */
 async function enforceJoinDeadline({
   appId, cache, runningAppList, localSocketAddr, liveness, installedAppHash, receivedNothing,
+  folderPath, unsyncedSubdirs,
 }) {
-  if (!receivedNothing) {
-    cache.unreachedHolderSince = null;
+  const now = Date.now();
+  const pause = () => {
+    cache.joinCheckedAt = null;
     return false;
-  }
+  };
+  const clear = () => {
+    cache.unreachedMs = 0;
+    cache.joinWarned = false;
+    return pause();
+  };
+
+  if (!receivedNothing) return clear();
 
   const holders = await liveHoldersReached(appId, runningAppList, localSocketAddr, liveness);
-  if (!holders.length) {
-    // Nobody is serving a copy this node could join: a cold start, or a holder that is
-    // down. Neither is this node failing to join, and the wait branch owns both.
-    cache.unreachedHolderSince = null;
-    return false;
-  }
+  // Nobody is serving a copy this node could join: a cold start, or a holder that is
+  // down. Neither is this node failing to join, and the wait branch owns both.
+  if (!holders.length) return pause();
 
   cache.liveHolderSeen = holders[0].ip;
   if (holders.some((holder) => holder.connected)) {
     cache.holderEverConnected = true;
-    cache.unreachedHolderSince = null;
-    return false;
+    return clear();
   }
+  if (!liveness.localConnectivity().connected) return pause();
 
-  if (!liveness.localConnectivity().connected) {
-    cache.unreachedHolderSince = null;
-    return false;
+  const holderIps = holders.map((holder) => extractIp(holder.ip)).join(', ');
+  if (!cache.joinWarned) {
+    cache.joinWarned = true;
+    // The id this node holds for a peer may be the one it had before that address
+    // was reinstalled or changed hands. Read it again rather than spend the deadline
+    // dialling a device that no longer exists.
+    holders.forEach((holder) => {
+      globalState.syncthingDevicesIDCache.delete(`${extractIp(holder.ip)}:${extractPort(holder.ip)}`);
+    });
+    log.warn(`enforceJoinDeadline - ${appId} has received nothing and its syncthing is not connected to ${holderIps}, which serve the writable copy; `
+      + `this node leaves the app if it cannot connect within ${Math.round(JOIN_CONNECT_DEADLINE_MS / 60000)}m`);
   }
+  // A long gap between two passes (a stalled pass, a suspended process) is not time
+  // spent watching the join fail, so no single step counts for more than a pass's worth.
+  const step = cache.joinCheckedAt ? Math.min(now - cache.joinCheckedAt, JOIN_STEP_CAP_MS) : 0;
+  cache.unreachedMs = (cache.unreachedMs || 0) + step;
+  cache.joinCheckedAt = now;
+  if (cache.unreachedMs < JOIN_CONNECT_DEADLINE_MS) return false;
 
-  const now = Date.now();
-  if (!cache.unreachedHolderSince) {
-    cache.unreachedHolderSince = now;
-    log.warn(`enforceJoinDeadline - ${appId} has received nothing and its syncthing is not connected to ${holders.map((holder) => extractIp(holder.ip)).join(', ')}, which serve the writable copy; this node leaves the app if that is still true in ${Math.round(JOIN_CONNECT_DEADLINE_MS / 60000)}m`);
+  if (cache.joinRemovalAttemptAt && now - cache.joinRemovalAttemptAt < JOIN_REMOVAL_RETRY_MS) return true;
+
+  // The index and syncthing's record of local changes both say nothing is here. The
+  // disk is the last word, because removal is the one step here that cannot be taken
+  // back: files syncthing has not scanned yet are invisible to both reads above.
+  const disk = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs || [], { countDirs: false });
+  if (!disk.readable || disk.hasContent) {
+    if (!cache.joinDiskRefusalLogged) {
+      log.warn(`enforceJoinDeadline - ${appId} never joined, but its volume ${disk.readable ? 'holds files' : 'could not be read'}; not removing it`);
+      cache.joinDiskRefusalLogged = true;
+    }
     return false;
   }
-  if (now - cache.unreachedHolderSince < JOIN_CONNECT_DEADLINE_MS) return false;
 
   const mainAppName = appId.split('_')[1] || appId;
-  const minutes = Math.round((now - cache.unreachedHolderSince) / 60000);
-  const holderIps = holders.map((holder) => extractIp(holder.ip)).join(', ');
+  const minutes = Math.round(cache.unreachedMs / 60000);
   log.error(`enforceJoinDeadline - ${appId}: ${minutes}m without reaching any node serving the writable copy (${holderIps}) and nothing received; `
     + `this replica cannot sync - removing ${mainAppName} locally so a node that can takes the slot (it holds no data)`);
-  fluxEventBus.publish('syncthing:joinDeadlineRemoval', { folder: appId, holders: holders.map((holder) => holder.ip) });
+  cache.joinRemovalAttemptAt = now;
   // Without this the spawner sees the app one instance short, finds this node
   // eligible, and places it straight back here to fail the same way.
   if (installedAppHash && globalState.spawnErrorsLongerAppCache) {
     globalState.spawnErrorsLongerAppCache.set(installedAppHash, '');
   }
+  let outcome;
   try {
-    await appUninstaller.removeAppLocally(mainAppName, null, true, false, true);
+    outcome = await appUninstaller.removeAppLocally(mainAppName, null, true, false, true);
   } catch (error) {
-    log.error(`enforceJoinDeadline - Failed to remove ${mainAppName}: ${error.message}`);
+    outcome = error.message;
   }
-  cache.restarted = true;
+  if (outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED) {
+    fluxEventBus.publish('syncthing:joinDeadlineRemoval', { folder: appId, holders: holders.map((holder) => holder.ip) });
+  } else {
+    // Not marked restarted, which is what masterSlaveApps reads as "ready to start": a
+    // replica that failed to leave must still never run on its empty folder. The next
+    // attempt waits JOIN_REMOVAL_RETRY_MS.
+    log.error(`enforceJoinDeadline - removal of ${mainAppName} did not complete (${outcome}); retrying in ${Math.round(JOIN_REMOVAL_RETRY_MS / 60000)}m`);
+  }
   return true;
 }
 
@@ -1363,8 +1405,11 @@ async function handleReceiveOnlyTransition(params) {
   const receivedNothing = Boolean(syncStatus && syncStatus.globalBytes === 0
     && holdings && holdings.bytes === 0);
   if (await enforceJoinDeadline({
-    appId, cache, runningAppList, localSocketAddr, liveness, installedAppHash, receivedNothing,
+    appId, cache, runningAppList, localSocketAddr, liveness, installedAppHash, receivedNothing, folderPath, unsyncedSubdirs,
   })) {
+    // The folder config handed in defaults to sendreceive; every exit from this
+    // function has to say receiveonly or the monitor promotes an empty folder.
+    syncthingFolder.type = 'receiveonly';
     return { syncthingFolder, cache };
   }
   if (holdings) {

@@ -369,6 +369,52 @@ describe('syncthingMonitorHelpers tests', () => {
       expect(cache.get('10.0.0.1:16127')).to.equal('NEW-DEVICE-ID');
     });
 
+    describe('re-reading an id that may have changed', () => {
+      const HOUR = 60 * 60 * 1000;
+      let clock;
+      beforeEach(() => { clock = sandbox.useFakeTimers({ now: 1_000_000_000_000, toFake: ['Date'] }); });
+
+      it('trusts a cached id for an hour without asking the peer', async () => {
+        const cache = new Map();
+        const get = sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'FIRST-ID' } });
+        await helpers.getDeviceIDCached('10.0.0.9:16127', cache);
+        clock.tick(HOUR - 1000);
+
+        const result = await helpers.getDeviceIDCached('10.0.0.9:16127', cache);
+
+        expect(result).to.equal('FIRST-ID');
+        sinon.assert.calledOnce(get);
+      });
+
+      it('asks again after an hour and takes the id the address answers with now', async () => {
+        // the node behind the address was reinstalled: same ip:port, new identity
+        const cache = new Map();
+        const get = sandbox.stub(axios, 'get');
+        get.onFirstCall().resolves({ data: { status: 'success', data: 'OLD-ID' } });
+        get.onSecondCall().resolves({ data: { status: 'success', data: 'NEW-ID' } });
+        await helpers.getDeviceIDCached('10.0.0.8:16127', cache);
+        clock.tick(HOUR + 1000);
+
+        const result = await helpers.getDeviceIDCached('10.0.0.8:16127', cache);
+
+        expect(result).to.equal('NEW-ID');
+        expect(cache.get('10.0.0.8:16127')).to.equal('NEW-ID');
+      });
+
+      it('keeps the cached id when the peer cannot be asked again', async () => {
+        const cache = new Map();
+        const get = sandbox.stub(axios, 'get');
+        get.onFirstCall().resolves({ data: { status: 'success', data: 'KEPT-ID' } });
+        get.onSecondCall().rejects(new Error('timeout'));
+        await helpers.getDeviceIDCached('10.0.0.7:16127', cache);
+        clock.tick(HOUR + 1000);
+
+        const result = await helpers.getDeviceIDCached('10.0.0.7:16127', cache);
+
+        expect(result).to.equal('KEPT-ID');
+      });
+    });
+
     it('should not cache on failure', async () => {
       const cache = new Map();
       sandbox.stub(axios, 'get').rejects(new Error('Network error'));

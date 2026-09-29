@@ -16,6 +16,13 @@ describe('syncthingMonitorConstants tests', () => {
       expect(constants.MONITOR_INTERVAL_MS).to.equal(30000);
     });
 
+    it('gives a replica half an hour to join, and re-reads peer ids hourly', () => {
+      expect(constants.JOIN_CONNECT_DEADLINE_MS).to.equal(30 * 60 * 1000);
+      expect(constants.JOIN_STEP_CAP_MS).to.be.below(constants.JOIN_CONNECT_DEADLINE_MS);
+      expect(constants.JOIN_REMOVAL_RETRY_MS).to.equal(5 * 60 * 1000);
+      expect(constants.DEVICE_ID_REFRESH_MS).to.equal(60 * 60 * 1000);
+    });
+
     it('should have OPERATION_DELAY_MS defined', () => {
       expect(constants.OPERATION_DELAY_MS).to.be.a('number');
       expect(constants.OPERATION_DELAY_MS).to.equal(500);

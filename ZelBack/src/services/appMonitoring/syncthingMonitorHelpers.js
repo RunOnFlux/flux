@@ -9,6 +9,7 @@ const {
   DEVICE_ID_REQUEST_TIMEOUT_MS,
   SYNCTHING_RESCAN_INTERVAL_SECONDS,
   SYNCTHING_MAX_CONFLICTS,
+  DEVICE_ID_REFRESH_MS,
 } = require('./syncthingMonitorConstants');
 
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
@@ -41,20 +42,50 @@ async function getDeviceID(fluxIP, retries = 0) {
   }
 }
 
+// When each cached device id was last read from its peer, per cache. Kept beside the
+// cache rather than in it: the cache is shared, and its readers take the value as the
+// id itself.
+const deviceIdReadAt = new WeakMap();
+
 /**
- * Get device ID with caching
+ * Get device ID with caching.
+ *
+ * The id is re-read from the peer once it is DEVICE_ID_REFRESH_MS old. An address
+ * outlives the node behind it - a node reinstalled at the same ip:port, or a
+ * residential address passed to another node, answers with a new id - and a cache
+ * that never expires keeps configuring the old one until this node's FluxOS restarts,
+ * so the two never connect. A failed re-read keeps the cached id: a peer that cannot
+ * be asked right now has not been shown to have changed.
+ *
  * @param {string} name - Device name (IP:port)
  * @param {Map} cache - Cache map
  * @returns {Promise<string|null>} Device ID or null
  */
 async function getDeviceIDCached(name, cache) {
+  if (!deviceIdReadAt.has(cache)) deviceIdReadAt.set(cache, new Map());
+  const readAt = deviceIdReadAt.get(cache);
+
   if (cache.has(name)) {
-    return cache.get(name);
+    // An entry this module did not write (filled elsewhere, or before a restart of
+    // this module) is dated from when it is first seen here.
+    if (!readAt.has(name)) readAt.set(name, Date.now());
+    if (Date.now() - readAt.get(name) < DEVICE_ID_REFRESH_MS) {
+      return cache.get(name);
+    }
+    const fresh = await getDeviceID(name);
+    if (!fresh) return cache.get(name);
+    if (fresh !== cache.get(name)) {
+      log.warn(`getDeviceIDCached - ${name} now answers with device ${fresh}, was ${cache.get(name)}`);
+    }
+    cache.set(name, fresh);
+    readAt.set(name, Date.now());
+    return fresh;
   }
 
   const deviceID = await getDeviceID(name);
   if (deviceID) {
     cache.set(name, deviceID);
+    readAt.set(name, Date.now());
   }
   return deviceID;
 }

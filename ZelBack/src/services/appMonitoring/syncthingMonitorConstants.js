@@ -4,6 +4,8 @@ const config = require('config');
 
 // Timeout values (milliseconds)
 const DEVICE_ID_REQUEST_TIMEOUT_MS = 5000;
+// How long a peer's device id is trusted before it is read from the peer again.
+const DEVICE_ID_REFRESH_MS = config.syncthing.deviceIdRefreshMs ?? 60 * 60 * 1000;
 // Tunable for tests via config.syncthing (see ZelBack/config/default.js); the
 // literal is the production default when the key is absent.
 const MONITOR_INTERVAL_MS = config.syncthing.monitorIntervalMs ?? 30 * 1000; // 30 seconds
@@ -37,6 +39,11 @@ const STALL_REMOVE_MIN_NUDGES = config.syncthing.stallRemoveMinNudges ?? 3;
 // nothing (it holds nothing) and hands the slot to a node that can sync.
 // A healthy join connects within seconds, so this only has to outlast a slow start.
 const JOIN_CONNECT_DEADLINE_MS = config.syncthing.joinConnectDeadlineMs ?? 30 * 60 * 1000;
+// The most one monitor pass can add to that count, so a stalled pass or a suspended
+// process is not taken for half an hour of watching the join fail.
+const JOIN_STEP_CAP_MS = 5 * 60 * 1000;
+// How long a replica that failed to leave waits before trying again.
+const JOIN_REMOVAL_RETRY_MS = 5 * 60 * 1000;
 
 // Folder states in which syncthing is actively working: flat bytes are healthy
 // here (e.g. a long sync-preparing phase on a large folder)
@@ -65,6 +72,7 @@ const HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes - how often to run 
 
 module.exports = {
   DEVICE_ID_REQUEST_TIMEOUT_MS,
+  DEVICE_ID_REFRESH_MS,
   MONITOR_INTERVAL_MS,
   OPERATION_DELAY_MS,
   ERROR_RETRY_DELAY_MS,
@@ -76,6 +84,8 @@ module.exports = {
   STALL_REMOVE_MIN_WINDOW_MS,
   STALL_REMOVE_MIN_NUDGES,
   JOIN_CONNECT_DEADLINE_MS,
+  JOIN_STEP_CAP_MS,
+  JOIN_REMOVAL_RETRY_MS,
   ACTIVE_FOLDER_STATES,
   CLOCK_SKEW_TOLERANCE_MS,
   EARLY_EVAL_DEBOUNCE_MS,

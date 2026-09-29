@@ -2815,8 +2815,16 @@ describe('syncthingFolderStateMachine tests', () => {
       });
     };
 
+    // Past the deadline: the count is kept per pass, and the last pass was just now.
+    const pastDeadline = () => Object.assign(params.receiveOnlySyncthingAppsCache.get('test-app'), {
+      unreachedMs: 31 * MIN, joinCheckedAt: Date.now() - 30 * 1000, joinWarned: true,
+    });
+
     beforeEach(() => {
       globalStateMock.spawnErrorsLongerAppCache = new Map();
+      appUninstallerMock.removeAppLocally.resolves('removed');
+      // an empty volume: nothing of the owner's on disk
+      fsMock.promises.readdir.resolves([]);
       params = {
         appId: 'test-app',
         syncFolder: { id: 'test-app', type: 'receiveonly' },
@@ -2828,7 +2836,9 @@ describe('syncthingFolderStateMachine tests', () => {
           { ip: SELF, runningSince: '2026-09-28T20:59:09.465Z', broadcastedAt: 1000 },
         ]),
         localSocketAddr: SELF,
-        syncthingFolder: { id: 'test-app', type: 'receiveonly' },
+        // as the monitor builds it: createSyncthingFolderConfig defaults to sendreceive,
+        // so every exit that does not say receiveonly promotes the folder
+        syncthingFolder: { id: 'test-app', type: 'sendreceive' },
         installedAppName: 'test-app',
         installedAppHash: 'APP-HASH',
         liveness: createPeerFolderLiveness(),
@@ -2846,14 +2856,17 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(params);
 
-      expect(result.cache.unreachedHolderSince).to.be.a('number');
+      expect(result.cache.joinCheckedAt).to.be.a('number');
+      expect(result.cache.joinWarned).to.equal(true);
       expect(result.cache.liveHolderSeen).to.equal(HOLDER);
+      // the holder's device id is read again rather than trusted
+      expect(globalStateMock.syncthingDevicesIDCache.has(HOLDER)).to.equal(false);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
     });
 
     it('leaves the app, and keeps this node from being placed on it again, once the deadline passes', async () => {
-      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      pastDeadline();
       holderServes();
       notConnectedToHolder();
       receivedNothing();
@@ -2862,14 +2875,119 @@ describe('syncthingFolderStateMachine tests', () => {
 
       sinon.assert.calledOnceWithExactly(appUninstallerMock.removeAppLocally, 'test-app', null, true, false, true);
       expect(globalStateMock.spawnErrorsLongerAppCache.has('APP-HASH')).to.equal(true);
-      expect(result.cache.restarted).to.equal(true);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
+    });
+
+    it('counts only the time spent failing to join: a pass that cannot see the holder pauses the count', async () => {
+      pastDeadline();
+      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedMs = 10 * MIN;
+      holderIsSilent();
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.cache.unreachedMs).to.equal(10 * MIN);
+      expect(result.cache.joinCheckedAt).to.equal(null);
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+    });
+
+    it('adds no more than one pass\'s worth after a long gap between passes', async () => {
+      Object.assign(params.receiveOnlySyncthingAppsCache.get('test-app'), {
+        unreachedMs: 1 * MIN, joinCheckedAt: Date.now() - 60 * MIN, joinWarned: true,
+      });
+      holderServes();
+      notConnectedToHolder();
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.cache.unreachedMs).to.be.at.most(6 * MIN + 1000);
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+    });
+
+    it('does not remove a replica whose volume holds files syncthing has not indexed', async () => {
+      pastDeadline();
+      holderServes();
+      notConnectedToHolder();
+      receivedNothing();
+      fsMock.promises.readdir.resolves([dirent('world.sav')]);
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+    });
+
+    it('stays receiveonly and never reads as ready to start when the removal does not complete', async () => {
+      pastDeadline();
+      holderServes();
+      notConnectedToHolder();
+      receivedNothing();
+      appUninstallerMock.removeAppLocally.resolves('failed');
+
+      const first = await stateMachine.manageFolderSyncState(params);
+
+      expect(first.syncthingFolder.type).to.equal('receiveonly');
+      // restarted is what masterSlaveApps reads as "ready to start"
+      expect(first.cache.restarted).to.not.equal(true);
+
+      // and the retry waits instead of hammering the uninstaller every pass
+      params.liveness = createPeerFolderLiveness();
+      await stateMachine.manageFolderSyncState(params);
+      sinon.assert.calledOnce(appUninstallerMock.removeAppLocally);
+    });
+
+    it('keeps a silent holder in the election when two devices carry its name', async () => {
+      // The holder's id changed and the current one was added beside the stale one.
+      // Answering with the stale id would read a connected holder as disconnected - the
+      // evidence that it is gone - and this node would take over beside it.
+      Object.assign(params.receiveOnlySyncthingAppsCache.get('test-app'), { leaderStreak: 5 });
+      params.appLocation.resolves([
+        { ip: HOLDER, runningSince: null, broadcastedAt: 1000 },
+        { ip: SELF, runningSince: null, broadcastedAt: 1000 },
+      ]);
+      holderIsSilent();
+      syncthingServiceMock.getConfigDevices.resolves([
+        { name: HOLDER, deviceID: 'OLD-HOLDER-ID' },
+        { name: HOLDER, deviceID: 'NEW-HOLDER-ID' },
+      ]);
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'unknown', completion: 0, globalBytes: 0 });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+      // a full synced copy on disk, so the only thing deciding is the holder's verdict
+      fsMock.promises.readdir.resolves([dirent('world.sav')]);
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.cache.designationPending).to.not.equal(true);
+    });
+
+    it('takes over from a silent holder whose one configured device says it is disconnected', async () => {
+      // the control for the case above: the same fallback, unambiguous
+      Object.assign(params.receiveOnlySyncthingAppsCache.get('test-app'), { leaderStreak: 5 });
+      params.appLocation.resolves([
+        { ip: HOLDER, runningSince: null, broadcastedAt: 1000 },
+        { ip: SELF, runningSince: null, broadcastedAt: 1000 },
+      ]);
+      holderIsSilent();
+      syncthingServiceMock.getConfigDevices.resolves([{ name: HOLDER, deviceID: 'HOLDER-ID' }]);
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'unknown', completion: 0, globalBytes: 0 });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+      // a full synced copy on disk, so the only thing deciding is the holder's verdict
+      fsMock.promises.readdir.resolves([dirent('world.sav')]);
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.cache.designationPending).to.equal(true);
     });
 
     it('counts a holder device it never configured as not reached', async () => {
       // No device id in the cache or the config: the peer's device never made it into
       // this node's syncthing, which is itself a way of never joining.
-      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      pastDeadline();
       holderServes();
       receivedNothing();
 
@@ -2879,7 +2997,7 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('keeps a replica that is connected to the holder, however little it has received', async () => {
-      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      pastDeadline();
       holderServes();
       globalStateMock.syncthingDevicesIDCache.set(HOLDER, 'HOLDER-DEVICE-ID');
       syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'valid', completion: 100, globalBytes: 0 });
@@ -2889,11 +3007,11 @@ describe('syncthingFolderStateMachine tests', () => {
 
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.cache.holderEverConnected).to.equal(true);
-      expect(result.cache.unreachedHolderSince).to.equal(null);
+      expect(result.cache.unreachedMs).to.equal(0);
     });
 
     it('never removes a replica that holds any of the owner\'s bytes', async () => {
-      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      pastDeadline();
       holderServes();
       notConnectedToHolder();
       receivedNothing();
@@ -2905,7 +3023,7 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('never removes a replica whose index the cluster has already written to', async () => {
-      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      pastDeadline();
       holderServes();
       notConnectedToHolder();
       syncthingServiceMock.getDbStatus.resolves({
@@ -2918,7 +3036,7 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('does not judge the join of a node that is itself cut off', async () => {
-      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      pastDeadline();
       holderServes();
       notConnectedToHolder();
       receivedNothing();
@@ -2927,7 +3045,8 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.manageFolderSyncState(params);
 
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
-      expect(result.cache.unreachedHolderSince).to.equal(null);
+      // paused, not reset: the time already spent failing to join still counts
+      expect(result.cache.unreachedMs).to.equal(31 * MIN);
     });
 
     it('does not seed an empty folder over a holder it saw serving and never reached, while that holder is still listed', async () => {
@@ -2957,6 +3076,8 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.manageFolderSyncState(params);
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
+      // set only on the seed path, so this is the seed and not the input passed through
+      expect(result.cache.designationPending).to.equal(true);
     });
 
     it('still seeds when it had reached the holder and the cluster simply held nothing', async () => {
@@ -2970,6 +3091,8 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.manageFolderSyncState(params);
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
+      // set only on the seed path, so this is the seed and not the input passed through
+      expect(result.cache.designationPending).to.equal(true);
     });
   });
 });

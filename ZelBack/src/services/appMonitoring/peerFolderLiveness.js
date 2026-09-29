@@ -228,7 +228,12 @@ async function peerDeviceId(peerIp) {
   // ignorant and hold a start for as long as the dead peer's location record lives.
   const devices = await syncthingService.getConfigDevices().catch(() => null);
   if (!Array.isArray(devices)) return null;
-  return devices.find((device) => device.name === name)?.deviceID ?? null;
+  // Two devices under one name is a peer whose id changed: the current id was added
+  // beside the old one, which lingers until the sweep drops it. Which is which cannot
+  // be told from here, and answering with the stale one would read a connected peer as
+  // disconnected - evidence that it is gone. No answer is the safe one.
+  const named = devices.filter((device) => device.name === name);
+  return named.length === 1 ? named[0].deviceID : null;
 }
 
 /**
