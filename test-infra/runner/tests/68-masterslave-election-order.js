@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, setPeerHasData, resetSyncState, setFolderPatchDelay,
+  setSynced, setPeerHasData, resetSyncState,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -40,6 +40,10 @@ const subnet = getSubnetConfig();
 
 // Passes each node is counted deciding, after the change it is deciding on.
 const HELD_PASSES = 3;
+
+// The g: start path's checkpoint, declared in fluxEventBus.Checkpoint: a node
+// paused here has committed to the start and runs nothing.
+const BEFORE_START = 'masterSlave:beforeStart';
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -261,28 +265,34 @@ describe('primary election under a divergent placement order', function () {
     // Exactly one holder runs the component, through the window where the primary is
     // stopped and handed back to the election. Two things can put a second writer on
     // the shared volume here: a seed claim still standing after genesis, which leaves
-    // the index order and starts against a peer a lower-index probe cannot see; and a
-    // controller desire surviving the operator stop, which the reconciler acts on with
-    // no election pass. The assertion is on the invariant, not on either path.
+    // the index order; and a controller desire surviving the operator stop, which the
+    // reconciler acts on with no election pass. The assertion is on the invariant,
+    // not on either path.
     //
-    // The standbys have genuinely synced from the seed by now, so pin them synced (over
-    // the data seeded at install) to make them election-eligible - otherwise nothing
-    // could take over and this would pass for the wrong reason.
-    await Promise.all(holders.filter((i) => i !== seedIndex).map(
-      (i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: `flux${orderApp}_${orderApp}` }),
+    // The primary is whichever holder runs the component - which one won genesis is
+    // the election's decision, not the fixture's, and releasing a holder that runs
+    // nothing releases nothing.
+    expect(await countUp(orderApp), 'fixture: exactly one holder must run the component before the release').to.equal(1);
+    const primary = holders[(await Promise.all(holders.map((i) => isUp(env.clients[i], orderApp)))).indexOf(true)];
+
+    // The standbys have genuinely synced from the primary by now, so pin them synced
+    // (over the data seeded at install) to make them election-eligible - otherwise
+    // nothing could take over and this would pass for the wrong reason.
+    await Promise.all(holders.filter((i) => i !== primary).map(
+      (i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: folderOf(orderApp) }),
     ));
 
     // Release the primary the way an operator does: appstop takes it down and locks it
     // out of the election, appstart releases the lock and hands the start back to the
-    // election. The operator-stop recovery suite's recipe - here with the seed at index > 0.
-    const seedClient = env.clients[seedIndex];
-    const auth = await authenticate(seedClient.url, appOwnerKey());
+    // election. The operator-stop recovery suite's recipe.
+    const primaryClient = env.clients[primary];
+    const auth = await authenticate(primaryClient.url, appOwnerKey());
     const startedBefore = await startsOf(holders, orderApp);
-    await seedClient.getAuthed(`/apps/appstop/${orderApp}`, auth.zelidauth);
-    await waitFor(async () => !(await isUp(seedClient, orderApp)), {
+    await primaryClient.getAuthed(`/apps/appstop/${orderApp}`, auth.zelidauth);
+    await waitFor(async () => !(await isUp(primaryClient, orderApp)), {
       timeout: 90000, interval: 2000, label: 'primary goes down',
     });
-    await seedClient.getAuthed(`/apps/appstart/${orderApp}`, auth.zelidauth);
+    await primaryClient.getAuthed(`/apps/appstart/${orderApp}`, auth.zelidauth);
 
     // The double start is a same-pass race, and a container that lost it may be
     // stopped again before anyone looks, so the starts are counted, not sampled:
@@ -299,39 +309,38 @@ describe('primary election under a divergent placement order', function () {
     });
   });
 
-  it('starts only one holder while the seed waits for its folder to send', async function () {
+  it('starts only one holder while the one that committed has not started yet', async function () {
     this.timeout(600000);
-    // A seed that has committed runs nothing until its folder sends, and a peer
-    // deciding in that window must be told the component is held. Held at the
-    // stub, the folder change is slower than syncthing's API answers but inside
-    // the time a start waits for it, so the window is open for a chosen length.
-    // Every holder is held alike: which of them seeds is the election's decision.
-    await setFolderPatchDelay({ ms: 40000 });
+    // A holder does not start its container the moment it is elected: its folder
+    // has to send first. For that whole window it has committed but runs nothing,
+    // and a peer that asks only for running containers is told the component is
+    // free.
+    //
+    // The window is held open at the start path's checkpoint, on every holder
+    // since any of them may win, for as long as the peers take to decide.
+    const identifier = identifierOf(windowApp);
+    await Promise.all(holders.map((i) => env.clients[i].holdCheckpoint(BEFORE_START, identifier)));
     try {
       const deployedFrom = holders.map((i) => env.clients[i].getLastEventId());
       await deploy(windowApp);
       const position = await electionIndexOf(env, windowApp, seedIndex);
       expect(position, 'fixture: seed must be off index 0').to.be.greaterThan(0);
 
-      // The window opens when a holder commits to the start and closes when its
-      // container is running. Each peer runs HELD_PASSES election passes inside it,
-      // and a start by any of them is the failure.
-      const identifier = identifierOf(windowApp);
-      const committed = await Promise.any(holders.map((i, k) => env.clients[i].waitForEvent('masterSlave:started',
-        (d) => d.identifier === identifier, 240000, { afterId: deployedFrom[k] }).then((event) => ({ i, event }))));
-      const peers = holders.filter((i) => i !== committed.i);
+      const committed = await Promise.any(holders.map((i, k) => env.clients[i].waitForEvent('checkpoint:held',
+        (d) => d.name === BEFORE_START && d.key === identifier, 240000, { afterId: deployedFrom[k] }).then(() => i)));
+      const peers = holders.filter((i) => i !== committed);
       await passesFromNow(peers, electionPasses(windowApp), 'election');
-      const running = env.clients[committed.i].getEventBuffer().some((e) => e.event === 'reconciler:actuated'
-        && e.data?.identifier === identifier && e.data?.action === 'started' && e.id > committed.event.id);
-      expect(running, 'fixture: the ownership fix ended before the peers had decided inside it').to.equal(false);
-      expect(await startsOf(peers, windowApp), 'a peer started while the seed was still fixing ownership').to.equal(0);
-
-      await waitFor(async () => (await countUp(windowApp)) === 1, {
-        timeout: 180000, interval: 2000, label: 'the seed starts once its ownership fix is done',
-      });
+      expect(await startsOf(peers, windowApp), 'a peer started while another holder had committed').to.equal(0);
+      expect(await countUp(windowApp), 'fixture: a container is running while the start is held').to.equal(0);
     } finally {
-      await setFolderPatchDelay({ ms: 0 }).catch(() => {});
+      await Promise.all(holders.map((i) => env.clients[i].releaseCheckpoint(BEFORE_START, identifier)
+        .catch((err) => console.warn(`cleanup: checkpoint release on node ${i} failed: ${err.message}`))));
     }
+
+    await waitFor(async () => (await countUp(windowApp)) === 1, {
+      timeout: 180000, interval: 2000, label: 'the committed holder starts once released',
+    });
+    expect(await startsOf(holders, windowApp), 'more than one holder started').to.equal(1);
   });
 
   it('settles a two-holder app on one writable copy, with the seed off index 0', async function () {
