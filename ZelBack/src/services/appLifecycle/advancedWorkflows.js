@@ -2619,6 +2619,21 @@ async function appDockerRestart(appname) {
 }
 
 /**
+ * Announce each component a specification update replaced, once the whole app
+ * is back. The same event a component redeploy publishes: the only report that
+ * a single component was replaced, since the app stays installed throughout.
+ * @param {string} appName
+ * @param {Array<{component: string, hard: boolean}>} replaced
+ */
+function announceComponentsRedeployed(appName, replaced) {
+  replaced.forEach(({ component, hard }) => {
+    fluxEventBus.publish('app:componentRedeployed', {
+      name: appName, component, identifier: `${component}_${appName}`, hard,
+    });
+  });
+}
+
+/**
  * Helper function to restart app with permissions fix workflow for new primary
  * This is specifically for g: mode apps becoming primary
  * @param {string} appname - App name
@@ -4371,8 +4386,9 @@ async function reinstallOldApplications() {
             log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (version upgrade path)`);
 
             // Now install components - containers will be created but app is already in DB
-            // eslint-disable-next-line no-restricted-syntax
             let allComponentsBack = true;
+            const replaced = [];
+            // eslint-disable-next-line no-restricted-syntax
             for (const appComponent of appSpecifications.compose) {
               log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
               // eslint-disable-next-line no-await-in-loop
@@ -4385,6 +4401,7 @@ async function reinstallOldApplications() {
                 allComponentsBack = false;
                 break;
               }
+              replaced.push({ component: appComponent.name, hard: true });
             }
             // Announced and restarted only if it is actually back. Saying so
             // regardless is what turned a refused install into a node reporting
@@ -4394,6 +4411,7 @@ async function reinstallOldApplications() {
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
               await appDockerRestart(appSpecifications.name);
+              announceComponentsRedeployed(appSpecifications.name, replaced);
             }
           } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
@@ -4599,6 +4617,7 @@ async function reinstallOldApplications() {
               log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (composed redeployment path)`);
 
               let allComponentsBack = true;
+              const replaced = [];
               // Now install components - containers will be created but app is already in DB
               // eslint-disable-next-line no-restricted-syntax
               for (const appComponent of appSpecifications.compose) {
@@ -4627,6 +4646,7 @@ async function reinstallOldApplications() {
                     allComponentsBack = false;
                     break;
                   }
+                  replaced.push({ component: appComponent.name, hard: false });
                 } else {
                   log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // eslint-disable-next-line no-await-in-loop
@@ -4639,6 +4659,7 @@ async function reinstallOldApplications() {
                     allComponentsBack = false;
                     break;
                   }
+                  replaced.push({ component: appComponent.name, hard: true });
                 }
               }
               // Announced and restarted only if it is actually back.
@@ -4647,6 +4668,7 @@ async function reinstallOldApplications() {
                 log.warn(`Restarting application ${appSpecifications.name}`);
                 // eslint-disable-next-line no-await-in-loop, no-use-before-define
                 await appDockerRestart(appSpecifications.name);
+                announceComponentsRedeployed(appSpecifications.name, replaced);
               }
             } catch (error) {
               log.error(error);
