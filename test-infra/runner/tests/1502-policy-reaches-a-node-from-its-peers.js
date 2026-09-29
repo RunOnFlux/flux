@@ -343,7 +343,6 @@ describe('policy reaching a node from its peers', function () {
     for (let i = 0; i < 2; i += 1) {
       await env.partitionGroups([TWO_HOPS], REST);
       await env.healPartition([TWO_HOPS], REST);
-      await env.startDiscovery([TWO_HOPS]);
       // Counted rather than named: the node is cut off from the whole fleet, so its peers
       // go to zero and coming back is unambiguous.
       await waitFor(
