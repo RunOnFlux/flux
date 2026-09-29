@@ -5,6 +5,7 @@ import { dbClient } from '../framework/db-client.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { waitForUp } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION } from '../framework/coupled-knobs.js';
 
 // B3 end-to-end: the first post-boot fluxapprunning broadcast.
 //  (a) a peer's appsLocations rows for the rebooting node SURVIVE its first
@@ -30,7 +31,17 @@ describe('first post-boot broadcast: complete, never empty, never destructive', 
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // Production's location expiries: the rebooting node judges its downtime
+    // across a real node boot, which the harness does not compress, so a
+    // compressed sigterm window is one a slow boot can outrun.
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 10,
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: { sigtermExpiryS: PRODUCTION.sigtermExpiryS, locationTtlS: PRODUCTION.locationTtlS },
+      },
+    });
     await bootAndPeer(env);
     ({ index: idx } = await seedSimpleApp(env, appName));
     peerIdx = (idx + 1) % env.clients.length;
