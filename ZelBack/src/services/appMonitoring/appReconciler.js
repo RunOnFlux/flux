@@ -1493,6 +1493,66 @@ function clearControllerDesired(rawIdentifier) {
 }
 
 /**
+ * Whether this process holds a controller opinion for the component. False is
+ * "unknown": no decider has spoken since this process started, or an operator
+ * stop retracted what one said.
+ */
+function hasControllerOpinion(rawIdentifier) {
+  return controllerDesired.has(canonical(rawIdentifier));
+}
+
+/**
+ * Record a decider's verdict for a component this process holds no opinion on,
+ * where the container already matches it.
+ *
+ * The opinion is in-memory and the container is not: a FluxOS restart leaves a
+ * component running (or stopped) where the previous process's decision put it,
+ * with no opinion recorded. A decider whose verdict agrees with the container
+ * has nothing to actuate, so it never reaches setControllerDesired, which is
+ * how a decider changes what the container does. This is how it records the
+ * verdict instead. Until one is recorded, every pass takes no action on the
+ * component, including a restart the operator asked for.
+ *
+ * Resolves an unknown opinion only: an existing one is a decision, and only a
+ * decision changes it. Checked inside the component's intent slot, against the
+ * operator lock and the container as they are now rather than as the decider
+ * sampled them - an operator stop that lands mid-pass must not be followed by
+ * an adoption that outlives its lock, and a verdict is adopted only while the
+ * container still shows it. The slot enqueues a pass on release, which carries
+ * out anything that was held for want of an opinion: a pending operator restart.
+ *
+ * @param {string} rawIdentifier
+ * @param {'running'|'stopped'} state
+ * @param {string} reason
+ * @returns {Promise<boolean>} true if the verdict was recorded.
+ */
+async function adoptControllerDesired(rawIdentifier, state, reason) {
+  const identifier = canonical(rawIdentifier);
+  let adopted = false;
+  await applyIntent(identifier, async () => {
+    if (controllerDesired.has(identifier)) return;
+    try {
+      if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) return;
+    } catch (error) {
+      // an unread lock is not an absent one
+      log.warn(`appReconciler - ${identifier}: not adopting ${state}, the operator lock could not be read: ${error.message}`);
+      return;
+    }
+    const actual = await dockerActual(identifier);
+    // An unreachable daemon reports the container absent.
+    if (!actual.exists || actual.indeterminate) return;
+    if (actual.running !== (state === 'running')) return;
+    controllerDesired.set(identifier, state);
+    adopted = true;
+    log.info(`appReconciler - controllerDesired[${identifier}] = ${state} (adopted: ${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', {
+      identifier, state, reason, adopted: true,
+    });
+  });
+  return adopted;
+}
+
+/**
  * Forget every desired input for a component - it is gone, and nothing about it
  * is worth acting on. Removal only: for anything short of that, retract the
  * specific opinion.
@@ -1572,6 +1632,8 @@ module.exports = {
   requestRestartOf,
   setControllerDesired,
   clearControllerDesired,
+  hasControllerOpinion,
+  adoptControllerDesired,
   forgetDesiredState,
   setControllerDesiredAndWait,
   setRunningUnlessOperatorStopped,

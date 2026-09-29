@@ -197,7 +197,11 @@ function standDown(identifier, appId, { running = false } = {}) {
 }
 
 /**
- * Keeps the folder of the primary running here sending.
+ * Keeps the folder of the primary running here sending, and records 'running' as
+ * the reconciler's desired state where this process holds none: after a FluxOS
+ * restart the container runs with no opinion recorded, and the reconciler acts on
+ * the component, a pending restart included, only once one is
+ * (appReconciler.adoptControllerDesired).
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
  * @returns {Promise<boolean>} False when a change of role is in progress, so
@@ -205,7 +209,11 @@ function standDown(identifier, appId, { running = false } = {}) {
  */
 async function holdAsPrimary(identifier, appId) {
   if (changes.get(identifier)) return false;
-  return syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
+  const held = await syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
+  if (await appReconciler.adoptControllerDesired(identifier, 'running', 'masterSlave primary')) {
+    fluxEventBus.count('primaryRole:adopted', identifier, 'running');
+  }
+  return held;
 }
 
 /**
@@ -244,6 +252,9 @@ function heldByOperation(identifier) {
  * not withdraw: it reaches the other holders once the folder is unpaused.
  *
  * A folder a backup or restore holds stays paused.
+ *
+ * A standby whose container is stopped has 'stopped' recorded as the reconciler's
+ * desired state where this process holds none, as holdAsPrimary records 'running'.
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
  * @param {object} [opts]
@@ -255,6 +266,9 @@ function heldByOperation(identifier) {
  */
 async function holdAsStandby(identifier, appId, { othersHold } = {}) {
   if (changes.get(identifier) || isPrimary(identifier)) return false;
+  if (await appReconciler.adoptControllerDesired(identifier, 'stopped', 'masterSlave standby')) {
+    fluxEventBus.count('primaryRole:adopted', identifier, 'stopped');
+  }
   const folder = await syncthingFolderWrites.folderConfig(appId);
   if (folder?.paused && folder.type === 'sendreceive') {
     const others = othersHold ? await othersHold() : PeerComponent.UNKNOWN;
