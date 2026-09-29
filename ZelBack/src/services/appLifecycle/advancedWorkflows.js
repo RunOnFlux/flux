@@ -5311,18 +5311,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   log.info(`masterSlaveApps: cleared this node's own stale primary record for ${identifier} - it is not running here`);
                 }
 
-                // Probe peers to see whether the g: component is already running
-                // somewhere else. `scope` selects which peers:
-                //   'lower' - only nodes ahead of us in the election order, the
-                //             pre-existing check used by the staggered starts.
-                //   'all'   - every other node. An index-0 start needs this: it has
-                //             no lower-index nodes, so a lower-only check always
-                //             answers "nobody" and the start proceeds blind. FDM
-                //             registration lags a node actually starting (measured
-                //             at ~110s in production), and throughout that window
-                //             FDM reports no primary while an instance is live - so
-                //             without this an index-0 node starts a second writer
-                //             on a shared volume.
+                // Probe every other holder to see whether the g: component is
+                // already running, committed or held somewhere else. Every start
+                // path asks all of them, whatever this node's place in the order:
+                // the order decides who goes first, not who can have started. A
+                // node further down can hold a booking made before the one ahead
+                // was released, so its turn can come first, and a start that asked
+                // only the nodes ahead would put a second writer beside it. FDM
+                // registration lags a node actually starting (measured at ~110s in
+                // production), so "FDM names no primary" is no proxy for "nobody
+                // is running it" either.
                 // A peer that does not answer is UNKNOWN, not free. FluxOS and the
                 // container fail independently: a node whose API is down for a
                 // restart still holds the volume and still writes to it, so its
@@ -5349,35 +5347,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   appId, identifier, appName: installedApp.name, liveness, logPrefix: 'masterSlaveApps',
                 };
 
-                const checkPeersRunning = async (scope) => {
-                  // A lower-only scope with nobody in it is not an answer. At index 0
-                  // there is no node ahead to ask, and index -1 - this node absent
-                  // from the location list - has none either, so the walk below asks
-                  // NOBODY and the caller reads that as clear.
-                  //
-                  // That is the same blind start the index-0 branch takes scope 'all'
-                  // to avoid, reached from the staggered paths instead. It is not
-                  // unreachable there: the stagger is booked at index >= 2, index is
-                  // re-derived from the location list every pass, and the instances
-                  // ahead can age out of that list before the booked turn arrives -
-                  // leaving a node at index 0 holding a schedule. FDM's registration
-                  // lags a node actually starting (~110s in production), so through
-                  // that whole window it reports no primary while an instance is live,
-                  // and starting on "nobody is ahead of me" puts a second writer on
-                  // the shared volume.
-                  //
-                  // Escalate rather than answer: a start is never issued without some
-                  // peer having been asked. An empty 'all' is a real answer - there is
-                  // genuinely no one to ask - and falls through below.
-                  const effectiveScope = scope === 'lower' && index <= 0 ? 'all' : scope;
-                  const limit = effectiveScope === 'all' ? runningAppList.length : index;
-                  if (limit <= 0) return PeerComponent.NOT_RUNNING; // nobody to ask at all
-
+                const checkPeersRunning = async () => {
                   const peers = [];
-                  for (let i = 0; i < limit; i += 1) {
+                  for (let i = 0; i < runningAppList.length; i += 1) {
                     if (i === index) continue; // never probe ourselves
                     if (runningAppList[i]) peers.push({ i, node: runningAppList[i] });
                   }
+                  // No other holder is a real answer: there is genuinely no one to ask.
                   if (!peers.length) return PeerComponent.NOT_RUNNING;
 
                   const states = await Promise.all(
@@ -5389,7 +5365,6 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   if (states.includes(PeerComponent.UNKNOWN)) return PeerComponent.UNKNOWN;
                   return PeerComponent.NOT_RUNNING;
                 };
-                const checkLowerIndexNodesRunning = () => checkPeersRunning('lower');
 
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0 with no history starts - but only once no peer is
@@ -5397,7 +5372,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // blind, and FDM's registration lag makes "FDM says no primary"
                   // an unreliable proxy for "nobody is running it".
                   // eslint-disable-next-line no-await-in-loop
-                  const peerState = await checkPeersRunning('all');
+                  const peerState = await checkPeersRunning();
                   if (peerState !== PeerComponent.NOT_RUNNING) {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                   } else {
@@ -5446,15 +5421,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       timetoStartApp += staggerMs(index);
                     }
                     if (timetoStartApp <= Date.now()) {
-                      // Time to start, but check if lower-index nodes are running
+                      // Time to start, once no peer is running it
                       // eslint-disable-next-line no-await-in-loop
-                      const lowerNodeState = await checkLowerIndexNodesRunning();
-                      if (lowerNodeState === PeerComponent.NOT_RUNNING) {
+                      const peerState = await checkPeersRunning();
+                      if (peerState === PeerComponent.NOT_RUNNING) {
                         fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
                         requestMasterStart(identifier, appId);
                         log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                       } else {
-                        log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a lower-index node ${lowerNodeState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
+                        log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                       }
                     } else {
                       fluxEventBus.count('masterSlave:decision', identifier, 'staggerBooked');
@@ -5463,23 +5438,23 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     }
                   }
                 } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
-                  // Scheduled start time has arrived, check if lower-index nodes are running
+                  // Scheduled start time has arrived, once no peer is running it
                   // eslint-disable-next-line no-await-in-loop
-                  const lowerNodeState = await checkLowerIndexNodesRunning();
-                  if (lowerNodeState === PeerComponent.NOT_RUNNING) {
+                  const peerState = await checkPeersRunning();
+                  if (peerState === PeerComponent.NOT_RUNNING) {
                     fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
                     requestMasterStart(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
-                  } else if (lowerNodeState === PeerComponent.RUNNING) {
-                    log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
+                  } else if (peerState === PeerComponent.RUNNING) {
+                    log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else {
                     // The schedule is KEPT. Its due time has passed, so the next pass
                     // re-probes and starts the moment the peer can be ruled out -
                     // whereas dropping it sends this node back through a fresh
                     // index * 3min wait for a peer it may be able to read in seconds.
-                    log.info(`masterSlaveApps: holding the scheduled start of app:${installedApp.name} index: ${index} - a lower-index node could not be ruled out`);
+                    log.info(`masterSlaveApps: holding the scheduled start of app:${installedApp.name} index: ${index} - a peer could not be ruled out`);
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier)
                   && globalStateParam.receiveOnlySyncthingAppsCache.get(appId)?.designatedLeader) {
@@ -5488,14 +5463,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // instance is receiveonly with nothing to sync from, so serving
                   // the index stagger would wait on nodes that provably cannot
                   // become ready.
-                  //
-                  // Every peer is probed, not just the lower-index ones. A
-                  // lower-only check belongs to the staggered starts, where index
-                  // order is what serialises the candidates; this branch exists
-                  // precisely to leave that order, so it starts as blind as an
-                  // index-0 start does and needs the same 'all' scope.
                   // eslint-disable-next-line no-await-in-loop
-                  const peerState = await checkPeersRunning('all');
+                  const peerState = await checkPeersRunning();
                   if (peerState === PeerComponent.UNKNOWN) {
                     // The claim is NOT spent. It is what this decision is made from,
                     // and no decision was reached - a peer this node could not read
