@@ -3,9 +3,11 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, restartFluxos, execInContainer } from '../framework/container.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
-import { waitForReconcileActuated, waitFor } from '../framework/wait.js';
+import { waitForReconcileActuated, waitForReconcilerDesiredChanged, waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { authenticate } from '../auth.js';
+import { appOwnerKey } from '../framework/keys.js';
 
 // R2 regression. A FluxOS *process* restart (`systemctl restart fluxos`) wipes the
 // in-memory controllerDesired map while the inner dockerd and the app containers
@@ -84,5 +86,29 @@ describe('reconciler keeps a running syncthing app up across a FluxOS process re
       // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, 3000));
     }
+  });
+
+  // The restart leaves the container running with no controller opinion in the
+  // new process. The syncthing pass adopts its running verdict, and from then on
+  // an owner's apprestart is carried out rather than held.
+  it('restarts the container when its owner asks, after a FluxOS restart', async function () {
+    this.timeout(240000);
+    const client = env.clients[idx];
+
+    const beforeFluxosRestart = client.getLastEventId();
+    await restartFluxos(client.container);
+    const adopted = await waitForReconcilerDesiredChanged(client, identifier, 'running', 120000, { afterId: beforeFluxosRestart });
+    expect(adopted.data.adopted, 'the verdict is recorded without a start, the container being up already').to.equal(true);
+
+    const before = await startedAt(client, folder);
+    const auth = await authenticate(client.url, appOwnerKey());
+    const beforeRequest = client.getLastEventId();
+    const res = await client.getAuthed(`/apps/apprestart/${appName}`, auth.zelidauth);
+
+    const bounced = await waitForReconcileActuated(client, identifier, 'restarted', 60000, { afterId: beforeRequest });
+    expect(bounced.data.reason).to.equal('operatorRequested');
+    expect(res.data, 'and it is reported only once it has happened').to.equal(`Application ${appName} restarted`);
+    await waitFor(() => isUp(client, appName), { timeout: 45000, interval: 2000, label: 'r: app running after the restart' });
+    expect(await startedAt(client, folder), 'the container was restarted').to.not.equal(before);
   });
 });
