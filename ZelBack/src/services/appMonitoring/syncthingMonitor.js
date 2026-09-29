@@ -880,8 +880,12 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // directions, so the answer is true from the moment it became true.
       // eslint-disable-next-line no-restricted-syntax
       for (const folder of foldersToWrite) {
-        if (folder.type === 'sendreceive') globalState.promotedFolderIds.add(folder.id);
-        else globalState.promotedFolderIds.delete(folder.id);
+        if (folder.type === 'sendreceive') {
+          // The folder is writable from here: the election reads it as ready to
+          // start from this apply on.
+          if (!globalState.promotedFolderIds.has(folder.id)) fluxEventBus.publish('syncthing:folderWritable', { folder: folder.id });
+          globalState.promotedFolderIds.add(folder.id);
+        } else globalState.promotedFolderIds.delete(folder.id);
         // What a folder holds that the cluster's index does not is a receive-only
         // question, and promotion answers it: everything this node holds is now
         // published. Dropped rather than zeroed - absent is what a peer reads as

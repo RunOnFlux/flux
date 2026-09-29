@@ -1223,6 +1223,47 @@ describe('syncthingMonitor tests', () => {
       // what changed, not a clear of everything the node has answered for.
       expect(globalState.folderHoldings.has('untouchedapp')).to.equal(true);
     });
+
+    // The election reads a folder as ready to start once it is writable, so a
+    // harness suite waits on this to know a holder became eligible.
+    describe('the folder becoming writable', () => {
+      // eslint-disable-next-line global-require
+      const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+      let publish;
+
+      beforeEach(() => {
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      afterEach(() => {
+        publish.restore();
+      });
+
+      const writtenAs = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+        .find((c) => c.args[0] === 'put' && Array.isArray(c.args[1]))
+        ?.args[1].find((f) => f.id === 'testapp')?.type;
+
+      it('publishes it when the write turns a folder writable', async () => {
+        writesAFolder();
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(writtenAs(), 'the folder was not written sendreceive, so this asserts nothing').to.equal('sendreceive');
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderWritable'), 'syncthing:folderWritable', { folder: 'testapp' });
+      });
+
+      it('does not publish it for a folder that was already writable', async () => {
+        writesAFolder();
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(writtenAs(), 'the folder was not rewritten, so this asserts nothing').to.equal('sendreceive');
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderWritable');
+      });
+    });
   });
 
   describe('ignore-policy convergence', () => {
