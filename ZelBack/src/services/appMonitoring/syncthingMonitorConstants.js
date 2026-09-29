@@ -29,6 +29,15 @@ const STALL_NUDGE_MAX_INTERVAL_MS = config.syncthing.stallNudgeMaxIntervalMs ?? 
 const STALL_REMOVE_MIN_WINDOW_MS = config.syncthing.stallRemoveMinWindowMs ?? 20 * 60 * 1000;
 const STALL_REMOVE_MIN_NUDGES = config.syncthing.stallRemoveMinNudges ?? 3;
 
+// A replica that has received nothing, while a live peer serves the writable copy and
+// this node's syncthing is not connected to any such peer, is given this long to make
+// the connection. Past it the replica is not a replica: it holds no bytes, so it cannot
+// take over, yet it fills an instance slot and wins the election the moment the holder
+// goes quiet - which then seeds an empty folder over the owner's data. Removing it loses
+// nothing (it holds nothing) and hands the slot to a node that can sync.
+// A healthy join connects within seconds, so this only has to outlast a slow start.
+const JOIN_CONNECT_DEADLINE_MS = config.syncthing.joinConnectDeadlineMs ?? 30 * 60 * 1000;
+
 // Folder states in which syncthing is actively working: flat bytes are healthy
 // here (e.g. a long sync-preparing phase on a large folder)
 const ACTIVE_FOLDER_STATES = ['syncing', 'sync-preparing', 'sync-waiting', 'scanning', 'scan-waiting', 'cleaning', 'clean-waiting'];
@@ -66,6 +75,7 @@ module.exports = {
   STALL_NUDGE_MAX_INTERVAL_MS,
   STALL_REMOVE_MIN_WINDOW_MS,
   STALL_REMOVE_MIN_NUDGES,
+  JOIN_CONNECT_DEADLINE_MS,
   ACTIVE_FOLDER_STATES,
   CLOCK_SKEW_TOLERANCE_MS,
   EARLY_EVAL_DEBOUNCE_MS,

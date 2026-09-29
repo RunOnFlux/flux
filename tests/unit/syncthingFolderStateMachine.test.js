@@ -2787,4 +2787,189 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(peer).to.not.equal(null);
     });
   });
+
+  describe('a replica that never joined', () => {
+    // Seen live: a game server's standby sat receiveonly with an empty folder for 22
+    // hours, its syncthing never connected to the primary although both sync ports
+    // were open. When the primary's node rebooted the standby won the election with
+    // globalBytes 0, seeded an empty folder, and the owner's world was reset.
+    const MIN = 60 * 1000;
+    const HOLDER = '10.0.0.1:16127';
+    const SELF = '10.0.0.2:16127';
+    let params;
+
+    const holderServes = () => {
+      axiosMock.get.resolves({ data: { data: { ready: true, folders: ['test-app'] } } });
+    };
+    const holderIsSilent = () => {
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+    };
+    // this node's syncthing knows the holder's device and says it is not connected
+    const notConnectedToHolder = () => {
+      globalStateMock.syncthingDevicesIDCache.set(HOLDER, 'HOLDER-DEVICE-ID');
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'unknown', completion: 0, globalBytes: 0 });
+    };
+    const receivedNothing = () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+    };
+
+    beforeEach(() => {
+      globalStateMock.spawnErrorsLongerAppCache = new Map();
+      params = {
+        appId: 'test-app',
+        syncFolder: { id: 'test-app', type: 'receiveonly' },
+        containerDataFlags: 'r',
+        syncthingAppsFirstRun: false,
+        receiveOnlySyncthingAppsCache: new Map([['test-app', { restarted: false, numberOfExecutions: 1 }]]),
+        appLocation: sinon.stub().resolves([
+          { ip: HOLDER, runningSince: '2026-09-23T04:36:18.976Z', broadcastedAt: 1000 },
+          { ip: SELF, runningSince: '2026-09-28T20:59:09.465Z', broadcastedAt: 1000 },
+        ]),
+        localSocketAddr: SELF,
+        syncthingFolder: { id: 'test-app', type: 'receiveonly' },
+        installedAppName: 'test-app',
+        installedAppHash: 'APP-HASH',
+        liveness: createPeerFolderLiveness(),
+      };
+    });
+
+    afterEach(() => {
+      globalStateMock.spawnErrorsLongerAppCache = null;
+    });
+
+    it('starts the join clock, and removes nothing, the first time it cannot reach a serving holder', async () => {
+      holderServes();
+      notConnectedToHolder();
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.cache.unreachedHolderSince).to.be.a('number');
+      expect(result.cache.liveHolderSeen).to.equal(HOLDER);
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+    });
+
+    it('leaves the app, and keeps this node from being placed on it again, once the deadline passes', async () => {
+      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      holderServes();
+      notConnectedToHolder();
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      sinon.assert.calledOnceWithExactly(appUninstallerMock.removeAppLocally, 'test-app', null, true, false, true);
+      expect(globalStateMock.spawnErrorsLongerAppCache.has('APP-HASH')).to.equal(true);
+      expect(result.cache.restarted).to.equal(true);
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+    });
+
+    it('counts a holder device it never configured as not reached', async () => {
+      // No device id in the cache or the config: the peer's device never made it into
+      // this node's syncthing, which is itself a way of never joining.
+      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      holderServes();
+      receivedNothing();
+
+      await stateMachine.manageFolderSyncState(params);
+
+      sinon.assert.calledOnce(appUninstallerMock.removeAppLocally);
+    });
+
+    it('keeps a replica that is connected to the holder, however little it has received', async () => {
+      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      holderServes();
+      globalStateMock.syncthingDevicesIDCache.set(HOLDER, 'HOLDER-DEVICE-ID');
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'valid', completion: 100, globalBytes: 0 });
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+      expect(result.cache.holderEverConnected).to.equal(true);
+      expect(result.cache.unreachedHolderSince).to.equal(null);
+    });
+
+    it('never removes a replica that holds any of the owner\'s bytes', async () => {
+      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      holderServes();
+      notConnectedToHolder();
+      receivedNothing();
+      syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [localEntry('appdata/world.sav', 5000)] }));
+
+      await stateMachine.manageFolderSyncState(params);
+
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+    });
+
+    it('never removes a replica whose index the cluster has already written to', async () => {
+      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      holderServes();
+      notConnectedToHolder();
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 100000, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+
+      await stateMachine.manageFolderSyncState(params);
+
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+    });
+
+    it('does not judge the join of a node that is itself cut off', async () => {
+      params.receiveOnlySyncthingAppsCache.get('test-app').unreachedHolderSince = Date.now() - 31 * MIN;
+      holderServes();
+      notConnectedToHolder();
+      receivedNothing();
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 1, total: 8 });
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
+      expect(result.cache.unreachedHolderSince).to.equal(null);
+    });
+
+    it('does not seed an empty folder over a holder it saw serving and never reached, while that holder is still listed', async () => {
+      // The holder's node reboots: it goes silent, and this node's syncthing - never
+      // connected to it - gives the exclusion its evidence, so this node wins.
+      Object.assign(params.receiveOnlySyncthingAppsCache.get('test-app'), {
+        leaderStreak: 5, liveHolderSeen: HOLDER,
+      });
+      holderIsSilent();
+      notConnectedToHolder();
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.designationPending).to.not.equal(true);
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    it('seeds once the silent holder has dropped out of the location list', async () => {
+      Object.assign(params.receiveOnlySyncthingAppsCache.get('test-app'), {
+        leaderStreak: 5, liveHolderSeen: HOLDER,
+      });
+      params.appLocation.resolves([{ ip: SELF, runningSince: '2026-09-28T20:59:09.465Z', broadcastedAt: 1000 }]);
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+    });
+
+    it('still seeds when it had reached the holder and the cluster simply held nothing', async () => {
+      Object.assign(params.receiveOnlySyncthingAppsCache.get('test-app'), {
+        leaderStreak: 5, liveHolderSeen: HOLDER, holderEverConnected: true,
+      });
+      holderIsSilent();
+      notConnectedToHolder();
+      receivedNothing();
+
+      const result = await stateMachine.manageFolderSyncState(params);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+    });
+  });
 });

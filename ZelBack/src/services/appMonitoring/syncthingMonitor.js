@@ -260,6 +260,7 @@ async function processContainerData(params) {
     containerData,
     identifier,
     installedAppName,
+    installedAppHash,
     localSocketAddr,
     localDeviceId,
     state,
@@ -344,6 +345,7 @@ async function processContainerData(params) {
       localSocketAddr,
       syncthingFolder,
       installedAppName,
+      installedAppHash,
       liveness,
     });
 
@@ -756,6 +758,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
           containerData: installedApp.containerData,
           identifier,
           installedAppName: installedApp.name,
+          installedAppHash: installedApp.hash,
         });
       } else {
         // Newer app (version > 3) - compose with multiple components
@@ -769,6 +772,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
               containerData: installedComponent.containerData,
               identifier,
               installedAppName: installedApp.name,
+              installedAppHash: installedApp.hash,
             });
           }
         }

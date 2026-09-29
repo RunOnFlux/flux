@@ -303,6 +303,8 @@ async function silenceVerdict(folderId, peerIp, liveness) {
 
 module.exports = {
   createPeerFolderLiveness,
+  peerSyncthingConnection,
+  PeerConnection,
   silenceVerdict,
   SilenceVerdict,
   PROBE_TIMEOUT_MS,

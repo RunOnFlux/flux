@@ -12,7 +12,9 @@ const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
 const fluxEventBus = require('../utils/fluxEventBus');
-const { silenceVerdict, SilenceVerdict } = require('./peerFolderLiveness');
+const {
+  silenceVerdict, SilenceVerdict, peerSyncthingConnection, PeerConnection,
+} = require('./peerFolderLiveness');
 const {
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
@@ -21,6 +23,7 @@ const {
   STALL_NUDGE_MAX_INTERVAL_MS,
   STALL_REMOVE_MIN_WINDOW_MS,
   STALL_REMOVE_MIN_NUDGES,
+  JOIN_CONNECT_DEADLINE_MS,
   ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
 
@@ -930,6 +933,127 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
 }
 
 /**
+ * The live peers serving the writable copy of this folder, and whether this node's
+ * syncthing is connected to each of them.
+ *
+ * "Serving" is what a peer says about itself: it answered, it has finished its first
+ * monitor pass, and it lists the folder as promoted. That is the same reading
+ * findPeerBlockingPromotion blocks on, so a peer counted here is one this node could
+ * never promote over anyway - the question asked of it is only whether this node can
+ * reach it over syncthing.
+ *
+ * Only a CONNECTED answer counts as reached. 'unknown' is folded into not reached on
+ * purpose, and it is the opposite choice from silenceVerdict's: there, unknown must not
+ * authorise acting on a peer's silence, because the action risks the peer's data. Here
+ * the peer is alive and answering, and the only question is whether THIS node can take
+ * part - a device this node never managed to configure is one of the ways it cannot.
+ *
+ * @param {string} appId Folder id
+ * @param {Array} peers App location entries
+ * @param {string} localSocketAddr This node's socket address
+ * @param {Object} liveness This pass's peer view
+ * @returns {Promise<Array<{ip: string, connected: boolean}>>}
+ */
+async function liveHoldersReached(appId, peers, localSocketAddr, liveness) {
+  const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
+  if (!others.length) return [];
+
+  const answers = await Promise.all(others.map(
+    async (peer) => ({ ip: peer.ip, ...await liveness.read(peer.ip) }),
+  ));
+  const holders = answers.filter((answer) => answer.reachable && answer.ready && answer.folders.includes(appId));
+
+  return Promise.all(holders.map(async (holder) => ({
+    ip: holder.ip,
+    connected: await peerSyncthingConnection(appId, holder.ip) === PeerConnection.CONNECTED,
+  })));
+}
+
+/**
+ * Whether a replica that has never received anything should keep its instance slot.
+ *
+ * A node placed on an app that is already running joins it by syncing from the node
+ * that serves it. Nothing checked that the join ever happened: a replica whose
+ * syncthing never reaches the holder sits receiveonly, with an empty folder, and the
+ * wait branch below reads it as "no connected source - syncthing resumes when one
+ * returns" for as long as the app lives. The source never went anywhere; this node
+ * simply cannot reach it. The app meanwhile counts it as an instance, and the moment
+ * the holder goes quiet this node wins the election with globalBytes 0, which the
+ * seed reads as a true cold start, and publishes an empty folder. The owner sees
+ * their data reset. That is the failure this closes, seen live on a game server whose
+ * standby had held nothing for 22 hours when its primary's node rebooted.
+ *
+ * So the join is given a deadline. Removing the replica at the deadline is safe for
+ * one reason, and every condition here is that reason: it holds nothing. The index
+ * says the cluster has advertised nothing to it (globalBytes 0), the disk read says
+ * none of the owner's bytes are here, and a live peer says it holds the writable copy.
+ * An unreadable status or holdings is not "nothing", so neither ever reaches the
+ * removal. And a node whose own peers have gone quiet is not judged on its join at
+ * all: it is the one cut off, and the clock restarts once it can see the fleet again.
+ *
+ * Also records what the seed guard needs: that a live holder was seen, and whether
+ * this node ever reached one.
+ *
+ * @param {Object} params
+ * @returns {Promise<boolean>} true when the replica was removed
+ */
+async function enforceJoinDeadline({
+  appId, cache, runningAppList, localSocketAddr, liveness, installedAppHash, receivedNothing,
+}) {
+  if (!receivedNothing) {
+    cache.unreachedHolderSince = null;
+    return false;
+  }
+
+  const holders = await liveHoldersReached(appId, runningAppList, localSocketAddr, liveness);
+  if (!holders.length) {
+    // Nobody is serving a copy this node could join: a cold start, or a holder that is
+    // down. Neither is this node failing to join, and the wait branch owns both.
+    cache.unreachedHolderSince = null;
+    return false;
+  }
+
+  cache.liveHolderSeen = holders[0].ip;
+  if (holders.some((holder) => holder.connected)) {
+    cache.holderEverConnected = true;
+    cache.unreachedHolderSince = null;
+    return false;
+  }
+
+  if (!liveness.localConnectivity().connected) {
+    cache.unreachedHolderSince = null;
+    return false;
+  }
+
+  const now = Date.now();
+  if (!cache.unreachedHolderSince) {
+    cache.unreachedHolderSince = now;
+    log.warn(`enforceJoinDeadline - ${appId} has received nothing and its syncthing is not connected to ${holders.map((holder) => extractIp(holder.ip)).join(', ')}, which serve the writable copy; this node leaves the app if that is still true in ${Math.round(JOIN_CONNECT_DEADLINE_MS / 60000)}m`);
+    return false;
+  }
+  if (now - cache.unreachedHolderSince < JOIN_CONNECT_DEADLINE_MS) return false;
+
+  const mainAppName = appId.split('_')[1] || appId;
+  const minutes = Math.round((now - cache.unreachedHolderSince) / 60000);
+  const holderIps = holders.map((holder) => extractIp(holder.ip)).join(', ');
+  log.error(`enforceJoinDeadline - ${appId}: ${minutes}m without reaching any node serving the writable copy (${holderIps}) and nothing received; `
+    + `this replica cannot sync - removing ${mainAppName} locally so a node that can takes the slot (it holds no data)`);
+  fluxEventBus.publish('syncthing:joinDeadlineRemoval', { folder: appId, holders: holders.map((holder) => holder.ip) });
+  // Without this the spawner sees the app one instance short, finds this node
+  // eligible, and places it straight back here to fail the same way.
+  if (installedAppHash && globalState.spawnErrorsLongerAppCache) {
+    globalState.spawnErrorsLongerAppCache.set(installedAppHash, '');
+  }
+  try {
+    await appUninstaller.removeAppLocally(mainAppName, null, true, false, true);
+  } catch (error) {
+    log.error(`enforceJoinDeadline - Failed to remove ${mainAppName}: ${error.message}`);
+  }
+  cache.restarted = true;
+  return true;
+}
+
+/**
  * Handle first run scenario for an app/component
  * @param {Object} params - Parameters
  * @returns {Promise<Object>} Updated folder config and cache
@@ -1200,6 +1324,7 @@ async function handleReceiveOnlyTransition(params) {
     unsyncedSubdirs,
     syncthingFolder,
     liveness,
+    installedAppHash,
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
@@ -1233,6 +1358,15 @@ async function handleReceiveOnlyTransition(params) {
   // unknown, and nobody seeds for as long as the read keeps failing. Removed, a peer
   // reads it as not having answered, which drops the field to the address order - the
   // case that already exists for a peer too old to answer at all.
+  // Nothing advertised to this node and nothing of the owner's on its disk. Both reads
+  // have to succeed to say so: an unreadable one is never "nothing".
+  const receivedNothing = Boolean(syncStatus && syncStatus.globalBytes === 0
+    && holdings && holdings.bytes === 0);
+  if (await enforceJoinDeadline({
+    appId, cache, runningAppList, localSocketAddr, liveness, installedAppHash, receivedNothing,
+  })) {
+    return { syncthingFolder, cache };
+  }
   if (holdings) {
     if (!globalState.folderHoldings) globalState.folderHoldings = new Map();
     globalState.folderHoldings.set(appId, holdings);
@@ -1358,6 +1492,27 @@ async function handleReceiveOnlyTransition(params) {
       || (syncStatus.globalBytes > 0 && !syncStatus.isSynced);
     if (holdsPartialOfAKnownGlobal) {
       log.info(`handleReceiveOnlyTransition - ${appId} is the confirmed designated leader but holds a partial copy (${syncStatus ? `${syncStatus.syncPercentage.toFixed(2)}% synced` : 'sync status unreadable'}); staying receiveonly until synced`);
+      syncthingFolder.type = 'receiveonly';
+      return { syncthingFolder, cache };
+    }
+    // NEVER JOINED IS NOT A COLD START. globalBytes 0 is what a true cold start reads,
+    // and it is also what a replica reads when it never reached the node serving the
+    // app. The two differ in one fact this node can know: whether it saw a live peer
+    // serving the writable copy. If it did, never connected to it, and that peer is
+    // still in the app's location list, then the peer has gone quiet rather than gone
+    // away - a reboot, a FluxOS restart - and an empty seed here is what resets the
+    // owner's data under them. Waiting costs downtime until the holder returns or its
+    // location broadcast expires, at which point this guard lifts and the seed is the
+    // same one it would have been. Held in memory only, so a FluxOS restart on this
+    // node forgets it and falls back to the seed as it was.
+    const unjoinedHolder = receivedNothing && cache.liveHolderSeen && !cache.holderEverConnected
+      && runningAppList.some((peer) => socketAddressesMatch(peer.ip, cache.liveHolderSeen));
+    if (unjoinedHolder) {
+      const reasonLine = `never received anything from ${extractIp(cache.liveHolderSeen)}, which served the writable copy and is still listed for the app`;
+      if (cache.lastNotPromotedReason !== reasonLine) {
+        log.warn(`handleReceiveOnlyTransition - ${appId} is the confirmed designated leader but ${reasonLine}; not seeding an empty folder over it`);
+        cache.lastNotPromotedReason = reasonLine;
+      }
       syncthingFolder.type = 'receiveonly';
       return { syncthingFolder, cache };
     }
@@ -1647,6 +1802,7 @@ async function manageFolderSyncState(params) {
     localSocketAddr,
     syncthingFolder,
     installedAppName,
+    installedAppHash,
     liveness,
   } = params;
 
@@ -1701,6 +1857,7 @@ async function manageFolderSyncState(params) {
       unsyncedSubdirs,
       syncthingFolder,
       liveness,
+      installedAppHash,
     });
     return result;
   }
