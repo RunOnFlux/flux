@@ -12,7 +12,7 @@ import {
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { waitFor } from '../framework/wait.js';
+import { waitFor, waitForElectionDecisions, electionDecisionCount } from '../framework/wait.js';
 import {
   bootAndPeer, placeGAppInOrder, electionIndexOf,
 } from '../framework/reconciler-suite.js';
@@ -38,6 +38,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // live in their own files, where the gate can run them in parallel.
 
 const subnet = getSubnetConfig();
+
+// Election passes a standby is watched deciding the same way, after the change
+// it is deciding on.
+const HELD_PASSES = 3;
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -129,15 +133,19 @@ describe('primary election under a divergent placement order', function () {
     // window - the lowest-IP seed wins the full-list election and starts on its
     // confirmed designation. Which one it is comes down to broadcast timing, so
     // naming a node here would pin a race, not a behaviour. What genesis promises
-    // either way: the app starts well inside the index stagger (index * 3 minutes -
-    // the winner never legitimately waits on peers that are receiveonly with
-    // nothing to sync from), and exactly one holder starts. 100s is comfortably
-    // inside the smallest non-zero stagger and comfortably outside a normal start.
+    // either way: the winner never waits on peers that are receiveonly with nothing
+    // to sync from, so it does not start from a booked stagger, and exactly one
+    // holder starts.
     await waitFor(
       async () => (await countUp(orderApp)) >= 1,
-      { timeout: 100000, interval: 3000, label: 'a holder starts well inside the index stagger' },
+      { timeout: 180000, interval: 3000, label: 'a holder starts the newborn app' },
     );
     expect(await countUp(orderApp), 'more than one holder started at genesis').to.equal(1);
+
+    const identifier = `${orderApp}_${orderApp}`;
+    const running = holders[(await Promise.all(holders.map((i) => isUp(env.clients[i], orderApp)))).indexOf(true)];
+    expect(await env.clients[running].getDecisionCount('masterSlave:decision', identifier, 'staggeredStart'),
+      'the winner started from a booked stagger').to.equal(0);
   });
 
   it('leaves exactly one holder seeding the empty folder at cold start', async function () {
@@ -407,7 +415,7 @@ describe('primary election under a divergent placement order', function () {
   });
 
   it('does not skip the stagger once FDM has named a primary', async function () {
-    this.timeout(420000);
+    this.timeout(600000);
     // The genesis rationale - "every other instance is receiveonly with nothing to
     // sync from" - expires the moment a primary exists. Here FDM names one from the
     // start, so the seed never legitimately holds a live claim, and when FDM later
@@ -430,7 +438,14 @@ describe('primary election under a divergent placement order', function () {
     const runningFlags = await Promise.all(holders.map((i) => isUp(env.clients[i], fdmApp)));
     const primary = holders[runningFlags.indexOf(true)];
     expect(primary, 'fixture: a holder must be running before FDM can name one').to.not.equal(undefined);
+    const identifier = `${fdmApp}_${fdmApp}`;
+    const standbys = holders.filter((i) => i !== primary);
+    const observedBefore = await Promise.all(standbys.map((i) => electionDecisionCount(env.clients[i], identifier, 'primaryObserved')));
     await electMaster(fdmApp, env.clients[primary].ip);
+    // Every standby has read the primary off FDM, so each one knows the node it
+    // must not start alongside once FDM goes quiet.
+    await Promise.all(standbys.map((i, k) => waitForElectionDecisions(env.clients[i], identifier, 'primaryObserved',
+      1, { from: observedBefore[k], timeout: 60000 })));
 
     // FDM goes quiet while its primary keeps running - its registration lag is a
     // routine state, not an exotic one. The seed must not read that silence as
@@ -441,16 +456,25 @@ describe('primary election under a divergent placement order', function () {
     // detached-endpoint recreate, a restart backoff), and its commitment keeps
     // peers deferring throughout, so a dip to zero is recovery in progress, not a
     // second writer. What must then hold is that the same primary comes back.
+    //
+    // Each standby decides once a pass, and with FDM quiet every decision probes the
+    // running primary. The window is HELD_PASSES of those decisions on each standby,
+    // counted from the moment FDM goes quiet: a seed that skipped the queue would
+    // have started instead of probing, and one queueing to start at the end of its
+    // place would have booked it.
+    const decisions = (i) => Promise.all(['heldOnPeer', 'started', 'staggerBooked']
+      .map((decision) => electionDecisionCount(env.clients[i], identifier, decision)));
+    const atQuiet = await Promise.all(standbys.map(decisions));
     await clearMaster(fdmApp);
-    const deadline = Date.now() + 120000;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(await countUp(fdmApp), 'a second holder started alongside the running primary').to.be.lessThan(2);
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(3000);
-    }
+    await Promise.all(standbys.map((i, k) => waitForElectionDecisions(env.clients[i], identifier, 'heldOnPeer',
+      HELD_PASSES, { from: atQuiet[k][0], timeout: 120000 })));
+    const settled = await Promise.all(standbys.map(decisions));
+    standbys.forEach((i, k) => {
+      expect(settled[k][1], `holder ${i} started alongside the running primary`).to.equal(atQuiet[k][1]);
+      expect(settled[k][2], `holder ${i} queued to start alongside the running primary`).to.equal(atQuiet[k][2]);
+    });
     await waitFor(async () => (await countUp(fdmApp)) === 1, {
-      timeout: 180000, interval: 3000, label: 'exactly one holder running once the window closes',
+      timeout: 180000, interval: 3000, label: 'exactly one holder running',
     });
     expect(await isUp(env.clients[primary], fdmApp), 'the running primary must still be the one up').to.equal(true);
   });
