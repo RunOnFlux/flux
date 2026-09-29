@@ -1325,10 +1325,10 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.restarted).to.not.equal(true);
     });
 
-    it('stays receiveonly when a peer already holds the writable copy', async () => {
+    it('does not seed when a peer already holds the writable copy', async () => {
       // Winning is not the same as winning first. The peer decided from a smaller
-      // view of the holder list and promoted; promoting here too would leave two
-      // writable copies of the same folder, and neither node revisits it.
+      // view of the holder list and promoted; seeding here too would leave two
+      // first copies of the same folder.
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
@@ -1345,6 +1345,57 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.not.equal(true);
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    // The election goes on naming the lowest address for as long as it wins the
+    // tiebreak, so a node that lost the seed to a peer would otherwise stay
+    // receiveonly for as long as that peer holds the copy - receiving the data and
+    // never eligible to take over.
+    it('goes on as a standby once a peer holds the writable copy, and turns writable when synced', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.resolves({ data: { data: { ready: true, folders: ['test-app'] } } });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache.restarted).to.be.true;
+      expect(result.cache.designationPending, 'a standby promotion was recorded as a seed').to.not.equal(true);
+    });
+
+    it('a single-writer seed taken by a peer becomes ready when synced, and stays receiveonly', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.resolves({ data: { data: { ready: true, folders: ['test-app'] } } });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // The election reads a synced single-writer standby as ready; only the
+      // primary's folder sends.
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted, 'the standby never became ready to take over').to.be.true;
+      expect(result.cache.designationPending, 'a standby promotion was recorded as a seed').to.not.equal(true);
     });
 
     describe('a peer whose address another node answers', () => {
