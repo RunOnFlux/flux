@@ -43,6 +43,8 @@ function loadRole({
       return true;
     }),
     dockerActual: sinon.stub().resolves({ reachable: true, exists: true, running: false }),
+    // Records a verdict where none is held; what it answers is the reconciler's.
+    adoptControllerDesired: sinon.stub().resolves(true),
   };
   // Records each type change with the options that shape it; `changeType` decides
   // what the write answers.
@@ -359,6 +361,36 @@ describe('primaryRole', () => {
       expect(await t.role.holdAsStandby(APP, FOLDER)).to.equal(false);
 
       expect(t.calls).to.deep.equal([]);
+      sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
+    });
+
+    // A FluxOS restart leaves each container where it was with no verdict recorded,
+    // and the reconciler acts on the component, a restart included, only once one is.
+    it('records running for the primary running here', async () => {
+      const t = loadRole({ primary: true });
+
+      await t.role.holdAsPrimary(APP, FOLDER);
+
+      sinon.assert.calledOnceWithExactly(t.reconciler.adoptControllerDesired, APP, 'running', 'masterSlave primary');
+      sinon.assert.calledWith(t.bus.count, 'primaryRole:adopted', APP, 'running');
+    });
+
+    it('records stopped for a standby', async () => {
+      const t = loadRole();
+
+      await t.role.holdAsStandby(APP, FOLDER);
+
+      sinon.assert.calledOnceWithExactly(t.reconciler.adoptControllerDesired, APP, 'stopped', 'masterSlave standby');
+      sinon.assert.calledWith(t.bus.count, 'primaryRole:adopted', APP, 'stopped');
+    });
+
+    it('counts no adoption the reconciler did not make', async () => {
+      const t = loadRole({ primary: true });
+      t.reconciler.adoptControllerDesired.resolves(false);
+
+      expect(await t.role.holdAsPrimary(APP, FOLDER)).to.equal(true);
+
+      sinon.assert.neverCalledWith(t.bus.count, 'primaryRole:adopted');
     });
 
     ['holdAsPrimary', 'holdAsStandby'].forEach((hold) => {
@@ -372,6 +404,7 @@ describe('primaryRole', () => {
         expect(await t.role[hold](APP, FOLDER)).to.equal(false);
 
         expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive']]);
+        sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
         held.answer(true);
         await t.role.whenSettled(APP);
       });
