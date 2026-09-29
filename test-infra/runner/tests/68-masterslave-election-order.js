@@ -443,10 +443,10 @@ describe('primary election under a divergent placement order', function () {
 
     const folder = `flux${fdmApp}_${fdmApp}`;
     await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
-    // Every holder has taken its folder writable, which is what the election reads
-    // as eligible to start. A standby that is not stops each pass as not ready, so
-    // it has no decision to make about the primary once FDM goes quiet.
-    await Promise.all(holders.map((i, k) => env.clients[i].waitForEvent('syncthing:folderWritable',
+    // Every holder is ready, which is what the election reads as eligible to start.
+    // A standby that is not stops each pass as not ready, so it has no decision to
+    // make about the primary once FDM goes quiet.
+    await Promise.all(holders.map((i, k) => env.clients[i].waitForEvent('syncthing:folderReady',
       (d) => d.folder === folder, 180000, { afterId: deployedFrom[k] })));
 
     // FDM is named AFTER discovering which holder actually runs it, because that is
