@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { pushTestApp } from '../framework/registry-helper.js';
-import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
+import { buildSeedableSyncthingApp, buildSeedableTestApp } from '../framework/seed-helper.js';
 import {
   bootAndPeer, installedInstanceIndices, installingClaimIpsByNode, seedSpawnerApp,
   waitForInstanceCount, waitForLocationTable,
@@ -161,6 +161,14 @@ describe('the domain share steps aside, then places', function () {
 
     it('leaves the copy to the other domain and does not co-locate when the window ends', async function () {
       this.timeout(600000);
+      // A spawn pass reaches its deferred apps only while some app on the network is
+      // short, and once the other domain fills this one nothing else in the fleet is.
+      // An app pinned to a node outside the fleet stays short and is never selected.
+      const shortApp = await buildSeedableTestApp({
+        name: `e2esharepinned${Date.now()}`, instances: 1, nodes: [`${subnet.nodeIp(40)}:16127`],
+      });
+      await seedSpawnerApp(env, shortApp);
+
       const { appName, app } = await buildApp('e2esharediverse');
       await placeFirstCopy(env, app, appName);
 
