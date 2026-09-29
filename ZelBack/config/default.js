@@ -614,7 +614,7 @@ module.exports = {
       },
       // A synced app's node steps aside for a better-placed fault domain this long
       // before it places the copy in its own. Kept above every deferral above, so a
-      // node in another domain that is only sitting one of them out still gets there first.
+      // node in another domain is never beaten merely for sitting one of them out.
       domainShareMs: { enterprise: 1920000, standard: 7320000 },
     },
     spawnDelayMultiplier: 1,

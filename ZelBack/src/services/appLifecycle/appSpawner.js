@@ -740,7 +740,7 @@ async function trySpawningGlobalApplication() {
     let placementDomainOf = null;
     let myDomain = null;
     if (syncthingApp && !ownerNamedThisNode && shareDeferralServed) {
-      log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and is still missing instances after its domain-share deferral, placing it without the share`);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and is back from its domain-share deferral, the share no longer applies`);
     }
     if (syncthingApp && !ownerNamedThisNode && !shareDeferralServed) {
       // placementComputation refuses a geo-restricted question while the location
@@ -771,14 +771,15 @@ async function trySpawningGlobalApplication() {
         // A deferral, not a refusal. The share is computed over every node the
         // geolocation admits, with no regard for whether those nodes have room
         // or take apps at all, so the better-placed candidate it assumes may not
-        // exist in practice: the other domains can be full, and the app then sat
-        // one short with free nodes in this domain turning it down. Seen on
-        // mainnet, a synced app pinned to one US state stood at 1 of 2 while
-        // forty free addresses of its running provider refused it.
+        // exist in practice: the other domains can be full, and the refusal also
+        // left the hash in the twelve-hour spawn cache. Seen on mainnet: synced
+        // apps pinned to Minnesota and to Missouri sat at 1 of 2, with 41 of 50
+        // and 105 of 122 of those states' nodes in the running copy's own domain.
         //
         // So this node steps aside for longer than any spawn deferral a node in
         // another domain may be sitting out, and if the app is still short when
-        // it comes back, a second copy in this domain beats no second copy.
+        // it comes back (the instance count is re-checked above, before this), a
+        // second copy in this domain beats no second copy.
         const deferral = config.fluxapps.spawnDeferrals.domainShareMs;
         const delayMs = appSpecifications.enterprise ? deferral.enterprise : deferral.standard;
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains), `

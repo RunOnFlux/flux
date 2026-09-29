@@ -1313,7 +1313,7 @@ describe('appSpawner tests', () => {
         placementShare: { domainCount: 10, maxPerDomain: 1 },
       });
       expect(installStub.called, 'still refused after the other domains had their turn').to.be.true;
-      expect(logged('still missing instances after its domain-share deferral')).to.be.true;
+      expect(logged('back from its domain-share deferral')).to.be.true;
       expect(placementFeasibilityStub.placementComputation.called).to.be.false;
     });
 

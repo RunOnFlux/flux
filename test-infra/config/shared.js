@@ -235,9 +235,10 @@ module.exports = {
         mediumMs: { enterprise: 400, standard: 800 },
         smallMs: { enterprise: 450, standard: 900 },
       },
-      // Not scaled like the rest: the placement-split suite must see the right
-      // domains install before a deferred node in a full one comes back for it.
-      domainShareMs: { enterprise: 60000, standard: 60000 },
+      // Not scaled like the rest, and longer than any suite waits: the placement-split
+      // suite (77) asserts three distinct domains, and a deferred node returning inside
+      // its window would be allowed to co-locate and turn that assertion flaky.
+      domainShareMs: { enterprise: 600000, standard: 600000 },
     },
     spawnDelayMultiplier: 0.002,
     daemonInfoIntervalMs: 5000,
