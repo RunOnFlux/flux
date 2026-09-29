@@ -1001,16 +1001,18 @@ async function uploadAppsFiles(req, res) {
     // Before anything has been written the status line is still ours, so a
     // refusal can be answered as one. Once the body has started it cannot, and
     // the envelope goes into the stream where a client parses it out.
-    if (res.headersSent) {
-      try {
+    // Never throws: it is the last step of every way an upload settles, and a
+    // throw from inside a promise chain is a rejection nothing handles.
+    try {
+      if (res.headersSent) {
         res.write(serviceHelper.ensureString(envelope));
         res.end();
-      } catch (writeError) {
-        log.error(writeError);
+        return;
       }
-      return;
+      respondError(res, error);
+    } catch (answerError) {
+      log.error(answerError);
     }
-    respondError(res, error);
   };
 
   try {
