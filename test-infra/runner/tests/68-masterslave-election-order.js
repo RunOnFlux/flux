@@ -421,12 +421,18 @@ describe('primary election under a divergent placement order', function () {
     // start, so the seed never legitimately holds a live claim, and when FDM later
     // reports nothing the seed must queue behind the index order like any other
     // standby rather than jump it.
+    const deployedFrom = holders.map((i) => env.clients[i].getLastEventId());
     await deploy(fdmApp);
     const position = await electionIndexOf(env, fdmApp, seedIndex);
     expect(position, 'fixture: seed must be off index 0').to.be.greaterThan(0);
 
     const folder = `flux${fdmApp}_${fdmApp}`;
     await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
+    // Every holder has taken its folder writable, which is what the election reads
+    // as eligible to start. A standby that is not stops each pass as not ready, so
+    // it has no decision to make about the primary once FDM goes quiet.
+    await Promise.all(holders.map((i, k) => env.clients[i].waitForEvent('syncthing:folderWritable',
+      (d) => d.folder === folder, 180000, { afterId: deployedFrom[k] })));
 
     // FDM is named AFTER discovering which holder actually runs it, because that is
     // all FDM ever does - it asks each candidate "are you running the container?"
