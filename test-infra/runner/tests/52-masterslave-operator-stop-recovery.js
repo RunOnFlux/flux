@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus, restartFluxos } from '../framework/container.js';
 import { resetFdm, clearMaster, electMaster } from '../framework/fdm-control.js';
 import {
-  waitFor, waitForReconcileActuated, waitForElectionDecisions, electionDecisionCount,
+  waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, waitForElectionDecisions, electionDecisionCount,
 } from '../framework/wait.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -204,6 +204,43 @@ describe('masterSlave recovery after an operator stop', function () {
     // and it must be one, not both - two writers on the shared volume is the
     // failure this whole path exists to prevent
     expect(await runningCount(), 'both holders running - split brain after recovery').to.equal(1);
+  });
+
+  // A FluxOS restart empties the node's controller opinions while the primary
+  // keeps running. The election's verdict for a primary already running actuates
+  // nothing, so it is adopted - and from then on the owner's apprestart is carried
+  // out, where with no opinion every reconcile pass takes no action on it.
+  it('restarts the primary when its owner asks, after a FluxOS restart', async function () {
+    this.timeout(240000);
+
+    const flags = await runningFlags();
+    const primary = holders[flags.indexOf(true)];
+    const client = env.clients[primary];
+
+    // The adopted verdict is the election's, so FDM has to name this node.
+    const observedBefore = await electionDecisionCount(client, identifier, 'primaryObserved');
+    await electMaster(appName, subnet.nodeIp(primary + 1));
+    await waitForElectionDecisions(client, identifier, 'primaryObserved', 1, {
+      from: observedBefore, timeout: 45000,
+    });
+
+    const beforeFluxosRestart = client.getLastEventId();
+    await restartFluxos(client.container, { readyTimeoutMs: 45000 });
+    const adopted = await waitForReconcilerDesiredChanged(client, identifier, 'running', 120000, { afterId: beforeFluxosRestart });
+    expect(adopted.data.adopted, 'the verdict is recorded without a start, the primary being up already').to.equal(true);
+
+    const auth = await authenticate(client.url, appOwnerKey());
+    const beforeRequest = client.getLastEventId();
+    const res = await client.getAuthed(`/apps/apprestart/${appName}`, auth.zelidauth);
+
+    const bounced = await waitForReconcileActuated(client, identifier, 'restarted', 60000, { afterId: beforeRequest });
+    expect(bounced.data.reason).to.equal('operatorRequested');
+    expect(res.data, 'and it is reported only once it has happened').to.equal(`Application ${appName} restarted`);
+
+    await waitFor(async () => isUp(client, appName), {
+      timeout: 45000, interval: 2000, label: 'the primary is running again after the restart',
+    });
+    expect(await runningCount(), 'the restart must not hand the app to a second holder').to.equal(1);
   });
 
   it('keeps the primary with its owner across a FluxOS restart, instead of letting a peer elect over it', async function () {
