@@ -197,10 +197,10 @@ describe('a standby whose calls to its primary reach another node', function () 
     this.timeout(300000);
     expect(await isUp(env.clients[B], appName), 'precondition: the primary is running').to.equal(true);
     // The standby has read the primary off FDM, so it knows which node it must not
-    // start alongside once FDM goes quiet, and has taken its synced folder
-    // writable, so the election reads it as eligible to start.
+    // start alongside once FDM goes quiet, and is ready, so the election reads it
+    // as eligible to start.
     await waitForElectionDecisions(env.clients[A], identifier, 'primaryObserved', 1, { timeout: 60000 });
-    await env.clients[A].waitForEvent('syncthing:folderWritable', (d) => d.folder === folder, 60000,
+    await env.clients[A].waitForEvent('syncthing:folderReady', (d) => d.folder === folder, 60000,
       { afterId: standbyInstalledFrom });
 
     // Each pass with FDM quiet, the standby probes its previous primary and the
