@@ -2659,9 +2659,13 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
       return;
     }
 
-    // hand the run-state decision to the reconciler (the single container actuator)
-    appReconciler.setControllerDesired(appname, 'running', 'masterSlave primary (synced)');
-    log.info(`Requested start for masterSlave primary ${appname}`);
+    // hand the run-state decision to the reconciler (the single container actuator);
+    // an operator stop that landed during the ownership fix outranks it
+    if (await appReconciler.setControllerRunning(appname, 'masterSlave primary (synced)')) {
+      log.info(`Requested start for masterSlave primary ${appname}`);
+    } else {
+      log.info(`Not starting masterSlave primary ${appname}: its operator stopped it during the ownership fix`);
+    }
   } catch (error) {
     log.error(`Error preparing masterSlave primary ${appname}: ${error.message}`);
     // leave it stopped if the permissions-fix workflow failed

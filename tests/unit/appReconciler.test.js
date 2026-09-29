@@ -1947,6 +1947,36 @@ describe('appReconciler tests', () => {
     });
   });
 
+  describe('setControllerRunning', () => {
+    const settle = () => new Promise((resolve) => { setTimeout(resolve, 50); });
+
+    beforeEach(() => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+    });
+
+    afterEach(() => appReconciler.forgetDesiredState('db_App'));
+
+    it('records running, and the pass it enqueues starts the component', async () => {
+      expect(await appReconciler.setControllerRunning('db_App', 'masterSlave primary (synced)')).to.equal(true);
+      await settle();
+
+      expect((await appReconciler.desiredRunState('db_App')).reason).to.equal('running');
+      expect(stubs.dockerService.appDockerStart.calledWith('db_App')).to.equal(true);
+    });
+
+    // The operator stopped it while the decider was still preparing the start. A run
+    // opinion recorded now would start it the moment the lock lifts, with no
+    // election pass.
+    it('records nothing for a component its operator has stopped', async () => {
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+
+      expect(await appReconciler.setControllerRunning('db_App', 'masterSlave primary (synced)')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+      await settle();
+      expect(stubs.dockerService.appDockerStart.called).to.equal(false);
+    });
+  });
+
   describe('adoptControllerDesired', () => {
     const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
     const settle = () => new Promise((resolve) => { setTimeout(resolve, 50); });

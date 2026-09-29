@@ -12,8 +12,16 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const https = require('https');
+const proxyquire = require('proxyquire');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const log = require('../../ZelBack/src/lib/log');
+
+// The masterSlave start fixes ownership through node-cmd, which runs sudo. This
+// copy answers every shell command with success, so the start runs to its end.
+const advancedWorkflowsNoShell = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+  'node-cmd': { run: (command, callback) => callback(null, '', '') },
+});
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -2454,6 +2462,56 @@ describe('advancedWorkflows tests', () => {
       });
     });
 
+    // The primary's start records its run opinion only after the ownership fix,
+    // and an operator stop that landed during that fix outranks it.
+    describe('the primary start after the ownership fix', () => {
+      const appName = 'valheim1777035136949';
+      const identifier = `valheim_${appName}`;
+      const appId = `flux${identifier}`;
+
+      const runStart = async (recorded) => {
+        dockerServiceStub.returns(appId);
+        const setRunning = sinon.stub(appReconciler, 'setControllerRunning').resolves(recorded);
+        const set = sinon.stub(appReconciler, 'setControllerDesired');
+        sinon.stub(appReconciler, 'hasControllerOpinion').returns(false);
+        sinon.stub(appReconciler, 'claimStarting');
+        const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+        const logInfo = sinon.stub(log, 'info');
+        globalState.receiveOnlySyncthingAppsCache.set(appId, { restarted: true });
+        syncthingServiceStub.resolves([{ id: appId, path: `${appsFolder}${appId}`, type: 'sendreceive' }]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203'] } } });
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        const installedApps = sinon.stub().resolves({
+          status: 'success',
+          data: [{ name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] }],
+        });
+        const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+
+        await advancedWorkflowsNoShell.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+        for (let tick = 0; tick < 100 && !releaseStarting.calledWith(identifier); tick += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setTimeout(resolve, 20); });
+        }
+        return { setRunning, set, logInfo };
+      };
+
+      it('records running through the lock-checked write', async () => {
+        const { setRunning, set, logInfo } = await runStart(true);
+
+        sinon.assert.calledOnceWithExactly(setRunning, identifier, 'masterSlave primary (synced)');
+        sinon.assert.neverCalledWith(set, identifier, 'running');
+        expect(logInfo.getCalls().some((c) => String(c.args[0]).includes(`Requested start for masterSlave primary ${identifier}`))).to.equal(true);
+      });
+
+      it('says so when an operator stop outranked it', async () => {
+        const { setRunning, logInfo } = await runStart(false);
+
+        sinon.assert.calledOnce(setRunning);
+        expect(logInfo.getCalls().some((c) => String(c.args[0]).includes('its operator stopped it during the ownership fix'))).to.equal(true);
+        expect(logInfo.getCalls().some((c) => String(c.args[0]).includes('Requested start for masterSlave primary'))).to.equal(false);
+      });
+    });
+
     // The election loop's decision table, one row per cell. FDM naming nobody for
     // a stopped component is an election, covered by the election tests above.
     describe('decision table', () => {
@@ -3729,7 +3787,6 @@ describe('advancedWorkflows tests', () => {
     // eslint-disable-next-line global-require
     const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
     // eslint-disable-next-line global-require
-    const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 
     const appname = 'palworld1785719281005';
     const folderId = `fluxpalworld_${appname}`;

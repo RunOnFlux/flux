@@ -1448,6 +1448,33 @@ function clearControllerDesired(rawIdentifier) {
 }
 
 /**
+ * A decider's decision to run a component, recorded unless the operator has
+ * stopped it since.
+ *
+ * For a decider whose start outlives the pass that decided it - the masterSlave
+ * primary fixes ownership on the data first. Checked inside the component's
+ * intent slot, where the operator's lock is written: a stop that lands during
+ * that work outranks the decision, and a run opinion recorded past it would
+ * start the component the moment the lock lifts, with no decider pass.
+ *
+ * @param {string} rawIdentifier
+ * @param {string} reason
+ * @returns {Promise<boolean>} true if the opinion was recorded.
+ */
+async function setControllerRunning(rawIdentifier, reason) {
+  const identifier = canonical(rawIdentifier);
+  let recorded = false;
+  await applyIntent(identifier, async () => {
+    if (await appsRuntimeState.isOperatorStopped(identifier)) return;
+    controllerDesired.set(identifier, 'running');
+    recorded = true;
+    log.info(`appReconciler - controllerDesired[${identifier}] = running (${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', { identifier, state: 'running', reason });
+  });
+  return recorded;
+}
+
+/**
  * Whether this process holds a controller opinion for the component. False is
  * "unknown": no decider has spoken since this process started, or an operator
  * stop retracted what one said.
@@ -1601,6 +1628,7 @@ module.exports = {
   requestRestartOf,
   setControllerDesired,
   clearControllerDesired,
+  setControllerRunning,
   hasControllerOpinion,
   adoptControllerDesired,
   forgetDesiredState,
