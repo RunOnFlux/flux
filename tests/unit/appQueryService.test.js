@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
 
 describe('appQueryService tests', () => {
   let appQueryService;
@@ -578,13 +579,24 @@ describe('appQueryService tests', () => {
     // already writing, which corrupts it.
     // The three sources, each independently switchable, because the point of every
     // case below is which one carried the answer.
-    const held = async ({ running = [], committed = [], stopped = [] } = {}) => {
+    const held = async ({
+      running = [], committed = [], stopped = [], promoting = [],
+    } = {}) => {
       dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
       sinon.stub(appReconciler, 'committedIdentifiers').returns(committed);
+      sinon.stub(primaryRoleChanges, 'promotingIdentifiers').returns(promoting);
       sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves(stopped);
       messageHelperStub.createDataMessage.returnsArg(0);
       return appQueryService.heldComponents();
     };
+
+    // A node becoming the primary has committed before its folder sends and long
+    // before its container runs. A peer asking in that window must hear held.
+    it('reports a component this node is becoming the primary of, before anything runs', async () => {
+      const result = await held({ promoting: ['www_App'] });
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
 
     it('reports a component the operator stopped, with no container and nothing committed', async () => {
       // The regression. `appstop` is durable and node-local: the election skips

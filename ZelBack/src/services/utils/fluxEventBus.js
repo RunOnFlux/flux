@@ -30,6 +30,8 @@ const RING_BUFFER_SIZE = 1024;
 // window it otherwise cannot reach. Each is named here, so holding a name no
 // code path passes is refused rather than waited on for ever.
 const Checkpoint = Object.freeze({
+  // A node is becoming the primary of a g: component: committed, not yet running.
+  MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart',
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's

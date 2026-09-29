@@ -1956,6 +1956,25 @@ describe('appReconciler tests', () => {
 
       expect(stubs.dockerService.dockerContainerInspect.called).to.equal(true);
     });
+
+    // A stand-down stops the container before its folder stops sending, so it
+    // needs the pass the stop causes to have run, not merely to have been asked for.
+    it('setControllerDesiredAndWait records the state and returns once its pass has run', async () => {
+      const releaseInspect = blockDockerInspect();
+      let settled = false;
+      const intent = appReconciler.setControllerDesiredAndWait('www_App', 'stopped', 'test')
+        .then((r) => { settled = true; return r; });
+
+      await new Promise(setImmediate);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+      expect(settled, 'returned while the pass was still running').to.equal(false);
+
+      releaseInspect();
+      expect(await intent).to.equal(true);
+
+      await appReconciler.setControllerDesiredAndWait('www_App', 'running', 'test');
+      expect(appReconciler.committedIdentifiers()).to.include('www_App');
+    });
   });
 
 });

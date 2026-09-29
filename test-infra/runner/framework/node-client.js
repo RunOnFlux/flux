@@ -266,6 +266,7 @@ export function nodeClient(nodeNum) {
         'checkpoint:held',
         'syncthing:folderWritable',
         'syncthing:folderReady',
+        'primaryRole:changed',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
