@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, setPeerHasData, resetSyncState,
+  setSynced, setPeerHasData, resetSyncState, getSyncthingState,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -76,6 +76,8 @@ describe('primary election under a divergent placement order', function () {
 
   // Each holder's last event before orderApp was placed.
   let orderDeployedFrom = [];
+  // The holder running fdmApp once FDM has named it.
+  let fdmPrimary;
 
   const countUp = async (appName) => (await Promise.all(
     holders.map((i) => isUp(env.clients[i], appName)),
@@ -288,6 +290,7 @@ describe('primary election under a divergent placement order', function () {
     const primaryClient = env.clients[primary];
     const auth = await authenticate(primaryClient.url, appOwnerKey());
     const startedBefore = await startsOf(holders, orderApp);
+    const releasedFrom = holders.map((i) => env.clients[i].getLastEventId());
     await primaryClient.getAuthed(`/apps/appstop/${orderApp}`, auth.zelidauth);
     await waitFor(async () => !(await isUp(primaryClient, orderApp)), {
       timeout: 90000, interval: 2000, label: 'primary goes down',
@@ -304,6 +307,12 @@ describe('primary election under a divergent placement order', function () {
     await passesFromNow(holders, electionPasses(orderApp), 'election');
     expect(await startsOf(holders, orderApp) - startedBefore, 'two holders started the g: component - split brain on the shared volume')
       .to.equal(1);
+    // The one start is one promotion, carried through in order on one holder.
+    const roleChanges = (i, k) => env.clients[i].getEventBuffer().filter((e) => e.id > releasedFrom[k]
+      && e.event === 'primaryRole:changed' && e.data?.identifier === identifierOf(orderApp)).map((e) => e.data.to);
+    const promoted = holders.filter((i, k) => roleChanges(i, k).includes('primary'));
+    expect(promoted, 'not exactly one holder became the primary').to.have.lengthOf(1);
+    expect(roleChanges(promoted[0], holders.indexOf(promoted[0]))).to.deep.equal(['promoting', 'primary']);
     await waitFor(async () => (await countUp(orderApp)) === 1, {
       timeout: 120000, interval: 2000, label: 'the app is back on one holder',
     });
@@ -459,6 +468,7 @@ describe('primary election under a divergent placement order', function () {
     const runningFlags = await Promise.all(holders.map((i) => isUp(env.clients[i], fdmApp)));
     const primary = holders[runningFlags.indexOf(true)];
     expect(primary, 'fixture: a holder must be running before FDM can name one').to.not.equal(undefined);
+    fdmPrimary = primary;
     const identifier = `${fdmApp}_${fdmApp}`;
     const standbys = holders.filter((i) => i !== primary);
     const observedBefore = await Promise.all(standbys.map((i) => electionDecisionCount(env.clients[i], identifier, 'primaryObserved')));
@@ -498,5 +508,40 @@ describe('primary election under a divergent placement order', function () {
       timeout: 180000, interval: 3000, label: 'exactly one holder running',
     });
     expect(await isUp(env.clients[primary], fdmApp), 'the running primary must still be the one up').to.equal(true);
+  });
+
+  it('stands a primary down by stopping its container before its folder stops sending', async function () {
+    this.timeout(420000);
+    // FDM names another holder while the primary runs, as its registration lag can
+    // after a primary comes back from a partition. The running primary stands
+    // down: its container stops, and only then does its folder stop sending,
+    // scanned first so its last writes go out as its own version.
+    const identifier = identifierOf(fdmApp);
+    const oldPrimary = fdmPrimary;
+    expect(oldPrimary, 'fixture: the previous test left no primary running').to.not.equal(undefined);
+    const next = holders.find((i) => i !== oldPrimary);
+    const from = env.clients[oldPrimary].getLastEventId();
+
+    await electMaster(fdmApp, env.clients[next].ip);
+
+    const ended = await env.clients[oldPrimary].waitForEvent('primaryRole:changed',
+      (d) => d.identifier === identifier && d.from === 'demoting', 180000, { afterId: from });
+    expect(ended.data.to, `the stand-down did not finish: ${ended.data.reason ?? ''}`).to.equal('standby');
+    const seen = env.clients[oldPrimary].getEventBuffer().filter((e) => e.id > from);
+    const began = seen.find((e) => e.event === 'primaryRole:changed' && e.data?.identifier === identifier && e.data?.to === 'demoting');
+    const stopped = seen.find((e) => e.event === 'reconciler:actuated' && e.data?.identifier === identifier && e.data?.action === 'stopped');
+    expect(began, 'the primary never began to stand down').to.not.equal(undefined);
+    expect(stopped, 'the container was never stopped').to.not.equal(undefined);
+    expect(began.id).to.be.below(stopped.id);
+    expect(stopped.id, 'the folder stopped sending before the container stopped').to.be.below(ended.id);
+
+    const state = await getSyncthingState();
+    const folder = (state.nodes || []).find((node) => node.ip === subnet.nodeIp(oldPrimary + 1))
+      ?.folders?.find((f) => f.id === folderOf(fdmApp));
+    expect(folder?.type, 'the stood-down primary\'s folder still sends').to.equal('receiveonly');
+
+    await waitFor(async () => (await countUp(fdmApp)) === 1 && (await isUp(env.clients[next], fdmApp)), {
+      timeout: 180000, interval: 3000, label: 'the holder FDM named runs the app, alone',
+    });
   });
 });
