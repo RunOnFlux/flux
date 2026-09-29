@@ -865,7 +865,9 @@ async function holderListExcludingDead(appId, allPeersList, localSocketAddr, liv
  * @param {Array} peers App location entries
  * @param {string} localSocketAddr This node's socket address
  * @param {Object} liveness This pass's peer view
- * @returns {Promise<{ip: string, reason: string}|null>} The blocking peer, or null
+ * @returns {Promise<{ip: string, reason: string, holdsWritableCopy?: boolean}|null>}
+ *   The blocking peer, or null. holdsWritableCopy marks a peer that has the copy
+ *   already, which means the seed is taken rather than undecided.
  */
 async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness) {
   const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
@@ -876,7 +878,7 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
   ));
 
   const holder = answers.find((answer) => answer.reachable && answer.ready && answer.folders.includes(appId));
-  if (holder) return { ip: holder.ip, reason: 'already holds the writable copy' };
+  if (holder) return { ip: holder.ip, reason: 'already holds the writable copy', holdsWritableCopy: true };
   const unready = answers.find((answer) => answer.reachable && answer.answerable && !answer.ready);
   if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
   // Unlike an old peer, whose silence on this question is its version, a call
@@ -1364,7 +1366,23 @@ async function handleReceiveOnlyTransition(params) {
   // alone. Properly closing it needs a consensus-grounded election (a deterministic
   // candidate over the on-chain confirmed node set + a data-aware quorum lease that
   // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
-  if (isLeader) {
+  // Winning the election is not the same as being the first to win it. Each node
+  // decides from its own view of the holder list, and those views fill in at
+  // different moments: the first-placed node is briefly the only holder it knows
+  // of and seeds on that basis, which is correct - somebody has to seed an empty
+  // folder or the app never starts. A node that can see further then wins the
+  // tiebreak among the holders it can see. So the last check before seeding is
+  // whether somebody already has.
+  //
+  // SEEDING IS OVER once another holder has the writable copy. The election goes
+  // on naming this node for as long as it wins the tiebreak, but there is nothing
+  // left to seed, so it goes on as a standby: receiveonly until it has synced,
+  // then writable, like every other holder.
+  const blocker = isLeader ? await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr, liveness) : null;
+  if (blocker?.holdsWritableCopy) {
+    log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${blocker.ip} ${blocker.reason}; going on as a standby`);
+  }
+  if (isLeader && !blocker?.holdsWritableCopy) {
     // The seed flip below runs WITHOUT a sync check, and that is only sound when
     // there is nothing to lose: an empty folder (the cold start this election
     // exists for) or a fully synced copy (a survivor taking over). A node can
@@ -1393,15 +1411,6 @@ async function handleReceiveOnlyTransition(params) {
     }
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
 
-    // Winning the election is not the same as being the first to win it. Each node
-    // decides from its own view of the holder list, and those views fill in at
-    // different moments: the first-placed node is briefly the only holder it knows
-    // of and seeds on that basis, which is correct - somebody has to seed an empty
-    // folder or the app never starts. A node that can see further then wins the
-    // tiebreak among the holders it can see and seeds too, and neither revisits it,
-    // because a promoted folder never re-enters this election. So the last check
-    // before promoting is whether somebody already has.
-    const blocker = await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr, liveness);
     if (blocker) {
       log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${blocker.ip} ${blocker.reason}; staying receiveonly`);
       syncthingFolder.type = 'receiveonly';
