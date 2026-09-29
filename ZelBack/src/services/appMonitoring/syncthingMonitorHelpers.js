@@ -169,8 +169,21 @@ async function buildDeviceConfiguration(
       devicesIds.push(deviceID);
 
       if (deviceID !== myDeviceId) {
-        const syncthingDeviceExists = allDevices.find((device) => device.name === name);
+        // Configured means configured under THIS id. The name is only the peer's
+        // address, and an address outlives the node behind it: a node reinstalled at
+        // the same ip:port, or an address that has passed to another node, answers
+        // with a new id while this node's syncthing still holds the old one under the
+        // same name. Matching on the name alone then never writes the new id - the
+        // folder lists a device syncthing does not know, and the two nodes never
+        // connect, with both sync ports open and nothing in any log. The sweep drops
+        // the stale entry once no folder names its id; until then the two coexist,
+        // which syncthing allows (a device is keyed by its id, not its name).
+        const syncthingDeviceExists = allDevices.find((device) => device.name === name && device.deviceID === deviceID);
         if (!syncthingDeviceExists) {
+          const stale = allDevices.find((device) => device.name === name);
+          if (stale) {
+            log.warn(`buildDeviceConfiguration - ${name} now answers with device ${deviceID}, but syncthing has it as ${stale.deviceID}; adding the current id`);
+          }
           devicesConfiguration.push(newDevice);
         }
       }

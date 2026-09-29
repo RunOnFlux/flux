@@ -380,6 +380,42 @@ describe('syncthingMonitorHelpers tests', () => {
     });
   });
 
+  describe('buildDeviceConfiguration', () => {
+    const PEER = { ip: '10.0.0.2:16127' };
+    const build = (allDevices) => {
+      const devicesConfiguration = [];
+      const devicesIds = [];
+      const cache = new Map([['10.0.0.2:16127', 'NEW-PEER-ID']]);
+      return helpers.buildDeviceConfiguration([PEER], '10.0.0.1:16127', 'MY-ID', cache, devicesConfiguration, devicesIds, allDevices)
+        .then((devices) => ({ devices, devicesConfiguration, devicesIds }));
+    };
+
+    it('adds a peer syncthing does not know yet', async () => {
+      const { devices, devicesConfiguration } = await build([]);
+
+      expect(devices.map((device) => device.deviceID)).to.deep.equal(['MY-ID', 'NEW-PEER-ID']);
+      expect(devicesConfiguration.map((device) => device.deviceID)).to.deep.equal(['NEW-PEER-ID']);
+    });
+
+    it('writes nothing for a peer already configured under the id it answers with', async () => {
+      const { devicesConfiguration } = await build([{ name: '10.0.0.2:16127', deviceID: 'NEW-PEER-ID' }]);
+
+      expect(devicesConfiguration).to.deep.equal([]);
+    });
+
+    it('adds the current id when the address is configured under an old one', async () => {
+      // A node reinstalled at the same ip:port, or an address that passed to another
+      // node. Matched on the name alone, the new id was never written and the folder
+      // named a device syncthing did not know, so the two nodes never connected.
+      const { devices, devicesConfiguration, devicesIds } = await build([{ name: '10.0.0.2:16127', deviceID: 'OLD-PEER-ID' }]);
+
+      expect(devices.map((device) => device.deviceID)).to.include('NEW-PEER-ID');
+      expect(devicesConfiguration.map((device) => device.deviceID)).to.deep.equal(['NEW-PEER-ID']);
+      // and the old id is not claimed, so the sweep can drop it
+      expect(devicesIds).to.not.include('OLD-PEER-ID');
+    });
+  });
+
   describe('ensureStfolderExists', () => {
     it('refuses to create the marker on an unmounted dir (the rootfs-leak regression)', async () => {
       // a .stfolder created on the bare mountpoint re-arms syncthing onto the
