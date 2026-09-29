@@ -3,15 +3,18 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { makePeerIdentityDouble } = require('./peerIdentityTestDouble');
 
 const axiosMock = { get: sinon.stub(), post: sinon.stub() };
 const fluxCommunicationMock = { peerResponsiveness: sinon.stub() };
 const nodeSignerMock = { nodeSigner: sinon.stub() };
+const peerIdentityMock = makePeerIdentityDouble();
 
 const { createPeerFolderLiveness } = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
   axios: axiosMock,
   '../fluxCommunication': fluxCommunicationMock,
   '../utils/nodeSigner': nodeSignerMock,
+  '../peerIdentityService': peerIdentityMock,
 });
 
 const holding = (folders) => ({ data: { data: { ready: true, folders } } });
@@ -28,6 +31,7 @@ const refuses = (error) => { axiosMock.get.rejects(error); axiosMock.post.reject
 
 describe('peerFolderLiveness', () => {
   beforeEach(() => {
+    peerIdentityMock.reset();
     axiosMock.get.reset();
     answers(holding([]));
     axiosMock.post.reset();
@@ -36,6 +40,31 @@ describe('peerFolderLiveness', () => {
     nodeSignerMock.nodeSigner.resolves({ pubKey: 'PUB', sign: () => 'SIG' });
     fluxCommunicationMock.peerResponsiveness.reset();
     fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+  });
+
+  describe('a peer whose address another node answers', () => {
+    it('is reachable, cannot be asked, and says so - and is not asked what it holds', async () => {
+      peerIdentityMock.misrouted('10.0.0.2:16127', '10.0.0.7:16137');
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer).to.deep.equal({
+        reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {},
+      });
+      expect(probes(), 'what another node holds is not this peer\'s answer').to.equal(0);
+    });
+
+    it('asks a peer that proves who it is, as before', async () => {
+      peerIdentityMock.verified('10.0.0.2:16127');
+      answers(holding(['app1']));
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer.folders).to.deep.equal(['app1']);
+      expect(answer.misrouted).to.equal(undefined);
+    });
   });
 
   // `holding` is the tenant's - a size and a last-write time per app - so a peer serves
