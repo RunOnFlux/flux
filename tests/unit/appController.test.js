@@ -503,6 +503,7 @@ describe('appController tests', () => {
         return true;
       });
       sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
+      sinon.stub(appsRuntimeState, 'getState').resolves({ restartGeneration: 1, actuatedRestartGeneration: 1 });
     });
 
     it('should restart app and return success message', async () => {
@@ -637,6 +638,7 @@ describe('appController tests', () => {
         compose: [{ name: 'Gcomp', containerData: 'g:/data' }],
       });
       appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+      appsRuntimeState.getState.resolves({ restartGeneration: 1, actuatedRestartGeneration: 0 });
       sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: null, reason: 'awaitingController' });
 
       stubInstalledComponentApp('Gcomp', 'ComposedApp');
@@ -649,6 +651,40 @@ describe('appController tests', () => {
       const result = res.json.firstCall.args[0];
       expect(result.data).to.equal('Application Gcomp_ComposedApp will be restarted: waiting for the election');
       sinon.assert.notCalled(dockerService.appDockerRestart);
+    });
+
+    // The pass that takes no action leaves a running container running exactly as
+    // it was, so "running" does not say the restart happened. Only the actuated
+    // generation does.
+    it('does not report a running container as restarted until the restart is carried out', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      stubInstalledComponentApp('Gcomp', 'ComposedApp');
+      appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: true });
+      appsRuntimeState.getState.resolves({ restartGeneration: 2, actuatedRestartGeneration: 1 });
+      sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: null, reason: 'awaitingController' });
+
+      const req = { params: { appname: 'Gcomp_ComposedApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      const result = res.json.firstCall.args[0];
+      expect(result.status).to.equal('success');
+      expect(result.data).to.equal('Application Gcomp_ComposedApp will be restarted: waiting for the election');
+    });
+
+    it('reports a restart it cannot confirm as pending', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      appsRuntimeState.getState.resolves(null);
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      const result = res.json.firstCall.args[0];
+      expect(result.data).to.equal('Application TestApp will be restarted: its state could not be read');
     });
 
     // appownerorfluxteam admits the app's owner and the flux team, and refuses the node

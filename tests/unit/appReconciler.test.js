@@ -1882,6 +1882,82 @@ describe('appReconciler tests', () => {
       }
     });
   });
+  describe('adoptControllerDesired', () => {
+    const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
+    const settle = () => new Promise((resolve) => { setTimeout(resolve, 50); });
+
+    beforeEach(() => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+    });
+
+    afterEach(() => appReconciler.forgetDesiredState('db_App'));
+
+    // The state a FluxOS restart leaves: the primary still running, no opinion in
+    // this process, and an operator's restart waiting on one.
+    it('carries out a restart that was held for want of an opinion', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 2, actuatedRestartGeneration: 1 });
+
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerRestart.called, 'with no opinion the pass must hold, or the adoption below proves nothing').to.equal(false);
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(true);
+      await settle();
+
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(true);
+      expect(stubs.dockerService.appDockerRestart.calledOnceWith('db_App')).to.equal(true);
+    });
+
+    it('adopts stopped for a container that is stopped', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'stopped', 'masterSlave standby')).to.equal(true);
+      expect((await appReconciler.desiredRunState('db_App')).reason).to.equal('controllerDesired');
+    });
+
+    it('never replaces an opinion this process holds', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+      await settle();
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect((await appReconciler.desiredRunState('db_App')).reason).to.equal('controllerDesired');
+    });
+
+    it('adopts nothing for an operator-stopped component', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts nothing the container no longer shows', async () => {
+      // default inspect: exited
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts nothing while docker cannot answer', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('connect ENOENT'));
+      stubs.dockerService.dockerListContainers.rejects(new Error('connect ENOENT'));
+
+      // stopped, because an unreachable daemon also reads as not running
+      expect(await appReconciler.adoptControllerDesired('db_App', 'stopped', 'masterSlave standby')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts nothing while the container state cannot be read', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('inspect timed out'));
+      stubs.dockerService.dockerListContainers.resolves([{ Names: ['/fluxdb_App'] }]);
+
+      // stopped, because a container whose inspect failed also reads as not running
+      expect(await appReconciler.adoptControllerDesired('db_App', 'stopped', 'masterSlave standby')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+  });
+
   describe('applyIntent serialises an intent write against a reconcile pass', () => {
     // The defect this closes: a pass reads isOperatorStopped, then acts on that
     // answer once docker has replied. An operator stop landing in that gap is

@@ -5515,6 +5515,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 } else {
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
                 }
+              } else if (!appReconciler.hasControllerOpinion(identifier)) {
+                // The container already shows the verdict - running on the primary,
+                // stopped on a standby - so there is nothing to actuate, and this
+                // process has no opinion recording it.
+                const verdict = ipsMatch(localSocketAddr, ip) ? 'running' : 'stopped';
+                // eslint-disable-next-line no-await-in-loop
+                if (await appReconciler.adoptControllerDesired(identifier, verdict, verdict === 'running' ? 'masterSlave primary' : 'masterSlave standby')) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'adopted');
+                }
               }
             }
           }
