@@ -264,4 +264,118 @@ describe('FluxEventBus tests', () => {
       expect(events[0].event).to.equal('safe:event');
     });
   });
+
+  describe('checkpoints', () => {
+    const { Checkpoint } = fluxEventBus;
+    const POINT = Checkpoint.APPSYNC_BEFORE_BUDGET_SPENT;
+
+    // Whether a promise has settled, after letting everything already queued run.
+    const settled = async (promise) => {
+      let done = false;
+      promise.then(() => { done = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      return done;
+    };
+
+    const heldEvents = (bus) => bus.since(0).filter((e) => e.event === 'checkpoint:held').map((e) => e.data);
+
+    it('passes straight through a held checkpoint when disabled', async () => {
+      const bus = new FluxEventBus(false);
+      bus.holdCheckpoint(POINT);
+
+      expect(await settled(bus.checkpoint(POINT, 'app_app'))).to.equal(true);
+    });
+
+    it('passes straight through a checkpoint nobody holds', async () => {
+      const bus = new FluxEventBus(true);
+
+      expect(await settled(bus.checkpoint(POINT, 'app_app'))).to.equal(true);
+      expect(heldEvents(bus)).to.deep.equal([]);
+    });
+
+    it('pauses a caller at a held checkpoint, announces it, and resumes it on release', async () => {
+      const bus = new FluxEventBus(true);
+      bus.holdCheckpoint(POINT, 'app_app');
+
+      const paused = bus.checkpoint(POINT, 'app_app');
+
+      expect(await settled(paused)).to.equal(false);
+      expect(heldEvents(bus)).to.deep.equal([{ name: POINT, key: 'app_app' }]);
+      bus.releaseCheckpoint(POINT, 'app_app');
+      expect(await settled(paused)).to.equal(true);
+    });
+
+    it('holds only the key it was asked to', async () => {
+      const bus = new FluxEventBus(true);
+      bus.holdCheckpoint(POINT, 'app_app');
+
+      expect(await settled(bus.checkpoint(POINT, 'other_other'))).to.equal(true);
+    });
+
+    it('holds every key when no key is named, and releases them together', async () => {
+      const bus = new FluxEventBus(true);
+      bus.holdCheckpoint(POINT);
+
+      const first = bus.checkpoint(POINT, 'a_a');
+      const second = bus.checkpoint(POINT, 'b_b');
+
+      expect(await settled(first)).to.equal(false);
+      expect(await settled(second)).to.equal(false);
+      bus.releaseCheckpoint(POINT);
+      expect(await settled(first)).to.equal(true);
+      expect(await settled(second)).to.equal(true);
+    });
+
+    it('keeps a caller paused while another hold still covers it', async () => {
+      const bus = new FluxEventBus(true);
+      bus.holdCheckpoint(POINT);
+      bus.holdCheckpoint(POINT, 'app_app');
+
+      const paused = bus.checkpoint(POINT, 'app_app');
+      bus.releaseCheckpoint(POINT, 'app_app');
+
+      expect(await settled(paused)).to.equal(false);
+      bus.releaseAllCheckpoints();
+      expect(await settled(paused)).to.equal(true);
+    });
+
+    it('refuses to hold a checkpoint no code path declares', () => {
+      const bus = new FluxEventBus(true);
+
+      expect(() => bus.holdCheckpoint('appSync:beforeBudgetSpnet')).to.throw(/No checkpoint named/);
+    });
+
+    describe('the control route', () => {
+      const call = (bus, body) => {
+        const res = {
+          code: 200,
+          status(code) { this.code = code; return this; },
+          json(payload) { this.payload = payload; return this; },
+        };
+        bus.checkpointsHandler({ body }, res);
+        return res;
+      };
+
+      it('is not served when disabled', () => {
+        expect(call(new FluxEventBus(false), { name: POINT, action: 'hold' }).code).to.equal(404);
+      });
+
+      it('holds and releases, and reports what is paused', async () => {
+        const bus = new FluxEventBus(true);
+
+        expect(call(bus, { name: POINT, key: 'app_app', action: 'hold' }).code).to.equal(200);
+        const paused = bus.checkpoint(POINT, 'app_app');
+        await settled(paused);
+        expect(call(bus, { action: 'releaseAll' }).payload.data.parked).to.deep.equal([]);
+        expect(await settled(paused)).to.equal(true);
+      });
+
+      it('answers 400 for a name no code path declares, or an unknown action', () => {
+        const bus = new FluxEventBus(true);
+
+        expect(call(bus, { name: 'nope', action: 'hold' }).code).to.equal(400);
+        expect(call(bus, { name: POINT, action: 'pause' }).code).to.equal(400);
+      });
+    });
+  });
 });
