@@ -4833,12 +4833,8 @@ const PEER_PROBE_TIMEOUT_MS = 10 * 1000;
  * that HAS started - measured at ~110s in production. A place is worth more than
  * that or the wait does not cover what it exists to cover.
  *
- * Read from config on every call, and per place rather than as a total, because
- * the only consumer that overrides it is a test: at three minutes a place, every
- * staggered-start path costs minutes of wall clock to reach, which is why none of
- * them has rig coverage. A suite exercising one compresses it in its own
- * configOverrides - not in the shared harness config, which would re-time every
- * existing g: election suite for the benefit of the one that needs it.
+ * Read from config on every call, and per place rather than as a total, so a
+ * fleet running a shorter stagger reaches every staggered path in proportion.
  *
  * @param {number} places how far down the election order, 0 for no wait
  * @returns {number} milliseconds
@@ -5454,12 +5450,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // eslint-disable-next-line no-await-in-loop
                       const lowerNodeState = await checkLowerIndexNodesRunning();
                       if (lowerNodeState === PeerComponent.NOT_RUNNING) {
+                        fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
                         requestMasterStart(identifier, appId);
                         log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                       } else {
                         log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a lower-index node ${lowerNodeState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                       }
                     } else {
+                      fluxEventBus.count('masterSlave:decision', identifier, 'staggerBooked');
                       log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
                       timeTostartNewMasterApp.set(identifier, timetoStartApp);
                     }
@@ -5469,6 +5467,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const lowerNodeState = await checkLowerIndexNodesRunning();
                   if (lowerNodeState === PeerComponent.NOT_RUNNING) {
+                    fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
                     requestMasterStart(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
@@ -5529,6 +5528,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
                   // Non-primary node with no history - schedule start based on index
                   const timetoStartApp = Date.now() + staggerMs(index);
+                  fluxEventBus.count('masterSlave:decision', identifier, 'staggerBooked');
                   log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
                   timeTostartNewMasterApp.set(identifier, timetoStartApp);
                 } else {

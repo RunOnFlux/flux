@@ -58,7 +58,42 @@ export const PRODUCTION = Object.freeze({
   // can miss goes out. Only the product of the two means anything.
   wsMaxMissedPongs: 3,
   wsPingIntervalMs: 15000,
+  // The g: election's cycle, and the per-place wait a standby serves before it
+  // may take a primary FDM names nobody for.
+  masterSlaveIntervalMs: 30000,
+  masterSlaveStaggerMs: 180000,
 });
+
+/**
+ * How many election passes one place of stagger spans in production. A standby
+ * reads the order and the peers it probes once a pass, so a stagger of fewer
+ * passes than this gives it fewer looks at the candidate ahead than production
+ * gives it before its turn comes.
+ * @returns {number}
+ */
+export function staggerPassesPerPlace() {
+  return PRODUCTION.masterSlaveStaggerMs / PRODUCTION.masterSlaveIntervalMs;
+}
+
+/**
+ * Refuse a fleet whose stagger spans fewer election passes than production's.
+ * @param {object} fluxapps Effective fluxapps config for the fleet.
+ * @throws {Error} When one place of stagger is fewer passes than production's.
+ */
+export function assertStaggerSpansElectionPasses(fluxapps) {
+  const stagger = fluxapps.masterSlaveStaggerMs;
+  const pass = fluxapps.masterSlaveIntervalMs;
+  if (typeof stagger !== 'number' || typeof pass !== 'number') return;
+  const required = staggerPassesPerPlace();
+  if (stagger / pass >= required) return;
+  throw new Error(
+    'coupled-knobs: masterSlaveStaggerMs spans too few election passes.\n'
+    + `  stagger ${stagger}ms, election pass ${pass}ms  -> ${(stagger / pass).toFixed(1)} passes\n`
+    + `  needed  ${required} passes, production's ${PRODUCTION.masterSlaveStaggerMs}ms over ${PRODUCTION.masterSlaveIntervalMs}ms\n`
+    + '  A standby looks at the candidate ahead of it once a pass; below this it takes the\n'
+    + '  primary having looked fewer times than production does.',
+  );
+}
 
 /**
  * How long before a node notices a peer that was UNPLUGGED rather than
@@ -410,6 +445,7 @@ export function assertDepartureIsVisibleInTime(fluxapps) {
 export function assertCoupledRatios(fluxapps) {
   if (!fluxapps) return;
   assertSigtermOrdering(fluxapps);
+  assertStaggerSpansElectionPasses(fluxapps);
   if (!fluxapps.residentialQueueStepMs) return;
   assertDepartureOutlivesTicket(fluxapps);
   const blockCost = harnessBlockCostMs(fluxapps);
