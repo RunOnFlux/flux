@@ -235,6 +235,9 @@ module.exports = {
         mediumMs: { enterprise: 400, standard: 800 },
         smallMs: { enterprise: 450, standard: 900 },
       },
+      // Not scaled like the rest: the placement-split suite must see the right
+      // domains install before a deferred node in a full one comes back for it.
+      domainShareMs: { enterprise: 60000, standard: 60000 },
     },
     spawnDelayMultiplier: 0.002,
     daemonInfoIntervalMs: 5000,
