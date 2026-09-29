@@ -39,12 +39,14 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
+const { changeSyncthingFolderType } = require('../appMonitoring/syncthingFolderType');
+const primaryRole = require('./primaryRole');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
 const peerIdentityService = require('../peerIdentityService');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
 const registryManagerModule = require('../appDatabase/registryManager');
-const { getContainerDataFlags, requiresSyncing, OWNED_FOLDER_SETTINGS } = require('../appMonitoring/syncthingMonitorHelpers');
+const { getContainerDataFlags, requiresSyncing } = require('../appMonitoring/syncthingMonitorHelpers');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
@@ -2205,92 +2207,6 @@ async function stopSyncthingApp(appComponentName, res) {
   }
 }
 
-// How long a primary start waits for a type change syncthing did not answer to
-// show in its config. Syncthing applies a type change by restarting the folder;
-// the start claim keeps peers off the component for the whole wait.
-const FOLDER_TYPE_SETTLE_MS = 60 * 1000;
-const FOLDER_TYPE_POLL_MS = 1000;
-
-/**
- * Whether a folder's configured type becomes `folderType` within `settleMs`.
- * @param {string} folderPath
- * @param {string} folderType
- * @param {number} settleMs
- * @returns {Promise<boolean>}
- */
-async function folderTypeSettles(folderPath, folderType, settleMs) {
-  const deadline = Date.now() + settleMs;
-  while (Date.now() < deadline) {
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(FOLDER_TYPE_POLL_MS);
-    // eslint-disable-next-line no-await-in-loop
-    const folders = await syncthingServiceModule.getConfigFolders().catch(() => null);
-    if (folders?.find((f) => f.path === folderPath)?.type === folderType) return true;
-  }
-  return false;
-}
-
-/**
- * Helper function to change syncthing folder type
- *
- * A write syncthing did not answer is not a refusal: it may still apply. With
- * `settleMs`, such a write succeeds if the folder shows the type within that
- * time. A write syncthing answered with an error fails at once.
- * @param {string} folderId - Syncthing folder ID (e.g., appId)
- * @param {string} folderType - 'receiveonly' or 'sendreceive'
- * @param {{settleMs?: number}} [options]
- * @returns {Promise<boolean>} - true if successful, false otherwise
- */
-async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0 } = {}) {
-  try {
-    // eslint-disable-next-line global-require
-    const syncthingService = require('../syncthingService');
-
-    // Get current folder configuration
-    const folders = await syncthingService.getConfigFolders();
-
-    // Find the folder by path
-    // Syncthing syncs the entire appId folder (includes all subdirectories)
-    const folderPath = `${appsFolder}${folderId}`;
-    const folder = folders.find((f) => f.path === folderPath);
-
-    if (!folder) {
-      log.error(`Syncthing folder not found for path: ${folderPath}`);
-      return false;
-    }
-
-    // Check if already in desired mode
-    // The election asserts a standby's type on every pass, so an unchanged
-    // folder is the common case and says nothing worth logging.
-    if (folder.type === folderType) {
-      return true;
-    }
-
-    log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
-
-    // Update folder type using PATCH
-    const patchData = { type: folderType, ...OWNED_FOLDER_SETTINGS };
-    const updateResponse = await syncthingService.adjustConfigFolders('patch', patchData, folder.id);
-
-    if (updateResponse.status === 'success') {
-      log.info(`Successfully changed syncthing folder ${folderId} to ${folderType} mode`);
-      return true;
-    }
-    if (settleMs > 0 && updateResponse.data?.httpStatus === null) {
-      log.warn(`Syncthing did not answer the change of folder ${folderId} to ${folderType} mode, waiting up to ${settleMs}ms for it to apply`);
-      if (await folderTypeSettles(folderPath, folderType, settleMs)) {
-        log.info(`Syncthing folder ${folderId} is in ${folderType} mode`);
-        return true;
-      }
-    }
-    log.error(`Failed to change syncthing folder type: ${JSON.stringify(updateResponse)}`);
-    return false;
-  } catch (error) {
-    log.error(`Error changing syncthing folder type for ${folderId}: ${error.message}`);
-    return false;
-  }
-}
-
 /**
  * The syncthing folder id backing a component's volume. Folder ids ARE the
  * docker app identifiers, so a composed app has one folder PER COMPONENT and
@@ -2644,37 +2560,17 @@ async function shuttingDownDevices() {
 }
 
 /**
- * Makes this node the primary of a single-writer component: the folder sends
- * from now on, and the reconciler starts the container.
- * @param {string} appname - App name
- * @param {string} appId - Application ID for syncthing folder
- * @returns {Promise<void>}
+ * Begins making this node the primary of a single-writer component - see
+ * primaryRole. A pass that runs again while the last one's promotion is still in
+ * progress, or after this node became the primary, begins nothing.
+ * @param {string} identifier `<component>_<app>`
+ * @param {string} appId Syncthing folder id
+ * @returns {boolean} Whether a promotion began
  */
-async function requestMasterStart(appname, appId) {
-  // Claimed before the folder flip, not after it: a peer probing "is anyone
-  // running this?" must get a truthful yes from a node that has committed.
-  // Released in the finally - from a successful start the controllerDesired
-  // below carries the claim, and a failed one must stop claiming.
-  appReconciler.claimStarting(appname);
-  // A fact - this node has decided to become primary and is committing to it.
-  // The cadence around this decision is a counter, not an event: see the rule at
-  // the top of fluxEventBus.js.
-  fluxEventBus.publish('masterSlave:started', { identifier: appname });
-  fluxEventBus.count('masterSlave:decision', appname, 'started');
-  try {
-    const toSendReceive = await changeSyncthingFolderType(appId, 'sendreceive', { settleMs: FOLDER_TYPE_SETTLE_MS });
-    if (!toSendReceive) {
-      log.error(`Failed to change syncthing folder to sendreceive for ${appname}, not requesting start - cannot become primary without sendreceive mode`);
-      return;
-    }
-    // hand the run-state decision to the reconciler (the single container actuator)
-    appReconciler.setControllerDesired(appname, 'running', 'masterSlave primary');
-    log.info(`Requested start for masterSlave primary ${appname}`);
-  } catch (error) {
-    log.error(`Error preparing masterSlave primary ${appname}: ${error.message}`);
-  } finally {
-    appReconciler.releaseStarting(appname);
-  }
+function startAsPrimary(identifier, appId) {
+  if (primaryRole.promote(identifier, appId)) return true;
+  fluxEventBus.count('masterSlave:decision', identifier, 'startInFlight');
+  return false;
 }
 
 /**
@@ -4311,7 +4207,6 @@ async function reinstallOldApplications() {
           // Specs differ - log for debugging purposes
           log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
 
-
           // check if node is capable to run it according to specifications
           // run the verification
           // get tier and adjust specifications
@@ -5378,8 +5273,9 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   if (peerState !== PeerComponent.NOT_RUNNING) {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                   } else {
-                    requestMasterStart(identifier, appId);
-                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    if (startAsPrimary(identifier, appId)) {
+                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    }
                   }
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   // There was a previous master (not me), and it's no longer on FDM
@@ -5407,8 +5303,9 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    requestMasterStart(identifier, appId);
-                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    if (startAsPrimary(identifier, appId)) {
+                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    }
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
                     let timetoStartApp = Date.now();
@@ -5427,9 +5324,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // eslint-disable-next-line no-await-in-loop
                       const peerState = await checkPeersRunning();
                       if (peerState === PeerComponent.NOT_RUNNING) {
-                        fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
-                        requestMasterStart(identifier, appId);
-                        log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                        if (startAsPrimary(identifier, appId)) {
+                          fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
+                          log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                        }
                       } else {
                         log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                       }
@@ -5444,9 +5342,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const peerState = await checkPeersRunning();
                   if (peerState === PeerComponent.NOT_RUNNING) {
-                    fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
-                    requestMasterStart(identifier, appId);
-                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                    if (startAsPrimary(identifier, appId)) {
+                      fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
+                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                    }
                     timeTostartNewMasterApp.delete(identifier);
                   } else if (peerState === PeerComponent.RUNNING) {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
@@ -5478,8 +5377,9 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (peerState === PeerComponent.RUNNING) {
                       log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
                     } else {
-                      requestMasterStart(identifier, appId);
-                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
+                      if (startAsPrimary(identifier, appId)) {
+                        log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
+                      }
                     }
                     // Any stagger already scheduled for this node is moot: the seed has
                     // just been handled here, and leaving the entry lets the scheduled
@@ -5518,18 +5418,18 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 timeTostartNewMasterApp.delete(identifier);
               }
               if (!ipsMatch(localSocketAddr, ip)) {
-                if (runningAppsNames.includes(identifier)) {
-                  // Stop only the g: component on this standby node. Non-g siblings (e.g. a DB
-                  // cluster component that needs all instances running) must keep running.
-                  appReconciler.setControllerDesired(identifier, 'stopped', 'masterSlave standby');
-                  log.info(`masterSlaveApps: requesting stop of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
+                // Stands down only the g: component on this node. Non-g siblings (e.g. a
+                // DB cluster component that needs all instances running) keep running.
+                if (primaryRole.standDown(identifier, appId, { running: runningAppsNames.includes(identifier) })) {
+                  log.info(`masterSlaveApps: standing down as primary of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
+                } else if (!primaryRole.inTransition(identifier)) {
+                  // A standby's folder receives and never sends: what it holds is the
+                  // primary's, and anything written here is a local change for the
+                  // primary's copy to overwrite.
+                  // eslint-disable-next-line no-await-in-loop
+                  await changeSyncthingFolderType(appId, 'receiveonly');
                 }
-                // A standby's folder receives and never sends: what it holds is the
-                // primary's, and anything written here is a local change for the
-                // primary's copy to overwrite.
-                // eslint-disable-next-line no-await-in-loop
-                await changeSyncthingFolderType(appId, 'receiveonly');
-              } else if (runningAppsNames.includes(identifier)) {
+              } else if (runningAppsNames.includes(identifier) && !primaryRole.inTransition(identifier)) {
                 // The primary runs here, so its folder sends - whatever demoted it
                 // while the container was down.
                 // eslint-disable-next-line no-await-in-loop
@@ -5563,8 +5463,9 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (isReady) {
-                  requestMasterStart(identifier, appId);
-                  log.info(`masterSlaveApps: starting docker component:${identifier}`);
+                  if (startAsPrimary(identifier, appId)) {
+                    log.info(`masterSlaveApps: starting docker component:${identifier}`);
+                  }
                 } else {
                   fluxEventBus.count('masterSlave:decision', identifier, 'notReady');
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
@@ -5587,7 +5488,6 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 }
 
 module.exports = {
-  changeSyncthingFolderType,
   createAppVolume,
   softRegisterAppLocally,
   softRemoveAppLocally,
