@@ -238,6 +238,7 @@ export function nodeClient(nodeNum) {
         // it holds. Nothing downstream carries that: a source serving nothing produces no
         // bundle change and leaves the held sequence where it was.
         'policy:backstopAsked',
+        'policy:backstopAnswered',
         // And the other half of that pair: a verified table actually installed.
         'ipLocation:tableInstalled',
         // The node looked and had nothing to look for - the bundle it holds names no
