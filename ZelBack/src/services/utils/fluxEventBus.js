@@ -46,6 +46,9 @@ const Checkpoint = Object.freeze({
   // The elected leader has read its sync status and has not yet checked the disk
   // it would seed from holds what that status claims. Keyed by folder id.
   SYNCTHING_BEFORE_SEED_CHECK: 'syncthing:beforeSeedCheck',
+  // The syncthing monitor has read the folder list its pass opens with, and has
+  // not yet published which folders this node holds writable.
+  SYNCTHING_AFTER_FOLDER_READ: 'syncthing:afterFolderRead',
   // The syncthing monitor has computed a folder's config from the folder list
   // its pass opened with, and has not written it. Keyed by folder id.
   SYNCTHING_BEFORE_FOLDER_WRITE: 'syncthing:beforeFolderWrite',
