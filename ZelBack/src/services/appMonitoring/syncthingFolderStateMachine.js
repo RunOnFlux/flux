@@ -1163,11 +1163,6 @@ async function nudgeFolderDevices(folderId) {
 }
 
 /**
- * Handle receive-only to send-receive transition
- * @param {Object} params - Parameters
- * @returns {Promise<Object>} Updated folder config and cache
- */
-/**
  * Reverts a synced receiveonly folder's local changes to the cluster's version.
  *
  * A receiveonly folder never overwrites its own deviations: a file or directory
@@ -1200,6 +1195,11 @@ async function revertLocalChangesIfSynced(appId, syncStatus) {
   return true;
 }
 
+/**
+ * Handle receive-only to send-receive transition
+ * @param {Object} params - Parameters
+ * @returns {Promise<Object>} Updated folder config and cache
+ */
 async function handleReceiveOnlyTransition(params) {
   const {
     appId,
@@ -1617,12 +1617,6 @@ async function handleNewApp(params) {
  * @param {string} appId - App ID
  * @param {string} containerDataFlags - Container flags
  * @returns {Promise<void>}
- */
-/**
- * Whether the component's container is running. null when docker did not answer,
- * which is not the same as no container.
- * @param {string} appId - Component identifier
- * @returns {Promise<boolean|null>}
  */
 async function ensureContainerRunning(appId, containerDataFlags) {
   try {
