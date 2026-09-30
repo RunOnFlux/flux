@@ -14,6 +14,7 @@ const verificationHelper = require('../verificationHelper');
 const { Privilege, authOf } = require('../utils/privileges');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
+const peerIdentityService = require('../peerIdentityService');
 const log = require('../../lib/log');
 
 // Database collections
@@ -383,6 +384,39 @@ async function holdsComponent(identifier) {
   return response.data.includes(identifier);
 }
 
+// Peers ask what this node holds on every election pass, unauthenticated and
+// uncached (each answer is signed for one call), so the account
+// behind the answer is read at most once a second however often it is asked.
+const HELD_FOR_PEERS_TTL_MS = 1000;
+let heldForPeers = null;
+
+/**
+ * heldComponents as a peer asks it: `{ held }`, signed over the challenge the
+ * request body carries.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message carrying the signed `{ held }`.
+ */
+async function heldComponentsAnswer(req, res) {
+  try {
+    const seal = peerIdentityService.answerSealer(
+      peerIdentityService.AnswerPurpose.HELD_COMPONENTS,
+      serviceHelper.ensureObject(req?.body) || {},
+    );
+    const now = Number(process.hrtime.bigint() / 1000000n);
+    if (!heldForPeers || now - heldForPeers.at >= HELD_FOR_PEERS_TTL_MS) {
+      const account = await heldComponents();
+      if (account.status !== 'success') return res.json(account);
+      heldForPeers = { held: account.data, at: now };
+    }
+    return res.json(messageHelper.createDataMessage(await seal({ held: heldForPeers.held })));
+  } catch (error) {
+    log.error(error);
+    return res.json(messageHelper.createErrorMessage(error.message || error, error.name, error.code));
+  }
+}
+
 /**
  * Syncthing folder ids this node has promoted to sendreceive - the folders it
  * holds the writable copy of.
@@ -667,6 +701,9 @@ async function callerIsFluxnode(body) {
  * to sign is not a peer doing something wrong, and it reads an absent `holding` as
  * claiming nothing - which is what the address-order election already expects of it.
  *
+ * The answer is signed over the challenge the request body carries, when it
+ * carries one.
+ *
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message carrying { ready, folders, holding }.
@@ -700,11 +737,12 @@ async function promotedFolderHoldings(req, res) {
     const entitled = authorized === true || await callerIsFluxnode(body);
 
     const held = globalState.folderHoldings;
-    const response = messageHelper.createDataMessage({
+    const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
+    const response = messageHelper.createDataMessage(await seal({
       ready: ids !== null,
       folders: ids === null ? [] : [...ids],
       ...(entitled ? { holding: held === null ? {} : Object.fromEntries(held) } : {}),
-    });
+    }));
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -724,6 +762,7 @@ module.exports = {
   listRunningApps,
   listRunningAppsApi,
   heldComponents,
+  heldComponentsAnswer,
   holdsComponent,
   promotedFolders,
   promotedFolderHoldings,

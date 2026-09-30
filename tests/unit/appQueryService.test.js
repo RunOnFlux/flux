@@ -12,6 +12,7 @@ describe('appQueryService tests', () => {
   let networkStateServiceStub;
   let dbHelperStub;
   let messageHelperStub;
+  let peerIdentityServiceStub;
   let dockerServiceStub;
   let registryManagerStub;
   let enterpriseHelperStub;
@@ -63,6 +64,12 @@ describe('appQueryService tests', () => {
     messageHelperStub = {
       createDataMessage: sinon.stub(),
       createErrorMessage: sinon.stub(),
+    };
+
+    // The answer as it goes out unsigned; a case about the signing says otherwise.
+    peerIdentityServiceStub = {
+      AnswerPurpose: { HELD_COMPONENTS: 'held', PROMOTED_FOLDERS: 'promoted' },
+      answerSealer: sinon.stub().returns(async (fields) => fields),
     };
 
     dockerServiceStub = {
@@ -136,6 +143,7 @@ describe('appQueryService tests', () => {
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../fluxCommunicationUtils': fluxCommunicationUtilsStub,
       '../networkStateService': networkStateServiceStub,
+      '../peerIdentityService': peerIdentityServiceStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -648,6 +656,78 @@ describe('appQueryService tests', () => {
     });
   });
 
+  // The same account as a peer asks it: sealed - signed over the caller's
+  // challenge, by the route - and read at most once a second.
+  describe('heldComponentsAnswer', () => {
+    // A clock this suite moves: every case starts well past the last case's read.
+    let nowNs = 10n ** 15n;
+    const res = () => ({ json: sinon.stub().returnsArg(0) });
+    const sealWith = (seal) => peerIdentityServiceStub.answerSealer.returns(seal);
+
+    beforeEach(() => {
+      nowNs += 10n ** 10n;
+      sinon.stub(process.hrtime, 'bigint').callsFake(() => nowNs);
+      dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
+      sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves([]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+      sealWith((fields) => Promise.resolve({ ...fields, sealed: true }));
+    });
+
+    it('answers what this node holds, as `held`, signed as held components over the request', async () => {
+      const req = { body: { challenge: 'c'.repeat(32) } };
+
+      const answer = await appQueryService.heldComponentsAnswer(req, res());
+
+      expect(answer).to.deep.equal({ status: 'success', data: { held: ['fluxwww_App'], sealed: true } });
+      sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'held', req.body);
+    });
+
+    it('reads the account at most once a second however often it is asked', async () => {
+      await appQueryService.heldComponentsAnswer({}, res());
+      nowNs += 999n * 10n ** 6n;
+      await appQueryService.heldComponentsAnswer({}, res());
+      expect(dockerServiceStub.dockerListContainers.callCount).to.equal(1);
+
+      nowNs += 10n ** 6n;
+      await appQueryService.heldComponentsAnswer({}, res());
+      expect(dockerServiceStub.dockerListContainers.callCount).to.equal(2);
+    });
+
+    it('signs each answer for its own call, even when the account is reused', async () => {
+      peerIdentityServiceStub.answerSealer.callsFake((purpose, body) => (fields) => Promise.resolve({ ...fields, challenge: body.challenge }));
+
+      const first = await appQueryService.heldComponentsAnswer({ body: { challenge: 'one' } }, res());
+      const second = await appQueryService.heldComponentsAnswer({ body: { challenge: 'two' } }, res());
+
+      expect(first.data.challenge).to.equal('one');
+      expect(second.data.challenge).to.equal('two');
+    });
+
+    it('passes a failed account on as the error it is, unsigned and not remembered', async () => {
+      appsRuntimeState.operatorStoppedIdentifiers.rejects(new Error('no primary available'));
+      const seal = sinon.spy((fields) => Promise.resolve(fields));
+      sealWith(seal);
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+      appsRuntimeState.operatorStoppedIdentifiers.resolves([]);
+      const next = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer.status).to.equal('error');
+      expect(seal.calledOnce, 'only the good account was signed').to.equal(true);
+      expect(next.data.held).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('answers an error when the answer cannot be signed, rather than send it unsigned', async () => {
+      sealWith(() => Promise.reject(new Error('This node cannot sign as itself')));
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer).to.deep.equal({ status: 'error', data: { message: 'This node cannot sign as itself' } });
+    });
+  });
+
   // The same account, asked by this node of itself: a primary its owner stopped
   // to work on is still the primary, and its folder must stay writable.
   describe('holdsComponent', () => {
@@ -874,6 +954,28 @@ describe('appQueryService tests', () => {
         await appQueryService.promotedFolderHoldings({ body: { target: '10.0.0.9:16127' } });
 
         expect(fluxNetworkHelperStub.verifySignedFluxnodeMessage.called).to.equal(false);
+      });
+
+      it('signs the whole answer, holdings included, as promoted folders over the request', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        const seal = sinon.stub().callsFake(async (fields) => ({ ...fields, sealed: true }));
+        peerIdentityServiceStub.answerSealer.returns(seal);
+        const body = signed({ challenge: 'c'.repeat(32) });
+
+        const result = await appQueryService.promotedFolderHoldings({ body });
+
+        sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'promoted', body);
+        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'holding');
+        expect(result.sealed).to.equal(true);
+      });
+
+      it('answers an error when the answer cannot be signed, rather than send it unsigned', async () => {
+        messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+        peerIdentityServiceStub.answerSealer.returns(() => Promise.reject(new Error('This node cannot sign as itself')));
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result).to.deep.equal({ status: 'error', data: { message: 'This node cannot sign as itself' } });
       });
     });
 

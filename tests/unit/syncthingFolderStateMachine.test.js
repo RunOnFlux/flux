@@ -135,7 +135,7 @@ const dirent = (name, isFile = true) => ({
 // node's own connectivity. Loaded before the state machine because the state
 // machine is handed this same mocked copy: a second, unmocked one would reach the
 // real syncthing service and answer every evidence question with silence.
-const peerIdentityMock = makePeerIdentityDouble();
+const peerIdentityMock = makePeerIdentityDouble({ post: axiosMock.post });
 const peerFolderLivenessMock = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
   '../peerIdentityService': peerIdentityMock,
   '../fluxCommunication': fluxCommunicationMock,
@@ -1361,6 +1361,17 @@ describe('syncthingFolderStateMachine tests', () => {
       it('does not promote on "holds nothing" from a different node, because the peer may hold the copy', async () => {
         leaderWithOnePeer();
         peerIdentityMock.misrouted('10.0.0.2:16127', '10.0.0.7:16137');
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache.restarted).to.not.equal(true);
+      });
+
+      it('does not promote on "holds nothing" in a reply a peer that proves who it is did not sign', async () => {
+        leaderWithOnePeer();
+        peerIdentityMock.verified('10.0.0.2:16127');
+        peerIdentityMock.repliesUnsigned('10.0.0.2:16127');
 
         const result = await stateMachine.manageFolderSyncState(mockParams);
 

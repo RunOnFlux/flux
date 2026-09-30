@@ -14,7 +14,7 @@ const nodeSignerModule = require('../../ZelBack/src/services/utils/nodeSigner');
 const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
 const { makePeerIdentityDouble } = require('./peerIdentityTestDouble');
 
-const { IdentityVerdict, IDENTITY_PURPOSE } = peerIdentityService;
+const { IdentityVerdict, IDENTITY_PURPOSE, AnswerPurpose } = peerIdentityService;
 
 // Three real keys, so every signature below is checked by the real verifier.
 // The address binding is the whole of what this module adds, and a stubbed
@@ -506,6 +506,227 @@ describe('peerIdentityService', () => {
       await peerIdentityService.verifyPeer('10.0.0.2:16137');
 
       sinon.assert.calledTwice(axios.post);
+    });
+  });
+
+  describe('answering a question signed', () => {
+    it('signs the answer with its purpose, its own address and key, and the challenge', async () => {
+      const answer = await peerIdentityService.signedAnswer(AnswerPurpose.HELD_COMPONENTS, CHALLENGE, { held: ['fluxweb_app'] });
+
+      expect(Object.keys(answer)).to.deep.equal(['held', 'purpose', 'socketAddress', 'pubKey', 'challenge', 'signature']);
+      expect(answer.purpose).to.equal(AnswerPurpose.HELD_COMPONENTS);
+      expect(answer.socketAddress).to.equal('10.0.0.1:16127');
+      expect(answer.challenge).to.equal(CHALLENGE);
+      const { signature, ...signed } = answer;
+      expect(verificationHelper.verifyMessage(JSON.stringify(signed), pub.a, signature)).to.equal(true);
+    });
+
+    it('cannot be steered by the answer into another purpose, address or challenge', async () => {
+      const answer = await peerIdentityService.signedAnswer(AnswerPurpose.HELD_COMPONENTS, CHALLENGE, {
+        purpose: IDENTITY_PURPOSE, socketAddress: ADDR.b, challenge: 'f'.repeat(32),
+      });
+
+      expect(answer.purpose).to.equal(AnswerPurpose.HELD_COMPONENTS);
+      expect(answer.socketAddress).to.equal('10.0.0.1:16127');
+      expect(answer.challenge).to.equal(CHALLENGE);
+    });
+
+    it('refuses a challenge the caller could choose the text of', async () => {
+      const refused = await peerIdentityService.signedAnswer(AnswerPurpose.HELD_COMPONENTS, 'x'.repeat(32), {}).catch((error) => error);
+      expect(refused).to.be.an('error');
+    });
+
+    it('refuses rather than answer unsigned when it cannot sign as itself', async () => {
+      nodeSignerModule.nodeSigner.resolves(null);
+      const refused = await peerIdentityService.signedAnswer(AnswerPurpose.HELD_COMPONENTS, CHALLENGE, {}).catch((error) => error);
+      expect(refused.message).to.equal('This node cannot sign as itself');
+    });
+
+    it('seals an answer signed when the request carries a challenge, and leaves it as it is when it carries none', async () => {
+      const sealed = await peerIdentityService.answerSealer(AnswerPurpose.PROMOTED_FOLDERS, { challenge: CHALLENGE })({ ready: true });
+      const open = await peerIdentityService.answerSealer(AnswerPurpose.PROMOTED_FOLDERS, {})({ ready: true });
+
+      expect(sealed.purpose).to.equal(AnswerPurpose.PROMOTED_FOLDERS);
+      expect(sealed.signature).to.be.a('string');
+      expect(open).to.deep.equal({ ready: true });
+    });
+  });
+
+  describe('asking a question answered signed', () => {
+    const HELD = '/apps/heldcomponents';
+
+    /**
+     * A question as the node holding `key` answers it, over the challenge the
+     * call carried.
+     */
+    const signs = (key, challenge, fields, purpose = AnswerPurpose.HELD_COMPONENTS) => {
+      const answer = {
+        ...fields, purpose, socketAddress: ADDR[key], pubKey: pub[key], challenge,
+      };
+      return { ...answer, signature: verificationHelper.signMessage(JSON.stringify(answer), KEYS[key]) };
+    };
+
+    /**
+     * What answers at every address: `held` for the question, `identity` for
+     * /flux/identity - each built from the call's challenge.
+     */
+    const node = ({ held, identity }) => sinon.stub(axios, 'post').callsFake(async (url, body) => {
+      const build = url.endsWith('/flux/identity') ? identity : held;
+      return build(body.challenge);
+    });
+    const success = (data) => ({ status: 200, data: { status: 'success', data } });
+    const notFound = () => Promise.reject(Object.assign(new Error('Request failed with status code 404'), {
+      response: { status: 404, data: 'Not found' },
+    }));
+
+    it('is VERIFIED, with the answer, when the node at the dialled address signed it for this call', async () => {
+      node({ held: (challenge) => success(signs('b', challenge, { held: ['fluxweb_app'] })) });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result.verdict).to.equal(IdentityVerdict.VERIFIED);
+      expect(result.answer.held).to.deep.equal(['fluxweb_app']);
+    });
+
+    it('asks the dialled address, with what the question carries and a fresh random challenge', async () => {
+      const post = node({ held: (challenge) => success(signs('b', challenge, { held: [] })) });
+
+      await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS, { target: ADDR.b }, { timeout: 1234 });
+      await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      const [url, body, options] = post.firstCall.args;
+      expect(url).to.equal('http://10.0.0.2:16127/apps/heldcomponents');
+      expect(body.target).to.equal(ADDR.b);
+      expect(body.challenge).to.match(/^[0-9a-f]{32}$/);
+      expect(options.timeout).to.equal(1234);
+      expect(post.secondCall.args[1].challenge, 'a challenge is never reused').to.not.equal(body.challenge);
+    });
+
+    it('builds a body from the challenge it sends, so the caller can sign over it', async () => {
+      const post = node({ held: (challenge) => success(signs('b', challenge, { held: [] })) });
+      const build = sinon.stub().callsFake(async (challenge) => ({ signedFor: challenge }));
+
+      await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS, build);
+
+      const sent = post.firstCall.args[1];
+      sinon.assert.calledOnceWithExactly(build, sent.challenge);
+      expect(sent.signedFor).to.equal(sent.challenge);
+    });
+
+    it('is MISROUTED when another listed node signed the answer, and holds that for every later caller', async () => {
+      const post = node({ held: (challenge) => success(signs('c', challenge, { held: [] })) });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+      const asks = post.callCount;
+      const later = await peerIdentityService.verifyPeer(ADDR.b);
+
+      expect(result).to.deep.equal({ verdict: IdentityVerdict.MISROUTED, answeredAs: ADDR.c });
+      expect(later).to.deep.equal(result);
+      expect(post.callCount, 'the misroute is held, not asked again').to.equal(asks);
+    });
+
+    // THE CASE THIS EXISTS FOR. The address was proven a moment ago; this reply
+    // is from whatever answers there now.
+    it('does not let a verified identity vouch for a reply that is not signed', async () => {
+      node({
+        identity: (challenge) => success(signedAnswer('b', { challenge })),
+        held: () => success(['fluxsomethingelse']),
+      });
+      expect((await peerIdentityService.verifyPeer(ADDR.b)).verdict).to.equal(IdentityVerdict.VERIFIED);
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result.verdict).to.equal(IdentityVerdict.UNVERIFIABLE);
+      expect(result.mayReadUnsigned).to.equal(false);
+    });
+
+    it('does not let a verified identity vouch for a peer with no such route', async () => {
+      node({
+        identity: (challenge) => success(signedAnswer('b', { challenge })),
+        held: notFound,
+      });
+      await peerIdentityService.verifyPeer(ADDR.b);
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.include({ verdict: IdentityVerdict.UNVERIFIABLE, status: 404, mayReadUnsigned: false });
+    });
+
+    it('does not accept an answer signed for another question', async () => {
+      node({
+        identity: (challenge) => success(signedAnswer('b', { challenge })),
+        held: (challenge) => success(signs('b', challenge, { ready: true, folders: [] }, AnswerPurpose.PROMOTED_FOLDERS)),
+      });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.include({ verdict: IdentityVerdict.UNVERIFIABLE, mayReadUnsigned: false });
+    });
+
+    it('does not accept an identity in place of an answer', async () => {
+      node({
+        identity: (challenge) => success(signedAnswer('b', { challenge })),
+        held: (challenge) => success(signedAnswer('b', { challenge })),
+      });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.include({ verdict: IdentityVerdict.UNVERIFIABLE, mayReadUnsigned: false });
+    });
+
+    it('does not accept an answer signed for another call', async () => {
+      node({
+        identity: (challenge) => success(signedAnswer('b', { challenge })),
+        held: () => success(signs('b', CHALLENGE, { held: [] })),
+      });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.include({ verdict: IdentityVerdict.UNVERIFIABLE, mayReadUnsigned: false });
+    });
+
+    it('lets an unsigned reply be read from a peer that cannot prove who it is at all', async () => {
+      node({ identity: notFound, held: () => success(['fluxweb_app']) });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.deep.equal({
+        verdict: IdentityVerdict.UNVERIFIABLE,
+        status: 200,
+        data: { status: 'success', data: ['fluxweb_app'] },
+        mayReadUnsigned: true,
+      });
+    });
+
+    it('is MISROUTED on an unsigned reply when asking who is there shows another node', async () => {
+      node({
+        identity: (challenge) => success(signedAnswer('c', { challenge })),
+        held: () => success([]),
+      });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.deep.equal({ verdict: IdentityVerdict.MISROUTED, answeredAs: ADDR.c });
+    });
+
+    it('is UNREACHABLE when nothing replies', async () => {
+      sinon.stub(axios, 'post').rejects(new Error('connect ECONNREFUSED'));
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.deep.equal({ verdict: IdentityVerdict.UNREACHABLE, reason: 'connect ECONNREFUSED' });
+    });
+
+    it('reads a signed answer it cannot judge as unproven rather than throw', async () => {
+      node({
+        identity: notFound,
+        held: (challenge) => success(signs('b', challenge, { held: [] })),
+      });
+      fluxCommunicationUtils.deterministicFluxList.rejects(new Error('list unavailable'));
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result.verdict).to.equal(IdentityVerdict.UNVERIFIABLE);
     });
   });
 

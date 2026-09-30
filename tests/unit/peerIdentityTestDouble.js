@@ -1,6 +1,6 @@
 const sinon = require('sinon');
 
-const { IdentityVerdict } = require('../../ZelBack/src/services/peerIdentityService');
+const { IdentityVerdict, AnswerPurpose } = require('../../ZelBack/src/services/peerIdentityService');
 
 /**
  * A stand-in for peerIdentityService.verifyPeer, answered per address.
@@ -14,19 +14,54 @@ const { IdentityVerdict } = require('../../ZelBack/src/services/peerIdentityServ
  *
  * An address that introduced nothing has no introduction.
  *
- * @returns {object} `verifyPeer`, `introducedPeer`, the verdict names, and
- *   setters for one address.
+ * `askSigned` sends its question through `post` - the suite's own transport - and
+ * judges the reply as the module does: a verified address's successful reply is
+ * its signed answer, a misrouted address is not asked, and any other reply is
+ * unproven, readable unsigned only from an address nothing proved.
+ * `repliesUnsigned` makes a verified address's replies unproven.
+ *
+ * @param {{post?: Function}} [transport] What `askSigned` asks through.
+ * @returns {object} `verifyPeer`, `askSigned`, `introducedPeer`, the verdict
+ *   and purpose names, and setters for one address.
  */
-function makePeerIdentityDouble() {
+function makePeerIdentityDouble({ post } = {}) {
   const byAddress = new Map();
   const introductions = new Map();
+  const unsigned = new Set();
   const verifyPeer = sinon.stub().callsFake(async (address) => byAddress.get(address)
     ?? { verdict: IdentityVerdict.UNVERIFIABLE, reason: 'answered 404' });
   const introducedPeer = sinon.stub().callsFake((address) => introductions.get(address) ?? null);
+  const askSigned = sinon.stub().callsFake(async (address, path, purpose, body = {}, options = {}) => {
+    const said = byAddress.get(address);
+    if (said?.verdict === IdentityVerdict.MISROUTED) return said;
+    const unproven = (reply) => ({
+      verdict: IdentityVerdict.UNVERIFIABLE,
+      ...reply,
+      mayReadUnsigned: !said || said.verdict === IdentityVerdict.UNVERIFIABLE,
+    });
+    const challenge = 'c'.repeat(32);
+    const fields = typeof body === 'function' ? await body(challenge) : body;
+    let response;
+    try {
+      response = await post(`http://${address.split(':')[0]}:${address.split(':')[1]}${path}`, { ...fields, challenge }, { timeout: options.timeout });
+    } catch (error) {
+      if (!error.response) return { verdict: IdentityVerdict.UNREACHABLE, reason: error.message };
+      return unproven({ status: error.response.status, data: error.response.data });
+    }
+    if (said?.verdict === IdentityVerdict.VERIFIED && !unsigned.has(address)) {
+      return { verdict: IdentityVerdict.VERIFIED, answer: response.data?.data };
+    }
+    return unproven({ status: response.status ?? 200, data: response.data });
+  });
   return {
     IdentityVerdict,
+    AnswerPurpose,
     verifyPeer,
+    askSigned,
     introducedPeer,
+    repliesUnsigned(address) {
+      unsigned.add(address);
+    },
     introduced(address, identity = {}) {
       introductions.set(address, {
         socketAddress: address, pubKey: 'PUB', deviceId: null, ...identity,
@@ -49,7 +84,9 @@ function makePeerIdentityDouble() {
     reset() {
       byAddress.clear();
       introductions.clear();
+      unsigned.clear();
       verifyPeer.resetHistory();
+      askSigned.resetHistory();
       introducedPeer.resetHistory();
     },
   };
