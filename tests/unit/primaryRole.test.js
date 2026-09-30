@@ -158,6 +158,17 @@ describe('primaryRole', () => {
       ]);
     });
 
+    it('ends as a standby whose folder still sends when the folder could not be made to receive', async () => {
+      const t = loadRole({ primary: true, changeType: async () => false });
+
+      t.role.standDown(APP, FOLDER, { running: true });
+      await t.role.whenSettled(APP);
+
+      expect(t.roleEvents().at(-1)).to.deep.equal({
+        identifier: APP, from: 'demoting', to: 'standby', reason: 'the folder still sends: it was not scanned, or not changed',
+      });
+    });
+
     [
       ['docker cannot be reached', { reachable: false, exists: false, running: false }],
       ['its state cannot be read', {

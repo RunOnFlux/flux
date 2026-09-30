@@ -226,16 +226,46 @@ describe('syncthing folder writes', () => {
       sinon.assert.callOrder(scan, adjust);
     });
 
-    it('changes the type when the scan before it fails', async () => {
+    it('leaves the type unchanged when the scan does not finish', async () => {
       sinon.stub(syncthingService, 'getConfigFolders').resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
       ]);
-      sinon.stub(syncthingService, 'scanFolder').rejects(new Error('syncthing busy'));
+      sinon.stub(syncthingService, 'scanFolder').rejects(new Error('timeout of 600000ms exceeded'));
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
 
-      expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { scanFirst: true })).to.equal(true);
+      expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { scanFirst: true })).to.equal(false);
 
-      sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'receiveonly' }, 'fluxprobe_app');
+      sinon.assert.notCalled(adjust);
+    });
+
+    it('lets the scan run as long as a scan of a large folder takes, not the client\'s default', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
+      ]);
+      const scan = sinon.stub(syncthingService, 'scanFolder').resolves();
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { scanFirst: true });
+
+      sinon.assert.calledOnceWithExactly(scan, 'fluxprobe_app', { timeoutMs: 600000 });
+    });
+
+    it('does not hold the folder\'s other writes while it scans', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
+      ]);
+      let scanned;
+      sinon.stub(syncthingService, 'scanFolder').returns(new Promise((resolve) => { scanned = resolve; }));
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      const change = syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { scanFirst: true });
+      await tick();
+      expect(scanned, 'fixture: the scan is in progress').to.be.a('function');
+      await syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] });
+
+      sinon.assert.calledOnceWithExactly(adjust, 'patch', { devices: [] }, 'fluxprobe_app');
+      scanned();
+      expect(await change).to.equal(true);
     });
 
     it('does not scan a folder that already has the type', async () => {
