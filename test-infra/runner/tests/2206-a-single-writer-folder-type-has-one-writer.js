@@ -335,11 +335,15 @@ describe('a single-writer folder type has one writer', function () {
       await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: 0 });
     }
 
-    const scan = (await scansOf(a.primary, a.folder)).slice(scansBefore)[0];
-    expect(scan, 'the folder was not scanned before it stopped sending').to.not.equal(undefined);
+    // The stub records a scan once it has finished.
+    let scan;
+    await waitFor(async () => {
+      [scan] = (await scansOf(a.primary, a.folder)).slice(scansBefore);
+      return !!scan;
+    }, { timeout: 120000, interval: 1000, label: 'the folder is scanned' });
     expect(scan.at - scan.arrivedAt, 'fixture: the scan took less than FluxOS waits for a syncthing call').to.be.at.least(SLOW_MS);
-    const demote = (await writesTo(a.primary, a.folder)).slice(writesBefore).find((w) => w.body?.type === 'receiveonly');
-    expect(demote, 'the folder never stopped sending').to.not.equal(undefined);
+    const demote = await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
+      'a FluxOS write stops the folder sending');
     expect(demote.arrivedSeq, 'the folder stopped sending before its scan finished').to.be.above(scan.seq);
   });
 });
