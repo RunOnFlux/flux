@@ -129,10 +129,23 @@ export async function redirectOutbound(container, {
 
 // Undo redirectOutbound. Tolerates a rule that is already gone so teardown after
 // a failed test cannot fail in its own right.
+//
+// A connection opened through the redirect goes on reaching `landsOn` after the
+// rules are gone, as one open to a target went on reaching it when they went in.
+// A redirect made with `resetOpen` is undone the same way: every socket still
+// addressed to a target is killed, so the node's next call opens one to it.
 export async function clearOutboundRedirect(container, rules) {
   for (const rule of rules) {
     // eslint-disable-next-line no-await-in-loop
     await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -D OUTPUT')}`);
+  }
+  for (const rule of rules) {
+    const reset = rule.match(/-d (\S+) --dport (\d+)(?::(\d+))? -j REJECT/);
+    if (!reset) continue;
+    const [, toIp, low, high = low] = reset;
+    // eslint-disable-next-line no-await-in-loop
+    const r = await execInContainer(container, `ss -K dst ${toIp} '( dport >= :${low} and dport <= :${high} )'`);
+    if (r.exitCode !== 0) throw new Error(`clearOutboundRedirect: could not close the connections redirected from ${toIp}: ${r.output}`);
   }
 }
 
