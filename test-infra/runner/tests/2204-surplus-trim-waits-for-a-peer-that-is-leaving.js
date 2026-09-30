@@ -43,6 +43,8 @@ describe('a surplus trim waits for a peer that is leaving', function () {
 
   const appName = `e2eswtrim${Date.now()}`;
   const folder = `flux${appName}_${appName}`;
+  // The surplus holder's last event before the primary shut down.
+  let shutdownFrom;
   const PRIMARY = 0;
   const SURPLUS = 1;
   const client = (i) => env.clients[i];
@@ -144,6 +146,7 @@ describe('a surplus trim waits for a peer that is leaving', function () {
     // The pass lands on the first block after the shutdown, well inside its
     // window, and the primary is back before its location rows lapse.
     await alignToTrimPass();
+    shutdownFrom = client(SURPLUS).getLastEventId();
     // Held down with its syncthing still running: connected, and complete.
     await shutdownFluxosGracefully(client(PRIMARY).container, { hold: true });
     const [sigterm] = await dbClient(SURPLUS + 1).getAppStateEvents({ ip: socketAddr(PRIMARY + 1), type: 'sigterm' });
@@ -160,9 +163,13 @@ describe('a surplus trim waits for a peer that is leaving', function () {
 
   it('trims the returning copy once no holder is leaving, and never stops the writer', async function () {
     this.timeout(600000);
-    // The shutdown handed the writer to the surplus holder, so the primary comes
-    // back as a standby and its copy is the one over the count. Its full peer is
-    // the new writer, which is not leaving, so its pass may trim.
+    // The shutdown hands the writer to the surplus holder, and the primary is held
+    // down until it has, so it comes back as a standby and its copy is the one over
+    // the count. Its full peer is the new writer, which is not leaving, so its
+    // pass may trim.
+    await client(SURPLUS).waitForEvent('primaryRole:changed',
+      (d) => d.identifier === `${appName}_${appName}` && d.to === 'primary', 300000, { afterId: shutdownFrom });
+    await waitForUp(client(SURPLUS), appName, 'the surplus holder runs the app', { timeout: 180000, interval: 2000 });
     await releaseFluxos(client(PRIMARY).container);
     await waitFor(async () => {
       const events = await dbClient(SURPLUS + 1).getAppStateEvents({ ip: socketAddr(PRIMARY + 1) });
