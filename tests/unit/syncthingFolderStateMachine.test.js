@@ -24,6 +24,7 @@ const syncthingServiceMock = {
   dbRevert: sinon.stub(),
   scanFolder: sinon.stub(),
   getDeviceStats: sinon.stub(),
+  getSystemStatus: sinon.stub(),
   systemPause: sinon.stub(),
   systemResume: sinon.stub(),
 };
@@ -202,6 +203,9 @@ describe('syncthingFolderStateMachine tests', () => {
     // default: this node's syncthing has never been connected to any peer
     syncthingServiceMock.getDeviceStats.reset();
     syncthingServiceMock.getDeviceStats.resolves({});
+    // this node's syncthing started before any connection the tests close
+    syncthingServiceMock.getSystemStatus.reset();
+    syncthingServiceMock.getSystemStatus.resolves({ startTime: '2026-09-25T13:00:00Z' });
     syncthingServiceMock.systemPause.reset();
     syncthingServiceMock.systemPause.resolves({ status: 'success' });
     syncthingServiceMock.systemResume.reset();
