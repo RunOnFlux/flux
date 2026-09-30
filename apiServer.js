@@ -275,7 +275,8 @@ async function initiate() {
   const httpError = await httpServer.listen(apiPort).catch((err) => err);
 
   if (httpError) {
-    // if shutting down clean, nodemon won't restart
+    // Exits 0: pm2 restarts FluxOS on any exit; Arcane's fluxos.service
+    // (Restart=on-failure) does not.
     logErrorAndExit(`Flux api server unable to start. ${httpError}`);
     return '';
   }
@@ -283,7 +284,8 @@ async function initiate() {
   const httpsError = await httpsServer.listen(apiPortHttps).catch((err) => err);
 
   if (httpsError) {
-    // if shutting down clean, nodemon won't restart
+    // Exits 0: pm2 restarts FluxOS on any exit; Arcane's fluxos.service
+    // (Restart=on-failure) does not.
     logErrorAndExit(`Flux api server unable to start. ${httpsError}`);
     return '';
   }
