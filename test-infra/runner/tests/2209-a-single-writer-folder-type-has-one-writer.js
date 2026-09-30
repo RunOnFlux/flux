@@ -37,7 +37,8 @@ const BEFORE_START = 'masterSlave:beforeStart';
 const AFTER_FOLDER_READ = 'syncthing:afterFolderRead';
 const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
 
-// Longer than FluxOS's 5 s timeout on a syncthing call.
+// FluxOS's timeout on a syncthing call, and a time well past it.
+const FLUXOS_CALL_TIMEOUT_MS = 5000;
 const SLOW_MS = 8000;
 
 async function isUp(client, appName) {
@@ -340,7 +341,7 @@ describe('a single-writer folder type has one writer', function () {
       [scan] = (await scansOf(a.primary, a.folder)).slice(scansBefore);
       return !!scan;
     }, { timeout: 120000, interval: 1000, label: 'the folder is scanned' });
-    expect(scan.at - scan.arrivedAt, 'fixture: the scan took less than FluxOS waits for a syncthing call').to.be.at.least(SLOW_MS);
+    expect(scan.at - scan.arrivedAt, 'fixture: the scan took less than FluxOS waits for a syncthing call').to.be.above(FLUXOS_CALL_TIMEOUT_MS);
     const demote = await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
       'a FluxOS write stops the folder sending');
     expect(demote.arrivedSeq, 'the folder stopped sending before its scan finished').to.be.above(scan.seq);
