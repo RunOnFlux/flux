@@ -4888,6 +4888,8 @@ async function peerComponentState(peerSocketAddr, {
   const ipToCheck = extractIp(peerSocketAddr);
   const portToCheck = extractPort(peerSocketAddr);
 
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_PEER_PROBE, peerSocketAddr);
+
   // Whatever answers below is taken as the answer of the node at this address,
   // and "not running" from another node is a clearance to start a second
   // writer. A call this node can show was answered by someone else rules
