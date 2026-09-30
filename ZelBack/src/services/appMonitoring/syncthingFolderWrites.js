@@ -229,7 +229,12 @@ function leavesSending(folderId, fields) {
   return Boolean(globalState.promotedFolderIds?.has(folderId));
 }
 
+// A planned shutdown leaves every folder paused, so the next start sends nothing
+// before the election has decided; from its start, no write unpauses one.
+const SHUTDOWN_REFUSAL = Object.freeze({ status: 'error', data: { message: 'this node is shutting down: its folders stay paused' } });
+
 async function patchNow(folderId, fields) {
+  if (globalState.shutdownInProgress && fields.paused === false) return SHUTDOWN_REFUSAL;
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
   if (response.status === 'success' && fields.type) recordType(folderId, fields.type);
   return response;
@@ -247,6 +252,7 @@ async function putFolders(folders) {
     return Promise.reject(new Error(`folder config without a type would be written as syncthing's default: ${untyped.join(', ')}`));
   }
   const response = await exclusive(folders.map((folder) => folder.id), async () => {
+    if (globalState.shutdownInProgress) return SHUTDOWN_REFUSAL;
     const put = await syncthingService.adjustConfigFolders('put', folders);
     if (put.status === 'success') folders.forEach((folder) => recordType(folder.id, folder.type));
     return put;
@@ -282,6 +288,23 @@ function deleteFolder(folderId) {
     }
     return response;
   });
+}
+
+/**
+ * Pauses every folder syncthing holds, each in its turn behind the writes
+ * already queued for it.
+ * @returns {Promise<{paused: string[], failed: string[]}>} Folder ids
+ */
+async function pauseAllFolders() {
+  const folders = await syncthingService.getConfigFolders();
+  const results = await Promise.all(folders.map(async (folder) => {
+    const response = await patchFolder(folder.id, { paused: true }).catch((error) => ({ status: 'error', data: { message: error.message } }));
+    return { id: folder.id, paused: response.status === 'success' };
+  }));
+  return {
+    paused: results.filter((result) => result.paused).map((result) => result.id),
+    failed: results.filter((result) => !result.paused).map((result) => result.id),
+  };
 }
 
 /**
@@ -443,6 +466,7 @@ module.exports = {
   FOLDER_TYPE_SETTLE_MS,
   changeSyncthingFolderType,
   folderConfig,
+  pauseAllFolders,
   putFolders,
   patchFolder,
   deleteFolder,

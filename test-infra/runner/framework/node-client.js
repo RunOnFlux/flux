@@ -273,6 +273,7 @@ export function nodeClient(nodeNum) {
         'syncthing:folderReady',
         'primaryRole:changed',
         'primaryRole:returned',
+        'shutdown:paused',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',

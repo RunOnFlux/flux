@@ -35,6 +35,7 @@ const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
 const syncthingService = require('./ZelBack/src/services/syncthingService');
+const syncthingFolderWrites = require('./ZelBack/src/services/appMonitoring/syncthingFolderWrites');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
 const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
 const { PM2_KILL_TIMEOUT_MS } = require('./ZelBack/src/services/fluxService');
@@ -44,6 +45,8 @@ const { PM2_KILL_TIMEOUT_MS } = require('./ZelBack/src/services/fluxService');
 // SHUTDOWN_EXIT_MS of pm2's timeout is left for what follows the drain.
 const SHUTDOWN_EXIT_MS = 5000;
 const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
+// How much of SHUTDOWN_EXIT_MS pausing the folders may take.
+const SHUTDOWN_PAUSE_MS = 3000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -418,10 +421,37 @@ async function stopFluxAppContainers() {
 }
 
 /**
+ * Pauses every syncthing folder, within SHUTDOWN_PAUSE_MS. Publishes
+ * shutdown:paused with the folders paused, those that failed, and whether the
+ * time ran out first.
+ * @returns {Promise<void>}
+ */
+async function pauseFoldersForShutdown() {
+  let timer;
+  const timedOut = new Promise((resolve) => { timer = setTimeout(() => resolve(null), SHUTDOWN_PAUSE_MS); });
+  try {
+    const result = await Promise.race([syncthingFolderWrites.pauseAllFolders(), timedOut]);
+    if (!result) {
+      log.warn(`Shutdown: pausing the syncthing folders did not finish within ${SHUTDOWN_PAUSE_MS}ms`);
+      fluxEventBus.publish('shutdown:paused', { paused: [], failed: [], timedOut: true });
+      return;
+    }
+    if (result.failed.length) log.warn(`Shutdown: ${result.failed.length} syncthing folder(s) could not be paused: ${result.failed.join(', ')}`);
+    log.info(`Shutdown: paused ${result.paused.length} syncthing folder(s)`);
+    fluxEventBus.publish('shutdown:paused', { ...result, timedOut: false });
+  } catch (error) {
+    log.warn(`Shutdown: the syncthing folders could not be paused: ${error.message}`);
+    fluxEventBus.publish('shutdown:paused', { paused: [], failed: [], timedOut: false });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Stops FluxOS. On a system shutdown or reboot it announces the shutdown to its
- * peers, stops the app containers and drains every sendreceive folder to the
- * connected peers before exiting; on a restart of the service alone it exits at
- * once.
+ * peers, stops the app containers, drains every sendreceive folder to the
+ * connected peers and pauses every folder before exiting; on a restart of the
+ * service alone it exits at once.
  */
 async function shutDown() {
   const deadline = performance.now() + SHUTDOWN_BUDGET_MS;
@@ -503,6 +533,11 @@ async function shutDown() {
   } catch (error) {
     log.warn(`Shutdown drain failed: ${error.message}`);
   }
+
+  // syncthing keeps a folder's pause across its own restart, so the next start
+  // sends nothing until the election has decided who holds each folder.
+  await pauseFoldersForShutdown();
+
   // Give some time for the broadcast to complete
   await serviceHelper.delay(1000);
 

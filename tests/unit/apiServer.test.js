@@ -5,6 +5,8 @@ const apiServer = require('../../apiServer');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const syncthingFolderWrites = require('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -603,6 +605,7 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
     sinon.stub(dockerService, 'dockerListContainers').resolves([{ Names: ['/fluxprobe_app'] }]);
     stopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
     drainStub = sinon.stub(syncthingService, 'drainFoldersToPeers').resolves([]);
+    sinon.stub(syncthingFolderWrites, 'pauseAllFolders').resolves({ paused: [], failed: [] });
     sinon.stub(verifyPool, 'stop');
     exitStub = sinon.stub(process, 'exit');
     // The flag is one-way and module-wide; set for real it would refuse every
@@ -688,6 +691,64 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
     sinon.assert.calledOnce(setShutdownStub);
     sinon.assert.calledOnce(drainStub);
     sinon.assert.calledOnce(exitStub);
+  });
+
+  describe('pausing every folder', () => {
+    let pauseStub;
+
+    beforeEach(() => {
+      pauseStub = syncthingFolderWrites.pauseAllFolders.resolves({ paused: ['fluxprobe_app'], failed: [] });
+    });
+
+    it('pauses every folder after the drain and before exiting', async () => {
+      const published = sinon.spy(fluxEventBus, 'publish');
+
+      await apiServer.handleSigterm();
+
+      sinon.assert.calledOnce(pauseStub);
+      expect(pauseStub.firstCall.callId, 'what the drain sends leaves before the folders stop').to.be.greaterThan(drainStub.firstCall.callId);
+      expect(exitStub.firstCall.callId).to.be.greaterThan(pauseStub.firstCall.callId);
+      sinon.assert.calledWith(published, 'shutdown:paused', { paused: ['fluxprobe_app'], failed: [], timedOut: false });
+    });
+
+    it('pauses every folder when the drain could not run', async () => {
+      drainStub.rejects(new Error('syncthing not answering'));
+
+      await apiServer.handleSigterm();
+
+      sinon.assert.calledOnce(pauseStub);
+    });
+
+    it('still exits when the folders cannot be paused', async () => {
+      pauseStub.rejects(new Error('syncthing not answering'));
+
+      await apiServer.handleSigterm();
+
+      sinon.assert.calledWith(exitStub, 0);
+    });
+
+    it('exits once the pause has had its time, when syncthing does not answer', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const published = sinon.spy(fluxEventBus, 'publish');
+      pauseStub.returns(new Promise(() => {}));
+
+      const stopping = apiServer.handleSigterm();
+      await clock.tickAsync(3000);
+      await stopping;
+
+      sinon.assert.calledWith(exitStub, 0);
+      sinon.assert.calledWith(published, 'shutdown:paused', { paused: [], failed: [], timedOut: true });
+    });
+
+    it('pauses nothing on a restart of the service alone', async () => {
+      fs.existsSync.callsFake(() => false);
+      serviceHelper.runCommand.resolves({ stdout: '', error: null });
+      // process.exit is stubbed, so the handler runs on past the exit it asked for;
+      // what matters is that the exit came first.
+      await apiServer.handleSigterm();
+
+      expect(exitStub.firstCall.callId).to.be.lessThan(pauseStub.firstCall?.callId ?? Infinity);
+    });
   });
 
   it('answers SIGINT with the same handler as SIGTERM', () => {
