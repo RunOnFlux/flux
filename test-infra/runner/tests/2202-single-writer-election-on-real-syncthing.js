@@ -193,20 +193,21 @@ describe('single-writer election on real syncthing', function () {
 
     const returned = client(FIRST).getLastEventId();
     await releaseFluxos(client(FIRST).container);
-    const decision = await client(FIRST).waitForEvent('primaryRole:returned', () => true, 300000, { afterId: returned });
-    expect(decision.data, 'what the old primary decided').to.deep.equal({ identifier, outcome: 'discarded' });
+    // The old primary's folder is receiving and unpaused, however it got there.
     await waitForDaemonEvent(client(FIRST), folderSaved(folder, { type: 'receiveonly', paused: false }), {
-      timeout: 60000, label: 'the old primary\'s folder unpaused, receiving',
+      timeout: 300000, label: 'the old primary\'s folder unpaused, receiving',
     });
-    // syncthing answers a revert once it is done, and the event follows the answer.
-    await client(FIRST).waitForEvent('syncthing:localChangesReverted', (d) => d.folder === folder && d.files > 0, 300000, { afterId: returned });
-    await oneWriterAtMost();
-
     // Every config the old primary's daemon held since it started: never one in
     // which the folder sent unpaused.
     const sentUnpaused = (await getDaemonEvents(client(FIRST), { events: ['ConfigSaved'] }))
       .filter((e) => (e.data?.folders || []).some((f) => f.id === folder && f.type === 'sendreceive' && !f.paused));
     expect(sentUnpaused, 'a config in which the old primary\'s folder sent').to.deep.equal([]);
+
+    const decision = await client(FIRST).waitForEvent('primaryRole:returned', () => true, 60000, { afterId: returned });
+    expect(decision.data, 'what the old primary decided').to.deep.equal({ identifier, outcome: 'discarded' });
+    // syncthing answers a revert once it is done, and the event follows the answer.
+    await client(FIRST).waitForEvent('syncthing:localChangesReverted', (d) => d.folder === folder && d.files > 0, 300000, { afterId: returned });
+    await oneWriterAtMost();
 
     expect(await readPath(client(FIRST), stray), 'the unsent write on the old primary').to.equal(null);
     for (const i of [SECOND, LATE]) {
