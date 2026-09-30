@@ -92,23 +92,35 @@ export async function unblockPeerAccess(container, peerIps, apiPort) {
 // dials QUIC on the same port as TCP.
 //
 // Moves new connections only. One already open to a target keeps going to it
-// until it closes, as it would through a real router whose forwarding changed.
+// until it closes, as it would through a real router whose forwarding changed -
+// unless `resetOpen`, which resets every TCP connection still addressed to a
+// target, so the node's next call opens one through the redirect. A redirected
+// connection is addressed to `landsOn` and is not reset.
 //
 // Returns the rules it added, for clearOutboundRedirect.
 //
 // @param {object} container The node's container.
-// @param {{toIps: string[], ports: string, landsOn: string}} redirect
+// @param {{toIps: string[], ports: string, landsOn: string, resetOpen?: boolean}} redirect
 //   `ports` as iptables takes it, e.g. '16127:16129'.
-export async function redirectOutbound(container, { toIps, ports, landsOn }) {
+export async function redirectOutbound(container, {
+  toIps, ports, landsOn, resetOpen = false,
+}) {
   const rules = [];
   for (const toIp of toIps) {
     for (const proto of ['tcp', 'udp']) {
-      const rule = `OUTPUT -p ${proto} -d ${toIp} --dport ${ports} -j DNAT --to-destination ${landsOn}`;
+      const rule = `-t nat OUTPUT -p ${proto} -d ${toIp} --dport ${ports} -j DNAT --to-destination ${landsOn}`;
       // eslint-disable-next-line no-await-in-loop
-      const r = await execInContainer(container, `iptables -t nat -A ${rule}`);
+      const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
       if (r.exitCode !== 0) {
         throw new Error(`redirectOutbound: could not send ${toIp}:${ports}/${proto} to ${landsOn}: ${r.output}`);
       }
+      rules.push(rule);
+    }
+    if (resetOpen) {
+      const rule = `-t filter OUTPUT -p tcp -d ${toIp} --dport ${ports} -j REJECT --reject-with tcp-reset`;
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
+      if (r.exitCode !== 0) throw new Error(`redirectOutbound: could not reset open connections to ${toIp}:${ports}: ${r.output}`);
       rules.push(rule);
     }
   }
@@ -120,7 +132,7 @@ export async function redirectOutbound(container, { toIps, ports, landsOn }) {
 export async function clearOutboundRedirect(container, rules) {
   for (const rule of rules) {
     // eslint-disable-next-line no-await-in-loop
-    await execInContainer(container, `iptables -t nat -D ${rule}`);
+    await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -D OUTPUT')}`);
   }
 }
 
