@@ -38,6 +38,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
 const log = require('../../ZelBack/src/lib/log');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 // Mock adminConfig for consistent testing
 const adminConfig = {
@@ -3467,56 +3468,129 @@ describe('fluxService tests', () => {
 
   describe('the kill timeout of FluxOS\'s pm2 registration', () => {
     const savedPm2Id = process.env.pm_id;
+    const REQUEST = path.join(os.homedir(), '.flux-pm2-kill-timeout-request');
     let runCmdStub;
     let spawnStub;
-    let unref;
+    let child;
+    let publishStub;
+    let files;
     const registration = (killTimeout) => JSON.stringify([
       { pm_id: 2, name: 'watchdog', pm2_env: {} },
       { pm_id: 3, name: 'flux', pm2_env: killTimeout === undefined ? {} : { kill_timeout: killTimeout } },
     ]);
+    // Resolves to whether ensurePm2KillTimeout has returned by the time the
+    // work it started has settled.
+    const returnedBy = async (pending) => {
+      let returned = false;
+      pending.then(() => { returned = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      return returned;
+    };
 
     beforeEach(() => {
       runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ stdout: registration(undefined), error: null });
-      unref = sinon.stub();
-      spawnStub = sinon.stub(childProcess, 'spawn').returns({ unref });
+      child = { unref: sinon.stub(), on: sinon.stub() };
+      spawnStub = sinon.stub(childProcess, 'spawn').returns(child);
+      publishStub = sinon.stub(fluxEventBus, 'publish');
+      files = { '/proc/sys/kernel/random/boot_id': 'boot-a\n' };
+      fsPromisesStubs.readFile = sinon.fake(async (file) => {
+        if (file in files) return files[file];
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+      fsPromisesStubs.writeFile.resetHistory();
       process.env.pm_id = '3';
     });
 
     afterEach(() => {
+      delete fsPromisesStubs.readFile;
+      process.removeAllListeners('SIGUSR2');
       sinon.restore();
       if (savedPm2Id === undefined) delete process.env.pm_id; else process.env.pm_id = savedPm2Id;
     });
 
-    it('re-registers with the kill timeout and saves, detached from this process, when pm2\'s default is in force', async () => {
-      expect(await fluxService.ensurePm2KillTimeout()).to.equal(true);
+    it('records the boot, asks pm2 detached from this process, and waits for the restart', async () => {
+      const pending = fluxService.ensurePm2KillTimeout();
 
+      expect(await returnedBy(pending), 'returned while the restart is under way').to.equal(false);
+      sinon.assert.calledWithExactly(fsPromisesStubs.writeFile, REQUEST, 'boot-a');
       sinon.assert.calledOnce(spawnStub);
       const [cmd, args, opts] = spawnStub.firstCall.args;
       expect(cmd).to.equal('sh');
-      expect(args[1]).to.equal(`setsid sh -c 'pm2 restart 3 --kill-timeout ${fluxService.PM2_KILL_TIMEOUT_MS} && pm2 save' >/dev/null 2>&1 </dev/null &`);
+      expect(args[1]).to.equal(`setsid sh -c 'if pm2 restart 3 --kill-timeout ${fluxService.PM2_KILL_TIMEOUT_MS}; then pm2 save; else kill -USR2 ${process.pid}; fi' >/dev/null 2>&1 </dev/null &`);
       expect(opts).to.include({ detached: true, stdio: 'ignore' });
-      sinon.assert.calledOnce(unref);
+      sinon.assert.calledOnce(child.unref);
+      sinon.assert.notCalled(publishStub);
     });
 
-    it('re-registers when the kill timeout is shorter than the shutdown needs', async () => {
+    it('boots on, and says so, when the restart signals that it failed', async () => {
       runCmdStub.resolves({ stdout: registration(1600), error: null });
+      const error = sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
 
-      expect(await fluxService.ensurePm2KillTimeout()).to.equal(true);
+      process.emit('SIGUSR2');
+
+      expect(await returnedBy(pending)).to.equal(true);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseFailed', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 could not restart FluxOS to raise its kill timeout from 1600/);
+    });
+
+    it('boots on when the command that asks pm2 cannot be started', async () => {
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+
+      child.on.withArgs('error').firstCall.args[1](new Error('spawn sh ENOENT'));
+
+      expect(await returnedBy(pending)).to.equal(true);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseFailed', { killTimeout: null });
+    });
+
+    it('asks pm2 once per machine boot, and boots on when the kill timeout is still short on that boot', async () => {
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      files[REQUEST] = 'boot-a\n';
+      const error = sinon.stub(log, 'error');
+
+      await fluxService.ensurePm2KillTimeout();
+
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.notCalled(fsPromisesStubs.writeFile);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutUnchanged', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 kept FluxOS's kill timeout at 1600 after FluxOS asked it for 60000ms on this boot/);
+    });
+
+    it('asks again on a later machine boot', async () => {
+      files[REQUEST] = 'boot-before\n';
+
+      fluxService.ensurePm2KillTimeout();
+      await new Promise((resolve) => { setImmediate(resolve); });
+
       sinon.assert.calledOnce(spawnStub);
+      sinon.assert.calledWithExactly(fsPromisesStubs.writeFile, REQUEST, 'boot-a');
+    });
+
+    it('leaves the registration alone when the machine boot cannot be identified', async () => {
+      delete files['/proc/sys/kernel/random/boot_id'];
+      const warn = sinon.stub(log, 'warn');
+
+      await fluxService.ensurePm2KillTimeout();
+
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.calledWithMatch(warn, /cannot be identified/);
     });
 
     it('leaves a registration that already has the kill timeout', async () => {
       runCmdStub.resolves({ stdout: registration(fluxService.PM2_KILL_TIMEOUT_MS), error: null });
 
-      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      await fluxService.ensurePm2KillTimeout();
       sinon.assert.notCalled(spawnStub);
+      sinon.assert.notCalled(fsPromisesStubs.writeFile);
     });
 
     it('asks nothing of pm2, and says nothing, when pm2 does not run FluxOS', async () => {
       const warn = sinon.stub(log, 'warn');
       delete process.env.pm_id;
 
-      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      await fluxService.ensurePm2KillTimeout();
       sinon.assert.notCalled(runCmdStub);
       sinon.assert.notCalled(spawnStub);
       sinon.assert.notCalled(warn);
@@ -3525,7 +3599,7 @@ describe('fluxService tests', () => {
     it('leaves the registration alone when the pm2 id is not a number', async () => {
       process.env.pm_id = '3; reboot';
 
-      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      await fluxService.ensurePm2KillTimeout();
       sinon.assert.notCalled(runCmdStub);
       sinon.assert.notCalled(spawnStub);
     });
@@ -3533,14 +3607,14 @@ describe('fluxService tests', () => {
     it('leaves the registration alone when pm2 cannot list it', async () => {
       runCmdStub.resolves({ stdout: '', error: new Error('pm2 not found') });
 
-      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      await fluxService.ensurePm2KillTimeout();
       sinon.assert.notCalled(spawnStub);
     });
 
     it('leaves the registration alone when pm2 lists no process with this id', async () => {
       process.env.pm_id = '9';
 
-      expect(await fluxService.ensurePm2KillTimeout()).to.equal(false);
+      await fluxService.ensurePm2KillTimeout();
       sinon.assert.notCalled(spawnStub);
     });
   });

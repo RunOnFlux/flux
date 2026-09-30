@@ -269,8 +269,8 @@ async function startFluxFunctions() {
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
     // Before any work that a restart would cut short: a registration that
-    // needs its kill timeout raised restarts FluxOS once.
-    if (await fluxService.ensurePm2KillTimeout()) return;
+    // needs its kill timeout raised restarts FluxOS, and this waits for it.
+    await fluxService.ensurePm2KillTimeout();
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
