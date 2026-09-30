@@ -552,6 +552,8 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       return;
     }
 
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_AFTER_FOLDER_READ);
+
     // Publish which folders this node holds writable, for the peers that ask before
     // promoting one of their own. Recorded here rather than read on demand: the
     // answer is a byproduct of a pass the monitor already makes, so serving it costs

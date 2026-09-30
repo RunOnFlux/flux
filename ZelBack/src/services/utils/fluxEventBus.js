@@ -37,6 +37,9 @@ const Checkpoint = Object.freeze({
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
+  // The syncthing monitor has read the folder list its pass opens with, and has
+  // not yet published which folders this node holds writable.
+  SYNCTHING_AFTER_FOLDER_READ: 'syncthing:afterFolderRead',
   // The syncthing monitor has computed a folder's config from the folder list
   // its pass opened with, and has not written it. Keyed by folder id.
   SYNCTHING_BEFORE_FOLDER_WRITE: 'syncthing:beforeFolderWrite',
