@@ -58,6 +58,16 @@ describe('a single-writer folder type has one writer', function () {
   const scansOf = async (i, folder) => (await getFolderScans(ipOf(i))).filter((s) => s.id === folder);
   const electionCount = (i, appName, decision) => electionDecisionCount(env.clients[i], identifierOf(appName), decision);
   const folderPasses = (i, appName) => env.clients[i].getDecisionCount('syncthing:folderPass', folderOf(appName), 'evaluated');
+  // The first write to a node's folder after the `from`th that matches, once
+  // made: the stub records a write once it has taken effect.
+  const writeSince = async (i, folder, from, match, label) => {
+    let found;
+    await waitFor(async () => {
+      found = (await writesTo(i, folder)).slice(from).find(match);
+      return !!found;
+    }, { timeout: 120000, interval: 1000, label });
+    return found;
+  };
   const eventsSince = (i, from, event, match) => env.clients[i].getEventBuffer()
     .filter((e) => e.id > from && e.event === event && match(e.data ?? {}));
 
@@ -121,11 +131,9 @@ describe('a single-writer folder type has one writer', function () {
 
     await setFolderConfig({ ip: ipOf(standby), folder: a.folder, fields: { type: 'sendreceive' } });
 
-    await waitFor(async () => (await getFolderConfig(ipOf(standby), a.folder))?.type === 'receiveonly', {
-      timeout: 120000, interval: 1000, label: 'the standby\'s folder receives again',
-    });
-    const write = (await writesTo(standby, a.folder)).slice(writesBefore).find((w) => w.body?.type === 'receiveonly');
-    expect(write, 'no FluxOS write made the folder receive').to.not.equal(undefined);
+    const write = await writeSince(standby, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
+      'a FluxOS write makes the standby\'s folder receive');
+    expect((await getFolderConfig(ipOf(standby), a.folder))?.type).to.equal('receiveonly');
     const scan = (await scansOf(standby, a.folder)).slice(scansBefore)[0];
     expect(scan, 'the folder was not scanned before it stopped sending').to.not.equal(undefined);
     expect(scan.seq, 'the folder stopped sending before its scan finished').to.be.below(write.arrivedSeq);
@@ -147,11 +155,9 @@ describe('a single-writer folder type has one writer', function () {
 
     await setFolderConfig({ ip: ipOf(a.primary), folder: a.folder, fields: { type: 'receiveonly' } });
 
-    await waitFor(async () => (await getFolderConfig(ipOf(a.primary), a.folder))?.type === 'sendreceive', {
-      timeout: 120000, interval: 1000, label: 'the primary\'s folder sends again',
-    });
-    const write = (await writesTo(a.primary, a.folder)).slice(writesBefore).find((w) => w.body?.type === 'sendreceive');
-    expect(write, 'no FluxOS write made the folder send').to.not.equal(undefined);
+    await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'sendreceive',
+      'a FluxOS write makes the primary\'s folder send');
+    expect((await getFolderConfig(ipOf(a.primary), a.folder))?.type).to.equal('sendreceive');
     expect(await isUp(client, a.appName), 'the primary stopped running the component').to.equal(true);
   });
 
@@ -218,8 +224,8 @@ describe('a single-writer folder type has one writer', function () {
       await execInContainer(client.container, `chattr -i ${dir}/appdata 2>/dev/null || true`);
     }
 
-    const demote = (await writesTo(a.primary, a.folder)).slice(writesBefore).find((w) => w.body?.type === 'receiveonly');
-    expect(demote, 'the folder holding partial data kept sending').to.not.equal(undefined);
+    const demote = await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
+      'a FluxOS write stops the folder holding partial data sending');
     const scanned = (await scansOf(a.primary, a.folder)).slice(scansBefore).filter((s) => s.arrivedSeq < demote.arrivedSeq);
     expect(scanned, 'the partial data was scanned, so it went out as this node\'s version').to.deep.equal([]);
   });
