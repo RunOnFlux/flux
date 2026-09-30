@@ -33,6 +33,9 @@ const changes = require('./primaryRoleChanges');
 //   not primary here, folder sends            | receiveonly, scanned       | -            | holdAsStandby
 //   unsafe mount / restore left partial data  | receiveonly, first, no scan| stopped      | demoteForSafety
 //
+// "Scanned" means syncthing confirmed the scan finished; a folder whose scan
+// does not finish keeps sending, and the next election pass tries again.
+//
 // A change of role in progress holds the folder: holdAsPrimary and holdAsStandby
 // do nothing during one, and demoteForSafety abandons a promotion before its
 // folder sends.
@@ -102,7 +105,9 @@ async function stopThenReceive(identifier, appId) {
     log.warn(`primaryRole - ${identifier} is not confirmed stopped; its folder keeps sending until it is`);
     return { to: Role.PRIMARY, reason: 'the container is not confirmed stopped' };
   }
-  await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { scanFirst: true });
+  if (!(await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { scanFirst: true }))) {
+    return { to: Role.STANDBY, reason: 'the folder still sends: it was not scanned, or not changed' };
+  }
   return Role.STANDBY;
 }
 
