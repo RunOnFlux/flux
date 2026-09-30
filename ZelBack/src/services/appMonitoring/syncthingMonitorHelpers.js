@@ -344,24 +344,35 @@ function shouldBeRunning(containerDataFlags) {
 }
 
 /**
- * Check if folder configuration needs update
- * @param {Object} existingFolder - Existing folder config
- * @param {Object} newFolder - New folder config; without a type, its type is
- *   not the monitor's to compare
+ * Whether two folder device lists name the same devices. Syncthing returns a
+ * folder's devices sorted, once each, with fields FluxOS never sets; the device
+ * IDs are what the monitor writes.
+ * @param {Array<{deviceID: string}>} [held]
+ * @param {Array<{deviceID: string}>} [wanted]
+ * @returns {boolean}
+ */
+function sameDevices(held = [], wanted = []) {
+  const heldIds = new Set(held.map((device) => device.deviceID));
+  const wantedIds = new Set(wanted.map((device) => device.deviceID));
+  return heldIds.size === wantedIds.size && [...wantedIds].every((id) => heldIds.has(id));
+}
+
+/**
+ * Whether syncthing holds a folder differently from the config the monitor
+ * built for it: any field of that config that differs, its devices compared as
+ * the devices they name and every other field by value. A field the config
+ * leaves out - a g: folder's type - is not the monitor's to compare.
+ * @param {Object} existingFolder - The folder as syncthing holds it
+ * @param {Object} newFolder - The config the monitor built for it
  * @returns {boolean} True if update is needed
  */
 function folderNeedsUpdate(existingFolder, newFolder) {
   if (!existingFolder) {
     return true;
   }
-
-  return (
-    existingFolder.maxConflicts !== SYNCTHING_MAX_CONFLICTS
-    || existingFolder.syncOwnership !== newFolder.syncOwnership
-    || existingFolder.paused
-    || (newFolder.type !== undefined && existingFolder.type !== newFolder.type)
-    || JSON.stringify(existingFolder.devices) !== JSON.stringify(newFolder.devices)
-  );
+  return Object.entries(newFolder).some(([field, value]) => (field === 'devices'
+    ? !sameDevices(existingFolder.devices, value)
+    : existingFolder[field] !== value));
 }
 
 module.exports = {
