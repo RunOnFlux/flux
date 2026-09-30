@@ -4270,6 +4270,21 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
     });
 
+    it('leaves a folder it found paused paused, and archives it held still', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      const folders = sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive', paused: true }]);
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.called(folders);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+      sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+    });
+
     it('refuses when the pause is denied, instead of reading denial as absence', async () => {
       // ERR_BAD_REQUEST spans every 4xx, so the axios code cannot tell a 404
       // (no such folder - nothing to hold) from a 403 (a stale api key - the
@@ -4731,6 +4746,15 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
       });
 
+      it('leaves a folder it found paused paused', async () => {
+        syncthingService.getConfigFolders.resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive', paused: true }]);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledOnce(IOUtils.untarFile);
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      });
+
       it('leaves the folder paused when a failed restore cannot demote it', async () => {
         // The folder holds partial data. Demoted it heals from the peers;
         // resumed while still sendreceive it hands the deletions and the
@@ -4768,7 +4792,11 @@ describe('advancedWorkflows tests', () => {
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
-        sinon.assert.notCalled(syncthingService.getConfigFolders);
+        const pause = syncthingService.adjustConfigFolders.getCalls().find((call) => call.args[1]?.paused === true);
+        expect(
+          syncthingService.getConfigFolders.getCalls().filter((call) => call.callId > pause.callId),
+          'the config was read between the pause and the demotion',
+        ).to.have.lengthOf(0);
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
       });
 
