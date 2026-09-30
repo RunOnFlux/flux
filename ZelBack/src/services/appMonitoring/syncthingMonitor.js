@@ -595,6 +595,27 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       return;
     }
 
+    // A syncthing started paused pauses every device, and nothing else resumes
+    // one: the nudge resumes only the device it paused, and a device write
+    // reaches only a device that is new. Resumed here, before anything in the
+    // pass reads a connection; the folders stay paused until each is written.
+    const pausedDeviceIds = allDevices
+      .filter((device) => device.paused && device.deviceID !== localDeviceId)
+      .map((device) => device.deviceID);
+    if (pausedDeviceIds.length) {
+      const resumed = await Promise.all(pausedDeviceIds.map((deviceId) => syncthingService.systemResume(deviceId)
+        .then(() => deviceId)
+        .catch((error) => {
+          log.error(`syncthingAppsCore - device ${deviceId.substring(0, 7)} is paused and could not be resumed: ${error.message}`);
+          return null;
+        })));
+      const resumedIds = resumed.filter(Boolean);
+      if (resumedIds.length) {
+        log.info(`syncthingAppsCore - resumed ${resumedIds.length} paused device(s)`);
+        fluxEventBus.publish('syncthing:devicesResumed', { devices: resumedIds });
+      }
+    }
+
     // Syncthing itself is up and its configuration readable - that, and only
     // that, is what the first-run flag gates. It must be set before any
     // per-app work: a single app whose volume never mounts would otherwise
