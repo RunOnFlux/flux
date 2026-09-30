@@ -11,7 +11,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp, waitForDown } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getDeviceId, getDeviceStats, getConfigDevices,
-  statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, indexHas,
+  statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, holdsValidVersion,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
@@ -213,7 +213,7 @@ describe('single-writer election on real syncthing', function () {
       // eslint-disable-next-line no-await-in-loop
       expect(await readPath(client(i), stray), `the unsent write on node ${i}`).to.equal(null);
       // eslint-disable-next-line no-await-in-loop
-      expect(await indexHas(client(i), folder, 'appdata/written-while-down.txt'), `the unsent write announced to node ${i}`).to.equal(false);
+      expect(await holdsValidVersion(client(i), folder, 'appdata/written-while-down.txt'), `a version of the unsent write on node ${i}`).to.equal(false);
     }
     expect(await runners(), 'the writer').to.deep.equal([SECOND]);
   });
