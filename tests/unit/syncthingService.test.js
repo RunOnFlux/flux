@@ -1457,7 +1457,7 @@ describe('syncthingService tests', () => {
         + "sh -c 'mount --bind \"$1\" /etc/passwd && mount --bind \"$2\" /etc/group && shift 2 && exec syncthing \"$@\"' "
         + "syncthing '/home/testuser/.config/syncthing/numeric-ids/passwd' '/home/testuser/.config/syncthing/numeric-ids/group' "
         + "--logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 "
-        + "--allow-newer-config --no-browser --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
+        + "--allow-newer-config --no-browser --paused --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
       // const expectedParams = [
       //   'syncthing',
       //   '--logfile',
