@@ -256,6 +256,8 @@ export function nodeClient(nodeNum) {
         'syncthing:ownersByNumber',
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
+        'pm2:killTimeoutRaiseFailed',
+        'pm2:killTimeoutUnchanged',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
