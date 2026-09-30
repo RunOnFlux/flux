@@ -586,6 +586,7 @@ describe('advancedWorkflows tests', () => {
     let syncthingServiceStub;
     let syncthingCompletionStub;
     let syncthingDeviceStatsStub;
+    let syncthingStatusStub;
     let syncthingDevicesStub;
     let axiosGetStub;
     let recursionCounter;
@@ -676,6 +677,8 @@ describe('advancedWorkflows tests', () => {
       syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
       // default: this node's syncthing has never been connected to any peer
       syncthingDeviceStatsStub = sinon.stub(syncthingServiceModule, 'getDeviceStats').resolves({});
+      // this node's syncthing started before any connection the tests close
+      syncthingStatusStub = sinon.stub(syncthingServiceModule, 'getSystemStatus').resolves({ startTime: '2026-09-25T13:00:00Z' });
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -2269,6 +2272,38 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary());
       peerSyncthingSays('192.168.1.90:16127', 'unknown');
       syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-192.168.1.90:16127', paused: true }]);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    // A syncthing that has just started has reconnected to nobody. A connection
+    // that closed before it started says nothing about the peer now.
+    it('will not start beside a silent peer whose connection closed before this node\'s syncthing started', async () => {
+      const appName = 'restartedsyncthingapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.resolves({ startTime: '2026-09-25T14:00:30Z' });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read when its syncthing started', async () => {
+      const appName = 'statusunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.rejects(new Error('syncthing did not answer'));
 
       await runPass();
 

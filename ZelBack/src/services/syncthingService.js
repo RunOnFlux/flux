@@ -935,6 +935,14 @@ async function getDeviceStats() {
 }
 
 /**
+ * Syncthing's own status: startTime is when this syncthing process started.
+ * @returns {Promise<{myID: string, startTime: string}>}
+ */
+async function getSystemStatus() {
+  return request('get', '/rest/system/status');
+}
+
+/**
  * Scans a folder now. Syncthing answers once the scan is done, so this resolves
  * when it is, and rejects when syncthing refuses it (the folder is missing,
  * paused or restarting) or the scan outlasts the call's timeout. The watcher
@@ -2617,6 +2625,7 @@ module.exports = {
   startSyncthingSentinel,
   stopSyncthingSentinel,
   getDeviceId,
+  getSystemStatus,
   getDeviceIdApi,
   probeSyncthing,
   refreshSyncthingHealth,
