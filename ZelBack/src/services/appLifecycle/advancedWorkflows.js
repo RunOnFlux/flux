@@ -5362,9 +5362,17 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 } else {
                   // A standby's folder receives and never sends: what it holds is the
                   // primary's, and anything written here is a local change for the
-                  // primary's copy to overwrite.
+                  // primary's copy to overwrite. A folder that returned paused asks
+                  // the node FDM names whether it runs the component.
+                  const othersHold = async () => {
+                    const locations = await registryManagerModule.appLocation(installedApp.name).catch(() => []);
+                    const named = locations.find((location) => ipsMatch(location.ip, ip));
+                    return componentStateOnPeers([{ ip: named?.ip ?? `${extractIp(ip)}:${extractPort(ip)}`, label: 'FDM primary' }], {
+                      appId, identifier, appName: installedApp.name, liveness, logPrefix: 'masterSlaveApps',
+                    });
+                  };
                   // eslint-disable-next-line no-await-in-loop
-                  await primaryRole.holdAsStandby(identifier, appId);
+                  await primaryRole.holdAsStandby(identifier, appId, { othersHold });
                 }
               } else if (runningAppsNames.includes(identifier)) {
                 // The primary runs here, so its folder sends - whatever demoted it

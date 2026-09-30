@@ -41,6 +41,53 @@ describe('changeSyncthingFolderType', () => {
     sinon.assert.notCalled(adjust);
   });
 
+  describe('unpausing in the same write', () => {
+    it('writes the type and paused:false together', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      const changed = await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { unpause: true });
+
+      expect(changed).to.equal(true);
+      sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'receiveonly', ...OWNED_FOLDER_SETTINGS, paused: false }, 'fluxprobe_app');
+    });
+
+    it('unpauses a paused folder that already has the type', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly', paused: true },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { unpause: true })).to.equal(true);
+
+      sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'receiveonly', ...OWNED_FOLDER_SETTINGS, paused: false }, 'fluxprobe_app');
+    });
+
+    it('writes nothing for an unpaused folder that already has the type', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly', paused: false },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+      expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { unpause: true })).to.equal(true);
+
+      sinon.assert.notCalled(adjust);
+    });
+
+    it('leaves the pause alone without the option', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly');
+
+      sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'receiveonly', ...OWNED_FOLDER_SETTINGS }, 'fluxprobe_app');
+    });
+  });
+
   describe('a write syncthing did not answer', () => {
     const unanswered = { status: 'error', data: { code: 'ECONNABORTED', httpStatus: null } };
     const folderOfType = (type) => [{ id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type }];
@@ -534,5 +581,32 @@ describe('syncthing folder writes', () => {
 
       expect(syncthingFolderWrites.typesRecordedSince(mark)).to.deep.equal([['fluxother_app', 'sendreceive']]);
     });
+  });
+});
+
+describe('folderConfig', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('answers the folder syncthing holds at the app folder path', async () => {
+    const folder = { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true };
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      { id: 'fluxother_app', path: `${appsFolder}fluxother_app`, type: 'receiveonly' }, folder,
+    ]);
+
+    expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.deep.equal(folder);
+  });
+
+  it('answers null for a folder syncthing does not hold', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([]);
+
+    expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.equal(null);
+  });
+
+  it('answers null when syncthing cannot be read', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').rejects(new Error('syncthing did not answer'));
+
+    expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.equal(null);
   });
 });

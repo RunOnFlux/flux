@@ -3,6 +3,8 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const changes = require('./primaryRoleChanges');
+const globalState = require('../utils/globalState');
+const { PeerComponent } = require('../appMonitoring/peerComponent');
 
 // A single-writer (g:) component's primary role on this node, and the only writer
 // of its syncthing folder's type.
@@ -31,6 +33,7 @@ const changes = require('./primaryRoleChanges');
 //   another node elected                      | receiveonly, no scan, last | stopped      | standDown
 //   primary runs here, folder receives        | sendreceive                | -            | holdAsPrimary
 //   not primary here, folder sends            | receiveonly, scanned       | -            | holdAsStandby
+//   not primary here, folder sends, paused    | by who runs it elsewhere   | -            | holdAsStandby
 //   unsafe mount / restore left partial data  | receiveonly, first, no scan| stopped      | demoteForSafety
 //
 // "Scanned" means syncthing confirmed the scan finished; a folder whose scan
@@ -204,16 +207,62 @@ async function holdAsPrimary(identifier, appId) {
 }
 
 /**
+ * Whether a backup or restore holds the app a component belongs to. Its folder
+ * is paused for the operation, which alone may unpause it.
+ * @param {string} identifier `<component>_<app>`, or the app name alone
+ * @returns {boolean}
+ */
+function heldByOperation(identifier) {
+  const appName = identifier.slice(identifier.lastIndexOf('_') + 1);
+  return globalState.backupInProgress.includes(appName) || globalState.restoreInProgress.includes(appName);
+}
+
+/**
  * Keeps the folder of a component this node is not the primary of receiving.
  * A folder found sending is scanned first, so what was written here goes out
  * as this node's own version and the next primary pulls it.
+ *
+ * A folder found sending and paused is a primary returning from a stop, whose
+ * syncthing came back paused: nothing written here since has gone out. What the
+ * other holders are doing with the component decides whether it may:
+ *
+ *   another holder runs it     | discarded: receives, unpaused, in one write,
+ *                              | unscanned; the standby revert removes what is local
+ *   no other holder runs it    | kept: unpaused, then scanned and made to receive
+ *   one cannot be ruled out,   | stays paused for a later pass
+ *   or the caller cannot ask   |
+ *
+ * A folder a backup or restore holds stays paused.
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
+ * @param {object} [opts]
+ * @param {() => Promise<string>} [opts.othersHold] The PeerComponent state of the
+ *   other holders.
  * @returns {Promise<boolean>} False when a change of role is in progress or this
- *   node is the primary, so nothing was written.
+ *   node is the primary, so nothing was written, or when the folder stays paused
+ *   or still sends.
  */
-async function holdAsStandby(identifier, appId) {
+async function holdAsStandby(identifier, appId, { othersHold } = {}) {
   if (changes.get(identifier) || isPrimary(identifier)) return false;
+  const folder = await syncthingFolderWrites.folderConfig(appId);
+  if (folder?.paused && folder.type === 'sendreceive') {
+    const others = othersHold ? await othersHold() : PeerComponent.UNKNOWN;
+    if (others === PeerComponent.UNKNOWN || heldByOperation(identifier)
+      || changes.get(identifier) || isPrimary(identifier)) {
+      fluxEventBus.count('primaryRole:returned', identifier, 'heldPaused');
+      return false;
+    }
+    if (others === PeerComponent.RUNNING) {
+      log.warn(`primaryRole - ${identifier} returned as primary while another holder runs it; its unsent changes are discarded`);
+      const discarded = await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { unpause: true });
+      if (discarded) fluxEventBus.publish('primaryRole:returned', { identifier, outcome: 'discarded' });
+      return discarded;
+    }
+    log.info(`primaryRole - ${identifier} returned as primary and no other holder runs it; its changes go out before it receives`);
+    const unpaused = await syncthingFolderWrites.patchFolder(appId, { paused: false });
+    if (unpaused?.status !== 'success') return false;
+    fluxEventBus.publish('primaryRole:returned', { identifier, outcome: 'kept' });
+  }
   return syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { scanFirst: true });
 }
 

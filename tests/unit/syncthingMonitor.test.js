@@ -1488,6 +1488,23 @@ describe('syncthingMonitor tests', () => {
 
     // A g: folder's type is its primary role's: the monitor names one only to
     // create the folder, and otherwise changes only the fields it owns.
+    // The returning-primary decision tells "no other holder" from "the records
+    // could not be read"; the read it is handed must not collapse the two.
+    it('hands the state machine a location read that fails when the records cannot be read', async () => {
+      writesAFolder();
+      dbHelperMock.databaseConnection.throws(new Error('database unavailable'));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const params = syncthingFolderStateMachineMock.manageFolderSyncState.firstCall?.args[0];
+      expect(params, 'the state machine was not reached, so this asserts nothing').to.not.equal(undefined);
+      expect(await params.appLocation('testapp'), 'the tolerant read').to.deep.equal([]);
+      let failure = null;
+      await params.readAppLocation('testapp').catch((error) => { failure = error; });
+      expect(failure?.message).to.equal('database unavailable');
+    });
+
     describe('the type of a g: folder', () => {
       const folderCalls = () => syncthingServiceMock.adjustConfigFolders.getCalls()
         .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch');
