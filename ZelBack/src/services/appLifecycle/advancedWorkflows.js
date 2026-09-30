@@ -2231,12 +2231,21 @@ function syncthingFolderIdForComponent(appname, componentName) {
  * A paused/resumed folder never sets syncthing's restart-required flag, so no
  * process restart is involved (verified against syncthing v2 - the folder
  * runner is stopped and, when unpausing, started again in place).
+ * A folder already paused is held still without this operation, which then
+ * leaves its pause to whatever set it: a planned shutdown, a syncthing started
+ * paused, or another operation.
  * @param {string} folderId - Syncthing folder ID
  * @param {boolean} paused - Desired paused state
- * @returns {Promise<boolean>} - true if applied, false otherwise
+ * @returns {Promise<string>} 'held' when this call paused or resumed it,
+ *   'alreadyPaused' when a pause found it paused, 'absent' when syncthing holds
+ *   no such folder, 'failed' otherwise
  */
 async function setSyncthingFolderPaused(folderId, paused) {
   try {
+    if (paused && (await syncthingFolderWrites.folderConfig(folderId))?.paused) {
+      log.info(`setSyncthingFolderPaused - ${folderId} is already paused; its pause is not this operation's to release`);
+      return 'alreadyPaused';
+    }
     const response = await syncthingFolderWrites.patchFolder(folderId, { paused });
     if (response.status === 'success') {
       log.info(`setSyncthingFolderPaused - ${folderId} paused=${paused}`);
