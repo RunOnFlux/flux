@@ -10,6 +10,7 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
+const { PM2_KILL_TIMEOUT_MS } = require('../../ZelBack/src/services/fluxService');
 
 /**
  * These tests isolate and test the SIGTERM handling logic from apiServer.js
@@ -617,10 +618,30 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
     await apiServer.handleSigterm();
 
     sinon.assert.calledOnce(drainStub);
-    expect(drainStub.firstCall.args[0]).to.equal(30000);
     expect(drainStub.firstCall.callId, 'the drain announces the write the container made on its way down, so it runs after the stop').to.be.greaterThan(stopStub.firstCall.callId);
     expect(exitStub.firstCall.callId).to.be.greaterThan(drainStub.firstCall.callId);
     sinon.assert.calledWith(exitStub, 0);
+  });
+
+  // pm2 kills FluxOS its kill timeout after it signals, so the whole stop,
+  // containers included, spends one budget that leaves time to exit.
+  it('gives the drain what is left of the stop budget once the containers are stopped', async () => {
+    const now = sinon.stub(performance, 'now').returns(1000);
+    stopStub.callsFake(async () => { now.returns(21000); });
+
+    await apiServer.handleSigterm();
+
+    const budget = PM2_KILL_TIMEOUT_MS - 5000;
+    expect(drainStub.firstCall.args[0], 'the budget less the 20 s the containers took').to.equal(budget - 20000);
+  });
+
+  it('gives the drain nothing when the containers took the whole budget', async () => {
+    const now = sinon.stub(performance, 'now').returns(1000);
+    stopStub.callsFake(async () => { now.returns(1000 + PM2_KILL_TIMEOUT_MS); });
+
+    await apiServer.handleSigterm();
+
+    expect(drainStub.firstCall.args[0]).to.equal(0);
   });
 
   it('stops every decider and start path before it lists the containers to stop', async () => {

@@ -398,6 +398,40 @@ describe('syncthingService tests', () => {
       expect(incomplete).to.deep.equal(['fluxa_app']);
     });
 
+    it('scanFolder gives the scan the time it is allowed, and the client\'s own timeout otherwise', async () => {
+      await syncthingService.scanFolder('fluxa_app', { timeoutMs: 1234 });
+      await syncthingService.scanFolder('fluxa_app');
+
+      expect(fakePost.firstCall.args[2]).to.deep.equal({ timeout: 1234 });
+      expect(fakePost.secondCall.args[2]).to.equal(undefined);
+    });
+
+    it('gives each scan what is left of the drain\'s own time', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+
+      await syncthingService.drainFoldersToPeers(1000);
+
+      const { timeout } = fakePost.firstCall.args[2];
+      expect(timeout).to.be.greaterThan(0);
+      expect(timeout).to.be.at.most(1000);
+    });
+
+    // syncthing answers a scan only once it is done, so a large folder can
+    // outlast its time; the peers may still hold everything written before it.
+    it('still waits on the peers of a folder whose scan did not finish', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+      fakePost = sinon.fake.rejects(Object.assign(new Error('timeout of 1000ms exceeded'), { code: 'ECONNABORTED' }));
+      axios.create.returns({ get: fakeGet, post: fakePost });
+      const warn = sinon.stub(log, 'warn');
+
+      const incomplete = await syncthingService.drainFoldersToPeers(1000);
+
+      expect(incomplete).to.deep.equal([]);
+      const asked = fakeGet.getCalls().map((call) => call.args[0]).filter((reqPath) => reqPath.startsWith('/rest/db/completion'));
+      expect(asked, 'the folder\'s peers were asked what they hold').to.have.length(1);
+      sinon.assert.calledWithMatch(warn, /the scan of fluxa_app did not finish: timeout of 1000ms exceeded/);
+    });
+
     it('does not wait for a peer that is not connected', async () => {
       completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
 
