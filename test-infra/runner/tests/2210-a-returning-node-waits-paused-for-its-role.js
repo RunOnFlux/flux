@@ -9,7 +9,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, getConfigDevices, readPath, scanFolder,
+  isDaemonUp, isFolderSynced, getFolderConfig, getConfigDevices, getDeviceId, readPath, scanFolder,
   stopDaemon, startDaemon, getDaemonEvents, syncthingCommandLines, indexHas,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -75,6 +75,12 @@ describe('a returning node waits paused until its role is decided', function () 
     return (await readPath(client(i), `${data}/${name}`)) === content;
   }, { timeout: 240000, interval: 3000, label });
   const heldPausedPasses = (i) => client(i).getDecisionCount('primaryRole:returned', identifier, 'heldPaused');
+  // The peer devices a node's syncthing holds paused. --paused pauses the node's
+  // own device too, which connects to nothing.
+  const pausedPeerDevices = async (i) => {
+    const own = await getDeviceId(client(i));
+    return (await getConfigDevices(client(i))).filter((d) => d.paused && d.deviceID !== own).map((d) => d.deviceID);
+  };
   // A folder id syncthing names in a ConfigSaved event, with its type and pause.
   const savedFolder = (event) => (event.data?.folders || []).find((f) => f.id === folder);
 
@@ -131,16 +137,14 @@ describe('a returning node waits paused until its role is decided', function () 
     await env?.teardown();
   });
 
-  it('starts a legacy node\'s syncthing paused, and resumes its devices and folder with its role', async function () {
+  it('starts a legacy node\'s syncthing paused, and unpauses its folder with its role', async function () {
     this.timeout(120000);
     const commandLines = await syncthingCommandLines(client(LEGACY));
     expect(commandLines, 'fixture: no syncthing on the legacy node').to.not.have.lengthOf(0);
     commandLines.forEach((line) => expect(line, 'the legacy syncthing FluxOS started').to.include('--paused'));
 
-    await client(LEGACY).waitForEvent('syncthing:devicesResumed', () => true, 60000);
     expect(await folderIs(LEGACY, { type: 'receiveonly', paused: false }), 'the standby\'s folder').to.equal(true);
-    const devices = await getConfigDevices(client(LEGACY));
-    expect(devices.filter((d) => d.paused).map((d) => d.deviceID), 'devices left paused').to.deep.equal([]);
+    expect(await pausedPeerDevices(LEGACY), 'peer devices left paused').to.deep.equal([]);
   });
 
   it('pauses nothing when FluxOS alone restarts', async function () {
@@ -220,8 +224,7 @@ describe('a returning node waits paused until its role is decided', function () 
     await writeAsApp(ARCANE, 'written-while-away.txt', 'never sent');
     await startDaemon(client(ARCANE), { paused: false });
     expect(await folderIs(ARCANE, { type: 'sendreceive', paused: true }), 'fixture: the folder the shutdown paused').to.equal(true);
-    const devices = await getConfigDevices(client(ARCANE));
-    expect(devices.filter((d) => d.paused), 'fixture: devices paused on a start without --paused').to.deep.equal([]);
+    expect(await pausedPeerDevices(ARCANE), 'fixture: peer devices paused on a start without --paused').to.deep.equal([]);
 
     const returned = client(ARCANE).getLastEventId();
     await releaseFluxos(client(ARCANE).container);
@@ -266,13 +269,13 @@ describe('a returning node waits paused until its role is decided', function () 
       await stopDaemon(client(LEGACY));
       await writeAsApp(LEGACY, 'written-while-down.txt', 'sent once it is safe');
 
-      const from = await heldPausedPasses(LEGACY);
       const returned = client(LEGACY).getLastEventId();
+      // The counters start again with the FluxOS that returns.
       await releaseFluxos(client(LEGACY).container);
       await waitFor(async () => {
         await oneWriterAtMost();
         expect(await readPath(client(ARCANE), `${data}/written-while-down.txt`), 'the write left while the folder waited').to.equal(null);
-        return await heldPausedPasses(LEGACY) >= from + 3;
+        return await heldPausedPasses(LEGACY) >= 3;
       }, { timeout: 300000, interval: 3000, label: 'three passes that kept the returned primary paused' });
 
       expect(await folderIs(LEGACY, { type: 'sendreceive', paused: true }), 'the returned primary\'s folder').to.equal(true);
