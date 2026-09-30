@@ -324,7 +324,9 @@ async function peerDeviceId(peerIp) {
  * has never been connected to the device. A connection that was never up says
  * nothing about the peer: a node placed minutes ago may not have reached it
  * yet, and reading that as a closed connection would let it start beside a
- * primary whose FluxOS is only restarting.
+ * primary whose FluxOS is only restarting. Nor does a connection this node's
+ * syncthing closed by pausing the device, as a syncthing started paused does
+ * with every device until the monitor resumes them.
  * Collapsing 'unknown' into 'disconnected' would let the one node with the
  * least knowledge authorise a second writer.
  *
@@ -348,6 +350,12 @@ async function peerSyncthingConnection(folderId, peerIp) {
 
   if (!completion) return PeerConnection.UNKNOWN;
   if (completion.remoteState === 'valid') return PeerConnection.CONNECTED;
+
+  // A device this node's syncthing has paused is disconnected by this node, not
+  // by the peer; a config that cannot be read cannot rule that out.
+  const devices = await syncthingService.getConfigDevices().catch(() => null);
+  if (!Array.isArray(devices)) return PeerConnection.UNKNOWN;
+  if (devices.find((device) => device.deviceID === deviceId)?.paused) return PeerConnection.UNKNOWN;
 
   const stats = await syncthingService.getDeviceStats().catch(() => null);
   const lastSeen = Date.parse(stats?.[deviceId]?.lastSeen);
