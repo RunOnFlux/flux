@@ -160,8 +160,11 @@ export async function readPath(client, path) {
 
 // Start the node's own daemon again after something stopped it, the way the OS
 // starts it, and wait until it answers.
-export async function startDaemon(client, { timeout = 60000, interval = 1000 } = {}) {
-  const r = await execInContainer(client.container, '/flux/test-infra/start-syncthing.sh');
+// `paused` true or false starts it with or without --paused whatever the node
+// was built with; left out, as the node's OS would.
+export async function startDaemon(client, { timeout = 60000, interval = 1000, paused } = {}) {
+  const pausedEnv = paused === undefined ? '' : `FLUX_SYNCTHING_PAUSED=${paused ? '1' : ''} `;
+  const r = await execInContainer(client.container, `${pausedEnv}/flux/test-infra/start-syncthing.sh`);
   if (r.exitCode !== 0) throw new Error(`syncthing-real: could not start the daemon: ${r.output}`);
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -206,4 +209,11 @@ export async function getDeviceStats(client) {
 // The devices the daemon has configured, as syncthing holds them.
 export async function getConfigDevices(client) {
   return api(client, '/rest/config/devices');
+}
+
+// The command line of every syncthing process on the node, each as one string.
+export async function syncthingCommandLines(client) {
+  const r = await execInContainer(client.container,
+    'for p in $(pgrep -x syncthing); do tr "\\0" " " < /proc/$p/cmdline; echo; done');
+  return r.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 }
