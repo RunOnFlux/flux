@@ -114,6 +114,27 @@ export async function statPath(client, path) {
   return { uid: Number(uid), gid: Number(gid), mode };
 }
 
+// One file's record in the daemon's index: `global` is the version the cluster
+// agrees on, with `global.platform.Unix` the owner it carries ({ UID, GID,
+// OwnerName, GroupName }), `local` this node's own. `file` is relative to the
+// folder root.
+export async function getFileInfo(client, folderId, file) {
+  return api(client, `/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}`);
+}
+
+// What each running syncthing process resolves owners against: the sha256 of
+// its /etc/passwd followed by its /etc/group, as that process sees them - the
+// value numericIdTables.js calls TABLES_SHA256 when they are the numeric id
+// tables. Empty when no syncthing runs.
+export async function syncthingIdTables(client) {
+  const r = await execInContainer(client.container,
+    'for p in $(pgrep -x syncthing); do echo "$p $(cat /proc/$p/root/etc/passwd /proc/$p/root/etc/group | sha256sum | cut -c1-64)"; done');
+  return r.stdout.trim().split('\n').filter(Boolean).map((line) => {
+    const [pid, tables] = line.split(' ');
+    return { pid: Number(pid), tables };
+  });
+}
+
 // A file's content on the node's disk, or null when it does not exist.
 export async function readPath(client, path) {
   const r = await execInContainer(client.container, `cat "${path}" 2>/dev/null`);

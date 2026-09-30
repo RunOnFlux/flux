@@ -182,15 +182,16 @@ describe('single-writer copies on real syncthing', function () {
     const written = `${root}/appdata/${WRITTEN}`;
     const stray = `${root}/appdata/stray.txt`;
     const kept = `${root}/backup/kept.txt`;
+    const mark = standby.getLastEventId();
     const changed = await execInContainer(standby.container,
       `printf 'changed on the standby' > ${written} && chown 0:0 ${written} && chmod 644 ${written} `
       + `&& printf 'stray' > ${stray} && mkdir -p ${root}/backup && printf 'kept' > ${kept}`);
     expect(changed.exitCode, `fixture: ${changed.output}`).to.equal(0);
     // Noticed now rather than at the watcher's delay.
     await scanFolder(standby, folder);
-    await waitFor(async () => (await getFolderStatus(standby, folder)).receiveOnlyChangedFiles > 0, {
-      timeout: 60000, interval: 2000, label: 'fixture: the standby sees its own changes',
-    });
+    // Waited on as the revert itself: the folder's count of changed files lasts
+    // only until that revert, which can come before a poll of the count.
+    await standby.waitForEvent('syncthing:localChangesReverted', (data) => data.folder === folder && data.files >= 2, 120000, { afterId: mark });
 
     await waitFor(async () => (await readPath(standby, written)) === WRITTEN_CONTENT
       && (await readPath(standby, stray)) === null, {

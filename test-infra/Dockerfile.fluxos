@@ -82,23 +82,25 @@ FROM base AS debcache
 
 COPY test-infra/syncthing-release-key.asc /tmp/syncthing-release-key.asc
 COPY test-infra/build-apt-repo.sh /usr/local/bin/build-apt-repo.sh
+COPY test-infra/build-syncthing-deb.sh /usr/local/bin/build-syncthing-deb.sh
 
-# Syncthing's repository carries only its two most recent releases, so there is
-# no older version to pin to and no build arg that could hold one. The version
-# is whatever it serves at build time, recorded in the repository so that
-# whoever has to agree with it can read it rather than restate it. That is also
-# how a production node gets syncthing: from the image it was built with.
+# syncthing is the release named here, one of those in test-infra/syncthing-versions
+# (build-images.sh passes it), packaged from the signed release on GitHub. The
+# fleet's nodes run more than one version and a suite has to be run against each,
+# which syncthing's own repository cannot serve: it carries only its two newest.
+# The version is recorded in the repository so that whoever has to agree with it
+# can read it rather than restate it.
 #
-# The key is vendored rather than fetched so the repository it authenticates is
+# The key is vendored rather than fetched so the release it authenticates is
 # pinned in git and reviewed, not trusted on first use at build time.
-RUN gpg --dearmor -o /usr/share/keyrings/syncthing-archive-keyring.gpg /tmp/syncthing-release-key.asc \
-    && echo "deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" \
-         > /etc/apt/sources.list.d/syncthing.list \
+ARG SYNCTHING_VERSION
+RUN test -n "$SYNCTHING_VERSION" \
     && apt-get update \
     && apt-get install -y --no-install-recommends dpkg-dev apt-utils \
     && rm -rf /var/cache/apt/archives/*.deb \
-    && apt-get install -y --download-only chrony syncthing netcat-openbsd \
-    && chmod +x /usr/local/bin/build-apt-repo.sh \
+    && apt-get install -y --download-only chrony netcat-openbsd \
+    && chmod +x /usr/local/bin/build-syncthing-deb.sh /usr/local/bin/build-apt-repo.sh \
+    && /usr/local/bin/build-syncthing-deb.sh "$SYNCTHING_VERSION" /var/cache/apt/archives \
     && /usr/local/bin/build-apt-repo.sh /opt/flux-apt-repo
 
 FROM base
@@ -205,6 +207,15 @@ RUN cp /tmp/image-package-lock.json /flux/package-lock.json
 RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
     && chown fluxuser:fluxuser /flux /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
     && ln -s /flux /root/zelflux
+
+# The numeric id tables an Arcane image carries, where it carries them, from the
+# module FluxOS itself writes them with. start-syncthing.sh gives them to the
+# syncthing it starts, as Arcane's unit does.
+RUN mkdir -p /usr/lib/syncthing \
+    && node -e "const t = require('/flux/ZelBack/src/services/utils/numericIdTables'); const fs = require('fs'); \
+         const passwd = t.passwdTable(); const group = t.groupTable(); \
+         if (t.tablesSha256(passwd, group) !== t.TABLES_SHA256) throw new Error('numeric id tables do not match TABLES_SHA256'); \
+         fs.writeFileSync('/usr/lib/syncthing/passwd', passwd); fs.writeFileSync('/usr/lib/syncthing/group', group);"
 
 ENV NODE_CONFIG_DIR=/flux/ZelBack/config
 

@@ -26,6 +26,17 @@ TAG="${FLUX_E2E_TAG:-latest}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# The syncthing the node image runs: one of the versions in
+# test-infra/syncthing-versions, the first when unset. Each version is an image
+# of its own, so build each under its own tag:
+#
+#   FLUX_E2E_TAG=placement-st2015 SYNCTHING_VERSION=2.0.15 ./test-infra/build-images.sh
+SYNCTHING_VERSION="${SYNCTHING_VERSION:-$(head -1 test-infra/syncthing-versions)}"
+if ! grep -qx "$SYNCTHING_VERSION" test-infra/syncthing-versions; then
+  echo "build-images: syncthing ${SYNCTHING_VERSION} is not one of test-infra/syncthing-versions" >&2
+  exit 1
+fi
+
 # Where the node image takes its Ubuntu packages from. Passed through only when set, so
 # the default stays whatever the Dockerfile declares and an ordinary build is unchanged.
 # A box that cannot reach Canonical names a mirror instead:
@@ -63,10 +74,12 @@ build_fluxos() {
   # image is.
   echo "==> test-app binary"
   bash test-infra/test-app/build.sh
-  echo "==> flux-e2e-fluxos-01:${TAG}"
+  echo "==> flux-e2e-fluxos-01:${TAG} (syncthing ${SYNCTHING_VERSION})"
   docker build -f test-infra/Dockerfile.fluxos \
     ${MIRROR_ARGS[@]+"${MIRROR_ARGS[@]}"} \
+    --build-arg "SYNCTHING_VERSION=${SYNCTHING_VERSION}" \
     --label "flux.e2e.src=$(test-infra/image-digest.sh fluxos-01)" \
+    --label "flux.e2e.syncthing=${SYNCTHING_VERSION}" \
     -t "flux-e2e-fluxos-01:${TAG}" .
 }
 

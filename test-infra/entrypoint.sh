@@ -3,6 +3,11 @@ set -e
 
 ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 
+# Every mount shared, as systemd makes them at boot on a real host. syncthing
+# runs in a mount namespace that is a slave of the node's, and a slave receives
+# the app volumes FluxOS mounts after syncthing starts only from a shared mount.
+mount --make-rshared /
+
 # A default route, or deliberately none - declared by the suite, never inherited
 # from the topology.
 #
