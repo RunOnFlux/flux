@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, setPeerHasData, resetSyncState, getSyncthingState,
+  setSynced, setPeerHasData, resetSyncState, getSyncthingState, getFolderWrites, getFolderConfig, setFolderConfig,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -44,6 +44,10 @@ const HELD_PASSES = 3;
 // The g: start path's checkpoint, declared in fluxEventBus.Checkpoint: a node
 // paused here has committed to the start and runs nothing.
 const BEFORE_START = 'masterSlave:beforeStart';
+
+// The syncthing monitor's checkpoint between reading a folder's config and
+// writing it, keyed by folder id.
+const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -543,5 +547,52 @@ describe('primary election under a divergent placement order', function () {
     await waitFor(async () => (await countUp(fdmApp)) === 1 && (await isUp(env.clients[next], fdmApp)), {
       timeout: 180000, interval: 3000, label: 'the holder FDM named runs the app, alone',
     });
+  });
+
+  it('keeps a promotion that lands while the monitor holds a folder config read before it', async function () {
+    this.timeout(480000);
+    // The monitor reads every folder's config at the start of a pass and writes
+    // the ones it has a change for at the end. A holder promoted in between has a
+    // sending folder that the pass read as receiving. The pass changes the fields
+    // it owns - here the folder's devices - and must leave the type the role set.
+    const identifier = identifierOf(fdmApp);
+    const folder = folderOf(fdmApp);
+    const target = fdmPrimary;
+    expect(target, 'fixture: an earlier test left no stood-down holder').to.not.equal(undefined);
+    const targetIp = subnet.nodeIp(target + 1);
+    const client = env.clients[target];
+    expect((await getFolderConfig(targetIp, folder))?.type, 'fixture: the stood-down holder\'s folder receives').to.equal('receiveonly');
+
+    const from = client.getLastEventId();
+    const folderWrites = async () => (await getFolderWrites(targetIp)).filter((w) => w.id === folder);
+    let writesBefore;
+    await client.holdCheckpoint(BEFORE_FOLDER_WRITE, folder);
+    try {
+      // Devices only syncthing holds wrong give the next pass a change to write.
+      await setFolderConfig({ ip: targetIp, folder, fields: { devices: [] } });
+      await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_FOLDER_WRITE && d.key === folder, 120000, { afterId: from });
+      writesBefore = (await folderWrites()).length;
+
+      await electMaster(fdmApp, client.ip);
+      const promoted = await client.waitForEvent('primaryRole:changed',
+        (d) => d.identifier === identifier && d.from === 'promoting', 300000, { afterId: from });
+      expect(promoted.data.to, `the promotion did not finish: ${promoted.data.reason ?? ''}`).to.equal('primary');
+      expect((await folderWrites()).slice(writesBefore).map((w) => w.body?.type),
+        'fixture: the promotion made the folder send while the pass was held').to.include('sendreceive');
+    } finally {
+      await client.releaseCheckpoint(BEFORE_FOLDER_WRITE, folder)
+        .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
+    }
+
+    // The held pass's write is the first since the hold that carries devices:
+    // the promotion's carries a type and the settings, and nothing else.
+    const heldWrite = async () => (await folderWrites()).slice(writesBefore).find((w) => (w.body?.devices?.length ?? 0) > 0);
+    await waitFor(async () => !!(await heldWrite()), {
+      timeout: 120000, interval: 1000, label: 'the held pass writes the folder\'s devices',
+    });
+    expect((await heldWrite()).body, 'the held pass wrote the type it read before the promotion').to.not.have.property('type');
+    const settled = await getFolderConfig(targetIp, folder);
+    expect(settled?.type, 'the promotion was undone').to.equal('sendreceive');
+    expect(settled?.devices ?? [], 'fixture: the held pass wrote its devices').to.not.have.lengthOf(0);
   });
 });
