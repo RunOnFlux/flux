@@ -68,6 +68,20 @@ const fluxService = proxyquire(
   },
 );
 
+// The same module on an ArcaneOS node, which is one where FLUXOS_PATH is set
+// when the module loads.
+const fluxPathOutsideArcane = process.env.FLUXOS_PATH;
+process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
+const fluxServiceOnArcane = proxyquire(
+  '../../ZelBack/src/services/fluxService',
+  {
+    '../../../config/userconfig': adminConfig,
+    'node:fs/promises': fsPromisesStubs,
+  },
+);
+if (fluxPathOutsideArcane === undefined) delete process.env.FLUXOS_PATH;
+else process.env.FLUXOS_PATH = fluxPathOutsideArcane;
+
 const generateResponse = () => {
   const res = { test: 'testing' };
   res.status = sinon.stub().returns(res);
@@ -342,6 +356,53 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'softupdateinstall'] });
+    });
+  });
+
+  describe('the endpoints that update FluxOS\'s own code, on ArcaneOS', () => {
+    const refusal = {
+      status: 'error',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'FluxOS on ArcaneOS is updated by its watchdog, not by this endpoint',
+      },
+    };
+    let verifyPrivilegeStub;
+    let runCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    ['updateFlux', 'softUpdateFluxApi', 'softUpdateFluxInstallApi', 'hardUpdateFlux'].forEach((handler) => {
+      it(`${handler} refuses, and changes nothing`, async () => {
+        const res = generateResponse();
+
+        await fluxServiceOnArcane[handler](undefined, res);
+
+        sinon.assert.calledOnceWithExactly(res.json, refusal);
+        sinon.assert.notCalled(runCmdStub);
+      });
+
+      it(`${handler} answers a caller without the privilege as unauthorized first`, async () => {
+        verifyPrivilegeStub.resolves(false);
+        const res = generateResponse();
+
+        await fluxServiceOnArcane[handler](undefined, res);
+
+        sinon.assert.calledOnceWithMatch(res.json, { status: 'error', data: { code: 401 } });
+      });
+    });
+
+    it('refuses on ArcaneOS and nowhere else', () => {
+      expect(fluxService.selfUpdateRefusal(true)).to.deep.equal(refusal);
+      expect(fluxService.selfUpdateRefusal(false)).to.equal(null);
     });
   });
 
