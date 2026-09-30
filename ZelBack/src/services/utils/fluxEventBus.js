@@ -32,6 +32,9 @@ const RING_BUFFER_SIZE = 1024;
 const Checkpoint = Object.freeze({
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
+  // A start decision is about to ask a peer what it holds. Keyed by the peer's
+  // socket address.
+  MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.
