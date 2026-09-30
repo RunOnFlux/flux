@@ -250,6 +250,10 @@ async function ensureIndexes(collection, specs) {
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
+ *
+ * Not unit-testable: every step acts on the machine, and a throw re-runs the
+ * whole boot 15 s later with whatever is stubbed by then. Unit-test the steps
+ * it calls; the integration harness covers the sequence.
  */
 async function startFluxFunctions() {
   try {

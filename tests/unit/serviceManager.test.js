@@ -13,15 +13,8 @@ const sinon = require('sinon');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
-const serviceManager = require('../../ZelBack/src/services/serviceManager');
-const fluxService = require('../../ZelBack/src/services/fluxService');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const dockerService = require('../../ZelBack/src/services/dockerService');
-const cloudUIUpdateService = require('../../ZelBack/src/services/cloudUIUpdateService');
+const { ensureIndex, ensureIndexes, dedupeByKey } = require('../../ZelBack/src/services/serviceManager');
 const log = require('../../ZelBack/src/lib/log');
-
-const { ensureIndex, ensureIndexes, dedupeByKey } = serviceManager;
 
 describe('serviceManager ensureIndex', () => {
   let logErrorSpy;
@@ -277,39 +270,5 @@ describe('serviceManager ensureIndexes', () => {
     });
 
     await expect(ensureIndexes(collection, [{ key: { a: 1 } }])).to.be.rejectedWith('not authorized');
-  });
-});
-
-describe('serviceManager boot under pm2', () => {
-  let nextStep;
-
-  beforeEach(() => {
-    sinon.stub(fluxNetworkHelper, 'checkNodeJsVersionAllowed');
-    sinon.stub(dbHelper, 'waitForMongo').resolves();
-    sinon.stub(dockerService, 'waitForDocker').resolves();
-    sinon.stub(log, 'error');
-    // The step after the registration check. Throwing ends the boot there, which
-    // startFluxFunctions catches and logs.
-    nextStep = sinon.stub(cloudUIUpdateService, 'checkAndUpdateCloudUI').rejects(new Error('boot went on'));
-  });
-
-  afterEach(() => {
-    sinon.restore();
-  });
-
-  it('stops booting when FluxOS asked pm2 to re-register it', async () => {
-    sinon.stub(fluxService, 'ensurePm2KillTimeout').resolves(true);
-
-    await serviceManager.startFluxFunctions();
-
-    sinon.assert.notCalled(nextStep);
-  });
-
-  it('boots on when the registration is left as it is', async () => {
-    sinon.stub(fluxService, 'ensurePm2KillTimeout').resolves(false);
-
-    await serviceManager.startFluxFunctions();
-
-    sinon.assert.calledOnce(nextStep);
   });
 });
