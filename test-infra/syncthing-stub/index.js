@@ -48,16 +48,31 @@ const nodeStates = new Map();
 // Scans are recorded in their own list, numbered from the same sequence as the
 // writes, so a suite can ask whether a folder was scanned before it was changed
 // without a scan reading as a config write.
+//
+// `arrivedSeq` and `arrivedAt` are taken when the request arrives, `seq` and
+// `at` when it has taken effect, the sequence shared by writes and scans, so a
+// suite can ask whether one call arrived before another finished. A write that
+// has arrived and not yet taken effect is listed in `pendingFolderWrites`.
 let folderCallSeq = 0;
-function recordFolderWrite(state, method, id, body) {
+function nextSeq() {
   folderCallSeq += 1;
-  state.folderWrites.push({
-    method, id, body: body ?? null, seq: folderCallSeq,
-  });
+  return folderCallSeq;
 }
-function recordFolderScan(state, id) {
-  folderCallSeq += 1;
-  state.folderScans.push({ id, seq: folderCallSeq });
+function arrive(state, method, id, body) {
+  const pending = {
+    method, id, body: body ?? null, arrivedSeq: nextSeq(), arrivedAt: Date.now(),
+  };
+  state.pendingFolderWrites.push(pending);
+  return pending;
+}
+function recordFolderWrite(state, pending) {
+  state.pendingFolderWrites.splice(state.pendingFolderWrites.indexOf(pending), 1);
+  state.folderWrites.push({ ...pending, seq: nextSeq(), at: Date.now() });
+}
+function recordFolderScan(state, id, arrivedSeq, arrivedAt) {
+  state.folderScans.push({
+    id, arrivedSeq, arrivedAt, seq: nextSeq(), at: Date.now(),
+  });
 }
 
 function nodeState(ip) {
@@ -71,7 +86,12 @@ function nodeState(ip) {
       ignores: new Map(),
       restartRequired: false,
       folderWrites: [],
+      pendingFolderWrites: [],
       folderScans: [],
+      // folder id -> when its restart after a config change ends
+      restartingUntil: new Map(),
+      // settles when the config change this node applied last has taken effect
+      configQueue: Promise.resolve(),
     };
     // every node knows itself as a configured device
     state.devices.set(deviceID, {
@@ -100,7 +120,84 @@ const DEFAULT_FOLDER = Object.freeze({
   syncOwnership: false,
 });
 
-// ip (or '*') -> milliseconds to hold a folder PATCH open before answering
+// syncthing's default device, which a device PUT starts from the same way.
+const DEFAULT_DEVICE = Object.freeze({
+  addresses: ['dynamic'],
+  compression: 'metadata',
+  introducer: false,
+  paused: false,
+});
+
+// --- config changes, applied the way syncthing applies them ----------------
+// Syncthing applies one config change at a time. Each is prepared (below) and
+// takes effect before the next is applied, and the request is answered once it
+// has: a change to a folder restarts that folder, and the answer waits for the
+// restart. A PATCH reads the folder when the request arrives, so a PATCH queued
+// behind another change writes the folder back as it was when it arrived.
+
+// How long a folder takes to restart after its config changes. While it
+// restarts it is not running: a scan of it fails.
+const DEFAULT_FOLDER_RESTART_MS = 250;
+let folderRestartMs = DEFAULT_FOLDER_RESTART_MS;
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// Every config write prepares the whole config: a folder keeps only the
+// devices the device list holds, each once, and always this node's own, sorted
+// by device ID and in syncthing's full shape.
+function prepareConfig(state) {
+  state.folders.forEach((folder, id) => {
+    const byId = new Map();
+    (folder.devices || []).forEach((d) => {
+      if (d?.deviceID && state.devices.has(d.deviceID) && !byId.has(d.deviceID)) byId.set(d.deviceID, d);
+    });
+    if (!byId.has(state.deviceID)) byId.set(state.deviceID, { deviceID: state.deviceID });
+    const devices = [...byId.values()]
+      .map((d) => ({ deviceID: d.deviceID, introducedBy: d.introducedBy ?? '', encryptionPassword: d.encryptionPassword ?? '' }))
+      .sort((x, y) => (x.deviceID < y.deviceID ? -1 : 1));
+    state.folders.set(id, { ...folder, devices });
+  });
+}
+
+function folderRunning(state, id) {
+  const folder = state.folders.get(id);
+  if (!folder) return 'no such folder';
+  if (folder.paused) return 'folder is paused';
+  if ((state.restartingUntil.get(id) ?? 0) > Date.now()) return 'folder is not running';
+  return null;
+}
+
+/**
+ * Queues a config change on a node. `change` runs in its turn and returns the
+ * ids of the folders whose config it changed; the promise settles once those
+ * folders have restarted.
+ */
+function applyConfigChange(state, change) {
+  const turn = state.configQueue.then(async () => {
+    const before = new Map([...state.folders].map(([id, f]) => [id, JSON.stringify(f)]));
+    await change();
+    prepareConfig(state);
+    const restarted = [...state.folders.keys()].filter((id) => before.get(id) !== JSON.stringify(state.folders.get(id)));
+    if (restarted.length && folderRestartMs > 0) {
+      const until = Date.now() + folderRestartMs;
+      restarted.forEach((id) => state.restartingUntil.set(id, until));
+      await sleep(folderRestartMs);
+    }
+  });
+  // eslint-disable-next-line no-param-reassign
+  state.configQueue = turn.catch(() => {});
+  return turn;
+}
+
+// `${ip}|${folder}` ('*' for either) -> how long a scan of that folder takes
+const scanDurations = new Map();
+function scanDuration(ip, folder) {
+  return scanDurations.get(`${ip}|${folder}`) ?? scanDurations.get(`${ip}|*`)
+    ?? scanDurations.get(`*|${folder}`) ?? scanDurations.get('*|*') ?? 0;
+}
+
+// ip (or '*') -> milliseconds a folder PATCH takes to apply on that node. It is
+// applied in the node's turn, so it holds every config change queued behind it.
 const folderPatchDelay = new Map();
 // Wakes parked PATCHes when a delay is cleared; unbounded listeners because
 // every held request registers one.
@@ -326,16 +423,19 @@ app.get('/rest/config', (req, res) => {
   });
 });
 
-app.put('/rest/config', (req, res) => {
+app.put('/rest/config', async (req, res) => {
   const state = reqState(req);
-  if (req.body.folders) {
-    state.folders.clear();
-    req.body.folders.forEach((f) => state.folders.set(f.id, f));
-  }
-  if (req.body.devices) {
-    state.devices.clear();
-    req.body.devices.forEach((d) => state.devices.set(d.deviceID, d));
-  }
+  await applyConfigChange(state, () => {
+    if (req.body.devices) {
+      state.devices.clear();
+      req.body.devices.forEach((d) => state.devices.set(d.deviceID, { ...DEFAULT_DEVICE, ...d }));
+      if (!state.devices.has(state.deviceID)) state.devices.set(state.deviceID, { ...DEFAULT_DEVICE, deviceID: state.deviceID });
+    }
+    if (req.body.folders) {
+      state.folders.clear();
+      req.body.folders.forEach((f) => state.folders.set(f.id, { ...DEFAULT_FOLDER, ...f }));
+    }
+  });
   res.json({});
 });
 
@@ -353,16 +453,16 @@ app.get('/rest/config/folders', (req, res) => {
   res.json(Array.from(reqState(req).folders.values()));
 });
 
-// Collection PUT (no id): the syncthing monitor writes folder config as an array
-// of the folders that changed. Upsert by id (don't replace the whole set) so
-// unrelated folders survive — matching how the monitor uses it.
-app.put('/rest/config/folders', (req, res) => {
+// Collection PUT (no id): the folders sent replace those with the same id,
+// starting from the default folder; folders not sent are kept.
+app.put('/rest/config/folders', async (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
-  arr.forEach((f) => {
-    state.folders.set(f.id, { ...DEFAULT_FOLDER, ...f });
-    recordFolderWrite(state, 'put', f.id, f);
+  const pending = arr.map((f) => arrive(state, 'put', f.id, f));
+  await applyConfigChange(state, () => {
+    arr.forEach((f) => state.folders.set(f.id, { ...DEFAULT_FOLDER, ...f }));
   });
+  pending.forEach((write) => recordFolderWrite(state, write));
   res.json({});
 });
 
@@ -372,45 +472,47 @@ app.get('/rest/config/folders/:id', (req, res) => {
   return res.json(folder);
 });
 
-app.put('/rest/config/folders/:id', (req, res) => {
+app.put('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
-  state.folders.set(req.params.id, { ...DEFAULT_FOLDER, ...req.body, id: req.params.id });
-  recordFolderWrite(state, 'put', req.params.id, req.body);
+  const pending = arrive(state, 'put', req.params.id, req.body);
+  await applyConfigChange(state, () => {
+    state.folders.set(req.params.id, { ...DEFAULT_FOLDER, ...req.body, id: req.params.id });
+  });
+  recordFolderWrite(state, pending);
   res.json({});
 });
 
+// PATCH modifies an existing folder and 404s an unknown id (PUT is the upsert).
+// The folder is read when the request arrives and written back whole, with the
+// body over it, in the node's turn.
 app.patch('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
-  // real syncthing: PATCH modifies an existing folder and 404s an unknown id
-  // (PUT is the upsert). The monitor's safety demotion reads that 404 as
-  // "not a syncthing folder", so the distinction is load-bearing.
   const existing = state.folders.get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
-  // The masterSlave primary path brackets its ownership fix with two of these
-  // calls, and its duration is the window in which the node has committed but
-  // has no container. Held open on request, that window becomes a chosen length
-  // rather than whatever the box happened to do (see /folder-patch-delay).
+  const pending = arrive(state, 'patch', req.params.id, req.body);
   const delayMs = folderPatchDelay.get(clientIp(req)) ?? folderPatchDelay.get('*') ?? 0;
-  if (delayMs > 0) {
-    // Interruptible: clearing the delay wakes every request already parked in
-    // it. A sleeper that outlives its release freezes whatever awaits it for
-    // the full duration - a monitor cycle, and every decision behind it.
-    await new Promise((resolve) => {
-      let timer;
-      const done = () => { clearTimeout(timer); patchDelayWaker.off('wake', done); resolve(); };
-      timer = setTimeout(done, delayMs);
-      patchDelayWaker.on('wake', done);
-    });
-  }
-  state.folders.set(req.params.id, { ...existing, ...req.body });
-  recordFolderWrite(state, 'patch', req.params.id, req.body);
+  await applyConfigChange(state, async () => {
+    if (delayMs > 0) {
+      // Interruptible: clearing the delay wakes every change parked in it.
+      await new Promise((resolve) => {
+        let timer;
+        const done = () => { clearTimeout(timer); patchDelayWaker.off('wake', done); resolve(); };
+        timer = setTimeout(done, delayMs);
+        patchDelayWaker.on('wake', done);
+      });
+    }
+    state.folders.set(req.params.id, { ...existing, ...req.body });
+  });
+  recordFolderWrite(state, pending);
   return res.json({});
 });
 
-app.delete('/rest/config/folders/:id', (req, res) => {
+// Deleting a folder syncthing does not have succeeds.
+app.delete('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
-  state.folders.delete(req.params.id);
-  recordFolderWrite(state, 'delete', req.params.id, null);
+  const pending = arrive(state, 'delete', req.params.id, null);
+  await applyConfigChange(state, () => { state.folders.delete(req.params.id); });
+  recordFolderWrite(state, pending);
   res.json({});
 });
 
@@ -425,11 +527,14 @@ app.get('/rest/config/devices', (req, res) => {
   return res.json(Array.from(reqState(req).devices.values()));
 });
 
-// Collection PUT (no id): upsert each device by deviceID (see folders above).
-app.put('/rest/config/devices', (req, res) => {
+// Collection PUT (no id): the devices sent replace those with the same id,
+// starting from the default device; devices not sent are kept.
+app.put('/rest/config/devices', async (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
-  arr.forEach((d) => state.devices.set(d.deviceID, d));
+  await applyConfigChange(state, () => {
+    arr.forEach((d) => state.devices.set(d.deviceID, { ...DEFAULT_DEVICE, ...d }));
+  });
   res.json({});
 });
 
@@ -439,22 +544,29 @@ app.get('/rest/config/devices/:id', (req, res) => {
   return res.json(device);
 });
 
-app.put('/rest/config/devices/:id', (req, res) => {
+app.put('/rest/config/devices/:id', async (req, res) => {
   const state = reqState(req);
-  state.devices.set(req.params.id, { ...req.body, deviceID: req.params.id });
+  await applyConfigChange(state, () => {
+    state.devices.set(req.params.id, { ...DEFAULT_DEVICE, ...req.body, deviceID: req.params.id });
+  });
   res.json({});
 });
 
-app.patch('/rest/config/devices/:id', (req, res) => {
+app.patch('/rest/config/devices/:id', async (req, res) => {
   const state = reqState(req);
-  const existing = state.devices.get(req.params.id) || { deviceID: req.params.id };
-  state.devices.set(req.params.id, { ...existing, ...req.body });
-  res.json({});
+  const existing = state.devices.get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'No device with given ID' });
+  await applyConfigChange(state, () => {
+    state.devices.set(req.params.id, { ...existing, ...req.body });
+  });
+  return res.json({});
 });
 
-app.delete('/rest/config/devices/:id', (req, res) => {
+// A folder shared with the removed device stops listing it: every change
+// prepares the whole config.
+app.delete('/rest/config/devices/:id', async (req, res) => {
   const state = reqState(req);
-  state.devices.delete(req.params.id);
+  await applyConfigChange(state, () => { state.devices.delete(req.params.id); });
   res.json({});
 });
 
@@ -652,9 +764,19 @@ app.post('/rest/db/revert', (req, res) => {
   });
   res.json({});
 });
-app.post('/rest/db/scan', (req, res) => {
-  recordFolderScan(reqState(req), req.query.folder || '');
-  res.json({});
+// A scan is answered once it has finished, and refused while the folder is
+// missing, paused or restarting.
+app.post('/rest/db/scan', async (req, res) => {
+  const state = reqState(req);
+  const folder = req.query.folder || '';
+  const notRunning = folderRunning(state, folder);
+  if (notRunning) return res.status(500).type('text/plain').send(notRunning);
+  const arrivedSeq = nextSeq();
+  const arrivedAt = Date.now();
+  const ms = scanDuration(clientIp(req), folder);
+  if (ms > 0) await sleep(ms);
+  recordFolderScan(state, folder, arrivedSeq, arrivedAt);
+  return res.json({});
 });
 
 // -- Folder --
@@ -786,14 +908,15 @@ control.get('/state', (req, res) => {
       restartRequired: s.restartRequired,
       // ordered history of folder config writes, and of scans - see recordFolderWrite
       folderWrites: s.folderWrites,
+      pendingFolderWrites: s.pendingFolderWrites,
       folderScans: s.folderScans,
     })),
   });
 });
 
-// Hold this node's folder PATCH calls open for `ms`, stretching the window in
-// which a masterSlave primary has committed to running a component but has not
-// started its container. Omit ip to target every node; 0 clears.
+// Make this node's folder PATCHes take `ms` to apply, as a syncthing slow to
+// apply a change would; every config change queued behind one waits for it.
+// Omit ip to target every node; 0 clears.
 control.post('/folder-patch-delay', (req, res) => {
   const { ip = '*', ms = 0 } = req.body;
   if (ms > 0) {
@@ -987,18 +1110,38 @@ control.post('/sync-reset', (req, res) => {
   eventsOutages.clear();
   folderPatchDelay.clear();
   patchDelayWaker.emit('wake');
+  scanDurations.clear();
+  folderRestartMs = DEFAULT_FOLDER_RESTART_MS;
   deviceLastSeen.clear();
   res.json({ ok: true });
 });
 
+// How long a scan of a folder takes on a node. Omit ip or folder for every one;
+// 0 clears.
+control.post('/scan-duration', (req, res) => {
+  const { ip = '*', folder = '*', ms = 0 } = req.body || {};
+  if (ms > 0) scanDurations.set(`${ip}|${folder}`, ms);
+  else scanDurations.delete(`${ip}|${folder}`);
+  return res.json({ ok: true, ip, folder, ms });
+});
+
+// How long a folder takes to restart after its config changes, on every node.
+control.post('/folder-restart-ms', (req, res) => {
+  const { ms = DEFAULT_FOLDER_RESTART_MS } = req.body || {};
+  folderRestartMs = ms;
+  return res.json({ ok: true, ms });
+});
+
 // Change fields of a node's folder config directly, as something other than
-// FluxOS would. Not recorded as a folder write. 404 for an unknown folder.
+// FluxOS would, prepared like any config change. Not recorded as a folder
+// write. 404 for an unknown folder.
 control.post('/folder-config', (req, res) => {
   const { ip, id, fields = {} } = req.body || {};
   const state = nodeStates.get(ip);
   const existing = state?.folders.get(id);
   if (!existing) return res.status(404).json({ error: 'not found' });
   state.folders.set(id, { ...existing, ...fields });
+  prepareConfig(state);
   return res.json({ ok: true });
 });
 

@@ -568,7 +568,8 @@ describe('primary election under a divergent placement order', function () {
     let writesBefore;
     await client.holdCheckpoint(BEFORE_FOLDER_WRITE, folder);
     try {
-      // Devices only syncthing holds wrong give the next pass a change to write.
+      // Syncthing holding only this node's own device gives the next pass a
+      // change to write.
       await setFolderConfig({ ip: targetIp, folder, fields: { devices: [] } });
       await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_FOLDER_WRITE && d.key === folder, 120000, { afterId: from });
       writesBefore = (await folderWrites()).length;
@@ -584,15 +585,15 @@ describe('primary election under a divergent placement order', function () {
         .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
     }
 
-    // The held pass's write is the first since the hold that carries devices:
-    // the promotion's carries a type and the settings, and nothing else.
-    const heldWrite = async () => (await folderWrites()).slice(writesBefore).find((w) => (w.body?.devices?.length ?? 0) > 0);
+    // The held pass's write is the first since the hold that carries its peers'
+    // devices: the promotion's carries a type and the settings, and nothing else.
+    const heldWrite = async () => (await folderWrites()).slice(writesBefore).find((w) => (w.body?.devices?.length ?? 0) > 1);
     await waitFor(async () => !!(await heldWrite()), {
       timeout: 120000, interval: 1000, label: 'the held pass writes the folder\'s devices',
     });
     expect((await heldWrite()).body, 'the held pass wrote the type it read before the promotion').to.not.have.property('type');
     const settled = await getFolderConfig(targetIp, folder);
     expect(settled?.type, 'the promotion was undone').to.equal('sendreceive');
-    expect(settled?.devices ?? [], 'fixture: the held pass wrote its devices').to.not.have.lengthOf(0);
+    expect(settled?.devices?.length, 'fixture: the held pass wrote its peers\' devices').to.be.above(1);
   });
 });
