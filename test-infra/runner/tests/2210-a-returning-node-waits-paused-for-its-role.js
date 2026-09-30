@@ -283,7 +283,7 @@ describe('a returning node waits paused until its role is decided', function () 
     const redirects = {};
     const redirect = async (from, to) => {
       redirects[from] = await redirectOutbound(client(from).container, {
-        toIps: [client(to).ip], ports: String(API_PORT), landsOn: client(BYSTANDER).ip,
+        toIps: [client(to).ip], ports: String(API_PORT), landsOn: client(BYSTANDER).ip, resetOpen: true,
       });
     };
     const clearRedirect = async (from) => {
