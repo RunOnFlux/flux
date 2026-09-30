@@ -49,10 +49,12 @@ const nodeStates = new Map();
 // writes, so a suite can ask whether a folder was scanned before it was changed
 // without a scan reading as a config write.
 //
-// `arrivedSeq` and `arrivedAt` are taken when the request arrives, `seq` and
-// `at` when it has taken effect, the sequence shared by writes and scans, so a
-// suite can ask whether one call arrived before another finished. A write that
-// has arrived and not yet taken effect is listed in `pendingFolderWrites`.
+// `arrivedSeq` and `arrivedAt` are taken when the request arrives,
+// `appliedSeq` when the change is in the config - what a read, and the next
+// PATCH, sees - and `seq` and `at` once it has taken effect, the folder
+// restarted. The sequence is shared by writes and scans, so a suite can ask
+// whether one call arrived before another was applied. A write that has
+// arrived and not yet taken effect is listed in `pendingFolderWrites`.
 let folderCallSeq = 0;
 function nextSeq() {
   folderCallSeq += 1;
@@ -461,6 +463,8 @@ app.put('/rest/config/folders', async (req, res) => {
   const pending = arr.map((f) => arrive(state, 'put', f.id, f));
   await applyConfigChange(state, () => {
     arr.forEach((f) => state.folders.set(f.id, { ...DEFAULT_FOLDER, ...f }));
+    const appliedSeq = nextSeq();
+    pending.forEach((write) => { Object.assign(write, { appliedSeq }); });
   });
   pending.forEach((write) => recordFolderWrite(state, write));
   res.json({});
@@ -477,6 +481,7 @@ app.put('/rest/config/folders/:id', async (req, res) => {
   const pending = arrive(state, 'put', req.params.id, req.body);
   await applyConfigChange(state, () => {
     state.folders.set(req.params.id, { ...DEFAULT_FOLDER, ...req.body, id: req.params.id });
+    pending.appliedSeq = nextSeq();
   });
   recordFolderWrite(state, pending);
   res.json({});
@@ -502,6 +507,7 @@ app.patch('/rest/config/folders/:id', async (req, res) => {
       });
     }
     state.folders.set(req.params.id, { ...existing, ...req.body });
+    pending.appliedSeq = nextSeq();
   });
   recordFolderWrite(state, pending);
   return res.json({});
@@ -511,7 +517,10 @@ app.patch('/rest/config/folders/:id', async (req, res) => {
 app.delete('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
   const pending = arrive(state, 'delete', req.params.id, null);
-  await applyConfigChange(state, () => { state.folders.delete(req.params.id); });
+  await applyConfigChange(state, () => {
+    state.folders.delete(req.params.id);
+    pending.appliedSeq = nextSeq();
+  });
   recordFolderWrite(state, pending);
   res.json({});
 });
