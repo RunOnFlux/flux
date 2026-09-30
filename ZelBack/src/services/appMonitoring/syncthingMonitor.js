@@ -235,15 +235,29 @@ function syncingFolderOwnerIds(appsInstalled) {
   return ownerIds;
 }
 
-// Helper function to get app locations
+/**
+ * An app's location records. Throws when they cannot be read, so a caller that
+ * must tell "no other holder" from "unknown" can.
+ * @param {string} appName
+ * @returns {Promise<Array<object>>}
+ */
+async function readAppLocation(appName) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { name: appName };
+  const projection = { _id: 0 };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results || [];
+}
+
+/**
+ * An app's location records, or none when they cannot be read.
+ * @param {string} appName
+ * @returns {Promise<Array<object>>}
+ */
 async function appLocation(appName) {
   try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = { name: appName };
-    const projection = { _id: 0 };
-    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    return results || [];
+    return await readAppLocation(appName);
   } catch (error) {
     log.error(`Error getting app location for ${appName}: ${error.message}`);
     return [];
@@ -346,6 +360,7 @@ async function processContainerData(params) {
       syncthingAppsFirstRun: state.syncthingAppsFirstRun,
       receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
       appLocation,
+      readAppLocation,
       localSocketAddr,
       syncthingFolder,
       installedAppName,

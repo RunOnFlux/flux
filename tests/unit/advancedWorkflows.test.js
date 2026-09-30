@@ -2163,6 +2163,26 @@ describe('advancedWorkflows tests', () => {
 
     // Directly behind a primary FDM has dropped, a node's turn is due at once. The
     // node further down may already have taken the component, so it is asked too.
+    // A standby whose folder came back paused asks the node FDM names whether it
+    // runs the component, at the address its location record gives.
+    it('lets a standby\'s paused folder ask the node FDM names as primary, at its recorded address', async () => {
+      const appName = 'fdmholderapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(log, 'info');
+      const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves(false);
+      const runPass = electionFixture(appName, ['192.168.1.90:16137']);
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+      await runPass();
+
+      sinon.assert.calledOnce(hold);
+      const { othersHold } = hold.firstCall.args[2];
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      expect(await othersHold()).to.equal('running');
+      expect(axiosGetStub.getCalls().map((call) => call.args[0])).to.deep.equal(['http://192.168.1.90:16137/apps/heldcomponents']);
+    });
+
     it('does not take over from a departed primary while a node further down the order holds it', async () => {
       const appName = 'takeoverbelowapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);

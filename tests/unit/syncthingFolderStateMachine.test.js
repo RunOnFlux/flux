@@ -152,6 +152,11 @@ const { createPeerFolderLiveness } = peerFolderLivenessMock;
 const primaryRoleMock = {
   holdAsStandby: sinon.stub().resolves(true),
 };
+const PeerComponent = Object.freeze({ RUNNING: 'running', NOT_RUNNING: 'notRunning', UNKNOWN: 'unknown' });
+const peerComponentMock = {
+  PeerComponent,
+  componentStateOnPeers: sinon.stub(),
+};
 
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   '../dockerService': dockerServiceMock,
@@ -166,12 +171,14 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   './peerFolderLiveness': peerFolderLivenessMock,
   '../appQuery/appQueryService': appQueryServiceMock,
   '../appLifecycle/primaryRole': primaryRoleMock,
+  './peerComponent': peerComponentMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
   beforeEach(() => {
     peerIdentityMock.reset();
     primaryRoleMock.holdAsStandby.resetHistory();
+    peerComponentMock.componentStateOnPeers.reset();
     // Reset only this file's own stubs (NOT a global sinon.reset(), which would
     // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
@@ -922,10 +929,80 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       sinon.assert.calledWith(appQueryServiceMock.holdsComponent, 'test-app');
-      sinon.assert.calledOnceWithExactly(primaryRoleMock.holdAsStandby, 'app_test', 'test-app');
+      sinon.assert.calledOnceWithExactly(primaryRoleMock.holdAsStandby, 'app_test', 'test-app', { othersHold: sinon.match.func });
       expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
       expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 0 });
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    describe('a single-writer folder that sends on a node that does not hold it', () => {
+      const demote = async () => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.syncFolder = { id: 'test-app', type: 'sendreceive', paused: true };
+        mockParams.syncthingFolder = { id: 'test-app', paused: false };
+        appQueryServiceMock.holdsComponent.resolves(false);
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+        return { result, othersHold: primaryRoleMock.holdAsStandby.firstCall.args[2].othersHold };
+      };
+
+      it('leaves its pause out of the pass\'s write, for its primary role to decide', async () => {
+        mockParams.readAppLocation = sinon.stub().resolves([]);
+
+        const { result } = await demote();
+
+        expect(result.syncthingFolder).to.not.have.property('paused');
+      });
+
+      it('asks every other holder the location records name, and not itself', async () => {
+        mockParams.readAppLocation = sinon.stub().resolves([
+          { ip: '10.0.0.1:16127' }, { ip: '10.0.0.2:16127' }, { ip: '10.0.0.3:16137' },
+        ]);
+        peerComponentMock.componentStateOnPeers.resolves(PeerComponent.RUNNING);
+
+        const { othersHold } = await demote();
+
+        expect(await othersHold()).to.equal(PeerComponent.RUNNING);
+        sinon.assert.calledWith(mockParams.readAppLocation, 'test-app');
+        const [peers, ctx] = peerComponentMock.componentStateOnPeers.firstCall.args;
+        expect(peers.map((peer) => peer.ip)).to.deep.equal(['10.0.0.2:16127', '10.0.0.3:16137']);
+        expect(ctx).to.include({ appId: 'test-app', identifier: 'app_test', appName: 'test-app' });
+      });
+
+      it('answers that a holder cannot be ruled out when the location records cannot be read', async () => {
+        mockParams.readAppLocation = sinon.stub().rejects(new Error('database unavailable'));
+
+        const { othersHold } = await demote();
+
+        expect(await othersHold()).to.equal(PeerComponent.UNKNOWN);
+        sinon.assert.notCalled(peerComponentMock.componentStateOnPeers);
+      });
+    });
+
+    it('leaves the pause of a sending single-writer folder out of the write when what it holds cannot be read', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive', paused: true };
+      mockParams.syncthingFolder = { id: 'test-app', paused: false };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      appQueryServiceMock.holdsComponent.resolves(null);
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder).to.not.have.property('paused');
+      sinon.assert.notCalled(primaryRoleMock.holdAsStandby);
+    });
+
+    it('unpauses a sending single-writer folder this node holds', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive', paused: true };
+      mockParams.syncthingFolder = { id: 'test-app', paused: false };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      appQueryServiceMock.holdsComponent.resolves(true);
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder).to.include({ paused: false });
     });
 
     // Held covers a primary its owner stopped to work on its data, which has no
