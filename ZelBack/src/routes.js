@@ -1169,58 +1169,6 @@ module.exports = (app) => {
     return fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
   }));
 
-  app.post('/syncthing/system/error', asyncRoute((req, res) => {
-    return syncthingService.postSystemError(req, res);
-  }));
-  app.post('/syncthing/system/upgrade', asyncRoute((req, res) => {
-    return syncthingService.postSystemUpgrade(req, res);
-  }));
-  app.post('/syncthing/config', asyncRoute((req, res) => {
-    return syncthingService.postConfig(req, res);
-  }));
-  app.post('/syncthing/config/folders', asyncRoute((req, res) => {
-    return syncthingService.postConfigFolders(req, res);
-  }));
-  app.post('/syncthing/config/devices', asyncRoute((req, res) => {
-    return syncthingService.postConfigDevices(req, res);
-  }));
-  app.post('/syncthing/config/defaults/folder', asyncRoute((req, res) => {
-    return syncthingService.postConfigDefaultsFolder(req, res);
-  }));
-  app.post('/syncthing/config/defaults/device', asyncRoute((req, res) => {
-    return syncthingService.postConfigDefaultsDevice(req, res);
-  }));
-  app.post('/syncthing/config/options', asyncRoute((req, res) => {
-    return syncthingService.postConfigOptions(req, res);
-  }));
-  app.post('/syncthing/config/gui', asyncRoute((req, res) => {
-    return syncthingService.postConfigGui(req, res);
-  }));
-  app.post('/syncthing/config/ldap', asyncRoute((req, res) => {
-    return syncthingService.postConfigLdap(req, res);
-  }));
-  app.post('/syncthing/cluster/pending/devices', asyncRoute((req, res) => {
-    return syncthingService.postClusterPendigDevices(req, res);
-  }));
-  app.post('/syncthing/cluster/pending/folders', asyncRoute((req, res) => {
-    return syncthingService.postClusterPendigFolders(req, res);
-  }));
-  app.post('/syncthing/folder/versions', asyncRoute((req, res) => {
-    return syncthingService.postFolderVersions(req, res);
-  }));
-  app.post('/syncthing/db/override', asyncRoute((req, res) => {
-    return syncthingService.postDbOverride(req, res);
-  }));
-  app.post('/syncthing/db/prio', asyncRoute((req, res) => {
-    return syncthingService.postDbPrio(req, res);
-  }));
-  app.post('/syncthing/db/revert', asyncRoute((req, res) => {
-    return syncthingService.postDbRevert(req, res);
-  }));
-  app.post('/syncthing/db/scan', asyncRoute((req, res) => {
-    return syncthingService.postDbScan(req, res);
-  }));
-
   // What is left of FluxShare: an operator collects the files a previous
   // release let them put on the node. Read only, and the node's operator only -
   // the token that served a file to whoever held the link is gone with the rest.
