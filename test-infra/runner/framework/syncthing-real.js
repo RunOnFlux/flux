@@ -139,6 +139,17 @@ export async function getFileInfo(client, folderId, file) {
   return api(client, `/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}`);
 }
 
+// Whether the daemon's index holds any record of a file - its own or one a peer
+// announced. `file` is relative to the folder root.
+export async function indexHas(client, folderId, file) {
+  const key = await apiKey(client);
+  const r = await execInContainer(client.container,
+    `curl -sS -o /dev/null -w '%{http_code}' -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}"`);
+  if (r.stdout === '200') return true;
+  if (r.stdout === '404') return false;
+  throw new Error(`syncthing-real: index read for ${file} answered ${r.stdout || r.output}`);
+}
+
 // What each running syncthing process resolves owners against: the sha256 of
 // its /etc/passwd followed by its /etc/group, as that process sees them - the
 // value numericIdTables.js calls TABLES_SHA256 when they are the numeric id

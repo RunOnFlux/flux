@@ -10,7 +10,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getConfigDevices, readPath, scanFolder,
-  stopDaemon, startDaemon, getDaemonEvents, syncthingCommandLines,
+  stopDaemon, startDaemon, getDaemonEvents, syncthingCommandLines, indexHas,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -228,13 +228,11 @@ describe('a returning node waits paused until its role is decided', function () 
     const decision = await client(ARCANE).waitForEvent('primaryRole:returned', () => true, 300000, { afterId: returned });
     expect(decision.data, 'what the returning node decided').to.deep.equal({ identifier, outcome: 'discarded' });
 
-    // Nothing was scanned before the folder was made to receive.
-    const events = await getDaemonEvents(client(ARCANE), { events: ['StateChanged', 'ConfigSaved'] });
-    const demoted = events.find((e) => e.type === 'ConfigSaved' && savedFolder(e)?.type === 'receiveonly');
-    expect(demoted, 'the demotion in the daemon\'s event log').to.not.equal(undefined);
-    const scannedBefore = events.find((e) => e.type === 'StateChanged' && e.data?.folder === folder
-      && e.data?.to === 'scanning' && e.id < demoted.id);
-    expect(scannedBefore, 'a scan while the folder still sent').to.equal(undefined);
+    // Every config the returned node's daemon held since it started: never one
+    // in which the folder sent unpaused.
+    const sentUnpaused = (await getDaemonEvents(client(ARCANE), { events: ['ConfigSaved'] }))
+      .filter((e) => savedFolder(e)?.type === 'sendreceive' && !savedFolder(e).paused);
+    expect(sentUnpaused, 'a config in which the returned node\'s folder sent').to.deep.equal([]);
 
     await waitFor(async () => {
       await oneWriterAtMost();
@@ -243,6 +241,7 @@ describe('a returning node waits paused until its role is decided', function () 
         && (await readPath(client(ARCANE), `${data}/written-while-away.txt`)) === null;
     }, { timeout: 300000, interval: 3000, label: 'the returned node is a synced standby and its unsent write is gone' });
     expect(await readPath(client(LEGACY), `${data}/written-while-away.txt`), 'the unsent write on the new primary').to.equal(null);
+    expect(await indexHas(client(LEGACY), folder, 'appdata/written-while-away.txt'), 'the unsent write announced to the new primary').to.equal(false);
     expect(await runners(), 'the writer').to.deep.equal([LEGACY]);
   });
 
