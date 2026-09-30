@@ -35,10 +35,13 @@ const dockerService = require('./ZelBack/src/services/dockerService');
 const syncthingService = require('./ZelBack/src/services/syncthingService');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
 const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
+const { PM2_KILL_TIMEOUT_MS } = require('./ZelBack/src/services/fluxService');
 
-// Arcane gives fluxos.service 90 s to stop. The container stop in handleSigterm
-// takes at most 9 s, so container stop plus this drain stays under half that budget.
-const SHUTDOWN_DRAIN_TIMEOUT_MS = 30000;
+// How long a stop may take, from the signal to the exit. pm2 kills FluxOS
+// PM2_KILL_TIMEOUT_MS after it signals, and Arcane's systemd 90 s after;
+// SHUTDOWN_EXIT_MS of pm2's timeout is left for what follows the drain.
+const SHUTDOWN_EXIT_MS = 5000;
+const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -417,6 +420,7 @@ async function stopFluxAppContainers() {
  * once.
  */
 async function shutDown() {
+  const deadline = performance.now() + SHUTDOWN_BUDGET_MS;
   log.info('SIGTERM received, checking if system is shutting down...');
 
   // Small delay to allow systemd to update its state before we check
@@ -482,9 +486,10 @@ async function shutDown() {
   await stopFluxAppContainers();
 
   // The peers can only take over from what they hold, and syncthing is stopped
-  // right after this process exits.
+  // right after this process exits. The drain has what is left of the budget
+  // once the containers are stopped.
   try {
-    const incomplete = await syncthingService.drainFoldersToPeers(SHUTDOWN_DRAIN_TIMEOUT_MS);
+    const incomplete = await syncthingService.drainFoldersToPeers(Math.max(0, deadline - performance.now()));
     fluxEventBus.publish('shutdown:drained', { complete: incomplete.length === 0, incomplete });
     if (incomplete.length) {
       log.warn(`Shutdown drain reached its deadline with ${incomplete.length} folder(s) not yet complete on a peer: ${incomplete.join(', ')}`);

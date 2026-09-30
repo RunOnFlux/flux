@@ -224,11 +224,10 @@ async function runNewCode(before, { always = false } = {}) {
 }
 
 // How long pm2 waits for FluxOS to exit on a stop before killing it. The whole
-// shutdown has to fit: the containers stopped, then up to
-// SHUTDOWN_DRAIN_TIMEOUT_MS (apiServer.js) draining folders to peers. pm2's
-// systemd unit stops through `pm2 kill`, which waits this long, inside
-// systemd's 90s default stop timeout. The multitool registers new nodes with
-// the same value.
+// shutdown has to fit: apiServer.js's SHUTDOWN_BUDGET_MS, containers stopped and
+// folders drained to peers, is taken from it. pm2's systemd unit stops through
+// `pm2 kill`, which waits this long, inside systemd's 90s default stop timeout.
+// The multitool registers new nodes with the same value.
 const PM2_KILL_TIMEOUT_MS = 60000;
 
 // Where FluxOS records the machine boot on which it last asked pm2 for the

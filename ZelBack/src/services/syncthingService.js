@@ -1377,14 +1377,19 @@ async function getDeviceStats() {
 }
 
 /**
- * Scans a folder now and resolves when the scan is done. The watcher batches
- * changes for ten seconds, so a file written inside that window is unknown to
- * syncthing, and to every peer, until something scans it.
+ * Scans a folder now. Syncthing answers once the scan is done, so this resolves
+ * when it is, and rejects when syncthing refuses it (the folder is missing,
+ * paused or restarting) or the scan outlasts the call's timeout. The watcher
+ * batches changes for ten seconds, so a file written inside that window is
+ * unknown to syncthing, and to every peer, until something scans it.
  * @param {string} folderId Folder id
+ * @param {object} [options]
+ * @param {number} [options.timeoutMs] How long the scan may take; the client's
+ *   own timeout when omitted.
  * @returns {Promise<object>} Syncthing's reply
  */
-async function scanFolder(folderId) {
-  return request('post', `/rest/db/scan?folder=${encodeURIComponent(folderId)}`);
+async function scanFolder(folderId, { timeoutMs } = {}) {
+  return request('post', `/rest/db/scan?folder=${encodeURIComponent(folderId)}`, undefined, timeoutMs ? { timeout: timeoutMs } : undefined);
 }
 
 /**
@@ -1392,19 +1397,28 @@ async function scanFolder(folderId) {
  * the connected peers to hold it too. The scan is what makes it a drain: the
  * watcher batches changes for ten seconds, and a file written inside that window
  * is unknown to syncthing until something scans it.
- * @param {number} timeoutMs Deadline for the whole drain
+ *
+ * The scans spend the drain's own time, and each folder's settles on its own: a
+ * folder whose scan failed or ran out of time is still waited on, for what its
+ * peers hold of everything written before.
+ * @param {number} timeoutMs How long the whole drain may take, its scans included
  * @returns {Promise<string[]>} Ids of the folders a connected peer had not completed at the deadline
  */
 async function drainFoldersToPeers(timeoutMs) {
+  const deadline = monotonicMs() + timeoutMs;
   const folders = (await getConfigFolders()).filter((folder) => folder.type === 'sendreceive');
   if (!folders.length) return [];
   const myId = await getDeviceId();
   const { connections = {} } = await request('get', '/rest/system/connections');
   const connectedPeers = new Set(Object.keys(connections).filter((id) => connections[id]?.connected));
-  await Promise.all(folders.map((folder) => scanFolder(folder.id)));
-  const deadline = Date.now() + timeoutMs;
+  const scans = await Promise.allSettled(folders.map((folder) => scanFolder(folder.id, {
+    timeoutMs: Math.max(1, deadline - monotonicMs()),
+  })));
+  scans.forEach((scan, i) => {
+    if (scan.status === 'rejected') log.warn(`Shutdown drain: the scan of ${folders[i].id} did not finish: ${scan.reason.message}`);
+  });
   let pending = folders;
-  while (pending.length && Date.now() < deadline) {
+  while (pending.length && monotonicMs() < deadline) {
     // eslint-disable-next-line no-await-in-loop
     const complete = await Promise.all(pending.map((folder) => folderCompleteOnPeers(folder, myId, connectedPeers)));
     pending = pending.filter((folder, i) => !complete[i]);
