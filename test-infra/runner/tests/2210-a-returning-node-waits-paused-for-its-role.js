@@ -1,4 +1,6 @@
-import { describe, it, before, after } from 'mocha';
+import {
+  describe, it, before, after, beforeEach, afterEach,
+} from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -9,8 +11,9 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, getConfigDevices, getDeviceId, readPath, scanFolder,
-  stopDaemon, startDaemon, getDaemonEvents, syncthingCommandLines, holdsValidVersion,
+  isDaemonUp, getFolderConfig, getConfigDevices, getDeviceId, readPath, scanFolder,
+  stopDaemon, startDaemon, getDaemonEvents, lastDaemonEventId, syncthingCommandLines, holdsValidVersion,
+  waitForDaemonEvent, folderSaved, itemFinished,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -63,26 +66,35 @@ describe('a returning node waits paused until its role is decided', function () 
     const running = await Promise.all(HOLDERS.map((i) => runsApp(i)));
     return HOLDERS.filter((_, k) => running[k]);
   };
-  // Asserted on every poll of every wait below, not only at the end.
-  const oneWriterAtMost = async () => {
-    const running = await runners();
-    expect(running.length, `more than one node runs the component: ${running.join(', ')}`).to.be.at.most(1);
-    return running;
-  };
+  // Sampled for the whole of each test, not only where it waits: at most one
+  // node runs the component.
+  let writerWatch = null;
+  beforeEach(() => {
+    const seen = [];
+    const timer = setInterval(() => {
+      runners().then((running) => { if (running.length > 1) seen.push(running); }).catch(() => {});
+    }, 2000);
+    writerWatch = () => {
+      clearInterval(timer);
+      expect(seen, 'moments when more than one node ran the component').to.deep.equal([]);
+    };
+  });
+  afterEach(() => writerWatch?.());
+
   const folderIs = async (i, fields) => {
-    const config = await getFolderConfig(client(i), folder).catch(() => null);
+    const config = await getFolderConfig(client(i), folder);
     return !!config && Object.entries(fields).every(([key, value]) => config[key] === value);
   };
-  // A file the app's own user wrote into the node's copy, announced if the
+  // A file the app's own user wrote into the node's copy, then scanned where the
   // folder can send.
   const writeAsApp = async (i, name, content) => {
     const r = await sh(i, `printf '${content}' > ${data}/${name} && chown ${APP_UID}:${APP_UID} ${data}/${name}`);
     expect(r.exitCode, `fixture: ${r.output}`).to.equal(0);
   };
-  const reachesNode = (i, name, content, label) => waitFor(async () => {
-    await oneWriterAtMost();
-    return (await readPath(client(i), `${data}/${name}`)) === content;
-  }, { timeout: 240000, interval: 3000, label });
+  // FluxOS's event on node i after `afterId`, matching `match`.
+  const fluxEvent = (i, name, match, afterId, timeout = 300000) => client(i).waitForEvent(name, match, timeout, { afterId });
+  const becamePrimary = (i, afterId, timeout) => fluxEvent(i, 'primaryRole:changed',
+    (d) => d.identifier === identifier && d.to === 'primary', afterId, timeout);
   const heldPausedPasses = (i) => client(i).getDecisionCount('primaryRole:returned', identifier, 'heldPaused');
   // The peer devices a node's syncthing holds paused. --paused pauses the node's
   // own device too, which connects to nothing.
@@ -135,9 +147,10 @@ describe('a returning node waits paused until its role is decided', function () 
     // Placed one at a time, so the election ranks the Arcane node first.
     await installOnNodes(env, app, [ARCANE]);
     await waitForUp(client(ARCANE), appName, 'the Arcane node runs the app', { timeout: 300000, interval: 3000 });
+    const legacyFrom = await lastDaemonEventId(client(LEGACY));
     await installOnNodes(env, app, [LEGACY]);
-    await waitFor(() => isFolderSynced(client(LEGACY), folder), {
-      timeout: 300000, interval: 3000, label: 'the legacy standby has the primary\'s data',
+    await waitForDaemonEvent(client(LEGACY), itemFinished(folder, 'appdata/placed.txt', 'update'), {
+      since: legacyFrom, timeout: 300000, label: 'the legacy standby receiving the primary\'s data',
     });
   });
 
@@ -152,30 +165,30 @@ describe('a returning node waits paused until its role is decided', function () 
     expect(commandLines, 'fixture: no syncthing on the legacy node').to.not.have.lengthOf(0);
     commandLines.forEach((line) => expect(line, 'the legacy syncthing FluxOS started').to.include('--paused'));
 
+    // It received the primary's data, so the folder was unpaused before now.
     expect(await folderIs(LEGACY, { type: 'receiveonly', paused: false }), 'the standby\'s folder').to.equal(true);
     expect(await pausedPeerDevices(LEGACY), 'peer devices left paused').to.deep.equal([]);
   });
 
   it('pauses nothing when FluxOS alone restarts', async function () {
     this.timeout(300000);
-    const [{ id: since }] = (await getDaemonEvents(client(ARCANE))).slice(-1);
+    const since = await lastDaemonEventId(client(ARCANE));
+    const mark = client(ARCANE).getLastEventId();
     const pid = (await sh(ARCANE, 'cat /tmp/fluxos.pid')).stdout.trim();
     expect(pid, 'fixture: no FluxOS pid').to.match(/^\d+$/);
 
     // SIGTERM with no system shutdown under way: the service restarting.
     await sh(ARCANE, `kill -TERM ${pid}`);
-    await waitFor(async () => (await sh(ARCANE, `kill -0 ${pid} 2>/dev/null`)).exitCode !== 0, {
-      timeout: 60000, interval: 500, label: 'the FluxOS that was signalled exits',
-    });
-    await waitFor(async () => (await sh(ARCANE, 'curl -sf -o /dev/null http://127.0.0.1:16127/flux/version')).exitCode === 0, {
-      timeout: 120000, interval: 1000, label: 'FluxOS answers again',
-    });
+    // Two passes of the FluxOS that comes back: the folder write of the first has
+    // landed once the second publishes.
+    const first = await fluxEvent(ARCANE, 'syncthing:passComplete', () => true, mark);
+    await fluxEvent(ARCANE, 'syncthing:passComplete', () => true, first.id);
 
+    expect(client(ARCANE).getEventBuffer().filter((e) => e.event === 'shutdown:paused' && e.id > mark), 'a shutdown that paused').to.deep.equal([]);
     const paused = (await getDaemonEvents(client(ARCANE), { since, events: ['ConfigSaved'] }))
       .filter((event) => savedFolder(event)?.paused);
     expect(paused, 'a config write that paused the folder').to.deep.equal([]);
-    expect(await folderIs(ARCANE, { type: 'sendreceive', paused: false }), 'the primary\'s folder').to.equal(true);
-    expect(await oneWriterAtMost(), 'the writer').to.deep.equal([ARCANE]);
+    expect(await runners(), 'the writer').to.deep.equal([ARCANE]);
   });
 
   it('brings a legacy standby\'s crashed syncthing back paused, and receiving again', async function () {
@@ -183,19 +196,19 @@ describe('a returning node waits paused until its role is decided', function () 
     const mark = client(LEGACY).getLastEventId();
     await stopDaemon(client(LEGACY));
 
-    await waitFor(async () => (await syncthingCommandLines(client(LEGACY))).length > 0 && await isDaemonUp(client(LEGACY)), {
-      timeout: 180000, interval: 2000, label: 'FluxOS starts the legacy node\'s syncthing again',
-    });
+    // FluxOS starts it again, and its monitor resumes the devices the start paused.
+    await fluxEvent(LEGACY, 'syncthing:devicesResumed', () => true, mark, 180000);
     (await syncthingCommandLines(client(LEGACY))).forEach((line) => expect(line).to.include('--paused'));
-    await client(LEGACY).waitForEvent('syncthing:devicesResumed', () => true, 120000, { afterId: mark });
-    await waitFor(async () => {
-      await oneWriterAtMost();
-      return folderIs(LEGACY, { type: 'receiveonly', paused: false });
-    }, { timeout: 120000, interval: 2000, label: 'the standby\'s folder receives again' });
+    await waitForDaemonEvent(client(LEGACY), folderSaved(folder, { type: 'receiveonly', paused: false }), {
+      timeout: 120000, label: 'the standby\'s folder unpaused, receiving',
+    });
 
+    const since = await lastDaemonEventId(client(LEGACY));
     await writeAsApp(ARCANE, 'after-legacy-restart.txt', 'written on the primary');
     await scanFolder(client(ARCANE), folder);
-    await reachesNode(LEGACY, 'after-legacy-restart.txt', 'written on the primary', 'the primary\'s write reaches the standby');
+    await waitForDaemonEvent(client(LEGACY), itemFinished(folder, 'appdata/after-legacy-restart.txt', 'update'), {
+      since, timeout: 120000, label: 'the primary\'s write arriving on the standby',
+    });
   });
 
   it('keeps the primary sending through its own syncthing restarting paused, as the ISO unit starts it', async function () {
@@ -205,29 +218,31 @@ describe('a returning node waits paused until its role is decided', function () 
     await startDaemon(client(ARCANE), { paused: true });
     expect(await folderIs(ARCANE, { paused: true }), 'fixture: the folder came back paused').to.equal(true);
 
-    await client(ARCANE).waitForEvent('syncthing:devicesResumed', () => true, 120000, { afterId: mark });
-    await waitFor(async () => {
-      expect(await oneWriterAtMost(), 'the writer while its syncthing restarts').to.deep.equal([ARCANE]);
-      return folderIs(ARCANE, { type: 'sendreceive', paused: false });
-    }, { timeout: 120000, interval: 2000, label: 'the primary\'s folder sends again' });
+    await fluxEvent(ARCANE, 'syncthing:devicesResumed', () => true, mark, 120000);
+    await waitForDaemonEvent(client(ARCANE), folderSaved(folder, { type: 'sendreceive', paused: false }), {
+      timeout: 120000, label: 'the primary\'s folder unpaused, sending',
+    });
+    expect(await runners(), 'the writer').to.deep.equal([ARCANE]);
 
+    const since = await lastDaemonEventId(client(LEGACY));
     await writeAsApp(ARCANE, 'after-arcane-restart.txt', 'written after the restart');
     await scanFolder(client(ARCANE), folder);
-    await reachesNode(LEGACY, 'after-arcane-restart.txt', 'written after the restart', 'the primary\'s write reaches the standby');
+    await waitForDaemonEvent(client(LEGACY), itemFinished(folder, 'appdata/after-arcane-restart.txt', 'update'), {
+      since, timeout: 120000, label: 'the primary\'s write arriving on the standby',
+    });
   });
 
   it('pauses every folder on a planned shutdown, and discards what the node wrote while away once another holder runs it', async function () {
     this.timeout(900000);
     const mark = client(ARCANE).getLastEventId();
+    const standbyMark = client(LEGACY).getLastEventId();
     // The syncthing the next boot starts has no --paused, as on the fleet before
     // the ISO carries it: the pause the shutdown left is all that holds it.
     await shutdownFluxosGracefully(client(ARCANE).container, { hold: true, stopSyncthingAfter: true });
-    const paused = await client(ARCANE).waitForEvent('shutdown:paused', () => true, 10000, { afterId: mark });
+    const paused = await fluxEvent(ARCANE, 'shutdown:paused', () => true, mark, 10000);
     expect(paused.data.paused, 'the folders the shutdown paused').to.include(folder);
 
-    await waitFor(async () => (await oneWriterAtMost()).includes(LEGACY), {
-      timeout: 600000, interval: 3000, label: 'the legacy standby takes over',
-    });
+    await becamePrimary(LEGACY, standbyMark, 600000);
 
     // Written on the node that left, after it left: nothing peers have.
     await writeAsApp(ARCANE, 'written-while-away.txt', 'never sent');
@@ -237,21 +252,19 @@ describe('a returning node waits paused until its role is decided', function () 
 
     const returned = client(ARCANE).getLastEventId();
     await releaseFluxos(client(ARCANE).container);
-    const decision = await client(ARCANE).waitForEvent('primaryRole:returned', () => true, 300000, { afterId: returned });
+    const decision = await fluxEvent(ARCANE, 'primaryRole:returned', () => true, returned);
     expect(decision.data, 'what the returning node decided').to.deep.equal({ identifier, outcome: 'discarded' });
+    await fluxEvent(ARCANE, 'syncthing:localChangesReverted', (d) => d.folder === folder, returned);
+    await waitForDaemonEvent(client(ARCANE), itemFinished(folder, 'appdata/written-while-away.txt', 'delete'), {
+      timeout: 120000, label: 'the unsent write removed from the returned node',
+    });
 
     // Every config the returned node's daemon held since it started: never one
     // in which the folder sent unpaused.
     const sentUnpaused = (await getDaemonEvents(client(ARCANE), { events: ['ConfigSaved'] }))
       .filter((e) => savedFolder(e)?.type === 'sendreceive' && !savedFolder(e).paused);
     expect(sentUnpaused, 'a config in which the returned node\'s folder sent').to.deep.equal([]);
-
-    await waitFor(async () => {
-      await oneWriterAtMost();
-      return await folderIs(ARCANE, { type: 'receiveonly', paused: false })
-        && await isFolderSynced(client(ARCANE), folder)
-        && (await readPath(client(ARCANE), `${data}/written-while-away.txt`)) === null;
-    }, { timeout: 300000, interval: 3000, label: 'the returned node is a synced standby and its unsent write is gone' });
+    expect(await folderIs(ARCANE, { type: 'receiveonly', paused: false }), 'the returned node\'s folder').to.equal(true);
     expect(await readPath(client(LEGACY), `${data}/written-while-away.txt`), 'the unsent write on the new primary').to.equal(null);
     expect(await holdsValidVersion(client(LEGACY), folder, 'appdata/written-while-away.txt'), 'a version of the unsent write on the new primary').to.equal(false);
     expect(await runners(), 'the writer').to.deep.equal([LEGACY]);
@@ -271,6 +284,7 @@ describe('a returning node waits paused until its role is decided', function () 
       heldDockerSocket = null;
       return r;
     };
+    let returned = 0;
 
     after(async () => {
       await restoreDocker();
@@ -287,35 +301,34 @@ describe('a returning node waits paused until its role is decided', function () 
       await stopDaemon(client(LEGACY));
       await writeAsApp(LEGACY, 'written-while-down.txt', 'sent once it is safe');
 
-      const returned = client(LEGACY).getLastEventId();
+      returned = client(LEGACY).getLastEventId();
       // The counters start again with the FluxOS that returns.
       await releaseFluxos(client(LEGACY).container);
-      await waitFor(async () => {
-        await oneWriterAtMost();
-        expect(await readPath(client(ARCANE), `${data}/written-while-down.txt`), 'the write left while the folder waited').to.equal(null);
-        return await heldPausedPasses(LEGACY) >= 3;
-      }, { timeout: 300000, interval: 3000, label: 'three passes that kept the returned primary paused' });
+      await waitFor(async () => await heldPausedPasses(LEGACY) >= 3, {
+        timeout: 300000, interval: 3000, label: 'three passes that kept the returned primary paused',
+      });
 
       expect(await folderIs(LEGACY, { type: 'sendreceive', paused: true }), 'the returned primary\'s folder').to.equal(true);
-      const decided = client(LEGACY).getEventBuffer().filter((e) => e.event === 'primaryRole:returned' && e.id > returned);
-      expect(decided, 'a decision made while the holder could not be ruled out').to.deep.equal([]);
+      expect(client(LEGACY).getEventBuffer().filter((e) => e.event === 'primaryRole:returned' && e.id > returned),
+        'a decision made while the holder could not be ruled out').to.deep.equal([]);
+      expect(await holdsValidVersion(client(ARCANE), folder, 'appdata/written-while-down.txt'), 'a version of the write on the other holder').to.equal(false);
     });
 
     it('sends what it wrote while down once no other holder runs the component', async function () {
       this.timeout(600000);
-      const mark = client(LEGACY).getLastEventId();
+      const since = await lastDaemonEventId(client(ARCANE));
+      const marks = HOLDERS.map((i) => client(i).getLastEventId());
       const restored = await restoreDocker();
       expect(restored.exitCode, `fixture: ${restored.output}`).to.equal(0);
 
-      const decision = await client(LEGACY).waitForEvent('primaryRole:returned', () => true, 300000, { afterId: mark });
+      const decision = await fluxEvent(LEGACY, 'primaryRole:returned', () => true, returned);
       expect(decision.data, 'what the returning node decided').to.deep.equal({ identifier, outcome: 'kept' });
-      await reachesNode(ARCANE, 'written-while-down.txt', 'sent once it is safe', 'the write reaches the other holder');
-
-      await waitFor(async () => (await oneWriterAtMost()).length === 1, {
-        timeout: 600000, interval: 3000, label: 'one node runs the app again',
+      await waitForDaemonEvent(client(ARCANE), itemFinished(folder, 'appdata/written-while-down.txt', 'update'), {
+        since, timeout: 240000, label: 'the write arriving on the other holder',
       });
-      const [writer] = await runners();
-      expect(await readPath(client(writer), `${data}/written-while-down.txt`), 'the write on the node that runs the app').to.equal('sent once it is safe');
+
+      const primary = await Promise.any(HOLDERS.map((i) => becamePrimary(i, marks[i], 600000).then(() => i)));
+      expect(await readPath(client(primary), `${data}/written-while-down.txt`), 'the write on the node that runs the app').to.equal('sent once it is safe');
     });
   });
 });

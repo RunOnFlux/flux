@@ -270,3 +270,31 @@ export async function syncthingCommandLines(client) {
     'for p in $(pgrep -x syncthing); do tr "\\0" " " < /proc/$p/cmdline; echo; done');
   return r.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 }
+
+// Wait for an event in the daemon's own stream, the one `match` accepts, after
+// `since` (an event id of this daemon; ids restart with it). Reads the stream by
+// long poll, so it returns once syncthing has recorded the event, not on a
+// schedule. Answers the event.
+export async function waitForDaemonEvent(client, match, { since = 0, timeout = 120000, label = 'a daemon event' } = {}) {
+  const deadline = Date.now() + timeout;
+  let after = since;
+  while (Date.now() < deadline) {
+    const waitS = Math.max(1, Math.min(30, Math.floor((deadline - Date.now()) / 1000)));
+    // eslint-disable-next-line no-await-in-loop
+    const events = await api(client, `/rest/events?since=${after}&timeout=${waitS}`).catch(() => []);
+    const found = events.find(match);
+    if (found) return found;
+    if (events.length) after = events[events.length - 1].id;
+  }
+  throw new Error(`syncthing-real: no ${label} within ${timeout}ms`);
+}
+
+// The daemon recording a folder config with these fields, e.g.
+// { type: 'receiveonly', paused: false }.
+export const folderSaved = (folderId, fields) => (event) => event.type === 'ConfigSaved'
+  && (event.data?.folders || []).some((f) => f.id === folderId && Object.entries(fields).every(([key, value]) => f[key] === value));
+
+// The daemon finishing one file: pulled onto this node ('update') or removed
+// from it ('delete'), without an error.
+export const itemFinished = (folderId, item, action) => (event) => event.type === 'ItemFinished'
+  && event.data?.folder === folderId && event.data?.item === item && event.data?.action === action && !event.data?.error;
