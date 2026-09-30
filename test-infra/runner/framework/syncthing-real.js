@@ -166,6 +166,17 @@ export async function getFileInfo(client, folderId, file) {
   return api(client, `/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}`);
 }
 
+// Whether the daemon's index holds any record of a file - its own or one a peer
+// announced. `file` is relative to the folder root.
+export async function indexHas(client, folderId, file) {
+  const key = await apiKey(client);
+  const r = await execInContainer(client.container,
+    `curl -sS -o /dev/null -w '%{http_code}' -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}"`);
+  if (r.stdout === '200') return true;
+  if (r.stdout === '404') return false;
+  throw new Error(`syncthing-real: index read for ${file} answered ${r.stdout || r.output}`);
+}
+
 // The node's own syncthing processes, as FluxOS matches them: by name, in the
 // node's PID namespace. An app's syncthing runs in its container's.
 const NODE_SYNCTHING = 'pgrep -x syncthing --ns 1 --nslist pid';
