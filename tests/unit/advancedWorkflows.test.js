@@ -1814,6 +1814,38 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
+    // A syncthing started paused disconnects every device itself, until the monitor
+    // resumes them. The closed connection is this node's doing, not the peer's.
+    it('will not start beside a silent peer whose device this node\'s syncthing has paused', async () => {
+      const appName = 'pausedpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-192.168.1.90:16127', paused: true }]);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read whether its syncthing paused it', async () => {
+      const appName = 'devicesunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDevicesStub.rejects(new Error('syncthing did not answer'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
     it('will not start beside a silent peer when this node cannot read whether its syncthing ever saw it', async () => {
       const appName = 'statsunreadableapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
