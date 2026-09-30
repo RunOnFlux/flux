@@ -50,8 +50,17 @@ describe('a returning node waits paused until its role is decided', function () 
 
   const client = (i) => env.clients[i];
   const sh = async (i, command) => execInContainer(client(i).container, command);
+  // Set while the Arcane node's docker socket is moved aside (below): its FluxOS
+  // cannot reach docker, and the harness reads it at the moved path.
+  let heldDockerSocket = null;
+  const runsApp = async (i) => {
+    if (i !== ARCANE || !heldDockerSocket) return isAppContainerRunning(client(i).container, appName);
+    const r = await sh(i, `DOCKER_HOST=unix://${heldDockerSocket} docker ps --format '{{.Names}}\t{{.Status}}'`);
+    if (r.exitCode !== 0) throw new Error(`docker ps at the moved socket failed: ${r.output}`);
+    return r.stdout.split('\n').some((line) => line.includes(appName) && line.split('\t')[1]?.startsWith('Up'));
+  };
   const runners = async () => {
-    const running = await Promise.all(HOLDERS.map((i) => isAppContainerRunning(client(i).container, appName)));
+    const running = await Promise.all(HOLDERS.map((i) => runsApp(i)));
     return HOLDERS.filter((_, k) => running[k]);
   };
   // Asserted on every poll of every wait below, not only at the end.
@@ -251,8 +260,17 @@ describe('a returning node waits paused until its role is decided', function () 
   describe('a primary returning while the other holder cannot be judged', () => {
     // The Arcane standby's docker socket, moved aside: its FluxOS answers what it
     // holds with an error, and its own election cannot run to take over.
-    const hideDocker = () => sh(ARCANE, 'mv /var/run/docker.sock /var/run/docker.sock.held');
-    const restoreDocker = () => sh(ARCANE, 'test -e /var/run/docker.sock.held && mv /var/run/docker.sock.held /var/run/docker.sock; true');
+    const HELD_SOCKET = '/var/run/docker.sock.held';
+    const hideDocker = async () => {
+      const r = await sh(ARCANE, `mv /var/run/docker.sock ${HELD_SOCKET}`);
+      if (r.exitCode === 0) heldDockerSocket = HELD_SOCKET;
+      return r;
+    };
+    const restoreDocker = async () => {
+      const r = await sh(ARCANE, `test -e ${HELD_SOCKET} && mv ${HELD_SOCKET} /var/run/docker.sock; true`);
+      heldDockerSocket = null;
+      return r;
+    };
 
     after(async () => {
       await restoreDocker();
