@@ -53,7 +53,7 @@ describe('a graceful shutdown drains to the standby and holds still', function (
       syncthing: 'binary',
       tickerAutostart: false,
       configOverrides: {
-        fluxapps: { minOutgoing: 1, minIncoming: 1, masterSlaveStaggerMs: 10000 },
+        fluxapps: { minOutgoing: 1, minIncoming: 1 },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });

@@ -84,7 +84,7 @@ describe('a surplus trim waits for a peer that is leaving', function () {
       tickerAutostart: false,
       configOverrides: {
         fluxapps: {
-          minOutgoing: 1, minIncoming: 1, masterSlaveStaggerMs: 10000, sigtermExpiryS: SIGTERM_EXPIRY_S,
+          minOutgoing: 1, minIncoming: 1, sigtermExpiryS: SIGTERM_EXPIRY_S,
         },
       },
     });
