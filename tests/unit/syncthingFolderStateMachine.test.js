@@ -6,6 +6,7 @@ const sinon = require('sinon');
 const { globalState } = require('./fixtures/globalState');
 const { syncthingIgnoreLines } = require('../../ZelBack/src/services/appSystem/volumeReservedNames');
 const proxyquire = require('proxyquire').noCallThru();
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 // Create mocks for dependencies
 const syncthingServiceMock = {
@@ -807,11 +808,42 @@ describe('syncthingFolderStateMachine tests', () => {
         receiveOnlyChangedDirectories: 1,
       });
 
-      const result = await stateMachine.manageFolderSyncState(mockParams);
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      try {
+        const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
-      expect(result.cache).to.deep.equal({ restarted: true });
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache).to.deep.equal({ restarted: true });
+        sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', { folder: 'test-app', files: 0, directories: 1 });
+      } finally {
+        publish.restore();
+      }
+    });
+
+    it('reports no revert when syncthing refuses it', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 1000,
+        inSyncBytes: 1000,
+        state: 'idle',
+        receiveOnlyChangedFiles: 2,
+        receiveOnlyChangedDirectories: 0,
+      });
+      syncthingServiceMock.dbRevert.resolves({ status: 'error', data: { message: 'folder is not running' } });
+
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      try {
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledOnce(syncthingServiceMock.dbRevert);
+        sinon.assert.neverCalledWith(publish, 'syncthing:localChangesReverted');
+      } finally {
+        publish.restore();
+      }
     });
 
     it('does not revert a ready single-writer standby that is still pulling', async () => {

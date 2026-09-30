@@ -1189,6 +1189,11 @@ async function revertLocalChangesIfSynced(appId, syncStatus) {
     // dataOrThrow: dbRevert answers in-band; without it this catch is
     // dead code and a failed revert reads as reverted
     messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
+    fluxEventBus.publish('syncthing:localChangesReverted', {
+      folder: appId,
+      files: syncStatus.receiveOnlyChangedFiles || 0,
+      directories: syncStatus.receiveOnlyChangedDirectories || 0,
+    });
   } catch (error) {
     log.error(`revertLocalChangesIfSynced - revert of local changes for ${appId} failed: ${error.message}`);
   }
