@@ -40,6 +40,19 @@ const { Privilege, authOf } = require('./utils/privileges');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
+/**
+ * What an endpoint that updates FluxOS's own code answers on this node type, or
+ * null where FluxOS updates itself. On Arcane the watchdog updates FluxOS: it
+ * stops the service, pulls, installs the dependencies and starts it again.
+ * @param {boolean} arcane
+ * @returns {object|null} The refusal message, or null
+ */
+function selfUpdateRefusal(arcane) {
+  return arcane
+    ? messageHelper.createErrorMessage('FluxOS on ArcaneOS is updated by its watchdog, not by this endpoint')
+    : null;
+}
+
 // Where this node's checkout is, named once. Every command below that reads or
 // writes the repository is told it, rather than inheriting whatever directory
 // the process happens to be running in: `git checkout` and `git fetch` write,
@@ -186,10 +199,9 @@ const RESTART_AFTER_REPLY_MS = 5000;
  *
  * pm2 starts FluxOS through start.sh, which installs its dependencies first, so
  * a restart through pm2 runs the new code with the modules it needs. It is asked
- * for when the checkout moved, or always for an update that removed the
- * installed modules, and a moment later so the reply goes out first. A FluxOS
- * that pm2 does not run - Arcane, which systemd starts - runs the new code from
- * its next start.
+ * for when the checkout moved, or always for an update that installed the
+ * modules again, and a moment later so the reply goes out first. A FluxOS that
+ * pm2 does not run runs the new code from its next start.
  *
  * @param {string|null} before The commit before the change
  * @param {{always?: boolean}} [options]
@@ -527,6 +539,8 @@ async function updateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   const before = await commitOrNull();
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'updateflux'] });
@@ -566,6 +580,8 @@ async function softUpdateFluxApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await softUpdateFlux();
@@ -600,6 +616,8 @@ async function softUpdateFluxInstallApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await softUpdateFluxInstall();
@@ -622,7 +640,8 @@ async function hardUpdateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res ? res.json(refusal) : refusal;
 
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'hardupdateflux'] });
 
@@ -631,8 +650,8 @@ async function hardUpdateFlux(req, res) {
     return res ? res.json(errMessage) : errMessage;
   }
 
-  // The update removed the installed modules, so the code runs only after a
-  // start that installs them again.
+  // The update installed the modules again, and a running FluxOS loads some of
+  // them later, so it restarts onto them whether or not the code moved.
   await runNewCode(null, { always: true });
   const message = messageHelper.createSuccessMessage('Flux successfully hard updated');
   return res ? res.json(message) : message;
@@ -2271,6 +2290,7 @@ module.exports = {
   getNodeTier,
   getRouterIP,
   hardUpdateFlux,
+  selfUpdateRefusal,
   isStaticIPapi,
   rebuildUi,
   reindexDaemon,
