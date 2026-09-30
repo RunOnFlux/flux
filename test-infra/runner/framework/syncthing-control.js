@@ -44,6 +44,18 @@ export async function getFolderWrites(ip) {
   return node ? node.folderWrites : [];
 }
 
+// One node's config for one folder, as the stub holds it; undefined if none.
+export async function getFolderConfig(ip, folder) {
+  const state = await getSyncthingState();
+  return state.nodes.find((n) => n.ip === ip)?.folders.find((f) => f.id === folder);
+}
+
+// Changes fields of one node's folder config as something other than FluxOS
+// would: not recorded as a folder write.
+export async function setFolderConfig({ ip, folder, fields }) {
+  return post('/folder-config', { ip, id: folder, fields });
+}
+
 // The scans this node has asked for, in order: { id, seq }. seq is numbered from
 // the same sequence as getFolderWrites' entries, so a scan and a write can be
 // ordered against each other.
