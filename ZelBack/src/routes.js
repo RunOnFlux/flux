@@ -418,6 +418,13 @@ module.exports = (app) => {
   app.get('/apps/heldcomponents', rejectQueryParameters, cache('1 second'), asyncRoute((req, res) => {
     return appQueryService.heldComponents(req, res);
   }));
+  // The same list signed for the caller, over the challenge its body carries, so
+  // the caller can show that the node it dialled is the node that answered. Not
+  // cached here: each answer is for one call, and the handler bounds the docker
+  // read behind it instead.
+  app.post('/apps/heldcomponents', asyncRoute((req, res) => {
+    return appQueryService.heldComponentsAnswer(req, res);
+  }));
   // promotedfolders needs no cache: it is served from the set the syncthing monitor
   // already refreshes each pass, so the request touches nothing. Guarded on the
   // same terms as its neighbour - it takes no parameters either, and the two are
@@ -429,7 +436,8 @@ module.exports = (app) => {
   // last-write time per app and therefore the tenant's. A caller signs as a node on the
   // deterministic list, or holds Flux team privilege; one that does neither is answered
   // without it rather than refused, because a peer too old to sign is not doing anything
-  // wrong. POST because a signature needs a body to be over.
+  // wrong. POST because a signature needs a body to be over. Signed back over the
+  // challenge the body carries, as heldcomponents is.
   app.post('/apps/promotedfolders', asyncRoute((req, res) => {
     return appQueryService.promotedFolderHoldings(req, res);
   }));
