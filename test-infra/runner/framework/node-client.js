@@ -261,6 +261,7 @@ export function nodeClient(nodeNum) {
         'syncthing:ownersByNumber',
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
+        'syncthing:devicesResumed',
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
         'checkpoint:held',
