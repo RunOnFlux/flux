@@ -37,6 +37,9 @@ const Checkpoint = Object.freeze({
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
+  // The syncthing monitor has computed a folder's config from the folder list
+  // its pass opened with, and has not written it. Keyed by folder id.
+  SYNCTHING_BEFORE_FOLDER_WRITE: 'syncthing:beforeFolderWrite',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

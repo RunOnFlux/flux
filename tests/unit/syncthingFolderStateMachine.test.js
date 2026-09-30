@@ -149,6 +149,10 @@ const peerFolderLivenessMock = proxyquire('../../ZelBack/src/services/appMonitor
 const { createPeerFolderLiveness } = peerFolderLivenessMock;
 
 // Load module with mocked dependencies
+const primaryRoleMock = {
+  holdAsStandby: sinon.stub().resolves(true),
+};
+
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   '../dockerService': dockerServiceMock,
   '../syncthingService': syncthingServiceMock,
@@ -161,11 +165,13 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   '../appLifecycle/appUninstaller': appUninstallerMock,
   './peerFolderLiveness': peerFolderLivenessMock,
   '../appQuery/appQueryService': appQueryServiceMock,
+  '../appLifecycle/primaryRole': primaryRoleMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
   beforeEach(() => {
     peerIdentityMock.reset();
+    primaryRoleMock.holdAsStandby.resetHistory();
     // Reset only this file's own stubs (NOT a global sinon.reset(), which would
     // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
@@ -661,15 +667,16 @@ describe('syncthingFolderStateMachine tests', () => {
     beforeEach(() => {
       mockParams = {
         appId: 'test-app',
+        identifier: 'app_test',
         syncFolder: null,
         containerDataFlags: 'r',
         syncthingAppsFirstRun: false,
         receiveOnlySyncthingAppsCache: new Map(),
         appLocation: sinon.stub().resolves([]),
         localSocketAddr: '10.0.0.1:16127',
+        // As the monitor builds it: the fields it owns, and no type.
         syncthingFolder: {
           id: 'test-app',
-          type: 'sendreceive',
         },
         installedAppName: 'test-app',
         liveness: createPeerFolderLiveness(),
@@ -785,7 +792,7 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(chmods, 'a mode sweep over a synced folder is a modification of every file in it').to.have.length(0);
     });
 
-    it('names a single-writer leader without flipping its folder: the election flips it when it starts', async () => {
+    it('names a single-writer leader without deciding its folder type: the role makes it send when it starts', async () => {
       mockParams.containerDataFlags = 'g';
       fsMock.promises.readdir.resolves([]);
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
@@ -798,12 +805,12 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
       expect(result.cache.restarted, 'the election reads this as ready to start').to.be.true;
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
-    it('keeps a ready single-writer standby receiveonly and keeps its ready mark', async () => {
+    it('keeps the ready mark of a single-writer standby, and decides no type for its folder', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
@@ -811,7 +818,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(result.syncthingFolder.type, 'the built default is sendreceive; a standby must not inherit it').to.equal('receiveonly');
+      expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
       expect(result.cache).to.deep.equal({ restarted: true });
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
@@ -836,7 +843,7 @@ describe('syncthingFolderStateMachine tests', () => {
         const result = await stateMachine.manageFolderSyncState(mockParams);
 
         sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
-        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
         expect(result.cache).to.deep.equal({ restarted: true });
         sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', { folder: 'test-app', files: 0, directories: 1 });
       } finally {
@@ -915,17 +922,15 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       sinon.assert.calledWith(appQueryServiceMock.holdsComponent, 'test-app');
-      // Scanned before the flip: an unscanned write would turn into a local change
-      // of the receiveonly folder, and the revert deletes those.
-      sinon.assert.calledOnceWithExactly(syncthingServiceMock.scanFolder, 'test-app');
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      sinon.assert.calledOnceWithExactly(primaryRoleMock.holdAsStandby, 'app_test', 'test-app');
+      expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
       expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 0 });
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
     // Held covers a primary its owner stopped to work on its data, which has no
     // running container: demoting it would revert the owner's edits.
-    it('keeps a single-writer folder sendreceive while this node holds it, running or not', async () => {
+    it('does not demote a single-writer folder while this node holds it, running or not', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
@@ -934,20 +939,9 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      sinon.assert.notCalled(primaryRoleMock.holdAsStandby);
+      expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
       expect(result.cache).to.deep.equal({ restarted: true });
-    });
-
-    it('still demotes when the scan before it fails', async () => {
-      mockParams.containerDataFlags = 'g';
-      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
-      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
-      appQueryServiceMock.holdsComponent.resolves(false);
-      syncthingServiceMock.scanFolder.rejects(new Error('syncthing busy'));
-
-      const result = await stateMachine.manageFolderSyncState(mockParams);
-
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
     });
 
     it('does not demote when what this node holds cannot be read', async () => {
@@ -958,7 +952,8 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      sinon.assert.notCalled(primaryRoleMock.holdAsStandby);
+      expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
     });
 
     it('never demotes a replicated folder for a stopped container', async () => {
@@ -1373,7 +1368,7 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.designationPending, 'a standby promotion was recorded as a seed').to.not.equal(true);
     });
 
-    it('a single-writer seed taken by a peer becomes ready when synced, and stays receiveonly', async () => {
+    it('a single-writer seed taken by a peer becomes ready when synced, with no type decided for its folder', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
@@ -1393,7 +1388,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       // The election reads a synced single-writer standby as ready; only the
       // primary's folder sends.
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
       expect(result.cache.restarted, 'the standby never became ready to take over').to.be.true;
       expect(result.cache.designationPending, 'a standby promotion was recorded as a seed').to.not.equal(true);
     });

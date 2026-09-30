@@ -39,7 +39,7 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
-const { changeSyncthingFolderType } = require('../appMonitoring/syncthingFolderType');
+const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const primaryRole = require('./primaryRole');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
 const peerIdentityService = require('../peerIdentityService');
@@ -2172,8 +2172,7 @@ async function stopSyncthingApp(appComponentName, res) {
     const appId = dockerService.getAppIdentifier(identifier);
     const folder = `${appsFolder + appId}`;
     // eslint-disable-next-line global-require
-    const syncthingService = require('../syncthingService');
-    const allSyncthingFolders = await syncthingService.getConfigFolders();
+    const allSyncthingFolders = await syncthingServiceModule.getConfigFolders();
     let folderId = null;
     // eslint-disable-next-line no-restricted-syntax
     for (const syncthingFolder of allSyncthingFolders) {
@@ -2186,7 +2185,7 @@ async function stopSyncthingApp(appComponentName, res) {
         };
         // remove folder from syncthing
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+        await syncthingFolderWrites.deleteFolder(folderId);
         const adjustSyncthingB = {
           status: 'Syncthing adjusted',
         };
@@ -2239,7 +2238,7 @@ function syncthingFolderIdForComponent(appname, componentName) {
  */
 async function setSyncthingFolderPaused(folderId, paused) {
   try {
-    const response = await syncthingServiceModule.adjustConfigFolders('patch', { paused }, folderId);
+    const response = await syncthingFolderWrites.patchFolder(folderId, { paused });
     if (response.status === 'success') {
       log.info(`setSyncthingFolderPaused - ${folderId} paused=${paused}`);
       return 'held';
@@ -3143,7 +3142,7 @@ async function appendRestoreTask(req, res) {
         // read whose failure silently reads as "nothing to protect". A folder
         // syncthing does not know answers 404 - nothing is replicating the
         // partial data, so there is nothing to demote.
-        const demote = await syncthingServiceModule.adjustConfigFolders('patch', { type: 'receiveonly' }, swapInFlight.folderId);
+        const demote = await primaryRole.demoteForSafety(swapInFlight.folderId);
         if (demote.status !== 'success' && demote.data?.httpStatus !== 404) {
           // Still sendreceive over partial data. Paused it transmits nothing;
           // resumed it would hand the deletions and the wreckage to every
@@ -5424,18 +5423,18 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // DB cluster component that needs all instances running) keep running.
                 if (primaryRole.standDown(identifier, appId, { running: runningAppsNames.includes(identifier) })) {
                   log.info(`masterSlaveApps: standing down as primary of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
-                } else if (!primaryRole.inTransition(identifier)) {
+                } else {
                   // A standby's folder receives and never sends: what it holds is the
                   // primary's, and anything written here is a local change for the
                   // primary's copy to overwrite.
                   // eslint-disable-next-line no-await-in-loop
-                  await changeSyncthingFolderType(appId, 'receiveonly');
+                  await primaryRole.holdAsStandby(identifier, appId);
                 }
-              } else if (runningAppsNames.includes(identifier) && !primaryRole.inTransition(identifier)) {
+              } else if (runningAppsNames.includes(identifier)) {
                 // The primary runs here, so its folder sends - whatever demoted it
                 // while the container was down.
                 // eslint-disable-next-line no-await-in-loop
-                await changeSyncthingFolderType(appId, 'sendreceive');
+                await primaryRole.holdAsPrimary(identifier, appId);
               } else if (ipsMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
                 // Check if app is ready (syncthing data is synced) before starting
                 let isReady = globalStateParam.receiveOnlySyncthingAppsCache.has(appId) && globalStateParam.receiveOnlySyncthingAppsCache.get(appId).restarted;

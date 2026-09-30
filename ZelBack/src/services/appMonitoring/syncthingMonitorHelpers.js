@@ -243,22 +243,22 @@ const OWNED_FOLDER_SETTINGS = Object.freeze({
 });
 
 /**
- * Create Syncthing folder configuration
+ * The fields of a folder's syncthing configuration the monitor owns. Its type
+ * is decided separately: by the monitor for an r: folder, by the primary role
+ * for a g: folder.
  * @param {string} id - Folder ID
  * @param {string} label - Folder label
  * @param {string} path - Folder path
  * @param {Array} devices - Array of device objects
- * @param {string} type - Folder type (sendreceive, receiveonly)
- * @returns {Object} Syncthing folder configuration
+ * @returns {Object} Syncthing folder configuration, without a type
  */
-function createSyncthingFolderConfig(id, label, path, devices, type = 'sendreceive') {
+function createSyncthingFolderConfig(id, label, path, devices) {
   return {
     id,
     label,
     path,
     devices,
     paused: false,
-    type,
     ...OWNED_FOLDER_SETTINGS,
   };
 }
@@ -340,7 +340,8 @@ function shouldBeRunning(containerDataFlags) {
 /**
  * Check if folder configuration needs update
  * @param {Object} existingFolder - Existing folder config
- * @param {Object} newFolder - New folder config
+ * @param {Object} newFolder - New folder config; without a type, its type is
+ *   not the monitor's to compare
  * @returns {boolean} True if update is needed
  */
 function folderNeedsUpdate(existingFolder, newFolder) {
@@ -352,7 +353,7 @@ function folderNeedsUpdate(existingFolder, newFolder) {
     existingFolder.maxConflicts !== SYNCTHING_MAX_CONFLICTS
     || existingFolder.syncOwnership !== newFolder.syncOwnership
     || existingFolder.paused
-    || existingFolder.type !== newFolder.type
+    || (newFolder.type !== undefined && existingFolder.type !== newFolder.type)
     || JSON.stringify(existingFolder.devices) !== JSON.stringify(newFolder.devices)
   );
 }

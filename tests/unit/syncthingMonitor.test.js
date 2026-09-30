@@ -58,12 +58,11 @@ const appReconcilerMock = {
 const syncthingMonitorHelpersMock = {
   sortAndFilterLocations: sinon.stub((locs) => locs),
   buildDeviceConfiguration: sinon.stub().resolves([]),
-  createSyncthingFolderConfig: sinon.stub((id, label, path, devices, type) => ({
+  createSyncthingFolderConfig: sinon.stub((id, label, path, devices) => ({
     id,
     label,
     path,
     devices,
-    type: type || 'sendreceive',
   })),
   ensureStfolderExists: sinon.stub().resolves(true),
   getContainerFolderPath: sinon.stub().returns(''),
@@ -112,6 +111,16 @@ const peerFolderLivenessMock = {
 // Load module with mocked dependencies
 const appTamperingDetectionServiceMock = { recordEvent: sinon.stub().resolves() };
 
+// The real writers, over the same syncthing mock the monitor reads.
+const syncthingFolderWrites = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites', {
+  '../serviceHelper': serviceHelperMock,
+  '../syncthingService': syncthingServiceMock,
+});
+const primaryRole = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
+  '../appMonitoring/appReconciler': appReconcilerMock,
+  '../appMonitoring/syncthingFolderWrites': syncthingFolderWrites,
+});
+
 const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingMonitor', {
   './peerFolderLiveness': peerFolderLivenessMock,
   '../dbHelper': dbHelperMock,
@@ -123,6 +132,8 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   '../utils/volumeService': volumeServiceMock,
   '../appTamperingDetectionService': appTamperingDetectionServiceMock,
   './appReconciler': appReconcilerMock,
+  './syncthingFolderWrites': syncthingFolderWrites,
+  '../appLifecycle/primaryRole': primaryRole,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
   '../appSystem/syncthingIgnorePolicy': syncthingIgnorePolicyMock,
@@ -1205,6 +1216,7 @@ describe('syncthingMonitor tests', () => {
     // where promotedFolderIds is reconciled for the same reason.
     it('drops the published holding of a folder it promotes', async () => {
       writesAFolder();
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
       globalState.folderHoldings = new Map([
         ['testapp', { bytes: 5821604997, newestModified: 200 }],
         ['untouchedapp', { bytes: 4096, newestModified: 100 }],
@@ -1245,6 +1257,7 @@ describe('syncthingMonitor tests', () => {
 
       it('publishes it when the write turns a folder writable', async () => {
         writesAFolder();
+        syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
 
         monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
         await clock.tickAsync(100);
@@ -1255,6 +1268,7 @@ describe('syncthingMonitor tests', () => {
 
       it('does not publish it for a folder that was already writable', async () => {
         writesAFolder();
+        syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
         syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
 
         monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
@@ -1262,6 +1276,72 @@ describe('syncthingMonitor tests', () => {
 
         expect(writtenAs(), 'the folder was not rewritten, so this asserts nothing').to.equal('sendreceive');
         sinon.assert.neverCalledWith(publish, 'syncthing:folderWritable');
+      });
+    });
+
+    // A g: folder's type is its primary role's: the monitor names one only to
+    // create the folder, and otherwise changes only the fields it owns.
+    describe('the type of a g: folder', () => {
+      const folderCalls = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+        .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch');
+
+      it('creates the folder receiving', async () => {
+        writesAFolder();
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const [put] = folderCalls();
+        expect(put?.args[0], 'the folder was not created, so this asserts nothing').to.equal('put');
+        expect(put.args[1].find((f) => f.id === 'testapp').type).to.equal('receiveonly');
+      });
+
+      it('changes an existing folder without sending a type, whatever type the pass read', async () => {
+        writesAFolder();
+        // The pass reads the folder receiving; the role makes it send before the
+        // pass writes. Nothing the pass sends may carry the type it read.
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'receiveonly' }]);
+        syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+          syncthingFolder: { id: 'testapp', devices: [{ deviceID: 'PEER' }], type: 'receiveonly' },
+          cache: null,
+        });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const calls = folderCalls();
+        expect(calls.map((c) => c.args[0]), 'the folder was not written, so this asserts nothing').to.deep.equal(['patch']);
+        const [, fields, folderId] = calls[0].args;
+        expect(folderId).to.equal('testapp');
+        expect(fields.devices).to.deep.equal([{ deviceID: 'PEER' }]);
+        expect(fields).to.not.have.property('type');
+      });
+    });
+
+    // A type written after the pass read the folder list is what syncthing
+    // holds, and what peers are told.
+    describe('the folders it tells peers are writable', () => {
+      it('counts a folder the role made writable after the pass read it', async () => {
+        writesAFolder();
+        syncthingServiceMock.getConfigFolders.callsFake(async () => {
+          await syncthingFolderWrites.patchFolder('testapp', { type: 'sendreceive' });
+          return [{ id: 'testapp', type: 'receiveonly' }];
+        });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(globalState.promotedFolderIds?.has('testapp')).to.equal(true);
+      });
+
+      it('publishes what the read shows when nothing was written since', async () => {
+        writesAFolder();
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect([...globalState.promotedFolderIds]).to.deep.equal(['testapp']);
       });
     });
 
