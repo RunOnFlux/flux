@@ -37,6 +37,7 @@ const tar = require('tar/create');
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
 const { Privilege, authOf } = require('./utils/privileges');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -230,24 +231,35 @@ async function runNewCode(before, { always = false } = {}) {
 // the same value.
 const PM2_KILL_TIMEOUT_MS = 60000;
 
+// Where FluxOS records the machine boot on which it last asked pm2 for the
+// kill timeout, as that boot's id.
+const PM2_KILL_TIMEOUT_REQUEST = path.join(os.homedir(), '.flux-pm2-kill-timeout-request');
+const BOOT_ID = '/proc/sys/kernel/random/boot_id';
+
 /**
  * Gives this FluxOS's pm2 registration a kill timeout of at least
- * PM2_KILL_TIMEOUT_MS, on a node whose FluxOS runs under pm2.
+ * PM2_KILL_TIMEOUT_MS, on a node whose FluxOS runs under pm2, and resolves once
+ * FluxOS is to boot on.
  *
  * The timeout belongs to the registration, so it is changed by a pm2 restart
  * with the new value, and saved so the registration pm2 resurrects at boot
  * carries it. The restart ends this process and pm2 kills its process tree, so
- * the command runs in a new session re-parented away from it. A registration
- * that cannot be read is left alone.
+ * the command runs in a new session re-parented away from it, and this does
+ * not resolve while the restart is under way. A restart that fails signals
+ * this process with SIGUSR2, and FluxOS boots on with the kill timeout it has.
  *
- * @returns {Promise<boolean>} Whether a re-registration was asked for
+ * pm2 is asked once per machine boot: a FluxOS that finds its kill timeout
+ * still short on the boot it asked on boots on with it. A registration that
+ * cannot be read, or a boot that cannot be identified, is left alone.
+ *
+ * @returns {Promise<void>}
  */
 async function ensurePm2KillTimeout() {
   const pm2Id = process.env.pm_id;
-  if (pm2Id === undefined) return false;
+  if (pm2Id === undefined) return;
   if (!/^\d+$/.test(pm2Id)) {
     log.warn(`pm2 id ${pm2Id} is not a number; leaving FluxOS's pm2 registration alone`);
-    return false;
+    return;
   }
   const { stdout, error } = await serviceHelper.runCommand('pm2', { params: ['jlist'], maxBuffer: 16 * 1024 * 1024 });
   let killTimeout;
@@ -255,21 +267,39 @@ async function ensurePm2KillTimeout() {
     if (error) throw error;
     const own = JSON.parse(stdout).find((proc) => String(proc.pm_id) === pm2Id);
     if (!own) throw new Error(`process ${pm2Id} is not in pm2's list`);
-    killTimeout = own.pm2_env?.kill_timeout;
+    killTimeout = own.pm2_env?.kill_timeout ?? null;
   } catch (err) {
     log.warn(`Could not read FluxOS's pm2 registration, leaving it alone: ${err.message}`);
-    return false;
+    return;
   }
-  if (Number(killTimeout) >= PM2_KILL_TIMEOUT_MS) return false;
+  if (Number(killTimeout) >= PM2_KILL_TIMEOUT_MS) return;
+
+  const bootId = (await fs.readFile(BOOT_ID, 'utf8').catch(() => '')).trim();
+  if (!bootId) {
+    log.warn(`FluxOS's pm2 kill timeout is ${killTimeout ?? "pm2's default"}, and this machine boot cannot be identified to ask pm2 only once; leaving it`);
+    return;
+  }
+  const askedOn = (await fs.readFile(PM2_KILL_TIMEOUT_REQUEST, 'utf8').catch(() => '')).trim();
+  if (askedOn === bootId) {
+    log.error(`pm2 kept FluxOS's kill timeout at ${killTimeout ?? "pm2's default"} after FluxOS asked it for ${PM2_KILL_TIMEOUT_MS}ms on this boot; FluxOS boots with it`);
+    fluxEventBus.publish('pm2:killTimeoutUnchanged', { killTimeout });
+    return;
+  }
+  await fs.writeFile(PM2_KILL_TIMEOUT_REQUEST, bootId);
 
   log.info(`FluxOS's pm2 kill timeout is ${killTimeout ?? "pm2's default"}; re-registering process ${pm2Id} with ${PM2_KILL_TIMEOUT_MS}ms`);
-  const reregister = `pm2 restart ${pm2Id} --kill-timeout ${PM2_KILL_TIMEOUT_MS} && pm2 save`;
-  const child = childProcess.spawn('sh', ['-c', `setsid sh -c '${reregister}' >/dev/null 2>&1 </dev/null &`], {
-    detached: true,
-    stdio: 'ignore',
+  await new Promise((resolve) => {
+    process.once('SIGUSR2', resolve);
+    const reregister = `if pm2 restart ${pm2Id} --kill-timeout ${PM2_KILL_TIMEOUT_MS}; then pm2 save; else kill -USR2 ${process.pid}; fi`;
+    const child = childProcess.spawn('sh', ['-c', `setsid sh -c '${reregister}' >/dev/null 2>&1 </dev/null &`], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.on('error', resolve);
+    child.unref();
   });
-  child.unref();
-  return true;
+  log.error(`pm2 could not restart FluxOS to raise its kill timeout from ${killTimeout ?? "pm2's default"}; FluxOS boots with it`);
+  fluxEventBus.publish('pm2:killTimeoutRaiseFailed', { killTimeout });
 }
 
 /**
