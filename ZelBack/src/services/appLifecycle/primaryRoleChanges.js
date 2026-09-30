@@ -27,6 +27,15 @@ function end(identifier, change) {
 }
 
 /**
+ * The change in progress for the component a syncthing folder belongs to.
+ * @param {string} folderId Syncthing folder id
+ * @returns {object|undefined}
+ */
+function byFolder(folderId) {
+  return [...changes.values()].find((change) => change.appId === folderId);
+}
+
+/**
  * Components this node is becoming the primary of: committed, not yet running.
  * @returns {string[]}
  */
@@ -38,5 +47,6 @@ module.exports = {
   get,
   set,
   end,
+  byFolder,
   promotingIdentifiers,
 };
