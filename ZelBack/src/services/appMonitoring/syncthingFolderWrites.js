@@ -28,6 +28,10 @@ const { OWNED_FOLDER_SETTINGS } = require('./syncthingMonitorHelpers');
 const FOLDER_TYPE_SETTLE_MS = 60 * 1000;
 const FOLDER_TYPE_POLL_MS = 1000;
 
+// How long the scan before a type change may take. Syncthing answers a scan
+// once it is done; one that has not finished by then leaves the type unchanged.
+const FOLDER_SCAN_TIMEOUT_MS = 10 * 60 * 1000;
+
 // folder id -> the promise that settles when the last write queued for it ends
 const lastWrite = new Map();
 
@@ -172,6 +176,28 @@ async function folderTypeSettles(folderPath, folderType, settleMs) {
 }
 
 /**
+ * Scans a folder whose type is about to change, and answers whether syncthing
+ * confirmed the scan finished. The folder is not held while it scans: a scan
+ * writes no config.
+ * @param {string} folderId
+ * @param {string} folderType The type it is about to change to
+ * @returns {Promise<boolean>} True when the folder is already that type, or the
+ *   scan finished.
+ */
+async function scannedBeforeChange(folderId, folderType) {
+  try {
+    const folderPath = `${appsFolder}${folderId}`;
+    const folder = (await syncthingService.getConfigFolders()).find((f) => f.path === folderPath);
+    if (!folder || folder.type === folderType) return true;
+    await syncthingService.scanFolder(folderId, { timeoutMs: FOLDER_SCAN_TIMEOUT_MS });
+    return true;
+  } catch (error) {
+    log.warn(`scan of ${folderId} before it becomes ${folderType} did not finish: ${error.message}; its type is unchanged`);
+    return false;
+  }
+}
+
+/**
  * Changes a folder's type, reading it first and writing only when it differs.
  *
  * A write syncthing did not answer is not a refusal: it may still apply. With
@@ -184,11 +210,13 @@ async function folderTypeSettles(folderPath, folderType, settleMs) {
  * @param {number} [options.settleMs]
  * @param {boolean} [options.scanFirst] Scan the folder before a change, so what
  *   this node wrote is announced as its own version before the folder receives.
+ *   A scan syncthing does not confirm finished leaves the type unchanged.
  * @param {() => boolean} [options.abandonIf] Asked once the folder is held; true
  *   writes nothing and fails the change.
  * @returns {Promise<boolean>} - true if the folder has the type
  */
-function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, scanFirst = false, abandonIf = () => false } = {}) {
+async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, scanFirst = false, abandonIf = () => false } = {}) {
+  if (scanFirst && !(await scannedBeforeChange(folderId, folderType))) return false;
   return exclusive([folderId], async () => {
     try {
       if (abandonIf()) return false;
@@ -207,14 +235,6 @@ function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, scanFir
       // folder is the common case and says nothing worth logging.
       if (folder.type === folderType) {
         return true;
-      }
-
-      if (scanFirst) {
-        try {
-          await syncthingService.scanFolder(folderId);
-        } catch (error) {
-          log.warn(`scan of ${folderId} before it becomes ${folderType} failed: ${error.message}`);
-        }
       }
 
       log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
