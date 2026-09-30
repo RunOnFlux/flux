@@ -13,7 +13,7 @@ const FOLDER = 'fluxn8n_n8napp';
  * the calls it makes is what these tests are about, so every collaborator writes
  * to one shared log.
  */
-function loadRole({ primary = false } = {}) {
+function loadRole({ primary = false, changeType } = {}) {
   const calls = [];
   const note = (name) => (...args) => { calls.push([name, ...args]); };
   const reconciler = {
@@ -30,11 +30,18 @@ function loadRole({ primary = false } = {}) {
     }),
     dockerActual: sinon.stub().resolves({ reachable: true, exists: true, running: false }),
   };
-  const folderType = {
-    changeSyncthingFolderType: sinon.spy(async (id, type) => { note('folder')(id, type); return true; }),
+  // Records each type change with the options that shape it; `changeType` decides
+  // what the write answers.
+  const folderWrites = {
+    changeSyncthingFolderType: sinon.spy((id, type, options = {}) => {
+      if (options.abandonIf?.()) return Promise.resolve(false);
+      const { scanFirst } = options;
+      calls.push(['folder', id, type, ...(scanFirst ? ['scanFirst'] : [])]);
+      return changeType ? changeType(id, type) : Promise.resolve(true);
+    }),
+    patchFolder: sinon.spy(async (id, fields) => { note('patch')(id, fields); return { status: 'success' }; }),
     FOLDER_TYPE_SETTLE_MS: 60000,
   };
-  const syncthing = { scanFolder: sinon.spy(async (id) => { note('scan')(id); }) };
   const bus = {
     publish: sinon.stub(),
     count: sinon.stub(),
@@ -45,15 +52,23 @@ function loadRole({ primary = false } = {}) {
   const role = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
     '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
     '../utils/fluxEventBus': bus,
-    '../syncthingService': syncthing,
     '../appMonitoring/appReconciler': reconciler,
-    '../appMonitoring/syncthingFolderType': folderType,
+    '../appMonitoring/syncthingFolderWrites': folderWrites,
     './primaryRoleChanges': changes,
   });
   const roleEvents = () => bus.publish.getCalls().filter((c) => c.args[0] === 'primaryRole:changed').map((c) => c.args[1]);
   return {
-    role, changes, calls, reconciler, folderType, syncthing, bus, roleEvents,
+    role, changes, calls, reconciler, folderWrites, bus, roleEvents,
   };
+}
+
+/** A type write that answers only when the returned function is called. */
+function heldSend() {
+  const held = {};
+  held.changeType = (id, type) => (type === 'sendreceive'
+    ? new Promise((resolve) => { held.answer = resolve; })
+    : Promise.resolve(true));
+  return held;
 }
 
 describe('primaryRole', () => {
@@ -78,27 +93,18 @@ describe('primaryRole', () => {
     });
 
     it('holds the component while promoting, and not once the change has ended', async () => {
-      const t = loadRole();
-      let sent;
-      t.folderType.changeSyncthingFolderType = sinon.spy(() => new Promise((resolve) => { sent = () => resolve(true); }));
-      const role = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
-        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
-        '../utils/fluxEventBus': t.bus,
-        '../syncthingService': t.syncthing,
-        '../appMonitoring/appReconciler': t.reconciler,
-        '../appMonitoring/syncthingFolderType': t.folderType,
-        './primaryRoleChanges': t.changes,
-      });
+      const held = heldSend();
+      const t = loadRole({ changeType: held.changeType });
 
-      role.promote(APP, FOLDER);
+      t.role.promote(APP, FOLDER);
       await new Promise((resolve) => { setImmediate(resolve); });
       expect(t.changes.promotingIdentifiers()).to.deep.equal([APP]);
-      expect(role.inTransition(APP)).to.equal('promoting');
+      expect(t.role.inTransition(APP)).to.equal('promoting');
 
-      sent();
-      await role.whenSettled(APP);
+      held.answer(true);
+      await t.role.whenSettled(APP);
       expect(t.changes.promotingIdentifiers()).to.deep.equal([]);
-      expect(role.inTransition(APP)).to.equal(null);
+      expect(t.role.inTransition(APP)).to.equal(null);
     });
 
     it('begins nothing while a promotion is in progress', async () => {
@@ -108,7 +114,7 @@ describe('primaryRole', () => {
       expect(t.role.promote(APP, FOLDER), 'a second promotion began while the first was running').to.equal(false);
       await t.role.whenSettled(APP);
 
-      sinon.assert.calledOnce(t.folderType.changeSyncthingFolderType);
+      sinon.assert.calledOnce(t.folderWrites.changeSyncthingFolderType);
       sinon.assert.calledOnce(t.bus.count);
     });
 
@@ -122,30 +128,21 @@ describe('primaryRole', () => {
     });
 
     it('does not ask for the container when the folder does not send, and ends as a standby', async () => {
-      const t = loadRole();
-      t.folderType.changeSyncthingFolderType = sinon.spy(async () => false);
-      const role = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
-        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
-        '../utils/fluxEventBus': t.bus,
-        '../syncthingService': t.syncthing,
-        '../appMonitoring/appReconciler': t.reconciler,
-        '../appMonitoring/syncthingFolderType': t.folderType,
-        './primaryRoleChanges': t.changes,
-      });
+      const t = loadRole({ changeType: async () => false });
 
-      role.promote(APP, FOLDER);
-      await role.whenSettled(APP);
+      t.role.promote(APP, FOLDER);
+      await t.role.whenSettled(APP);
 
       sinon.assert.notCalled(t.reconciler.setControllerDesired);
       expect(t.roleEvents().at(-1)).to.deep.equal({
         identifier: APP, from: 'promoting', to: 'standby', reason: 'the folder did not send',
       });
-      expect(role.inTransition(APP)).to.equal(null);
+      expect(t.role.inTransition(APP)).to.equal(null);
     });
   });
 
   describe('standing down', () => {
-    it('stops the container, then scans the folder, then makes it receive', async () => {
+    it('stops the container, then makes the folder receive, scanned first', async () => {
       const t = loadRole({ primary: true });
 
       expect(t.role.standDown(APP, FOLDER, { running: true })).to.equal(true);
@@ -153,8 +150,7 @@ describe('primaryRole', () => {
 
       expect(t.calls).to.deep.equal([
         ['setControllerDesiredAndWait', APP, 'stopped'],
-        ['scan', FOLDER],
-        ['folder', FOLDER, 'receiveonly'],
+        ['folder', FOLDER, 'receiveonly', 'scanFirst'],
       ]);
       expect(t.roleEvents()).to.deep.equal([
         { identifier: APP, from: 'primary', to: 'demoting' },
@@ -184,26 +180,14 @@ describe('primaryRole', () => {
     });
 
     it('abandons a promotion in progress before it asks for the container', async () => {
-      const t = loadRole();
-      let sent;
-      t.folderType.changeSyncthingFolderType = sinon.spy((id, type) => {
-        t.calls.push(['folder', id, type]);
-        return type === 'sendreceive' ? new Promise((resolve) => { sent = () => resolve(true); }) : Promise.resolve(true);
-      });
-      const role = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
-        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
-        '../utils/fluxEventBus': t.bus,
-        '../syncthingService': t.syncthing,
-        '../appMonitoring/appReconciler': t.reconciler,
-        '../appMonitoring/syncthingFolderType': t.folderType,
-        './primaryRoleChanges': t.changes,
-      });
+      const held = heldSend();
+      const t = loadRole({ changeType: held.changeType });
 
-      role.promote(APP, FOLDER);
+      t.role.promote(APP, FOLDER);
       await new Promise((resolve) => { setImmediate(resolve); });
-      expect(role.standDown(APP, FOLDER), 'a promotion in progress was not stood down').to.equal(true);
-      sent();
-      await role.whenSettled(APP);
+      expect(t.role.standDown(APP, FOLDER), 'a promotion in progress was not stood down').to.equal(true);
+      held.answer(true);
+      await t.role.whenSettled(APP);
 
       sinon.assert.notCalled(t.reconciler.setControllerDesired);
       expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([
@@ -213,6 +197,21 @@ describe('primaryRole', () => {
       expect(t.roleEvents().at(-1)).to.deep.equal({
         identifier: APP, from: 'promoting', to: 'standby', reason: 'stood down before it ran',
       });
+    });
+
+    it('has the folder write of a promotion abandoned once it is stood down', async () => {
+      const held = heldSend();
+      const t = loadRole({ changeType: held.changeType });
+
+      t.role.promote(APP, FOLDER);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      const { abandonIf } = t.folderWrites.changeSyncthingFolderType.firstCall.args[2];
+      expect(abandonIf(), 'fixture: a promotion not stood down goes ahead').to.equal(false);
+      t.role.standDown(APP, FOLDER);
+
+      expect(abandonIf()).to.equal(true);
+      held.answer(true);
+      await t.role.whenSettled(APP);
     });
 
     it('has nothing to stand down from on a standby that runs nothing', () => {
@@ -231,6 +230,76 @@ describe('primaryRole', () => {
       await t.role.whenSettled(APP);
 
       sinon.assert.calledOnce(t.reconciler.setControllerDesiredAndWait);
+    });
+  });
+
+  describe('keeping the folder in line with the role', () => {
+    it('keeps the folder of the primary running here sending', async () => {
+      const t = loadRole({ primary: true });
+
+      expect(await t.role.holdAsPrimary(APP, FOLDER)).to.equal(true);
+
+      expect(t.calls).to.deep.equal([['folder', FOLDER, 'sendreceive']]);
+    });
+
+    it('keeps the folder of a standby receiving, scanned first', async () => {
+      const t = loadRole();
+
+      expect(await t.role.holdAsStandby(APP, FOLDER)).to.equal(true);
+
+      expect(t.calls).to.deep.equal([['folder', FOLDER, 'receiveonly', 'scanFirst']]);
+    });
+
+    it('does not make the folder of the primary receive', async () => {
+      const t = loadRole({ primary: true });
+
+      expect(await t.role.holdAsStandby(APP, FOLDER)).to.equal(false);
+
+      expect(t.calls).to.deep.equal([]);
+    });
+
+    ['holdAsPrimary', 'holdAsStandby'].forEach((hold) => {
+      it(`${hold} writes nothing during a change of role`, async () => {
+        const held = heldSend();
+        const t = loadRole({ changeType: held.changeType });
+        t.role.promote(APP, FOLDER);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(t.role.inTransition(APP), 'fixture: a promotion is in progress').to.equal('promoting');
+
+        expect(await t.role[hold](APP, FOLDER)).to.equal(false);
+
+        expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive']]);
+        held.answer(true);
+        await t.role.whenSettled(APP);
+      });
+    });
+  });
+
+  describe('a safety demotion', () => {
+    it('makes the folder receive at once, unscanned', async () => {
+      const t = loadRole();
+
+      const response = await t.role.demoteForSafety(FOLDER);
+
+      expect(response.status).to.equal('success');
+      expect(t.calls).to.deep.equal([['patch', FOLDER, { type: 'receiveonly' }]]);
+    });
+
+    it('abandons a promotion in progress, which then never runs the component', async () => {
+      const held = heldSend();
+      const t = loadRole({ changeType: held.changeType });
+      t.role.promote(APP, FOLDER);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(t.role.inTransition(APP), 'fixture: a promotion is in progress').to.equal('promoting');
+
+      await t.role.demoteForSafety(FOLDER);
+      held.answer(true);
+      await t.role.whenSettled(APP);
+
+      sinon.assert.notCalled(t.reconciler.setControllerDesired);
+      expect(t.roleEvents().at(-1)).to.deep.equal({
+        identifier: APP, from: 'promoting', to: 'standby', reason: 'stood down before it ran',
+      });
     });
   });
 });

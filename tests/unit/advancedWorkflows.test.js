@@ -2612,6 +2612,7 @@ describe('advancedWorkflows tests', () => {
         dockerServiceStub.returns('fluxn8n_n8napp');
         syncthingServiceStub.resolves([{ id: 'fluxn8n_n8napp', path: `${appsFolder}fluxn8n_n8napp`, type: folderType }]);
         const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+        sinon.stub(syncthingService, 'scanFolder').resolves();
         sinon.stub(appReconciler, 'setControllerDesired');
         serviceHelperStub.resolves({ data: { status: 'success', data: { ips: [primaryIp] } } });
         fluxNetworkHelperStub.resolves('192.168.1.5:16127');
@@ -2625,10 +2626,11 @@ describe('advancedWorkflows tests', () => {
         return adjust;
       };
 
-      it('makes a standby\'s folder receiveonly even when its component is not running', async () => {
+      it('makes a standby\'s folder receiveonly even when its component is not running, scanned first', async () => {
         const adjust = await pass({ primaryIp: '192.168.1.99', running: [], folderType: 'sendreceive' });
 
         sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'receiveonly', maxConflicts: 0 }, 'fluxn8n_n8napp');
+        sinon.assert.callOrder(syncthingService.scanFolder.withArgs('fluxn8n_n8napp'), adjust);
       });
 
       it('makes the primary\'s folder send again once its container runs here', async () => {

@@ -151,7 +151,7 @@ describe('syncthingMonitorHelpers tests', () => {
   });
 
   describe('createSyncthingFolderConfig', () => {
-    it('should create folder config with correct defaults', () => {
+    it('builds the fields the monitor owns, and no type', () => {
       const devices = [{ deviceID: 'ABC123' }];
       const result = helpers.createSyncthingFolderConfig(
         'test-id',
@@ -165,25 +165,12 @@ describe('syncthingMonitorHelpers tests', () => {
         label: 'test-label',
         path: '/path/to/folder',
         paused: false,
-        type: 'sendreceive',
         rescanIntervalS: 900,
         maxConflicts: 0,
         syncOwnership: true,
       });
       expect(result.devices).to.deep.equal(devices);
-    });
-
-    it('should allow custom type', () => {
-      const devices = [{ deviceID: 'ABC123' }];
-      const result = helpers.createSyncthingFolderConfig(
-        'test-id',
-        'test-label',
-        '/path/to/folder',
-        devices,
-        'receiveonly',
-      );
-
-      expect(result.type).to.equal('receiveonly');
+      expect(result, 'a type left in would be written whenever any field changes').to.not.have.property('type');
     });
   });
 
@@ -233,6 +220,18 @@ describe('syncthingMonitorHelpers tests', () => {
       };
       const result = helpers.folderNeedsUpdate(existing, newFolder);
       expect(result).to.be.true;
+    });
+
+    it('does not compare the type of a folder config that carries none', () => {
+      const existing = {
+        maxConflicts: 0, syncOwnership: true, paused: false, type: 'sendreceive', devices: [],
+      };
+      const newFolder = {
+        maxConflicts: 0, syncOwnership: true, paused: false, devices: [],
+      };
+      expect(helpers.folderNeedsUpdate(existing, { ...newFolder, type: 'receiveonly' }), 'fixture: a differing type is a change').to.be.true;
+
+      expect(helpers.folderNeedsUpdate(existing, newFolder)).to.be.false;
     });
 
     it('should return true if devices differ', () => {
