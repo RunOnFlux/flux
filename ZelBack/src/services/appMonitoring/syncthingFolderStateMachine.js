@@ -30,6 +30,7 @@ const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
+const { PeerComponent, componentStateOnPeers } = require('./peerComponent');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -1790,6 +1791,7 @@ async function manageFolderSyncState(params) {
     syncthingAppsFirstRun,
     receiveOnlySyncthingAppsCache,
     appLocation,
+    readAppLocation,
     localSocketAddr,
     syncthingFolder,
     installedAppName,
@@ -1802,14 +1804,36 @@ async function manageFolderSyncState(params) {
 
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
-  if (folderAlreadySyncing && containerDataFlags.includes('g') && (await appQueryService.holdsComponent(appId)) === false) {
+  const sendingSingleWriter = folderAlreadySyncing && containerDataFlags.includes('g');
+  const held = sendingSingleWriter ? await appQueryService.holdsComponent(appId) : null;
+  if (sendingSingleWriter && held !== true) {
+    // Whether a sending folder this node does not hold may go out is its primary
+    // role's decision; this pass's write leaves its pause as it is.
+    delete syncthingFolder.paused;
+  }
+  if (sendingSingleWriter && held === false) {
     // A single-writer folder sends only from the node that holds the primary:
     // running it, committed to start it, or stopped by its owner to work on its
     // data. Found sendreceive with none of those, this is a primary that lost
     // its process, and what it holds must not go out until the election says
     // it is primary again.
     log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
-    await primaryRole.holdAsStandby(identifier, appId);
+    const othersHold = async () => {
+      let locations;
+      try {
+        locations = await readAppLocation(installedAppName);
+      } catch (error) {
+        log.warn(`manageFolderSyncState - ${appId}: the other holders cannot be read: ${error.message}`);
+        return PeerComponent.UNKNOWN;
+      }
+      const peers = locations
+        .filter((location) => location?.ip && !socketAddressesMatch(location.ip, localSocketAddr))
+        .map((location) => ({ ip: location.ip, label: 'holder' }));
+      return componentStateOnPeers(peers, {
+        appId, identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
+      });
+    };
+    await primaryRole.holdAsStandby(identifier, appId, { othersHold });
     return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
   }
 
