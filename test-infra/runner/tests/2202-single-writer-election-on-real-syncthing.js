@@ -11,7 +11,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp, waitForDown } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getDeviceId, getDeviceStats, getConfigDevices,
-  statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents,
+  statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, indexHas,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
@@ -199,13 +199,11 @@ describe('single-writer election on real syncthing', function () {
     const decision = await client(FIRST).waitForEvent('primaryRole:returned', () => true, 60000, { afterId: returned });
     expect(decision.data, 'what the old primary decided').to.deep.equal({ identifier, outcome: 'discarded' });
 
-    const events = await getDaemonEvents(client(FIRST), { events: ['StateChanged', 'ConfigSaved'] });
-    const demoted = events.find((e) => e.type === 'ConfigSaved'
-      && (e.data?.folders || []).some((f) => f.id === folder && f.type === 'receiveonly'));
-    expect(demoted, 'the demotion in the daemon\'s event log').to.not.equal(undefined);
-    const scanned = events.find((e) => e.type === 'StateChanged' && e.data?.folder === folder
-      && e.data?.to === 'scanning' && e.id < demoted.id);
-    expect(scanned, 'a scan while the folder still sent').to.equal(undefined);
+    // Every config the old primary's daemon held since it started: never one in
+    // which the folder sent unpaused.
+    const sentUnpaused = (await getDaemonEvents(client(FIRST), { events: ['ConfigSaved'] }))
+      .filter((e) => (e.data?.folders || []).some((f) => f.id === folder && f.type === 'sendreceive' && !f.paused));
+    expect(sentUnpaused, 'a config in which the old primary\'s folder sent').to.deep.equal([]);
 
     await waitFor(async () => {
       await oneWriterAtMost();
@@ -214,6 +212,8 @@ describe('single-writer election on real syncthing', function () {
     for (const i of [SECOND, LATE]) {
       // eslint-disable-next-line no-await-in-loop
       expect(await readPath(client(i), stray), `the unsent write on node ${i}`).to.equal(null);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await indexHas(client(i), folder, 'appdata/written-while-down.txt'), `the unsent write announced to node ${i}`).to.equal(false);
     }
     expect(await runners(), 'the writer').to.deep.equal([SECOND]);
   });
