@@ -10,7 +10,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getConfigDevices, getDeviceId, readPath, scanFolder,
-  stopDaemon, startDaemon, getDaemonEvents, syncthingCommandLines, indexHas,
+  stopDaemon, startDaemon, getDaemonEvents, syncthingCommandLines, holdsValidVersion,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -244,7 +244,7 @@ describe('a returning node waits paused until its role is decided', function () 
         && (await readPath(client(ARCANE), `${data}/written-while-away.txt`)) === null;
     }, { timeout: 300000, interval: 3000, label: 'the returned node is a synced standby and its unsent write is gone' });
     expect(await readPath(client(LEGACY), `${data}/written-while-away.txt`), 'the unsent write on the new primary').to.equal(null);
-    expect(await indexHas(client(LEGACY), folder, 'appdata/written-while-away.txt'), 'the unsent write announced to the new primary').to.equal(false);
+    expect(await holdsValidVersion(client(LEGACY), folder, 'appdata/written-while-away.txt'), 'a version of the unsent write on the new primary').to.equal(false);
     expect(await runners(), 'the writer').to.deep.equal([LEGACY]);
   });
 

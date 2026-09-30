@@ -166,15 +166,20 @@ export async function getFileInfo(client, folderId, file) {
   return api(client, `/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}`);
 }
 
-// Whether the daemon's index holds any record of a file - its own or one a peer
-// announced. `file` is relative to the folder root.
-export async function indexHas(client, folderId, file) {
+// Whether the daemon's index holds a version of a file that the cluster would
+// pull: a global record that is neither invalid nor deleted. A receive-only
+// folder announces its local changes as invalid, which no peer pulls. `file` is
+// relative to the folder root.
+export async function holdsValidVersion(client, folderId, file) {
   const key = await apiKey(client);
   const r = await execInContainer(client.container,
-    `curl -sS -o /dev/null -w '%{http_code}' -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}"`);
-  if (r.stdout === '200') return true;
-  if (r.stdout === '404') return false;
-  throw new Error(`syncthing-real: index read for ${file} answered ${r.stdout || r.output}`);
+    `curl -sS -w '\\n%{http_code}' -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}"`);
+  const lines = r.stdout.trimEnd().split('\n');
+  const status = lines.pop();
+  if (status === '404') return false;
+  if (status !== '200') throw new Error(`syncthing-real: index read for ${file} answered ${status || r.output}`);
+  const { global } = JSON.parse(lines.join('\n'));
+  return !!global && !global.invalid && !global.deleted;
 }
 
 // The node's own syncthing processes, as FluxOS matches them: by name, in the
