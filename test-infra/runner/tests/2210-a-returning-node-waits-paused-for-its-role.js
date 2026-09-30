@@ -258,10 +258,9 @@ describe('a returning node waits paused until its role is decided', function () 
     await releaseFluxos(client(ARCANE).container);
     const decision = await fluxEvent(ARCANE, 'primaryRole:returned', () => true, returned);
     expect(decision.data, 'what the returning node decided').to.deep.equal({ identifier, outcome: 'discarded' });
-    await fluxEvent(ARCANE, 'syncthing:localChangesReverted', (d) => d.folder === folder, returned);
-    await waitForDaemonEvent(client(ARCANE), itemFinished(folder, 'appdata/written-while-away.txt', 'delete'), {
-      timeout: 120000, label: 'the unsent write removed from the returned node',
-    });
+    // syncthing answers a revert once it is done, and the event follows the answer.
+    await fluxEvent(ARCANE, 'syncthing:localChangesReverted', (d) => d.folder === folder && d.files > 0, returned);
+    expect(await readPath(client(ARCANE), `${data}/written-while-away.txt`), 'the unsent write on the returned node').to.equal(null);
 
     // Every config the returned node's daemon held since it started: never one
     // in which the folder sent unpaused.

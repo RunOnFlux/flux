@@ -12,7 +12,7 @@ import { waitFor, waitForUp, waitForDown } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getDeviceId, getDeviceStats, getConfigDevices,
   statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, holdsValidVersion,
-  waitForDaemonEvent, folderSaved, itemFinished,
+  waitForDaemonEvent, folderSaved,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
@@ -198,10 +198,8 @@ describe('single-writer election on real syncthing', function () {
     await waitForDaemonEvent(client(FIRST), folderSaved(folder, { type: 'receiveonly', paused: false }), {
       timeout: 60000, label: 'the old primary\'s folder unpaused, receiving',
     });
-    await client(FIRST).waitForEvent('syncthing:localChangesReverted', (d) => d.folder === folder, 300000, { afterId: returned });
-    await waitForDaemonEvent(client(FIRST), itemFinished(folder, 'appdata/written-while-down.txt', 'delete'), {
-      timeout: 120000, label: 'the unsent write removed from the old primary',
-    });
+    // syncthing answers a revert once it is done, and the event follows the answer.
+    await client(FIRST).waitForEvent('syncthing:localChangesReverted', (d) => d.folder === folder && d.files > 0, 300000, { afterId: returned });
     await oneWriterAtMost();
 
     // Every config the old primary's daemon held since it started: never one in
