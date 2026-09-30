@@ -8,6 +8,8 @@ const childProcess = require('node:child_process');
 const axios = require('axios');
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const numericIdTables = require('../../ZelBack/src/services/utils/numericIdTables');
 
 // Testing imports
 const chai = require('chai');
@@ -260,6 +262,11 @@ describe('syncthingService tests', () => {
 
       // for getSynchingApiKey
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
+      // the apps folder the launch asks the propagation of
+      sinon.stub(fs, 'stat').resolves({});
+      // the numeric id tables the launch writes
+      sinon.stub(fs, 'mkdir').resolves();
+      sinon.stub(fs, 'writeFile').resolves();
 
       fakeMeta = sinon.stub().resolves({
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
@@ -916,6 +923,11 @@ describe('syncthingService tests', () => {
       sinon.stub(process, 'cwd').returns('/home/testuser/flux');
       // for getSynchingApiKey
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
+      // the apps folder the launch asks the propagation of
+      sinon.stub(fs, 'stat').resolves({});
+      // the numeric id tables the launch writes
+      sinon.stub(fs, 'mkdir').resolves();
+      sinon.stub(fs, 'writeFile').resolves();
 
       fakeMeta = sinon.stub().resolves({
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
@@ -1132,6 +1144,8 @@ describe('syncthingService tests', () => {
           return { stdout: '' };
         } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
+        } if (cmd === 'findmnt') {
+          return { stdout: 'shared\n' };
         }
         return { error: null };
       });
@@ -1147,7 +1161,11 @@ describe('syncthingService tests', () => {
     it('should spawn a new syncthing process if there is a problem with the service', async () => {
       const clock = sinon.useFakeTimers();
 
-      const expected = "sudo nohup syncthing --logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
+      const expected = 'sudo nohup unshare --mount --propagation slave '
+        + "sh -c 'mount --bind \"$1\" /etc/passwd && mount --bind \"$2\" /etc/group && shift 2 && exec syncthing \"$@\"' "
+        + "syncthing '/home/testuser/.config/syncthing/numeric-ids/passwd' '/home/testuser/.config/syncthing/numeric-ids/group' "
+        + "--logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 "
+        + "--allow-newer-config --no-browser --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
       // const expectedParams = [
       //   'syncthing',
       //   '--logfile',
@@ -1173,6 +1191,8 @@ describe('syncthingService tests', () => {
           return { stdout: '' };
         } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
+        } if (cmd === 'findmnt') {
+          return { stdout: 'shared\n' };
         }
         return { error: null };
       });
@@ -1207,6 +1227,7 @@ describe('syncthingService tests', () => {
       runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep') return { stdout: '' };
         if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+        if (cmd === 'findmnt') return { stdout: 'shared\n' };
         return { error: null };
       });
 
@@ -1229,6 +1250,269 @@ describe('syncthingService tests', () => {
         delete process.env.SYNCTHING_PATH;
         clock.restore();
       }
+    });
+
+    describe('a syncthing that resolves owners against anything but the numeric id tables', () => {
+      const TABLES = '/home/testuser/.config/syncthing/numeric-ids';
+      // What `pgrep -x syncthing` answers, and the device:inode stat reads for
+      // the tables and then for each process's passwd and group.
+      let pids;
+      let seen;
+      let publishStub;
+      let countStub;
+      let errorStub;
+
+      const identities = () => ['8:100', '8:101', ...seen].join('\n');
+
+      beforeEach(() => {
+        pids = '4242\n';
+        seen = ['8:100', '8:101'];
+        publishStub = sinon.stub(fluxEventBus, 'publish');
+        countStub = sinon.stub(fluxEventBus, 'count');
+        errorStub = sinon.stub(log, 'error');
+        syncthingService.setOwnersByNumberAnnounced(false);
+        runCmdStub.callsFake(async (cmd, options) => {
+          if (cmd === 'pgrep' && options.params[0] === '-x') return { stdout: pids };
+          if (cmd === 'pgrep') return { stdout: '' };
+          if (cmd === 'stat') return { stdout: identities() };
+          if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+          if (cmd === 'findmnt') return { stdout: 'shared\n' };
+          return { error: null };
+        });
+      });
+
+      afterEach(() => {
+        syncthingService.setOwnersByNumberAnnounced(false);
+      });
+
+      it('writes the tables where they differ, and leaves them where they are already right', async () => {
+        const { passwdTable, groupTable } = numericIdTables;
+        fs.readFile.withArgs(`${TABLES}/passwd`, 'utf8').resolves(passwdTable());
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').resolves('stale');
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.calledWith(fs.mkdir, TABLES, { recursive: true });
+        sinon.assert.calledOnce(fs.writeFile);
+        sinon.assert.calledWithExactly(fs.writeFile, `${TABLES}/group`, groupTable());
+      });
+
+      it('announces a syncthing whose every process has the tables as its passwd and group, and leaves it running', async () => {
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.calledWithExactly(runCmdStub, 'stat', {
+          runAsRoot: true,
+          params: ['-L', '-c', '%d:%i', `${TABLES}/passwd`, `${TABLES}/group`, '/proc/4242/root/etc/passwd', '/proc/4242/root/etc/group'],
+          logError: false,
+        });
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
+      it('replaces a syncthing that answers but resolves the host\'s names, and announces the new one that has the tables', async () => {
+        const clock = sinon.useFakeTimers();
+        seen = ['8:7', '8:101'];
+        spawnStub.callsFake(() => {
+          seen = ['8:100', '8:101'];
+          return { unref: unrefStub };
+        });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWith(publishStub, 'syncthing:namesVisible');
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.calledWithMatch(spawnStub, `sudo nohup unshare --mount --propagation slave sh -c 'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 2 && exec syncthing "$@"' syncthing '${TABLES}/passwd' '${TABLES}/group' --logfile `);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+        expect(publishStub.firstCall.args[0], 'the old one is reported before the replacement is announced').to.equal('syncthing:namesVisible');
+      });
+
+      it('reads every syncthing process, so one bound to anything else among several is replaced', async () => {
+        const clock = sinon.useFakeTimers();
+        pids = '11\n12\n';
+        seen = ['8:100', '8:101', '8:100', '8:9'];
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWithMatch(runCmdStub, 'stat', {
+          params: ['-L', '-c', '%d:%i', `${TABLES}/passwd`, `${TABLES}/group`,
+            '/proc/11/root/etc/passwd', '/proc/11/root/etc/group', '/proc/12/root/etc/passwd', '/proc/12/root/etc/group'],
+        });
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.neverCalledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
+      it('takes a passwd bound in place of the group as bound to the wrong file', async () => {
+        const clock = sinon.useFakeTimers();
+        seen = ['8:101', '8:100'];
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledOnce(spawnStub);
+      });
+
+      it('leaves a running syncthing alone when what it sees cannot be read', async () => {
+        runCmdStub.callsFake(async (cmd, options) => {
+          if (cmd === 'pgrep' && options.params[0] === '-x') return { stdout: pids };
+          if (cmd === 'stat') return { error: new Error('No such file or directory') };
+          return { error: null };
+        });
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.notCalled(publishStub);
+      });
+
+      it('starts no syncthing with the host\'s names, and says why, when the namespace cannot be made', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        let unshareOptions = null;
+        runCmdStub.callsFake(async (cmd, options) => {
+          if (cmd === 'pgrep') return { stdout: '' };
+          if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+          if (cmd === 'findmnt') return { stdout: 'shared\n' };
+          if (cmd === 'unshare') {
+            unshareOptions = options;
+            return { error: new Error('unshare: unshare failed: Operation not permitted') };
+          }
+          return { error: null };
+        });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledOnce(spawnStub);
+        expect(unshareOptions, 'the reason is asked by trying the first bind alone').to.deep.equal({
+          runAsRoot: true,
+          params: ['--mount', '--propagation', 'slave', 'mount', '--bind', `${TABLES}/passwd`, '/etc/passwd'],
+          logError: false,
+        });
+        sinon.assert.calledWithExactly(countStub, 'syncthing:launchFailed');
+        sinon.assert.calledWithMatch(errorStub, /Syncthing did not start with the numeric id tables: unshare: unshare failed: Operation not permitted/);
+        sinon.assert.neverCalledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
+      it('starts no syncthing when the mount that holds the app volumes is not shared', async () => {
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        runCmdStub.callsFake(async (cmd) => {
+          if (cmd === 'pgrep') return { stdout: '' };
+          if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+          if (cmd === 'findmnt') return { stdout: 'private,slave\n' };
+          return { error: null };
+        });
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.calledWithExactly(countStub, 'syncthing:launchFailed');
+        sinon.assert.calledWithMatch(errorStub, /propagates as 'private,slave', not shared, so app volumes mounted after syncthing starts would never reach it/);
+      });
+
+      it('announces each new syncthing process, once', async () => {
+        syncthingService.setOwnersByNumberAnnounced(true);
+        await syncthingService.runSyncthingSentinel();
+        sinon.assert.notCalled(publishStub);
+
+        await syncthingService.stopSyncthing();
+        await syncthingService.runSyncthingSentinel();
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.calledOnce(publishStub);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+    });
+  });
+
+  describe('folder ownership is written only while syncthing resolves owners against the numeric id tables', () => {
+    let fakeInstance;
+    let countStub;
+    // What `pgrep -x syncthing` and the device:inode stat answer with at the write.
+    let pids;
+    let identities;
+
+    beforeEach(() => {
+      fakeInstance = {
+        put: sinon.stub().resolves({ data: {} }),
+        patch: sinon.stub().resolves({ data: {} }),
+        delete: sinon.stub().resolves({ data: {} }),
+      };
+      const cache = syncthingService.getAxiosCache();
+      cache.axiosInstance = fakeInstance;
+      cache.syncthingApiKey = 'testkey';
+      cache.lastUpdate = Date.now();
+      countStub = sinon.stub(fluxEventBus, 'count');
+      pids = '4242\n';
+      identities = '8:100\n8:101\n64:5\n64:6\n';
+      sinon.stub(serviceHelper, 'runCommand').callsFake(async (cmd) => {
+        if (cmd === 'pgrep') return { stdout: pids };
+        if (cmd === 'stat') return { stdout: identities };
+        return { error: null };
+      });
+    });
+
+    afterEach(() => {
+      syncthingService.setOwnersByNumberAnnounced(false);
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('refuses a folder list that turns ownership on for any folder while syncthing resolves the host\'s names, and sends nothing', async () => {
+      const response = await syncthingService.adjustConfigFolders('put', [
+        { id: 'fluxa_app', type: 'receiveonly' },
+        { id: 'fluxb_app', type: 'sendreceive', syncOwnership: true },
+      ]);
+
+      expect(response.status).to.equal('error');
+      expect(response.data.message).to.equal('Folder ownership is not written until syncthing resolves owners against the numeric id tables');
+      sinon.assert.notCalled(fakeInstance.put);
+      sinon.assert.calledWithExactly(countStub, 'syncthing:ownershipWriteRefused');
+    });
+
+    it('refuses a patch that turns ownership on while no syncthing runs', async () => {
+      pids = '';
+
+      const response = await syncthingService.adjustConfigFolders('patch', { type: 'sendreceive', syncOwnership: true }, 'fluxa_app');
+
+      expect(response.status).to.equal('error');
+      sinon.assert.notCalled(fakeInstance.patch);
+    });
+
+    it('reads the running syncthing at the write, so an earlier announcement cannot let ownership through', async () => {
+      syncthingService.setOwnersByNumberAnnounced(true);
+
+      const response = await syncthingService.adjustConfigFolders('put', [{ id: 'fluxb_app', syncOwnership: true }]);
+
+      expect(response.status).to.equal('error');
+      sinon.assert.notCalled(fakeInstance.put);
+    });
+
+    it('still demotes, pauses and deletes while syncthing resolves the host\'s names', async () => {
+      const demote = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, 'fluxa_app');
+      const pause = await syncthingService.adjustConfigFolders('patch', { paused: true }, 'fluxa_app');
+      const remove = await syncthingService.adjustConfigFolders('delete', undefined, 'fluxa_app');
+
+      expect([demote.status, pause.status, remove.status]).to.deep.equal(['success', 'success', 'success']);
+      sinon.assert.calledTwice(fakeInstance.patch);
+      sinon.assert.calledOnce(fakeInstance.delete);
+      sinon.assert.notCalled(countStub);
+    });
+
+    it('writes ownership while every syncthing process has the tables as its passwd and group', async () => {
+      identities = '8:100\n8:101\n8:100\n8:101\n';
+
+      const response = await syncthingService.adjustConfigFolders('put', [
+        { id: 'fluxb_app', type: 'sendreceive', syncOwnership: true },
+      ]);
+
+      expect(response.status).to.equal('success');
+      sinon.assert.calledOnce(fakeInstance.put);
     });
   });
 

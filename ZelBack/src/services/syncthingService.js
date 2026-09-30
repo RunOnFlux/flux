@@ -10,6 +10,9 @@ const { XMLParser } = require('fast-xml-parser');
 
 const { AsyncLock } = require('./utils/asyncLock');
 const { FluxController } = require('./utils/fluxController');
+const fluxEventBus = require('./utils/fluxEventBus');
+const { appsFolderPath } = require('./utils/appConstants');
+const { passwdTable, groupTable } = require('./utils/numericIdTables');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
@@ -72,6 +75,12 @@ let syncthingBinaryPresent = false;
  * Whether the sentinel has already taken syncthing on.
  */
 let sentinelStarted = false;
+
+/**
+ * Whether the syncthing running now has been announced as resolving owners by
+ * number. Stopping syncthing clears it, so each new process is announced.
+ */
+let ownersByNumberAnnounced = false;
 
 /**
  * What this node knows about syncthing, which is three answers and not two:
@@ -607,7 +616,34 @@ async function getConfigDevices(id) {
 }
 
 /**
+ * Whether folder ownership can be written: the syncthing running now resolves
+ * owners against the numeric id tables, so every owner travels by number. Read
+ * at the moment it is asked, from the running processes. Where this process
+ * does not supervise syncthing, whoever does (Arcane's unit) gives it that.
+ * @returns {Promise<boolean>}
+ */
+async function ownersTravelByNumber() {
+  if (!fluxosSupervisesSyncthing) return true;
+  // eslint-disable-next-line no-use-before-define
+  return (await syncthingOwnerView()) === 'numeric';
+}
+
+/**
+ * Whether a folder write turns syncthing's ownership sync on for any folder.
+ * @param {object|Array<object>} folderConfig One folder, or the folder list a PUT replaces.
+ * @returns {boolean}
+ */
+function writesOwnership(folderConfig) {
+  const folders = Array.isArray(folderConfig) ? folderConfig : [folderConfig];
+  return folders.some((folder) => folder?.syncOwnership === true);
+}
+
+/**
  * To modify config for folders. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the folder
+ *
+ * A write that turns ownership sync on is refused until ownersTravelByNumber():
+ * a syncthing that resolves the host's names would send them, and a peer gives
+ * the file whatever id that name has on its own host.
  * @param {string} method Request method.
  * @param {string} newConfig new config to be replaced.
  * @param {string} id folder ID.
@@ -621,6 +657,10 @@ async function adjustConfigFolders(method, newConfig, id) {
       return response;
     }
     apiPath += `/${id}`;
+  }
+  if (writesOwnership(newConfig) && !(await ownersTravelByNumber())) {
+    fluxEventBus.count('syncthing:ownershipWriteRefused');
+    return messageHelper.createErrorMessage('Folder ownership is not written until syncthing resolves owners against the numeric id tables');
   }
   const response = await performRequest(method, apiPath, newConfig);
   return response;
@@ -1775,6 +1815,8 @@ async function stopSyncthing() {
   // The device id is derived from syncthing's cert; a stop is the only window in
   // which that cert could be replaced, so the cached id is dropped here.
   cachedDeviceId = null;
+  // The next syncthing is a new process, announced in its turn.
+  ownersByNumberAnnounced = false;
   if (stc.aborted) return;
 
   const { stdout: syncthingRunningA } = await serviceHelper.runCommand('pgrep', {
@@ -1833,21 +1875,173 @@ async function stopSyncthingSentinel() {
   log.info('Syncthing sentinel stopped');
 }
 
+// syncthing resolves owners against the numeric id tables (numericIdTables.js)
+// in place of the host's user and group names, so every owner travels as its
+// number and a change of owner alone is a change. It runs in a mount namespace
+// of its own with the tables bound over /etc/passwd and /etc/group, and starts
+// only once both are bound. The table paths are "$1" and "$2", and syncthing's
+// own arguments follow them.
+//
+// The namespace is a slave of the host's, so an app volume mounted after
+// syncthing starts reaches it, and its own binds reach nothing else. A slave
+// receives only from a shared mount, which systemd makes of every mount at boot.
+const NUMERIC_ID_SYNCTHING = 'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 2 && exec syncthing "$@"';
+
+let numericIdTableContent = null;
+
 /**
- * Temporary function until moved over to Arcane
+ * Where this node keeps the numeric id tables syncthing is given.
+ * @returns {{dir: string, passwd: string, group: string}}
+ */
+function numericIdTablePaths() {
+  const dir = path.join(syncthingHomeDir(), 'numeric-ids');
+  return { dir, passwd: path.join(dir, 'passwd'), group: path.join(dir, 'group') };
+}
+
+/**
+ * Writes the numeric id tables where either is missing or differs.
+ * @returns {Promise<{dir: string, passwd: string, group: string}>}
+ */
+async function ensureNumericIdTables() {
+  numericIdTableContent ??= { passwd: passwdTable(), group: groupTable() };
+  const tables = numericIdTablePaths();
+  await fs.mkdir(tables.dir, { recursive: true });
+  // eslint-disable-next-line no-restricted-syntax
+  for (const table of ['passwd', 'group']) {
+    // eslint-disable-next-line no-await-in-loop
+    const written = await fs.readFile(tables[table], 'utf8').catch(() => null);
+    // eslint-disable-next-line no-await-in-loop
+    if (written !== numericIdTableContent[table]) await fs.writeFile(tables[table], numericIdTableContent[table]);
+  }
+  return tables;
+}
+
+/**
+ * What the running syncthing processes resolve owners against, read through
+ * each process's own view of the filesystem.
+ * @returns {Promise<'numeric'|'names'|'absent'|'unknown'>} numeric when every
+ *   process's passwd and group are this node's numeric id tables, names when
+ *   any process's are not, absent when none runs, unknown when the answer
+ *   could not be read.
+ */
+async function syncthingOwnerView() {
+  const { stdout: pidList } = await serviceHelper.runCommand('pgrep', {
+    params: ['-x', 'syncthing'],
+    logError: false,
+  });
+  const pids = (pidList ?? '').split('\n').map((pid) => pid.trim()).filter(Boolean);
+  if (!pids.length) return 'absent';
+
+  // A bind mount is the file itself: same device, same inode.
+  const tables = numericIdTablePaths();
+  const seen = pids.flatMap((pid) => [`/proc/${pid}/root/etc/passwd`, `/proc/${pid}/root/etc/group`]);
+  const { stdout, error } = await serviceHelper.runCommand('stat', {
+    runAsRoot: true,
+    params: ['-L', '-c', '%d:%i', tables.passwd, tables.group, ...seen],
+    logError: false,
+  });
+  // A process that exited between the two reads is not evidence either way.
+  if (error) return 'unknown';
+  const [passwdId, groupId, ...processIds] = stdout.trim().split('\n');
+  const bound = processIds.every((id, i) => id === (i % 2 === 0 ? passwdId : groupId));
+  return bound ? 'numeric' : 'names';
+}
+
+/**
+ * Announces, once per syncthing process, that it resolves owners by number.
+ */
+function noteOwnersByNumber() {
+  if (ownersByNumberAnnounced) return;
+  ownersByNumberAnnounced = true;
+  log.info('Syncthing resolves owners against the numeric id tables; folder ownership travels by number');
+  fluxEventBus.publish('syncthing:ownersByNumber', {});
+}
+
+/**
+ * Why a private mount namespace cannot give syncthing the numeric id tables
+ * here, asked by trying the first bind on its own.
+ * @param {{passwd: string}} tables
+ * @returns {Promise<string>}
+ */
+async function numericIdLaunchFailure(tables) {
+  const { error } = await serviceHelper.runCommand('unshare', {
+    runAsRoot: true,
+    params: ['--mount', '--propagation', 'slave', 'mount', '--bind', tables.passwd, '/etc/passwd'],
+    logError: false,
+  });
+  return error ? error.message : 'a private mount namespace with the numeric id tables can be made, and syncthing still did not start';
+}
+
+/**
+ * The path itself when it exists, otherwise its nearest ancestor that does.
+ * @param {string} target
+ * @returns {Promise<string>}
+ */
+async function nearestExistingPath(target) {
+  let candidate = target;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await fs.stat(candidate);
+      return candidate;
+    } catch {
+      const parent = path.dirname(candidate);
+      if (parent === candidate) return candidate;
+      candidate = parent;
+    }
+  }
+}
+
+/**
+ * How the mount that holds, or will hold, the app volumes propagates: shared
+ * when a volume mounted on it later reaches a namespace that is its slave.
+ * @returns {Promise<string|null>} findmnt's PROPAGATION field, or null when unreadable
+ */
+async function appVolumesPropagation() {
+  const { stdout, error } = await serviceHelper.runCommand('findmnt', {
+    params: ['-no', 'PROPAGATION', '-T', await nearestExistingPath(appsFolderPath)],
+    logError: false,
+  });
+  return error ? null : (stdout ?? '').trim();
+}
+
+/**
+ * Keeps the supervised syncthing up, and resolving owners against the numeric
+ * id tables. A syncthing that answers but resolves them against anything else
+ * is replaced like one that does not answer.
  * @param {boolean} installed If syncthing is installed
  * @returns {Promise<void>}
  */
 async function ensureSyncthingRunning(installed) {
-  if (installed && (await probeSyncthing()).ok) return;
-
-  log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
+  const tables = await ensureNumericIdTables();
+  if (installed && (await probeSyncthing()).ok) {
+    const view = await syncthingOwnerView();
+    if (view === 'numeric') {
+      noteOwnersByNumber();
+      return;
+    }
+    if (view !== 'names') return;
+    log.warn('Syncthing is running with the host\'s user and group names. Restarting it with the numeric id tables.');
+    fluxEventBus.publish('syncthing:namesVisible', {});
+  } else {
+    log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
+  }
   await stopSyncthing();
   await installSyncthingIdempotently();
   await configureDirectories();
 
   const syncthingHome = syncthingHomeDir();
   const logFile = path.join(syncthingHome, 'syncthing.log');
+
+  // A syncthing that cannot see the volumes mounted after it starts would sync
+  // the bare mountpoints beneath them.
+  const propagation = await appVolumesPropagation();
+  if (!propagation?.split(',').includes('shared')) {
+    fluxEventBus.count('syncthing:launchFailed');
+    log.error(`Syncthing is not started: the mount holding ${appsFolderPath} propagates as '${propagation ?? 'unreadable'}', not shared, so app volumes mounted after syncthing starts would never reach it`);
+    return;
+  }
 
   log.info('Spawning Syncthing instance...');
 
@@ -1861,13 +2055,22 @@ async function ensureSyncthingRunning(installed) {
   // process in its tree, and syncthing has to keep running through that: across
   // a restart, and through the drain FluxOS runs over it while it shuts down.
   childProcess.spawn(
-    // Quoted: both paths come from SYNCTHING_PATH, and this runs through a shell.
-    `sudo nohup syncthing --logfile '${logFile}' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '${syncthingHome}' >/dev/null 2>&1 </dev/null &`,
+    // Quoted: every path comes from SYNCTHING_PATH, and this runs through a shell.
+    `sudo nohup unshare --mount --propagation slave sh -c '${NUMERIC_ID_SYNCTHING}' syncthing '${tables.passwd}' '${tables.group}' `
+    + `--logfile '${logFile}' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '${syncthingHome}' >/dev/null 2>&1 </dev/null &`,
     { shell: true },
   ).unref();
 
   // let syncthing set itself up
   await stc.sleep(5 * 1000);
+
+  const view = await syncthingOwnerView();
+  if (view === 'numeric') {
+    noteOwnersByNumber();
+  } else if (view === 'absent') {
+    fluxEventBus.count('syncthing:launchFailed');
+    log.error(`Syncthing did not start with the numeric id tables: ${await numericIdLaunchFailure(tables)}`);
+  }
 }
 
 /**
@@ -1964,6 +2167,15 @@ function setSyncthingUnmeasured() {
   lastHealthyProbeAt = null;
   lastReportedHealth = SYNCTHING_HEALTH.UNMEASURED;
   sentinelStarted = false;
+}
+
+/**
+ * Test helper: sets whether the running syncthing has been announced as
+ * resolving no names.
+ * @param {boolean} value
+ */
+function setOwnersByNumberAnnounced(value) {
+  ownersByNumberAnnounced = value;
 }
 
 /**
@@ -2815,6 +3027,7 @@ module.exports = {
   installSyncthingIdempotently,
   setSyncthingRunningState,
   setSyncthingUnmeasured,
+  setOwnersByNumberAnnounced,
   resetDeviceIdCache,
   adjustSyncthing,
   getConfigFile,
