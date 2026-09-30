@@ -94,7 +94,7 @@ describe('a legacy node under pm2 drains within its kill timeout', function () {
       syncthing: 'binary',
       tickerAutostart: false,
       configOverrides: {
-        fluxapps: { minOutgoing: 1, minIncoming: 1, masterSlaveStaggerMs: 10000 },
+        fluxapps: { minOutgoing: 1, minIncoming: 1 },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
