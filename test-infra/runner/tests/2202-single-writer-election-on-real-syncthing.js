@@ -12,6 +12,7 @@ import { waitFor, waitHolding, waitForUp, waitForDown } from '../framework/wait.
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getDeviceId, getDeviceStats, getConfigDevices,
   statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, holdsValidVersion,
+  waitForDaemonEvent, folderSaved, itemFinished,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
@@ -192,12 +193,16 @@ describe('single-writer election on real syncthing', function () {
 
     const returned = client(FIRST).getLastEventId();
     await releaseFluxos(client(FIRST).container);
-    await waitHolding(async () => {
-      await oneWriterAtMost();
-      return (await getFolderConfig(client(FIRST), folder))?.type === 'receiveonly';
-    }, { timeout: 300000, interval: 2000, label: 'the old primary stops sending' });
-    const decision = await client(FIRST).waitForEvent('primaryRole:returned', () => true, 60000, { afterId: returned });
+    const decision = await client(FIRST).waitForEvent('primaryRole:returned', () => true, 300000, { afterId: returned });
     expect(decision.data, 'what the old primary decided').to.deep.equal({ identifier, outcome: 'discarded' });
+    await waitForDaemonEvent(client(FIRST), folderSaved(folder, { type: 'receiveonly', paused: false }), {
+      timeout: 60000, label: 'the old primary\'s folder unpaused, receiving',
+    });
+    await client(FIRST).waitForEvent('syncthing:localChangesReverted', (d) => d.folder === folder, 300000, { afterId: returned });
+    await waitForDaemonEvent(client(FIRST), itemFinished(folder, 'appdata/written-while-down.txt', 'delete'), {
+      timeout: 120000, label: 'the unsent write removed from the old primary',
+    });
+    await oneWriterAtMost();
 
     // Every config the old primary's daemon held since it started: never one in
     // which the folder sent unpaused.
@@ -205,10 +210,7 @@ describe('single-writer election on real syncthing', function () {
       .filter((e) => (e.data?.folders || []).some((f) => f.id === folder && f.type === 'sendreceive' && !f.paused));
     expect(sentUnpaused, 'a config in which the old primary\'s folder sent').to.deep.equal([]);
 
-    await waitFor(async () => {
-      await oneWriterAtMost();
-      return await isFolderSynced(client(FIRST), folder) && (await readPath(client(FIRST), stray)) === null;
-    }, { timeout: 300000, interval: 3000, label: 'the old primary is a synced standby and its unsent write is gone' });
+    expect(await readPath(client(FIRST), stray), 'the unsent write on the old primary').to.equal(null);
     for (const i of [SECOND, LATE]) {
       // eslint-disable-next-line no-await-in-loop
       expect(await readPath(client(i), stray), `the unsent write on node ${i}`).to.equal(null);
