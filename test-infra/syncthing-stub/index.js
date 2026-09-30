@@ -87,6 +87,19 @@ function reqState(req) {
   return nodeState(clientIp(req));
 }
 
+// syncthing's default folder. A PUT starts each folder it is sent from a copy of
+// this and applies the body over it, so a field the body leaves out takes the
+// default - not the folder's current value. A PATCH applies the body over the
+// folder as it is.
+const DEFAULT_FOLDER = Object.freeze({
+  type: 'sendreceive',
+  paused: false,
+  devices: [],
+  rescanIntervalS: 3600,
+  maxConflicts: 10,
+  syncOwnership: false,
+});
+
 // ip (or '*') -> milliseconds to hold a folder PATCH open before answering
 const folderPatchDelay = new Map();
 // Wakes parked PATCHes when a delay is cleared; unbounded listeners because
@@ -309,7 +322,7 @@ app.get('/rest/config', (req, res) => {
     gui: { enabled: true, address: `0.0.0.0:${PORT}`, apikey: API_KEY, theme: 'default' },
     ldap: {},
     options: { listenAddresses: ['default'], globalAnnEnabled: false, localAnnEnabled: false, relaysEnabled: false },
-    defaults: { folder: {}, device: {}, ignores: {} },
+    defaults: { folder: DEFAULT_FOLDER, device: {}, ignores: {} },
   });
 });
 
@@ -347,7 +360,7 @@ app.put('/rest/config/folders', (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
   arr.forEach((f) => {
-    state.folders.set(f.id, f);
+    state.folders.set(f.id, { ...DEFAULT_FOLDER, ...f });
     recordFolderWrite(state, 'put', f.id, f);
   });
   res.json({});
@@ -361,7 +374,7 @@ app.get('/rest/config/folders/:id', (req, res) => {
 
 app.put('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
-  state.folders.set(req.params.id, { ...req.body, id: req.params.id });
+  state.folders.set(req.params.id, { ...DEFAULT_FOLDER, ...req.body, id: req.params.id });
   recordFolderWrite(state, 'put', req.params.id, req.body);
   res.json({});
 });
@@ -956,6 +969,17 @@ control.post('/sync-reset', (req, res) => {
   patchDelayWaker.emit('wake');
   deviceLastSeen.clear();
   res.json({ ok: true });
+});
+
+// Change fields of a node's folder config directly, as something other than
+// FluxOS would. Not recorded as a folder write. 404 for an unknown folder.
+control.post('/folder-config', (req, res) => {
+  const { ip, id, fields = {} } = req.body || {};
+  const state = nodeStates.get(ip);
+  const existing = state?.folders.get(id);
+  if (!existing) return res.status(404).json({ error: 'not found' });
+  state.folders.set(id, { ...existing, ...fields });
+  return res.json({ ok: true });
 });
 
 // Drop the recorded folder-write and scan history, leaving the folder config itself
