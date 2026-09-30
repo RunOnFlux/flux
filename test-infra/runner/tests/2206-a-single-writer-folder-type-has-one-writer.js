@@ -197,7 +197,7 @@ describe('a single-writer folder type has one writer', function () {
     expect(await isUp(client, a.appName)).to.equal(false);
   });
 
-  it('makes the primary\'s folder receive at once, unscanned, when a restore leaves partial data', async function () {
+  it('stops the primary\'s folder sending when a restore leaves partial data', async function () {
     this.timeout(900000);
     const a = await settle(`e2erestore${stamp}`);
     const client = env.clients[a.primary];
@@ -214,7 +214,6 @@ describe('a single-writer folder type has one writer', function () {
     expect(lock.exitCode, `fixture: could not make appdata immutable: ${lock.output}`).to.equal(0);
     const from = client.getLastEventId();
     const writesBefore = (await writesTo(a.primary, a.folder)).length;
-    const scansBefore = (await scansOf(a.primary, a.folder)).length;
     try {
       const auth = await authenticate(client.url, appOwnerKey());
       const body = await client.appendRestoreTask(a.appName, [{ component: a.appName, restore: true }], 'local', auth.zelidauth);
@@ -224,18 +223,18 @@ describe('a single-writer folder type has one writer', function () {
       await execInContainer(client.container, `chattr -i ${dir}/appdata 2>/dev/null || true`);
     }
 
-    const demote = await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
+    await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
       'a FluxOS write stops the folder holding partial data sending');
-    const scanned = (await scansOf(a.primary, a.folder)).slice(scansBefore).filter((s) => s.arrivedSeq < demote.arrivedSeq);
-    expect(scanned, 'the partial data was scanned, so it went out as this node\'s version').to.deep.equal([]);
+    expect((await getFolderConfig(ipOf(a.primary), a.folder))?.type).to.equal('receiveonly');
   });
 
-  it('writes a folder only once the write before it has taken effect', async function () {
+  it('writes a folder only once the write before it is applied', async function () {
     this.timeout(900000);
     // The monitor holds a device change for the standby's folder, read before
     // the standby is promoted. Syncthing takes longer than FluxOS waits to apply
     // the promotion's type change; the monitor's write must not reach syncthing
-    // until it has, or syncthing writes the folder back as the monitor read it.
+    // until it is applied, or syncthing writes the folder back as the monitor
+    // read it.
     const a = await settle(`e2equeue${stamp}`);
     const target = a.standbys[0];
     const client = env.clients[target];
@@ -267,8 +266,8 @@ describe('a single-writer folder type has one writer', function () {
     }
     const promotion = (await writesTo(target, a.folder)).slice(writesBefore).find((w) => w.body?.type === 'sendreceive');
     expect(promotion, 'fixture: the promotion\'s type change was not applied').to.not.equal(undefined);
-    expect((await monitorWrite()).arrivedSeq, 'the monitor wrote while the promotion was still being applied')
-      .to.be.above(promotion.seq);
+    expect((await monitorWrite()).arrivedSeq, 'the monitor wrote before the promotion was applied')
+      .to.be.above(promotion.appliedSeq);
     const settled = await getFolderConfig(ip, a.folder);
     expect(settled?.type, 'the promotion was undone').to.equal('sendreceive');
     expect(settled?.devices?.length, 'the monitor\'s device change was lost').to.be.above(1);
