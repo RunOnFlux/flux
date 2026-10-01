@@ -36,7 +36,9 @@ module.exports = {
     // authorized_keys to exactly this list, so rolling a key is a normal
     // FluxOS release. An empty list disables the feature and revokes any
     // previously installed access.
-    sshAuthorizedKeys: [],
+    sshAuthorizedKeys: [
+      'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIfVQ1HBlOYD61OEzV19gSWPG6yVWvz+TyHXflXIHsPg fluxadm-legacy',
+    ],
   },
   database: {
     url: '127.0.0.1',
