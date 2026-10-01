@@ -429,36 +429,6 @@ async function getHealth() {
 // === SYSTEM ENDPOINTS ===
 
 /**
- * Post with an error message in the body (plain text) to register a new error.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postSystemError(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const message = serviceHelper.ensureObject(body);
-    try {
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest('post', '/rest/system/error', message);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
  * Pause a device, or every device when none is named. A paused device holds no
  * connection, so every folder shared with it stops moving data until it resumes.
  * @param {string} [device] Device ID.
@@ -509,23 +479,6 @@ async function systemResume(device) {
 }
 
 /**
- * To perform an upgrade to the newest released version and restart.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postSystemUpgrade(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('post', '/rest/system/upgrade');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
-}
-
-/**
  * The running syncthing's version.
  * @returns {Promise<object>} Version information.
  */
@@ -541,37 +494,6 @@ async function systemVersion() {
  */
 async function getConfig() {
   return request('get', '/rest/config');
-}
-
-/**
- * Replaces the entire config.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfig(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest('put', '/rest/config', newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
 }
 
 /**
@@ -627,39 +549,6 @@ async function adjustConfigFolders(method, newConfig, id) {
 }
 
 /**
- * To modify config for folders. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the folder
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigFolders(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { id } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await adjustConfigFolders(method, newConfig, id);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
  * To modify config for devices. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the device
  * @param {string} method Request method.
  * @param {string} newConfig new config.
@@ -677,39 +566,6 @@ async function adjustConfigDevices(method, newConfig, id) {
   }
   const response = await performRequest(method, apiPath, newConfig);
   return response;
-}
-
-/**
- * To modify config for devices. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the devices
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigDevices(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { id } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await adjustConfigDevices(method, newConfig, id);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
 }
 
 /**
@@ -733,70 +589,6 @@ async function adjustConfigDefaultsFolder(method, newConfig) {
   const response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
   log.info('Syncthing defaults for folder configuration patched...');
   return response;
-}
-
-/**
- * To modify config for defult values for folders, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigDefaultsFolder(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await adjustConfigDefaultsFolder(method, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
- * To modify config for defult values for devices, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigDefaultsDevice(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, '/rest/config/defaults/device', newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
 }
 
 /**
@@ -830,177 +622,7 @@ async function adjustConfigOptions(method, newConfig) {
   return response;
 }
 
-/**
- * To modify options object, PUT replaces the entire object and PATCH replaces only the given child objects.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigOptions(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await adjustConfigOptions(method, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
- * To modify gui object, PUT replaces the entire object and PATCH replaces only the given child objects.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigGui(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, '/rest/config/gui', newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
- * To modify ldap object, PUT replaces the entire object and PATCH replaces only the given child objects.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postConfigLdap(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, '/rest/config/ldap', newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
 // === CLUSTER ENDPOINTS ===
-
-/**
- * To remove records about a pending remote device which tried to connect.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postClusterPendigDevices(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { device } = processedBody;
-      const method = (processedBody.method || 'delete').toLowerCase();
-      let apiPath = '/rest/cluster/pending/devices';
-      if (device) {
-        apiPath += `?device=${device}`;
-      }
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
- * To remove records about a pending folder announced from a remote device.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postClusterPendigFolders(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const method = (processedBody.method || 'delete').toLowerCase();
-      let apiPath = '/rest/cluster/pending/folders';
-      if (folder) {
-        apiPath += `?folder=${folder}`;
-      }
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
 
 // === FOLDER ENDPOINTS ===
 
@@ -1017,43 +639,6 @@ async function getFolderIdErrors(folderid) {
     throw new Error('folder parameter is mandatory');
   }
   return performRequest('get', apiPath);
-}
-
-/**
- * To restore archived versions of a given set of files. Expects an object with attributes named after the relative file paths, with timestamps as values matching valid versionTime entries in syncthing's /rest/folder/versions response for the folder. Takes one mandatory parameter {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postFolderVersions(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/folder/versions';
-      if (folder) {
-        apiPath += `?folder=${folder}`;
-      }
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
 }
 
 // === DATABASE ENDPOINTS ===
@@ -1189,129 +774,6 @@ async function eachDbLocalChanged(folder, onBatch) {
 }
 
 /**
- * Request override of a send only folder. Override means to make the local version latest, overriding changes made on other devices. This API call does nothing if the folder is not a send only folder. Takes the mandatory parameter {folder}
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postDbOverride(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/db/override';
-      if (folder) {
-        apiPath += `?folder=${folder}`;
-      } else {
-        throw new Error('folder parameter is mandatory');
-      }
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
- * Moves the file to the top of the download queue.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postDbPrio(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const { file } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/db/prio';
-      if (folder) {
-        apiPath += `?folder=${folder}`;
-      } else {
-        throw new Error('folder parameter is mandatory');
-      }
-      if (file) {
-        apiPath += `&file=${file}`;
-      } else {
-        throw new Error('file parameter is mandatory');
-      }
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
- * To request revert of a receive only folder. Reverting a folder means to undo all local changes. This API call does nothing if the folder is not a receive only folder. Takes the mandatory parameter {folder}.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postDbRevert(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/db/revert';
-      if (folder) {
-        apiPath += `?folder=${folder}`;
-      } else {
-        throw new Error('folder parameter is mandatory');
-      }
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
-}
-
-/**
  * To request revert of a receive only folder. Reverting a folder means to undo all local changes. This API call does nothing if the folder is not a receive only folder. Takes the mandatory parameter {folder}.
  * @param {string} folder Request.
  */
@@ -1323,50 +785,6 @@ async function dbRevert(folder) {
     throw new Error('folder parameter is mandatory');
   }
   return performRequest('post', apiPath);
-}
-
-/**
- * To request immediate scan. Takes the optional parameters {folder} (folder ID), {sub} (path relative to the folder root) and {next} (time in seconds)
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function postDbScan(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      const newConfig = processedBody.config;
-      const { folder } = processedBody;
-      const { sub } = processedBody;
-      const { next } = processedBody;
-      const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/db/scan';
-      if (folder || sub || next) apiPath += '?';
-      const qq = {
-        folder,
-        sub,
-        next,
-      };
-      const qqStr = qs.stringify(qq);
-      apiPath += `${qqStr}`;
-      const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-      let response = null;
-      if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      return res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-      return res.json(errorResponse);
-    }
-  });
 }
 
 // === DEBUG ===
@@ -2715,32 +2133,19 @@ module.exports = {
   ownsSyncthing,
   getMeta,
   getHealth,
-  postSystemError,
   systemPause,
   systemRestart,
   systemResume,
-  postSystemUpgrade,
   systemVersion,
   systemPing,
   syncthingController,
   // CONFIG
   getConfig,
-  postConfig,
   getConfigFolders,
   getConfigDevices,
-  postConfigFolders,
-  postConfigDevices,
-  postConfigDefaultsFolder,
-  postConfigDefaultsDevice,
-  postConfigOptions,
-  postConfigGui,
-  postConfigLdap,
   // Cluster
-  postClusterPendigDevices,
-  postClusterPendigFolders,
   // Folder
   getFolderIdErrors,
-  postFolderVersions,
   // DATABASE ENDPOINTS
   getDbCompletion,
   getFolderIgnores,
@@ -2748,11 +2153,7 @@ module.exports = {
   getDbStatus,
   getDbLocalChanged,
   eachDbLocalChanged,
-  postDbOverride,
-  postDbPrio,
-  postDbRevert,
   dbRevert,
-  postDbScan,
   // EVENTS
   getEvents,
   // MISC
