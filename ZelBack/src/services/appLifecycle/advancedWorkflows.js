@@ -616,6 +616,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     // each node says it holds, so the old volume's figures describe the one being
     // replaced and can win the election for a volume that is about to be empty.
     globalState.folderHoldings?.delete(appId);
+    globalState.seedMarks.delete(appId);
     await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
       status: 'Space allocated',

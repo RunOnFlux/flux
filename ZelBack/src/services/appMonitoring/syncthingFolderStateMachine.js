@@ -16,6 +16,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { silenceVerdict, SilenceVerdict } = require('./peerFolderLiveness');
 const {
   LEADER_CONFIRM_COUNT,
+  MONITOR_INTERVAL_MS,
   SYNC_COMPLETE_PERCENTAGE,
   OPERATION_DELAY_MS,
   STALL_NUDGE_AFTER_MS,
@@ -920,6 +921,80 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
   return null;
 }
 
+// How long a seed decision may take, from this node's read of its peers to it
+// recording that it seeds. A rival this read missed marked its intent after the read
+// began, and reads a full pass after that intent - so it sees this node's decision
+// unless the decision took longer than a pass. Past the budget this node decides
+// nothing and tries again on the next pass.
+const SEED_DECISION_BUDGET_MS = MONITOR_INTERVAL_MS;
+
+/**
+ * This node's place in deciding which holder seeds a folder, published to its peers
+ * through /apps/promotedfolders (globalState.seedMarks).
+ * @param {string} appId Folder id
+ * @param {string} stage 'intent' | 'deciding' | 'decided'
+ * @param {{bytes: number, newestModified: number}|null} holdings What this node holds
+ */
+function markSeed(appId, stage, holdings) {
+  globalState.seedMarks.set(appId, {
+    stage,
+    bytes: holdings?.bytes ?? null,
+    newestModified: holdings?.newestModified ?? null,
+  });
+}
+
+/**
+ * Whether claim `a` ranks before claim `b` to seed a folder: most bytes, then most
+ * recently written, then lowest address - bestHolder's order. Both rivals compare the
+ * same two claims, each as its owner published it, so they reach the same answer. A
+ * claim that is not a finite number ranks below every one that is.
+ * @param {{address: string, bytes: *, newestModified: *}} a
+ * @param {{address: string, bytes: *, newestModified: *}} b
+ * @returns {boolean}
+ */
+function seedClaimRanksFirst(a, b) {
+  const number = (value) => (Number.isFinite(value) ? value : -1);
+  if (number(a.bytes) !== number(b.bytes)) return number(a.bytes) > number(b.bytes);
+  if (number(a.newestModified) !== number(b.newestModified)) return number(a.newestModified) > number(b.newestModified);
+  return a.address < b.address;
+}
+
+/**
+ * The peer that stops this node seeding a folder now, read fresh from every holder
+ * that answers: one that has decided to seed it, or one that also intends to and
+ * ranks first. Null when none does.
+ *
+ * Two holders can each be elected to seed - each decides from its own view of the
+ * claims - and confirm on the same pass. Each marks itself deciding before this read,
+ * so the one that marks first is seen by the other's read; two that see each other
+ * compare the same two claims and agree. A holder that cannot be read is not counted
+ * here: two holders that cannot reach each other is a partition, which only an
+ * election agreed across the fleet can settle.
+ * @param {string} appId Folder id
+ * @param {Array} peers App location entries
+ * @param {string} localSocketAddr This node's socket address
+ * @param {Object} liveness This pass's peer view
+ * @param {{address: string, bytes: *, newestModified: *}} own This node's claim
+ * @returns {Promise<{ip: string, reason: string, outcome: string}|null>}
+ */
+async function findSeedRival(appId, peers, localSocketAddr, liveness, own) {
+  const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
+  const answers = await Promise.all(others.map(
+    async (peer) => ({ ip: peer.ip, ...await liveness.reread(peer.ip) }),
+  ));
+  const answered = answers.filter((answer) => answer.reachable && answer.answerable);
+  const decided = answered.find((answer) => answer.seeding?.[appId]?.stage === 'decided'
+    || (answer.ready && answer.folders.includes(appId)));
+  if (decided) return { ip: decided.ip, reason: 'has already decided to seed it', outcome: 'yieldedToDecided' };
+  const rival = answered.find((answer) => {
+    const mark = answer.seeding?.[appId];
+    return (mark?.stage === 'intent' || mark?.stage === 'deciding')
+      && seedClaimRanksFirst({ address: answer.ip, bytes: mark.bytes, newestModified: mark.newestModified }, own);
+  });
+  if (rival) return { ip: rival.ip, reason: 'also intends to seed it and ranks first', outcome: 'yieldedToRank' };
+  return null;
+}
+
 /**
  * Handle first run scenario for an app/component
  * @param {Object} params - Parameters
@@ -1344,6 +1419,15 @@ async function handleReceiveOnlyTransition(params) {
   const { connected } = liveness.localConnectivity();
   cache.leaderStreak = electedLeader && connected ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
+  // Announced on the pass this node is elected, so a rival that confirms on the same
+  // pass as it can see it - see findSeedRival.
+  const ownSeedClaim = {
+    address: (runningAppList || []).find((peer) => socketAddressesMatch(peer?.ip, localSocketAddr))?.ip ?? localSocketAddr,
+    bytes: holdings?.bytes ?? null,
+    newestModified: holdings?.newestModified ?? null,
+  };
+  if (electedLeader && connected) markSeed(appId, 'intent', holdings);
+  else globalState.seedMarks.delete(appId);
   // Withdrawn on every unpromoted pass, so a lost election drops the claim
   // and the intent behind it. It is raised again only where the promotion is
   // APPLIED - the state machine records intent at the last gate, and the
@@ -1386,7 +1470,22 @@ async function handleReceiveOnlyTransition(params) {
     log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${blocker.ip} ${blocker.reason}; going on as a standby`);
   }
   if (isLeader && !blocker?.holdsWritableCopy) {
+    // Marked before the peers are read, so a rival deciding at the same moment
+    // sees this node. Every way out below that does not seed goes back to intent.
+    markSeed(appId, 'deciding', holdings);
+    const notSeeding = () => {
+      markSeed(appId, 'intent', holdings);
+      decideType(syncthingFolder, containerDataFlags, 'receiveonly');
+      return { syncthingFolder, cache };
+    };
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_DECISION, appId);
+    const decisionStartedAt = monotonicMs();
+    const rival = await findSeedRival(appId, runningAppList, localSocketAddr, liveness, ownSeedClaim);
+    if (rival) {
+      fluxEventBus.count('syncthing:seedDecision', appId, rival.outcome);
+      log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${rival.ip} ${rival.reason}; going on as a standby`);
+      return notSeeding();
+    }
     // The seed flip below runs WITHOUT a sync check, and that is only sound when
     // there is nothing to lose: an empty folder (the cold start this election
     // exists for) or a fully synced copy (a survivor taking over). A node can
@@ -1410,15 +1509,13 @@ async function handleReceiveOnlyTransition(params) {
       || (syncStatus.globalBytes > 0 && !syncStatus.isSynced);
     if (holdsPartialOfAKnownGlobal) {
       log.info(`handleReceiveOnlyTransition - ${appId} is the confirmed designated leader but holds a partial copy (${syncStatus ? `${syncStatus.syncPercentage.toFixed(2)}% synced` : 'sync status unreadable'}); staying receiveonly until synced`);
-      decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-      return { syncthingFolder, cache };
+      return notSeeding();
     }
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
 
     if (blocker) {
       log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${blocker.ip} ${blocker.reason}; staying receiveonly`);
-      decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-      return { syncthingFolder, cache };
+      return notSeeding();
     }
 
     // A folder must pass the sendreceive safety verification BEFORE it ever
@@ -1429,9 +1526,20 @@ async function handleReceiveOnlyTransition(params) {
     const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || []);
     if (!seedSafety.isSafe) {
       log.warn(`handleReceiveOnlyTransition - ${appId} elected leader but not safe to seed (${seedSafety.reason}); staying receiveonly`);
-      decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-      return { syncthingFolder, cache };
+      return notSeeding();
     }
+
+    // A decision that took longer than a pass may have missed a rival that
+    // marked its intent after this node's read - see SEED_DECISION_BUDGET_MS.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_RECORD, appId);
+    const decisionMs = monotonicMs() - decisionStartedAt;
+    if (decisionMs > SEED_DECISION_BUDGET_MS) {
+      fluxEventBus.count('syncthing:seedDecision', appId, 'overBudget');
+      log.info(`handleReceiveOnlyTransition - ${appId}: deciding to seed took ${decisionMs}ms, longer than a pass (${SEED_DECISION_BUDGET_MS}ms); deciding again on the next pass`);
+      return notSeeding();
+    }
+    markSeed(appId, 'decided', holdings);
+    fluxEventBus.count('syncthing:seedDecision', appId, 'seeded');
 
     // Every gate passed - but deciding the promotion is not applying it. The
     // designation masterSlaveApps reads has to mean "the folder IS writable",

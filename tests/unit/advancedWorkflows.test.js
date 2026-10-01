@@ -3737,12 +3737,15 @@ describe('advancedWorkflows tests', () => {
         [identifier, { bytes: 5821604997, newestModified: 200 }],
         ['fluxother_TestApp', { bytes: 4096, newestModified: 100 }],
       ]);
+      volGlobalState.seedMarks.set(identifier, { stage: 'intent', bytes: 5821604997, newestModified: 200 });
+      volGlobalState.seedMarks.set('fluxother_TestApp', { stage: 'intent', bytes: 4096, newestModified: 100 });
     };
 
     beforeEach(() => {
       volGlobalState = require('../../ZelBack/src/services/utils/globalState');
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
       volGlobalState.folderHoldings = null;
+      volGlobalState.seedMarks.clear();
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
@@ -3949,6 +3952,8 @@ describe('advancedWorkflows tests', () => {
       ).to.equal(false);
       // Scoped to the volume being replaced, not a clear of every answer the node holds.
       expect(volGlobalState.folderHoldings.has('fluxother_TestApp')).to.equal(true);
+      expect(volGlobalState.seedMarks.has(identifier), 'the point of no return left an offer to seed an empty volume').to.equal(false);
+      expect(volGlobalState.seedMarks.has('fluxother_TestApp')).to.equal(true);
     });
   });
 

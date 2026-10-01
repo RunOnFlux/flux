@@ -78,6 +78,7 @@ async function stopSyncthingAndCleanup(monitoredName, appId, res) {
   // outranking a node that still holds the app and seeding an empty folder in its
   // place.
   globalState.folderHoldings?.delete(appId);
+  globalState.seedMarks.delete(appId);
 
   try {
     // Dynamic require to avoid circular dependency

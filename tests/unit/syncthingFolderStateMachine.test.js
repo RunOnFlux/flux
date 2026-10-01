@@ -1370,6 +1370,224 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
+    // Two holders can each be elected to seed - each decides from its own view of
+    // the claims - and confirm on the same pass. Each announces its intent when it is
+    // elected, marks itself deciding before it reads its peers, and reads them fresh:
+    // a holder that has decided, or that also intends to and ranks first, keeps this
+    // node from seeding.
+    describe('the seed decision between holders that can reach each other', () => {
+      const confirmedSeed = ({ local = '10.0.0.1:16127', ownFiles = [] } = {}) => {
+        mockParams.localSocketAddr = local;
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+        });
+        mockParams.appLocation.resolves([
+          { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+          { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+        ]);
+        fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+        fsMock.promises.readdir.resolves([]);
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        });
+        syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: ownFiles }));
+      };
+      const rivalAnswers = (seeding) => {
+        axiosMock.get.resolves({ data: { data: { ready: true, folders: [], seeding } } });
+      };
+      let count;
+      beforeEach(() => { count = sinon.stub(fluxEventBus, 'count'); });
+      afterEach(() => { count.restore(); });
+      const outcomes = () => count.getCalls()
+        .filter((call) => call.args[0] === 'syncthing:seedDecision').map((call) => call.args[2]);
+
+      it('seeds, and marks it decided, when no rival answers with a mark', async () => {
+        confirmedSeed();
+        rivalAnswers({});
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+        expect(globalStateMock.seedMarks.get('test-app')).to.include({ stage: 'decided' });
+        expect(outcomes()).to.deep.equal(['seeded']);
+      });
+
+      it('marks itself deciding before it reads its peers', async () => {
+        confirmedSeed();
+        const seenAtRead = [];
+        axiosMock.get.callsFake(async () => {
+          seenAtRead.push(globalStateMock.seedMarks.get('test-app')?.stage);
+          return { data: { data: { ready: true, folders: [], seeding: {} } } };
+        });
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(seenAtRead.at(-1), 'the deciding read happened before this node was marked deciding').to.equal('deciding');
+      });
+
+      it('yields to a rival that has already decided to seed', async () => {
+        confirmedSeed();
+        rivalAnswers({ 'test-app': { stage: 'decided', bytes: 0, newestModified: 0 } });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache.restarted).to.not.equal(true);
+        expect(outcomes()).to.deep.equal(['yieldedToDecided']);
+        expect(globalStateMock.seedMarks.get('test-app'), 'still elected, so still announcing').to.include({ stage: 'intent' });
+        sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+      });
+
+      ['intent', 'deciding'].forEach((stage) => {
+        it(`yields to a rival whose ${stage} carries more data`, async () => {
+          confirmedSeed();
+          rivalAnswers({ 'test-app': { stage, bytes: 500, newestModified: 10 } });
+
+          const result = await stateMachine.manageFolderSyncState(mockParams);
+
+          expect(result.syncthingFolder.type).to.equal('receiveonly');
+          expect(outcomes()).to.deep.equal(['yieldedToRank']);
+        });
+      });
+
+      it('seeds over a rival whose claim ranks below its own', async () => {
+        confirmedSeed({ ownFiles: [localEntry('appdata/world.db', 800)] });
+        rivalAnswers({ 'test-app': { stage: 'deciding', bytes: 500, newestModified: Date.parse('2027-01-01T00:00:00Z') } });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+        expect(outcomes()).to.deep.equal(['seeded']);
+      });
+
+      it('separates equal claims by the lower address, the same way on both sides', async () => {
+        confirmedSeed({ local: '10.0.0.1:16127' });
+        rivalAnswers({ 'test-app': { stage: 'deciding', bytes: 0, newestModified: 0 } });
+        expect((await stateMachine.manageFolderSyncState(mockParams)).syncthingFolder.type, 'the lower address').to.equal('sendreceive');
+
+        globalStateMock.seedMarks.clear();
+        mockParams.syncthingFolder = { id: 'test-app' };
+        mockParams.liveness = createPeerFolderLiveness();
+        confirmedSeed({ local: '10.0.0.2:16127' });
+        rivalAnswers({ 'test-app': { stage: 'deciding', bytes: 0, newestModified: 0 } });
+        expect((await stateMachine.manageFolderSyncState(mockParams)).syncthingFolder.type, 'the higher address').to.equal('receiveonly');
+      });
+
+      it('reads its peers fresh for the decision, not from the answer the pass opened with', async () => {
+        confirmedSeed();
+        axiosMock.get.onFirstCall().resolves({ data: { data: { ready: true, folders: [], seeding: {} } } });
+        axiosMock.get.resolves({ data: { data: { ready: true, folders: [], seeding: { 'test-app': { stage: 'decided' } } } } });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(axiosMock.get.callCount, 'the rival was asked again for the decision').to.be.at.least(2);
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(outcomes()).to.deep.equal(['yieldedToDecided']);
+      });
+
+      it('decides nothing when the decision took longer than a pass, and decides again on the next', async () => {
+        confirmedSeed();
+        const clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
+        try {
+          axiosMock.get.callsFake(async () => {
+            clock.tick(30001);
+            return { data: { data: { ready: true, folders: [], seeding: {} } } };
+          });
+          const slow = await stateMachine.manageFolderSyncState(mockParams);
+          expect(slow.syncthingFolder.type).to.equal('receiveonly');
+          expect(outcomes()).to.deep.equal(['overBudget']);
+          expect(globalStateMock.seedMarks.get('test-app')).to.include({ stage: 'intent' });
+
+          rivalAnswers({});
+          mockParams.receiveOnlySyncthingAppsCache.set('test-app', slow.cache);
+          mockParams.syncthingFolder = { id: 'test-app' };
+          mockParams.liveness = createPeerFolderLiveness();
+          const next = await stateMachine.manageFolderSyncState(mockParams);
+          expect(next.syncthingFolder.type).to.equal('sendreceive');
+        } finally {
+          clock.restore();
+        }
+      });
+
+      // The budget bounds the time from this node's read to its decision: a rival
+      // its read missed marked its intent after the read began. Time before the read
+      // is not in it.
+      [
+        ['before the read, which does not count', 'syncthing:beforeSeedDecision', 'sendreceive', 'seeded'],
+        ['after the read, which does', 'syncthing:beforeSeedRecord', 'receiveonly', 'overBudget'],
+      ].forEach(([when, name, type, outcome]) => {
+        it(`times the decision from its read: a pass spent ${when}`, async () => {
+          confirmedSeed();
+          rivalAnswers({});
+          const clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
+          const checkpoint = sinon.stub(fluxEventBus, 'checkpoint').callsFake(async (held) => {
+            if (held === name) clock.tick(30001);
+          });
+          try {
+            const result = await stateMachine.manageFolderSyncState(mockParams);
+
+            expect(result.syncthingFolder.type).to.equal(type);
+            expect(outcomes()).to.deep.equal([outcome]);
+          } finally {
+            checkpoint.restore();
+            clock.restore();
+          }
+        });
+      });
+
+      // Two holders that cannot reach each other are a partition, which only an
+      // election agreed across the fleet settles; one that cannot answer at all is
+      // decided as it was before peers could be asked.
+      it('does not count a rival it cannot read', async () => {
+        confirmedSeed();
+        axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+      });
+
+      it('does not count a rival too old to be asked', async () => {
+        confirmedSeed();
+        axiosMock.get.rejects(httpStatus(404));
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+      });
+
+      it('announces intent on the pass it is elected, and withdraws it once it is not', async () => {
+        confirmedSeed();
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1, leaderStreak: 0 });
+        rivalAnswers({});
+
+        const first = await stateMachine.manageFolderSyncState(mockParams);
+        expect(first.syncthingFolder.type).to.equal('receiveonly');
+        expect(globalStateMock.seedMarks.get('test-app')).to.include({ stage: 'intent' });
+
+        // A peer holding the owner's data now outranks it, so it is no longer elected.
+        mockParams.liveness = createPeerFolderLiveness();
+        mockParams.syncthingFolder = { id: 'test-app' };
+        rivalAnswers({});
+        axiosMock.get.resolves({ data: { data: { ready: true, folders: [], holding: { 'test-app': { bytes: 900, newestModified: 5 } } } } });
+        await stateMachine.manageFolderSyncState(mockParams);
+        expect(globalStateMock.seedMarks.has('test-app')).to.equal(false);
+      });
+
+      it('goes back to intent when it is not safe to seed after all', async () => {
+        confirmedSeed();
+        rivalAnswers({});
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, globalFiles: 1, inSyncBytes: 500, state: 'idle', receiveOnlyChangedFiles: 0,
+        });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(globalStateMock.seedMarks.get('test-app')).to.include({ stage: 'intent' });
+      });
+    });
+
     // The election goes on naming the lowest address for as long as it wins the
     // tiebreak, so a node that lost the seed to a peer would otherwise stay
     // receiveonly for as long as that peer holds the copy - receiving the data and

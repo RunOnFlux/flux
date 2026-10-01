@@ -417,6 +417,22 @@ describe('syncthing folder writes', () => {
       expect(globalState.promotedFolderIds.has('fluxprobe_app')).to.equal(true);
     });
 
+    // A folder that sends has been seeded, and peers read that from the folder; a
+    // seed mark kept past it would answer for a decision already carried out.
+    it('drops this node\'s seed mark for a folder once it is writable, and keeps the others', async () => {
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      globalState.seedMarks.set('fluxprobe_app', { stage: 'decided', bytes: 0, newestModified: 0 });
+      globalState.seedMarks.set('fluxother_app', { stage: 'intent', bytes: 0, newestModified: 0 });
+      try {
+        await syncthingFolderWrites.patchFolder('fluxprobe_app', { type: 'sendreceive' });
+
+        expect(globalState.seedMarks.has('fluxprobe_app')).to.equal(false);
+        expect(globalState.seedMarks.has('fluxother_app')).to.equal(true);
+      } finally {
+        globalState.seedMarks.clear();
+      }
+    });
+
     it('publishes a folder a monitor pass found writable before its writer recorded it, once', async () => {
       const publish = sinon.stub(fluxEventBus, 'publish');
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });

@@ -837,6 +837,7 @@ describe('appQueryService tests', () => {
 
       afterEach(() => {
         globalState.folderHoldings = null;
+        globalState.seedMarks.clear();
       });
 
       it('serves the holdings to a node on the deterministic list', async () => {
@@ -845,6 +846,17 @@ describe('appQueryService tests', () => {
         const result = await appQueryService.promotedFolderHoldings({ body: signed() });
 
         expect(result.holding).to.deep.equal({ fluxa_a: { bytes: 5821604997, newestModified: 200 } });
+      });
+
+      // Where this node stands in deciding a cold-start seed carries the same figures
+      // as its holdings, so it goes where they go.
+      it('serves this node\'s seed marks beside the holdings', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        globalState.seedMarks.set('fluxb_b', { stage: 'deciding', bytes: 10, newestModified: 5 });
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.seeding).to.deep.equal({ fluxb_b: { stage: 'deciding', bytes: 10, newestModified: 5 } });
       });
 
       it('serves the holdings to the flux team', async () => {
@@ -968,7 +980,7 @@ describe('appQueryService tests', () => {
         expect(fluxNetworkHelperStub.verifySignedFluxnodeMessage.called).to.equal(false);
       });
 
-      it('signs the whole answer, holdings included, as promoted folders over the request', async () => {
+      it('signs the whole answer, holdings and seed marks included, as promoted folders over the request', async () => {
         fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
         const seal = sinon.stub().callsFake(async (fields) => ({ ...fields, sealed: true }));
         peerIdentityServiceStub.answerSealer.returns(seal);
@@ -977,7 +989,7 @@ describe('appQueryService tests', () => {
         const result = await appQueryService.promotedFolderHoldings({ body });
 
         sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'promoted', body);
-        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'holding');
+        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'holding', 'seeding');
         expect(result.sealed).to.equal(true);
       });
 
