@@ -479,13 +479,10 @@ async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs 
   const syncStatus = await getFolderSyncCompletion(appId);
   if (!syncStatus || syncStatus.globalBytes === 0) return result;
 
-  // The index says which kind of claim it is making, and the disk is read on those
-  // terms. Claiming FILES is answered by files on disk: the directories FluxOS builds
-  // the volume from survive a wipe, so counting them answers every volume the same
-  // way and the check decides nothing. Claiming bytes and NO files is a folder of
-  // empty directories, where directories are the payload and the only honest count.
-  const claimsFiles = syncStatus.globalFiles > 0;
-  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs, { countDirs: !claimsFiles });
+  // The index claims bytes held in files, so it is answered by files with bytes on
+  // disk. The directories and empty files FluxOS builds the volume from survive a
+  // wipe, so counting them would answer every volume the same way and decide nothing.
+  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs, { countDirs: false });
   // An empty reading is acted on only where it is an answer. A volume no process on
   // this node could read says nothing about what it holds, and demoting on it stops a
   // running app over the node's own blindness - so it is reported as the fault it is,
@@ -524,20 +521,20 @@ async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs 
  */
 async function probeFolderSyncCompletion(folderId) {
   try {
+    // Bytes in FILES: before syncthing v2.1.2 every directory adds a synthetic 128,
+    // so a folder of empty directories would read as holding data.
     const {
-      globalBytes = 0, globalFiles = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
-      receiveOnlyChangedDirectories = 0,
-    } = await syncthingService.getDbStatus(folderId);
+      globalFileBytes: globalBytes = 0, globalFiles = 0, inSyncFileBytes: inSyncBytes = 0, state,
+      receiveOnlyChangedFiles = 0, receiveOnlyChangedDirectories = 0,
+    } = await syncthingService.getDbStatusInFileBytes(folderId);
 
     const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
 
     const status = {
       syncPercentage,
+      // What the global index holds in files, in bytes.
       globalBytes,
-      // How many of the indexed entries are FILES. It is what says which kind of
-      // claim globalBytes is: a folder whose payload is empty directories has bytes
-      // and no files, and one holding the owner's data has both. A daemon too old to
-      // report it reads 0, which is the reading that changes nothing.
+      // How many of the indexed entries are FILES, empty ones included.
       globalFiles,
       inSyncBytes,
       state,
@@ -1078,7 +1075,7 @@ async function findSyncedPeer(folderId, { exclude = new Set() } = {}) {
       }
       try {
         // eslint-disable-next-line no-await-in-loop
-        const { completion = 0, globalBytes = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletion({
+        const { completion = 0, globalFileBytes: globalBytes = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletionInFileBytes({
           folder: folderId,
           device: device.deviceID,
         });
@@ -1089,10 +1086,11 @@ async function findSyncedPeer(folderId, { exclude = new Set() } = {}) {
         //   turns a source-node reboot into followers deleting their partial copies.
         //   remoteState is the connectivity discriminator ('valid' iff connected);
         //   when absent, there is no evidence and the peer must not be trusted.
-        // - Syncthing reports completion 100 for an empty folder (globalBytes 0) too,
-        //   so without the globalBytes check a peer that synced empty/wrong data from
-        //   a bad seed would falsely satisfy "peers are synced" and we would remove
-        //   the good local copy in favour of an empty one (data loss).
+        // - Syncthing reports completion 100 for an empty folder too, so without the
+        //   bytes check a peer that synced empty/wrong data from a bad seed would
+        //   falsely satisfy "peers are synced" and we would remove the good local copy
+        //   in favour of an empty one (data loss). Bytes in FILES: before syncthing
+        //   v2.1.2 a folder of empty directories carries bytes of its own.
         if (remoteState === 'valid' && completion === 100 && globalBytes > 0) {
           log.info(`findSyncedPeer - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}% (${globalBytes} bytes, connected)`);
           return { deviceID: device.deviceID, globalBytes };

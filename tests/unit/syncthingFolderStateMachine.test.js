@@ -7,6 +7,7 @@ const { globalState } = require('./fixtures/globalState');
 const { syncthingIgnoreLines } = require('../../ZelBack/src/services/appSystem/volumeReservedNames');
 const proxyquire = require('proxyquire').noCallThru();
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
 
 // Create mocks for dependencies
 const syncthingServiceMock = {
@@ -25,6 +26,20 @@ const syncthingServiceMock = {
   getDeviceStats: sinon.stub(),
   systemPause: sinon.stub(),
   systemResume: sinon.stub(),
+  // The release this node's syncthing reports. The counts the stubs above return
+  // are corrected for it by syncthingService's own functions, as the real reads are.
+  syncthingVersion: 'v2.1.5',
+  async getDbStatusInFileBytes(folder) {
+    const entry = syncthingService.nonFileEntryBytesForVersion(this.syncthingVersion);
+    return syncthingService.statusInFileBytes(await this.getDbStatus(folder), entry);
+  },
+  async getDbCompletionInFileBytes({ folder, device }) {
+    const entry = syncthingService.nonFileEntryBytesForVersion(this.syncthingVersion);
+    const completion = await this.getDbCompletion({ folder, device });
+    // A test about a peer's completion need not say what the folder holds.
+    const status = (await this.getDbStatus(folder)) || {};
+    return syncthingService.completionInFileBytes(completion, status, entry);
+  },
 };
 
 // The device cache the veto reads, owned by this suite and cleared between
@@ -165,6 +180,7 @@ describe('syncthingFolderStateMachine tests', () => {
     // Reset only this file's own stubs (NOT a global sinon.reset(), which would
     // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
+    syncthingServiceMock.syncthingVersion = 'v2.1.5';
     // default: this node holds the component, so no test is about demotion by accident
     appQueryServiceMock.holdsComponent.reset();
     appQueryServiceMock.holdsComponent.resolves(true);
@@ -314,6 +330,18 @@ describe('syncthingFolderStateMachine tests', () => {
   });
 
   describe('probeFolderSyncCompletion', () => {
+    // A folder of directories alone holds no data, whichever release counts them.
+    it('does not read a folder of directories alone as synced with data on syncthing before v2.1.2', async () => {
+      syncthingServiceMock.syncthingVersion = 'v2.0.15';
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 256, globalDirectories: 2, globalFiles: 0, inSyncBytes: 256, state: 'idle',
+      });
+
+      const { status } = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(status).to.include({ globalBytes: 0, isSynced: false });
+    });
+
     // Syncthing saying "no such folder" is a finding about the data. Syncthing
     // not answering is a finding about syncthing. The backup gate reports one of
     // these to an operator as a fact about their data, so they must not arrive
@@ -2646,18 +2674,17 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     it('is safe when the synced payload is only (empty) directories', async () => {
-      // real 2026-07-04 false positive: an app whose synced content is empty
-      // directories. The index counts each directory entry (globalBytes 256)
-      // while the disk holds no regular file, so a files-only walk wrongly
-      // called it a phantom index and the reconciler stopped the container
-      // (exit 137) and held it down. Directories must count as content.
+      // The 2026-07-04 false positive: an app whose synced content is empty
+      // directories. syncthing before v2.1.2 counts each directory as 128 bytes, so
+      // the index reads 256 bytes while the disk holds no regular file. None of those
+      // bytes are in files, so there is nothing to verify.
+      syncthingServiceMock.syncthingVersion = 'v2.0.15';
       fsMock.promises.readdir.resolves([]); // nested dirs are empty
       fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
         dirent('.stignore'), dirent('.stfolder', false), dirent('data', false),
       ]);
-      // bytes and no files is the index saying its payload IS directories
       syncthingServiceMock.getDbStatus.resolves({
-        globalBytes: 256, globalFiles: 0, inSyncBytes: 256, state: 'idle',
+        globalBytes: 256, globalFiles: 0, globalDirectories: 2, inSyncBytes: 256, state: 'idle',
       });
 
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
@@ -2747,21 +2774,43 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.isSafe).to.be.true;
     });
 
-    // The mount structure is not the answer to "is the owner's data here", but it IS
-    // the answer to "is this a folder of empty directories". The claim decides which
-    // question is being asked, so the same tree reads both ways.
-    it('reads the same mount structure as content when the index claims no files', async () => {
+    // The scaffolding every mount form leaves - the primary mount and an m:
+    // directory, and the zero-length file an f: mount needs - is all the index
+    // holds before the app writes anything. On syncthing before v2.1.2 its two
+    // directories count 256 bytes and the empty file counts as a file, and none
+    // of that is data the disk could be missing.
+    it('has nothing to verify when the index holds only scaffolding', async () => {
+      syncthingServiceMock.syncthingVersion = 'v2.0.15';
       fsMock.promises.readdir.resolves([]);
       fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
-        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false),
+        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false), dirent('logs', false), dirent('server.json'),
       ]);
+      fsMock.promises.stat.withArgs('/apps/test-app/server.json').resolves({ isDirectory: () => false, size: 0 });
       syncthingServiceMock.getDbStatus.resolves({
-        globalBytes: 256, globalFiles: 0, inSyncBytes: 256, state: 'idle',
+        globalBytes: 256, globalFiles: 1, globalDirectories: 2, inSyncBytes: 256, state: 'idle',
       });
 
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
 
       expect(result.isSafe).to.be.true;
+    });
+
+    // Taking the directories off takes off nothing else: bytes in a file the disk
+    // does not hold are still a phantom on syncthing before v2.1.2.
+    it('still flags a phantom on syncthing before v2.1.2 when a file\'s bytes are missing', async () => {
+      syncthingServiceMock.syncthingVersion = 'v2.0.15';
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('lost+found', false), dirent('appdata', false), dirent('logs', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 256 + 300, globalFiles: 1, globalDirectories: 2, inSyncBytes: 556, state: 'idle',
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
     });
 
     it('is safe when the index claims files and the disk holds one', async () => {
@@ -2786,7 +2835,10 @@ describe('syncthingFolderStateMachine tests', () => {
       fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
         dirent('.stignore'), dirent('lost+found', false), dirent('cache', false),
       ]);
-      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 500000, inSyncBytes: 0, state: 'idle' });
+      fsMock.promises.readdir.withArgs('/apps/test-app/cache').resolves([dirent('world.db')]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 0, state: 'idle',
+      });
 
       const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', []);
 
@@ -2972,6 +3024,34 @@ describe('syncthingFolderStateMachine tests', () => {
       syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
 
       expect(await stateMachine.findSyncedPeer('fluxappone', { exclude: new Set(['LEAVING']) })).to.equal(null);
+    });
+  });
+
+  // syncthing before v2.1.2 counts each directory as 128 bytes, so a peer whose copy
+  // is only directories reports bytes. It holds no data, and a peer holding none is
+  // not a source to revert to.
+  describe('findSyncedPeer on syncthing before v2.1.2', () => {
+    beforeEach(() => {
+      syncthingServiceMock.syncthingVersion = 'v2.0.15';
+      syncthingServiceMock.getConfig.resolves({
+        folders: [{ id: 'fluxappone', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PEER' }] }],
+      });
+    });
+
+    it('does not take a peer whose copy is only directories as a source', async () => {
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 256, globalDirectories: 2, globalFiles: 1 });
+      syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 256, remoteState: 'valid' });
+
+      expect(await stateMachine.findSyncedPeer('fluxappone')).to.equal(null);
+    });
+
+    it('takes a peer that holds files beside its directories', async () => {
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 256 + 4096, globalDirectories: 2, globalFiles: 2 });
+      syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 256 + 4096, remoteState: 'valid' });
+
+      const peer = await stateMachine.findSyncedPeer('fluxappone');
+
+      expect(peer).to.deep.equal({ deviceID: 'PEER', globalBytes: 4096 });
     });
   });
 

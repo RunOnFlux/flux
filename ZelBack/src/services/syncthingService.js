@@ -1156,6 +1156,124 @@ async function getDbStatus(folder) {
   return request('get', `/rest/db/status?folder=${folder}`);
 }
 
+// What syncthing adds to a folder's byte counts for each entry that is not a file.
+// Its counts sum a stored size per entry, and that size depends on the release:
+// v1 gives every directory and symlink 128; v2.0.0 to v2.1.1 store every directory
+// as 128 and a symlink as 0; from v2.1.2 every non-file entry is stored as 0, and
+// a directory received from an older peer is zeroed on the way in. Each node's
+// counts come from its own daemon, so its own release decides.
+const SYNTHETIC_ENTRY_BYTES = 128;
+
+/**
+ * How many bytes a syncthing release counts for each directory and each symlink -
+ * see SYNTHETIC_ENTRY_BYTES.
+ * @param {string} version syncthing's version string, e.g. v2.0.15
+ * @returns {{directory: number, symlink: number}}
+ * @throws When the version cannot be parsed.
+ */
+function nonFileEntryBytesForVersion(version) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(typeof version === 'string' ? version : '');
+  if (!match) throw new Error(`syncthing reported a version that cannot be read: ${JSON.stringify(version)}`);
+  const [major, minor, patch] = match.slice(1).map(Number);
+  if (major < 2) return { directory: SYNTHETIC_ENTRY_BYTES, symlink: SYNTHETIC_ENTRY_BYTES };
+  if (major === 2 && (minor === 0 || (minor === 1 && patch < 2))) return { directory: SYNTHETIC_ENTRY_BYTES, symlink: 0 };
+  return { directory: 0, symlink: 0 };
+}
+
+/**
+ * How many bytes this node's syncthing counts for each directory and each symlink.
+ *
+ * Read from the running daemon on every call, never remembered: the release can
+ * change across a restart, and an old answer about a newer daemon would take
+ * bytes off counts that never carried them.
+ * @returns {Promise<{directory: number, symlink: number}>}
+ * @throws When the version cannot be read or parsed, which leaves the counts
+ *   unreadable, as a status read that failed does.
+ */
+async function nonFileEntryBytes() {
+  const { version } = await systemVersion();
+  return nonFileEntryBytesForVersion(version);
+}
+
+// Bytes less the synthetic size of the directories and symlinks counted in them.
+function fileBytesOf(bytes, directories, symlinks, entry) {
+  return Math.max(0, (bytes || 0) - entry.directory * (directories || 0) - entry.symlink * (symlinks || 0));
+}
+
+/**
+ * db/status with what its indexes hold in FILES: globalFileBytes, needFileBytes and
+ * inSyncFileBytes. See getDbStatusInFileBytes.
+ * @param {object} status db/status.
+ * @param {{directory: number, symlink: number}} entry from nonFileEntryBytes
+ * @returns {object}
+ */
+function statusInFileBytes(status, entry) {
+  const inSync = (global, need) => Math.max(0, (global || 0) - (need || 0));
+  return {
+    ...status,
+    globalFileBytes: fileBytesOf(status.globalBytes, status.globalDirectories, status.globalSymlinks, entry),
+    needFileBytes: fileBytesOf(status.needBytes, status.needDirectories, status.needSymlinks, entry),
+    inSyncFileBytes: fileBytesOf(
+      status.inSyncBytes,
+      inSync(status.globalDirectories, status.needDirectories),
+      inSync(status.globalSymlinks, status.needSymlinks),
+      entry,
+    ),
+  };
+}
+
+/**
+ * db/completion with the global index's bytes in FILES (globalFileBytes). Completion
+ * carries no entry counts, so the folder's own are used: both describe the same
+ * global index.
+ * @param {object} completion db/completion for a device.
+ * @param {object} status the folder's db/status.
+ * @param {{directory: number, symlink: number}} entry from nonFileEntryBytes
+ * @returns {object}
+ */
+function completionInFileBytes(completion, status, entry) {
+  return {
+    ...completion,
+    globalFileBytes: fileBytesOf(completion.globalBytes, status.globalDirectories, status.globalSymlinks, entry),
+  };
+}
+
+/**
+ * A folder's status, with what its indexes hold in FILES.
+ *
+ * syncthing's globalBytes, needBytes and inSyncBytes include a synthetic size for
+ * directories and symlinks on releases before v2.1.2 (see SYNTHETIC_ENTRY_BYTES), so
+ * a folder of empty directories reads as holding data. globalFileBytes,
+ * needFileBytes and inSyncFileBytes take that size off, by entry count, and are the
+ * figures to decide from; the raw ones are syncthing's own, for display.
+ *
+ * The status is read before the version: a restart between the two can only pair
+ * an older daemon's counts with a newer daemon's version, which takes nothing off.
+ * @param {string} folder Folder ID.
+ * @returns {Promise<object>} db/status, plus globalFileBytes, needFileBytes and inSyncFileBytes.
+ * @throws What getDbStatus throws, and when the version cannot be read.
+ */
+async function getDbStatusInFileBytes(folder) {
+  const status = await getDbStatus(folder);
+  return statusInFileBytes(status, await nonFileEntryBytes());
+}
+
+/**
+ * How complete a folder is as one device sees it, with the global index's bytes in
+ * FILES (globalFileBytes) - see getDbStatusInFileBytes. Read in the same order, for
+ * the same reason.
+ * @param {object} selector Selector.
+ * @param {string} selector.folder Folder ID.
+ * @param {string} selector.device Device ID.
+ * @returns {Promise<object>} db/completion, plus globalFileBytes.
+ * @throws What getDbCompletion and getDbStatus throw, and when the version cannot be read.
+ */
+async function getDbCompletionInFileBytes({ folder, device }) {
+  const completion = await getDbCompletion({ folder, device });
+  const status = await getDbStatus(folder);
+  return completionInFileBytes(completion, status, await nonFileEntryBytes());
+}
+
 /**
  * The files a receive-only folder holds that the cluster's index does not.
  *
@@ -3012,6 +3130,12 @@ module.exports = {
   getFolderIgnores,
   setFolderIgnores,
   getDbStatus,
+  getDbStatusInFileBytes,
+  getDbCompletionInFileBytes,
+  nonFileEntryBytes,
+  nonFileEntryBytesForVersion,
+  statusInFileBytes,
+  completionInFileBytes,
   getDbLocalChanged,
   eachDbLocalChanged,
   postDbOverride,

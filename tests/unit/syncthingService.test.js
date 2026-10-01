@@ -443,6 +443,125 @@ describe('syncthingService tests', () => {
     });
   });
 
+  // syncthing before v2.1.2 counts every directory as 128 bytes (v1 counts every
+  // symlink too), so a folder of empty directories reads as holding data. These
+  // reads take that off, by entry count, for the release the daemon reports.
+  describe('a folder\'s counts in file bytes', () => {
+    const folder = 'fluxapp_app';
+    let version;
+    let status;
+    let completion;
+    let get;
+
+    beforeEach(() => {
+      syncthingService.getAxiosCache().reset();
+      syncthingService.setSyncthingRunningState(true);
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      get = sinon.fake(async (reqPath) => {
+        if (reqPath === '/rest/system/version') return { data: { version } };
+        if (reqPath.startsWith('/rest/db/status')) return { data: status };
+        if (reqPath.startsWith('/rest/db/completion')) return { data: completion };
+        return {};
+      });
+      sinon.stub(axios, 'create').returns({ get });
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('names the synthetic size each release counts', () => {
+      const sized = (v) => syncthingService.nonFileEntryBytesForVersion(v);
+      expect(sized('v1.30.0')).to.deep.equal({ directory: 128, symlink: 128 });
+      expect(sized('v2.0.0')).to.deep.equal({ directory: 128, symlink: 0 });
+      expect(sized('v2.0.15')).to.deep.equal({ directory: 128, symlink: 0 });
+      expect(sized('v2.1.1')).to.deep.equal({ directory: 128, symlink: 0 });
+      expect(sized('v2.1.2')).to.deep.equal({ directory: 0, symlink: 0 });
+      expect(sized('v2.1.6-rc.1')).to.deep.equal({ directory: 0, symlink: 0 });
+      expect(sized('v3.0.0')).to.deep.equal({ directory: 0, symlink: 0 });
+      expect(() => sized('unknown-dev')).to.throw('cannot be read');
+      expect(() => sized(undefined)).to.throw('cannot be read');
+    });
+
+    it('takes 128 off for each directory on v2.0.15, leaving nothing for a folder of scaffolding', async () => {
+      version = 'v2.0.15';
+      status = {
+        globalBytes: 256, globalFiles: 1, globalDirectories: 2, needBytes: 0, needDirectories: 0, inSyncBytes: 256,
+      };
+
+      const result = await syncthingService.getDbStatusInFileBytes(folder);
+
+      expect(result).to.include({ globalFileBytes: 0, needFileBytes: 0, inSyncFileBytes: 0 });
+      expect(result.globalBytes, 'syncthing\'s own figure is kept').to.equal(256);
+    });
+
+    it('keeps the bytes of files on v2.0.15, needed and in sync alike', async () => {
+      version = 'v2.0.15';
+      status = {
+        globalBytes: 256 + 1000, globalFiles: 2, globalDirectories: 2,
+        needBytes: 128 + 400, needDirectories: 1, inSyncBytes: 128 + 600,
+      };
+
+      expect(await syncthingService.getDbStatusInFileBytes(folder))
+        .to.include({ globalFileBytes: 1000, needFileBytes: 400, inSyncFileBytes: 600 });
+    });
+
+    it('takes nothing off from v2.1.2, where directories count 0', async () => {
+      version = 'v2.1.5';
+      status = {
+        globalBytes: 1000, globalFiles: 2, globalDirectories: 2, needBytes: 400, needDirectories: 1, inSyncBytes: 600,
+      };
+
+      expect(await syncthingService.getDbStatusInFileBytes(folder))
+        .to.include({ globalFileBytes: 1000, needFileBytes: 400, inSyncFileBytes: 600 });
+    });
+
+    it('takes 128 off for each symlink on v1 as well', async () => {
+      version = 'v1.30.0';
+      status = {
+        globalBytes: 2 * 128 + 128 + 50, globalDirectories: 2, globalSymlinks: 1, needBytes: 0, inSyncBytes: 2 * 128 + 128 + 50,
+      };
+
+      expect((await syncthingService.getDbStatusInFileBytes(folder)).globalFileBytes).to.equal(50);
+    });
+
+    // A restart between the two reads pairs one daemon's counts with another's
+    // release. Status first means that can only be an older daemon's counts with a
+    // newer release, which takes nothing off - never bytes off counts without them.
+    it('reads the counts before the release', async () => {
+      version = 'v2.0.15';
+      status = { globalBytes: 0 };
+
+      await syncthingService.getDbStatusInFileBytes(folder);
+
+      const asked = get.getCalls().map((call) => call.args[0]).filter((p) => p.startsWith('/rest/'));
+      expect(asked.indexOf('/rest/system/version')).to.be.greaterThan(asked.findIndex((p) => p.startsWith('/rest/db/status')));
+    });
+
+    it('gives no figure when the release cannot be read', async () => {
+      version = 'nightly';
+      status = { globalBytes: 256, globalDirectories: 2 };
+
+      const result = await syncthingService.getDbStatusInFileBytes(folder).catch((err) => err);
+
+      expect(result).to.be.an('error');
+    });
+
+    it('gives a peer\'s completion in file bytes, from the folder\'s entry counts', async () => {
+      version = 'v2.0.15';
+      status = { globalBytes: 256, globalDirectories: 2, globalFiles: 1 };
+      completion = { completion: 100, globalBytes: 256, remoteState: 'valid' };
+
+      const result = await syncthingService.getDbCompletionInFileBytes({ folder, device: 'PEER' });
+
+      expect(result).to.include({ globalFileBytes: 0, completion: 100, remoteState: 'valid' });
+      const asked = get.getCalls().map((call) => call.args[0]).filter((p) => p.startsWith('/rest/'));
+      expect(asked.indexOf('/rest/system/version'), 'the release is read last').to.equal(asked.length - 1);
+    });
+  });
+
   describe('syncthing health robustness', () => {
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
     const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;
