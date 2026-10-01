@@ -74,8 +74,9 @@ describe('mount safety decides on what a node can actually read', function () {
     expect(r.exitCode, `could not lock appdata: ${r.output}`).to.equal(0);
   };
 
-  const claimsFilesOnDisk = () => setSyncState({
-    ip: ip0, folder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0,
+  // onDisk false where the volume has been emptied under the claim: a stale index.
+  const claimsFilesOnDisk = ({ onDisk = true } = {}) => setSyncState({
+    ip: ip0, folder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0, onDisk,
   });
 
   // Steady state is never swept, so the verify runs when syncthing flags the folder.
@@ -154,7 +155,7 @@ describe('mount safety decides on what a node can actually read', function () {
       `sh -c 'find ${appDir(name)}/appdata -mindepth 1 -delete && chmod 700 ${appDir(name)}/appdata'`);
     expect(wipe.exitCode, `could not empty appdata: ${wipe.output}`).to.equal(0);
     const from = linesFor(0).length;
-    await claimsFilesOnDisk();
+    await claimsFilesOnDisk({ onDisk: false });
     await flagFolder();
 
     await waitFor(async () => (await folderType(ip0, folder)) === 'receiveonly', { timeout: 60000, interval: 3000, label: 'folder demoted to receiveonly' });

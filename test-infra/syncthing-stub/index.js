@@ -567,11 +567,9 @@ app.get('/rest/db/status', (req, res) => {
   const ov = lookupSync(clientIp(req), folderId || '');
   if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
   const globalBytes = ov?.globalBytes ?? 0;
-  // How many of the indexed entries are FILES, which is what says WHICH KIND of claim
-  // globalBytes is. Declared rather than derived from the byte count, because both
-  // readings are real: a folder of empty directories has bytes and no files, and one
-  // holding the owner's data has both. Undeclared reads 0 - the reading a consumer
-  // treats as "the payload is directories".
+  // How many of the indexed entries are FILES. This stub reports no directories,
+  // so bytes it reports are bytes in files, and at least one file carries them -
+  // see /sync-state.
   const globalFiles = ov?.globalFiles ?? 0;
   const inSyncBytes = ov?.inSyncBytes ?? 0;
   const state = ov?.state ?? 'idle';
@@ -801,10 +799,14 @@ control.post('/folder-patch-delay', (req, res) => {
 // reads as a stall (the production stall detector needs N unchanged samples).
 control.post('/sync-state', (req, res) => {
   const {
-    ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles = 0, inSyncBytes = 0,
-    receiveOnlyChangedFiles = 0, localChanged = null, statusUnreadable = false,
+    ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles: declaredFiles, inSyncBytes = 0,
+    receiveOnlyChangedFiles = 0, localChanged = null, statusUnreadable = false, onDisk = true,
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
+  // This stub reports no directories, so declared bytes are bytes in files, and a
+  // real index carrying them lists at least one file. A suite may still state the
+  // count; left out, it is the one file the bytes need.
+  const globalFiles = declaredFiles ?? (globalBytes > 0 ? 1 : 0);
   console.log(`[write] sync-state from=${clientIp(req)} ip=${ip} folder=${folder} state=${state} bytes=${inSyncBytes}/${globalBytes} unreadable=${statusUnreadable}`);
   // The ENTRIES are the declaration; the count is derived from them. A real daemon
   // cannot report a receiveOnlyChangedFiles that disagrees with what db/localchanged
@@ -836,8 +838,12 @@ control.post('/sync-state', (req, res) => {
       if (key.endsWith(`|${folder}`) && !key.startsWith('*|')) syncOverrides.delete(key);
     }
   }
+  // onDisk: the node's volume holds the bytes it reports in sync, as a real sync
+  // leaves them. The harness writes them there (synced-data-keeper.js); a suite
+  // describing an index the disk contradicts - a stale index over a wiped volume -
+  // declares onDisk: false.
   syncOverrides.set(`${ip}|${folder}`, {
-    state, globalBytes, globalFiles, inSyncBytes, localChanged: entries, statusUnreadable,
+    state, globalBytes, globalFiles, inSyncBytes, localChanged: entries, statusUnreadable, onDisk: onDisk !== false,
   });
   // A declared sync state is also the folder's peer evidence: when OTHER
   // nodes ask db/completion about this folder, the declaring node is a
@@ -858,6 +864,20 @@ control.post('/sync-state', (req, res) => {
     });
   }
   return res.json({ ok: true });
+});
+
+// The bytes each node's volume should hold for each folder: what its declared state
+// reports in sync, unless the declaration says the disk does not hold it. Keyed as
+// the overrides are; '*' applies to every node without one of its own.
+control.get('/disk-claims', (req, res) => {
+  res.json(Array.from(syncOverrides.entries()).map(([key, ov]) => {
+    const sep = key.indexOf('|');
+    return {
+      ip: key.slice(0, sep),
+      folder: key.slice(sep + 1),
+      bytes: ov.onDisk && !ov.statusUnreadable ? Math.max(0, Number(ov.inSyncBytes) || 0) : 0,
+    };
+  }));
 });
 
 // Set what /rest/db/completion returns for a (node ip, folder, peer device).

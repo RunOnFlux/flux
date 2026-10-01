@@ -170,7 +170,7 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // mounted volume holds none - in sendreceive, syncthing would broadcast
     // every "missing" file as a deletion
     await setSyncState({
-      ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0,
+      ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0, onDisk: false,
     });
     // flag the folder: steady state is never swept, so the verify (which
     // includes the phantom-index check) runs when syncthing flags the folder
