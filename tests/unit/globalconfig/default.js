@@ -1,3 +1,6 @@
+const os = require('node:os');
+const path = require('node:path');
+
 // So you can set host.docker.internal (mac) or container name
 const database = process.env.FLUX_DATABASE || '127.0.0.1';
 
@@ -89,6 +92,7 @@ module.exports = {
     rpcport: 16224,
     porttestnet: 26225,
     rpcporttestnet: 26224,
+    socketPath: path.join(os.tmpdir(), `fluxos-unit-bench-${process.pid}.sock`),
   },
   daemon: {
     host: '127.0.0.1',
