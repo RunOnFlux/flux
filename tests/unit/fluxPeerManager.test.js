@@ -2379,6 +2379,51 @@ describe('FluxPeerManager tests', () => {
       expect(current.ws).to.equal(ws2);
     });
 
+    it('keeps a slow existing connection when the peer closes the one it dialed', (done) => {
+      // A crossing: this node at 1.1.1.1 holds its own dial, and the peer's
+      // reconnect dial arrives. The existing connection is alive but its pong is
+      // late; the peer, holding this node's dial, keeps it and closes its own.
+      manager.numberOfFluxNodes = 10000;
+      manager.setOwnSocketAddress('1.1.1.1:16127');
+      const held = createMockWs('8.8.8.8', '16127');
+      manager.add(held, '8.8.8.8', '16127', { source: PEER_SOURCE.DETERMINISTIC });
+      const original = manager.get('8.8.8.8:16127');
+      const ownPongListeners = held.listenerCount('pong');
+
+      const dial = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(dial, '16127', createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' }));
+      sinon.assert.calledOnce(held.ping);
+      setTimeout(() => dial.emit('close', CLOSE_CODES.DUPLICATE_PEER), 50);
+
+      setTimeout(() => {
+        expect(manager.get('8.8.8.8:16127')).to.equal(original);
+        expect(original.ws).to.equal(held);
+        sinon.assert.notCalled(held.close);
+        expect(held.listenerCount('pong'), 'the late pong finds nothing waiting').to.equal(ownPongListeners);
+        done();
+      }, 1200);
+    });
+
+    it('stops listening to the new socket once the existing connection answers', (done) => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+      const ownPongListeners = ws1.listenerCount('pong');
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(ws2, '16127', createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' }));
+      expect(ws2.listenerCount('close'), 'waiting on the peer\'s verdict').to.equal(1);
+      expect(ws1.listenerCount('pong'), 'waiting on the pong').to.equal(ownPongListeners + 1);
+      ws1.emit('pong');
+
+      expect(ws2.listenerCount('close')).to.equal(0);
+      expect(ws1.listenerCount('pong')).to.equal(ownPongListeners);
+      setTimeout(() => {
+        expect(manager.get('8.8.8.8:16127').ws).to.equal(ws1);
+        done();
+      }, 1200);
+    });
+
     it('should reject immediately when no X-Flux-Reconnect header', () => {
       manager.numberOfFluxNodes = 10000;
       const ws1 = createMockWs('8.8.8.8', '16127');
