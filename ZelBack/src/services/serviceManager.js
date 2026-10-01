@@ -250,6 +250,10 @@ async function ensureIndexes(collection, specs) {
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
+ *
+ * Not unit-testable: every step acts on the machine, and a throw re-runs the
+ * whole boot 15 s later with whatever is stubbed by then. Unit-test the steps
+ * it calls; the integration harness covers the sequence.
  */
 async function startFluxFunctions() {
   try {
@@ -264,6 +268,9 @@ async function startFluxFunctions() {
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
+    // Before any work that a restart would cut short: a registration that
+    // needs its kill timeout raised restarts FluxOS, and this waits for it.
+    await fluxService.ensurePm2KillTimeout();
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');

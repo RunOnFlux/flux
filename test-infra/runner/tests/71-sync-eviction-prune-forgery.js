@@ -3,73 +3,19 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
 import { loadSharedConfig } from '../framework/coupled-knobs.js';
-import { nodeKey } from '../framework/keys.js';
-import { signBtcMessage } from '../auth.js';
+import {
+  apprunningEvent, sigtermEvent, appRemovedEvent, evictedEvent, socketAddr,
+} from '../framework/state-events.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import {
   waitFor, waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForOrchestratorState,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { getSubnetConfig } from '../framework/subnet-config.js';
-
-const subnet = getSubnetConfig();
 
 // A sync response is carried through in slices, so a response has to be longer
 // than one slice for these to mean anything.
 const SLICE = 250;
 const FILLER_EVENTS = 320;
-
-const socketAddr = (nodeNum) => `${subnet.nodeIp(nodeNum)}:16127`;
-
-/**
- * Build an appstateevents document the way a node would have stored one, so the
- * serving nodes stream it verbatim to the late joiner.
- *
- * `signedBy` lets a document carry a signature made with the wrong node's key -
- * the shape a forged event has on the wire.
- */
-async function apprunningEvent({
-  nodeNum, apps, broadcastedAt, dedupKey = 'v2', signedBy = nodeNum,
-}) {
-  const identity = nodeKey(nodeNum);
-  const ip = socketAddr(nodeNum);
-  const version = 1;
-  const data = {
-    type: 'fluxapprunning',
-    version: 2,
-    apps: apps.map((name) => ({
-      name,
-      hash: `hash-${name}`,
-      runningSince: new Date(broadcastedAt).toISOString(),
-    })),
-    ip,
-    broadcastedAt,
-    osUptime: 10000,
-    staticIp: false,
-  };
-  const payload = String(version) + JSON.stringify(data) + String(broadcastedAt);
-  const signature = await signBtcMessage(payload, nodeKey(signedBy).privkey);
-
-  return {
-    type: 'apprunning',
-    dedupKey,
-    ip,
-    broadcastedAt: new Date(broadcastedAt),
-    envelope: {
-      version, timestamp: broadcastedAt, pubKey: identity.pubkey, signature,
-    },
-    data,
-  };
-}
-
-// Evictions carry no broadcastedAt, so the sender's timestamp sort always places
-// them at the very front of the response - in the first slice.
-const evictedEvent = (nodeNum) => ({
-  type: 'evicted',
-  ip: socketAddr(nodeNum),
-  dedupKey: `evicted:${socketAddr(nodeNum)}`,
-  createdAt: new Date(),
-});
 
 async function bootAndPeer(env, nodeIndices) {
   const clients = nodeIndices.map((i) => env.clients[i]).filter(Boolean);
@@ -94,6 +40,16 @@ describe('Sync response: eviction, pruning and forged events', function () {
   const EVICTED_NODE = 9;
   const PRUNE_NODE = 8;
   const FORGERY_NODE = 7;
+  // A sync replays every unexpired event, so an event about a node routinely
+  // arrives after that node's newer running report. Each of these nodes reports
+  // itself running an app, and the response also carries an OLDER event about
+  // it: a shutdown, a removal of that app, an eviction. Each event speaks only
+  // for what the node broadcast before it.
+  const SIGTERM_NODE = 6;
+  const REMOVED_NODE = 5;
+  const RETURNED_NODE = 4;
+  const RUNNING_AT = FILLER_EVENTS + 400;
+  const EARLIER_AT = FILLER_EVENTS + 350;
   // Stamped when the events are INJECTED, not when mocha loads this file.
   //
   // These are broadcasts, and a broadcast has an acceptance window:
@@ -167,9 +123,10 @@ describe('Sync response: eviction, pruning and forged events', function () {
       }));
     }
 
-    // The node is evicted, and reports itself running an app later in the same
-    // response. The eviction must still be the outcome.
-    events.push(evictedEvent(EVICTED_NODE));
+    // The node reports itself running an app, and is evicted after that report.
+    // The eviction sits in the first slice and the report in a later one; the
+    // eviction must still be the outcome.
+    events.push(evictedEvent({ nodeNum: EVICTED_NODE, createdAt: stamp + FILLER_EVENTS + 150 }));
     events.push(await apprunningEvent({
       nodeNum: EVICTED_NODE,
       apps: ['evictedapp'],
@@ -204,6 +161,23 @@ describe('Sync response: eviction, pruning and forged events', function () {
       broadcastedAt: stamp + FILLER_EVENTS + 300,
       dedupKey: 'v2-forged',
       signedBy: FORGERY_NODE === 1 ? 2 : 1,
+    }));
+
+    // A report of each node running, and an older event about it, placed in
+    // the response the way a replay places them.
+    events.push(await sigtermEvent({ nodeNum: SIGTERM_NODE, broadcastedAt: stamp + EARLIER_AT }));
+    events.push(await apprunningEvent({
+      nodeNum: SIGTERM_NODE, apps: ['stillrunningapp'], broadcastedAt: stamp + RUNNING_AT,
+    }));
+    events.push(await appRemovedEvent({
+      nodeNum: REMOVED_NODE, appName: 'reinstalledapp', broadcastedAt: stamp + EARLIER_AT,
+    }));
+    events.push(await apprunningEvent({
+      nodeNum: REMOVED_NODE, apps: ['reinstalledapp'], broadcastedAt: stamp + RUNNING_AT,
+    }));
+    events.push(evictedEvent({ nodeNum: RETURNED_NODE, createdAt: stamp + EARLIER_AT }));
+    events.push(await apprunningEvent({
+      nodeNum: RETURNED_NODE, apps: ['returnedapp'], broadcastedAt: stamp + RUNNING_AT,
     }));
 
     // Seeded in ONE round trip per node, not one per event.
@@ -297,5 +271,43 @@ describe('Sync response: eviction, pruning and forged events', function () {
     // anything that prunes from unverified data drops targetapp.
     expect(names).to.include('realapp');
     expect(names, 'a forged broadcast pruned a location row').to.include('targetapp');
+  });
+
+  it('should leave a running report in force when an older shutdown of that node arrives with it', async function () {
+    this.timeout(60000);
+    // The shutdown speaks for what the node broadcast before it. Applied to the
+    // newer report, it would shorten that row to the shutdown's grace - already
+    // in the past for a replayed shutdown - and the row would be reaped while
+    // the node runs.
+    const ttlMs = loadSharedConfig().fluxapps.locationTtlS * 1000;
+    const rows = await dbClient(11).getAppLocationsByIp(socketAddr(SIGTERM_NODE));
+    const row = rows.find((r) => r.name === 'stillrunningapp');
+
+    expect(row, 'the running node lost its location row').to.not.equal(undefined);
+    expect(row.expireAt.getTime(), 'the older shutdown shortened the newer row')
+      .to.equal(stamp + RUNNING_AT + ttlMs);
+  });
+
+  it('should keep an app a node reinstalled after an older removal of it', async function () {
+    this.timeout(60000);
+    const rows = await dbClient(11).getAppLocationsByIp(socketAddr(REMOVED_NODE));
+
+    expect(rows.map((r) => r.name), 'an older removal deleted the newer report')
+      .to.include('reinstalledapp');
+  });
+
+  it('should keep a node that came back after an eviction, and keep the eviction\'s own time', async function () {
+    this.timeout(60000);
+    const rows = await dbClient(11).getAppLocationsByIp(socketAddr(RETURNED_NODE));
+    expect(rows.map((r) => r.name), 'an older eviction deleted the node\'s newer report')
+      .to.include('returnedapp');
+
+    // Stored under the time the evicting node made it, not the time it arrived
+    // here: a node that re-dated it would hand it on as fresh, and every node
+    // syncing from it afterwards would evict the returned node again.
+    const [eviction] = await dbClient(11).getAppStateEvents({ ip: socketAddr(RETURNED_NODE), type: 'evicted' });
+    expect(eviction, 'the eviction reached the joiner').to.not.equal(undefined);
+    expect(eviction.createdAt.getTime(), 'the eviction was re-dated on receipt')
+      .to.equal(stamp + EARLIER_AT);
   });
 });

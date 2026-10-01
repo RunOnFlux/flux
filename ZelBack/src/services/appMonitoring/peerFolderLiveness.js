@@ -246,7 +246,11 @@ async function peerDeviceId(peerIp) {
  * evidence. 'disconnected' is an answer - this node's syncthing was asked
  * about the device and does not consider it connected. 'unknown' is the
  * absence of one - the peer's device is in neither this node's cache nor its
- * syncthing's own device config, or this node's syncthing did not answer.
+ * syncthing's own device config, this node's syncthing did not answer, or it
+ * has never been connected to the device. A connection that was never up says
+ * nothing about the peer: a node placed minutes ago may not have reached it
+ * yet, and reading that as a closed connection would let it start beside a
+ * primary whose FluxOS is only restarting.
  * Collapsing 'unknown' into 'disconnected' would let the one node with the
  * least knowledge authorise a second writer.
  *
@@ -269,7 +273,11 @@ async function peerSyncthingConnection(folderId, peerIp) {
   }).catch(() => null);
 
   if (!completion) return PeerConnection.UNKNOWN;
-  return completion.remoteState === 'valid' ? PeerConnection.CONNECTED : PeerConnection.DISCONNECTED;
+  if (completion.remoteState === 'valid') return PeerConnection.CONNECTED;
+
+  const stats = await syncthingService.getDeviceStats().catch(() => null);
+  const lastSeen = Date.parse(stats?.[deviceId]?.lastSeen);
+  return lastSeen > 0 ? PeerConnection.DISCONNECTED : PeerConnection.UNKNOWN;
 }
 
 /**

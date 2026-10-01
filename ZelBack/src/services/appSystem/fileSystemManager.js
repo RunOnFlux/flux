@@ -202,6 +202,7 @@ async function createAppsFolder(req, res) {
       publish: { staging, destination: target },
       mkdirStaging: true,
       noReplace: true,
+      inheritOwner: true,
     });
     respondSuccess(res, 'Folder Created');
   } catch (error) {
@@ -858,6 +859,7 @@ async function compressAppsObject(req, res) {
       // refuses it once written.
       maxFileBytes: volume.availableBytes / SPACE_HEADROOM,
       maxBytes: volume.availableBytes / SPACE_HEADROOM,
+      inheritOwner: true,
     }));
   } catch (error) {
     respondError(res, error);
@@ -942,6 +944,7 @@ async function extractAppsObject(req, res) {
       // and what bounds a link left in the result is the reader: every walk of a
       // volume here lstats, and the downloads open with O_NOFOLLOW.
       dataOnly: true,
+      inheritOwner: true,
     }));
   } catch (error) {
     respondError(res, error);
@@ -1077,6 +1080,7 @@ async function uploadAppsFiles(req, res) {
         publish: { staging, destination },
         maxBytes: ceiling,
         slotHeld: true,
+        inheritOwner: true,
         status: 'Uploading...',
       });
 

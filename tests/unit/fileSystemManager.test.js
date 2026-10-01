@@ -150,6 +150,44 @@ describe('fileSystemManager tests', () => {
     .map((a) => (typeof a === 'string' ? a : a.containerPath));
   const runOptions = () => executorStub.run.firstCall.args[2];
 
+  // flux-op runs as root. What an operation CREATES takes the owner of the folder
+  // it lands in, or an app running as another user cannot change its own files;
+  // what a copy or a move carries keeps the owners it already has.
+  describe('who owns the result', () => {
+    it('a new folder, an archive and an extraction take their folder\'s owner', async () => {
+      req.params.folder = 'uploads/2026';
+      await fileSystemManager.createAppsFolder(req, res);
+      expect(runOptions().inheritOwner, 'new folder').to.equal(true);
+
+      executorStub.run.resetHistory();
+      req.body.source = 'uploads';
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+      await settle();
+      expect(runOptions().inheritOwner, 'archive').to.equal(true);
+
+      executorStub.run.resetHistory();
+      req.body.source = 'backup.zip';
+      req.body.destination = 'restored';
+      await fileSystemManager.extractAppsObject(req, res);
+      await settle();
+      expect(runOptions().inheritOwner, 'extraction').to.equal(true);
+    });
+
+    it('a copy and a move keep the owners their files already have', async () => {
+      req.body.source = 'uploads';
+      req.body.destination = 'backup';
+      await fileSystemManager.copyAppsObject(req, res);
+      await settle();
+      expect(runOptions().inheritOwner, 'copy').to.not.equal(true);
+
+      executorStub.run.resetHistory();
+      await fileSystemManager.moveAppsObject(req, res);
+      await settle();
+      expect(runOptions().inheritOwner, 'move').to.not.equal(true);
+    });
+  });
+
   describe('createAppsFolder', () => {
     it('publishes a new directory under the name the caller asked for', async () => {
       req.params.folder = 'uploads/2026';

@@ -12,6 +12,12 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const log = require('../../ZelBack/src/lib/log');
+const https = require('https');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -570,6 +576,7 @@ describe('advancedWorkflows tests', () => {
     let dockerServiceStub;
     let syncthingServiceStub;
     let syncthingCompletionStub;
+    let syncthingDeviceStatsStub;
     let syncthingDevicesStub;
     let axiosGetStub;
     let recursionCounter;
@@ -650,6 +657,8 @@ describe('advancedWorkflows tests', () => {
       const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
       syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
       syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
+      // default: this node's syncthing has never been connected to any peer
+      syncthingDeviceStatsStub = sinon.stub(syncthingServiceModule, 'getDeviceStats').resolves({});
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -685,6 +694,20 @@ describe('advancedWorkflows tests', () => {
         listRunningApps,
         https,
       );
+
+      expect(installedApps.called).to.be.false;
+    });
+
+    it('takes no action while the node is shutting down', async () => {
+      const shutdown = sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+
+      try {
+        await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+      } finally {
+        shutdown.restore();
+      }
 
       expect(installedApps.called).to.be.false;
     });
@@ -868,12 +891,16 @@ describe('advancedWorkflows tests', () => {
     };
 
     // This node's own syncthing view of a peer's device, which is what a silence is
-    // judged on. 'valid' is a live connection; any other state is a closed one; and
-    // leaving the device out of the cache entirely is the third answer - this node
-    // never resolved the peer and cannot say.
-    const peerSyncthingSays = (peerSocketAddr, remoteState) => {
+    // judged on. 'valid' is a live connection; any other state is a closed one if
+    // the connection was ever up, and no answer if it never was; and leaving the
+    // device out of the cache entirely is the third answer - this node never
+    // resolved the peer and cannot say.
+    const peerSyncthingSays = (peerSocketAddr, remoteState, { everConnected = true } = {}) => {
       globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
       syncthingCompletionStub.resolves({ remoteState });
+      syncthingDeviceStatsStub.resolves(everConnected
+        ? { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '2026-09-25T14:00:00Z' } }
+        : { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '1970-01-01T00:00:00Z' } });
     };
 
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
@@ -1373,7 +1400,7 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
-    it('claims the component before the ownership fix, and releases it once the attempt ends', async () => {
+    it('claims the component before the folder flip, and releases it once the attempt ends', async () => {
       // The claim has to be taken BEFORE the slow pre-start work, or it does not
       // cover the window it exists for. Releasing it at the end is safe: a start
       // that got as far as controllerDesired is held by that from then on, and one
@@ -1558,7 +1585,7 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, 'cannot ask its own syncthing about it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
@@ -1595,11 +1622,43 @@ describe('advancedWorkflows tests', () => {
       // under the name the monitor gave it, and reports the connection closed
       syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }]);
       syncthingCompletionStub.resolves({ remoteState: 'unknown' });
+      syncthingDeviceStatsStub.resolves({ 'DEVICE-DEAD-PEER': { lastSeen: '2026-09-25T14:00:00Z' } });
 
       await runPass();
 
       expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    // A node placed minutes ago may not have connected to anyone yet. A primary whose
+    // FluxOS is restarting is silent for tens of seconds while its syncthing and its
+    // container carry on, and a connection that was never up says nothing about it.
+    it('will not start beside a silent peer its syncthing has never been connected to', async () => {
+      const appName = 'neverseenapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown', { everConnected: false });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read whether its syncthing ever saw it', async () => {
+      const appName = 'statsunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDeviceStatsStub.rejects(new Error('syncthing busy'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
     it('will not start when a silent peer\'s connection is gone but this node cannot see the fleet either', async () => {
@@ -2291,6 +2350,106 @@ describe('advancedWorkflows tests', () => {
       // The g: component is not running here and we are not primary - nothing to stop.
       // The running pgcluster sibling must be left alone.
       expect(appDockerStopStub.called).to.be.false;
+    });
+
+    // The election owns a single-writer folder's type: the standby's receives and
+    // never sends, whether or not its component ever ran, and the primary's sends
+    // while its container runs here.
+    describe('the folder type follows the election', () => {
+      const gApp = (name) => ({ name, version: 8, compose: [{ name: 'n8n', containerData: 'g:/home/node/.n8n' }] });
+
+      const pass = async ({ primaryIp, running, folderType }) => {
+        dockerServiceStub.returns('fluxn8n_n8napp');
+        syncthingServiceStub.resolves([{ id: 'fluxn8n_n8napp', path: `${appsFolder}fluxn8n_n8napp`, type: folderType }]);
+        const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+        sinon.stub(appReconciler, 'setControllerDesired');
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: [primaryIp] } } });
+        fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+
+        await advancedWorkflows.masterSlaveApps(
+          globalState,
+          sinon.stub().resolves({ status: 'success', data: [gApp('n8napp')] }),
+          sinon.stub().resolves({ status: 'success', data: running.map((n) => ({ Names: [`/${n}`] })) }),
+          https,
+        );
+        return adjust;
+      };
+
+      it('makes a standby\'s folder receiveonly even when its component is not running', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.99', running: [], folderType: 'sendreceive' });
+
+        sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'receiveonly', maxConflicts: 0 }, 'fluxn8n_n8napp');
+      });
+
+      it('makes the primary\'s folder send again once its container runs here', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.5', running: ['fluxn8n_n8napp'], folderType: 'receiveonly' });
+
+        sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'sendreceive', maxConflicts: 0 }, 'fluxn8n_n8napp');
+      });
+
+      it('writes nothing when the folder already has the type the election gives it', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.99', running: [], folderType: 'receiveonly' });
+
+        sinon.assert.notCalled(adjust);
+      });
+    });
+
+    it('does not start a primary whose folder could not be made to send', async () => {
+      const appName = 'flipfailsapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+      sinon.stub(appReconciler, 'claimStarting');
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      const released = () => releaseStarting.getCalls().some((c) => c.args[0] === appName);
+      for (let tick = 0; tick < 100 && !released(); tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+      }
+
+      expect(released(), 'the start was never attempted, so this proves nothing').to.equal(true);
+      sinon.assert.calledWithMatch(adjust, 'patch', { type: 'sendreceive' });
+      sinon.assert.neverCalledWith(setControllerDesired, appName, 'running');
+    });
+
+    it('starts a primary once a flip syncthing did not answer shows in its config', async function () {
+      this.timeout(10000);
+      const appName = 'flipunansweredapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+      sinon.stub(appReconciler, 'claimStarting');
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      // the wait for the type to show polls once a second
+      serviceHelperDelayStub.withArgs(1000).callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
+      let applied = false;
+      syncthingServiceStub.callsFake(async () => [{
+        id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: applied ? 'sendreceive' : 'receiveonly',
+      }]);
+      sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async () => {
+        applied = true;
+        return { status: 'error', data: { code: 'ECONNABORTED', message: 'timeout of 5000ms exceeded', httpStatus: null } };
+      });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      const released = () => releaseStarting.getCalls().some((c) => c.args[0] === appName);
+      for (let tick = 0; tick < 150 && !released(); tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+      }
+
+      expect(released(), 'the start was never attempted, so this proves nothing').to.equal(true);
+      sinon.assert.calledWith(setControllerDesired, appName, 'running');
     });
 
     it('does NOT stop its own container when it is the primary on a UPnP (non-default) port', async () => {
@@ -5640,6 +5799,22 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       expect(await isComponentRunningLocally('server_someotherapp')).to.equal(false);
     });
 
+    it('names the devices of the nodes that have announced a shutdown', async () => {
+      // A peer shutting down still reads as a complete, connected copy until its
+      // syncthing stops; the safety check has to be told which peers those are.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      sinon.stub(registryManager, 'shuttingDownNodes').resolves(['5.6.7.8:16127']);
+      sinon.stub(syncthingService, 'getConfigDevices').resolves([
+        { name: '5.6.7.8:16127', deviceID: 'DEV-LEAVING' },
+        { name: '9.9.9.9:16127', deviceID: 'DEV-STAYING' },
+      ]);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { shuttingDownDevices } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect([...(await shuttingDownDevices())]).to.deep.equal(['DEV-LEAVING']);
+    });
+
     it('treats an unreadable container list as "running here" rather than "not running"', async () => {
       // Answering "not running" on a list this node could not read would route
       // every app straight past the primary check - the exact shape of the
@@ -6172,6 +6347,87 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
       await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 
       sinon.assert.called(appUninstaller.removeAppLocally);
+    });
+  });
+});
+
+describe('changeSyncthingFolderType', () => {
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('writes the type together with every setting FluxOS owns on the folder', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly' },
+    ]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive');
+
+    expect(changed).to.equal(true);
+    sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'sendreceive', ...OWNED_FOLDER_SETTINGS }, 'fluxprobe_app');
+    expect(adjust.firstCall.args[1].maxConflicts, 'a type change that omits maxConflicts hands the folder syncthing\'s default').to.equal(0);
+  });
+
+  it('writes nothing when the folder already has the type', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
+    ]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+    const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive');
+
+    expect(changed).to.equal(true);
+    sinon.assert.notCalled(adjust);
+  });
+
+  describe('a write syncthing did not answer', () => {
+    const unanswered = { status: 'error', data: { code: 'ECONNABORTED', httpStatus: null } };
+    const folderOfType = (type) => [{ id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type }];
+
+    beforeEach(() => {
+      sinon.stub(serviceHelper, 'delay').callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
+    });
+
+    it('succeeds when the type shows in the config within the wait', async () => {
+      const read = sinon.stub(syncthingService, 'getConfigFolders');
+      read.onFirstCall().resolves(folderOfType('receiveonly'));
+      read.resolves(folderOfType('sendreceive'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 1000 });
+
+      expect(changed).to.equal(true);
+    });
+
+    it('fails when the type never shows within the wait', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 50 });
+
+      expect(changed).to.equal(false);
+    });
+
+    it('fails at once without a wait', async () => {
+      const read = sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive');
+
+      expect(changed).to.equal(false);
+      sinon.assert.calledOnce(read);
+    });
+
+    it('a write syncthing refused fails at once, even with a wait', async () => {
+      const read = sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { httpStatus: 400 } });
+
+      const changed = await advancedWorkflows.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 1000 });
+
+      expect(changed).to.equal(false);
+      sinon.assert.calledOnce(read);
     });
   });
 });

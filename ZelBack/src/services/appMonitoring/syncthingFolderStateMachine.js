@@ -7,6 +7,7 @@ const appReconciler = require('./appReconciler');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
+const appQueryService = require('../appQuery/appQueryService');
 const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
@@ -503,40 +504,6 @@ async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs 
 }
 
 /**
- * Fix permissions on all mount directories for containers
- * Critical for synced data that may have wrong ownership
- * Fixes permissions on appdata and all additional mount points
- * @param {string} appId - App ID
- * @returns {Promise<void>}
- */
-async function fixAppdataPermissions(appId) {
-  try {
-    // Fix permissions on entire app directory to cover appdata and all additional mounts
-    // (appdata, logs, config, file mounts, etc.)
-    const appPath = `${appsFolder}${appId}`;
-
-    // ONE ARGUMENT, AND IT IS THE DIRECTORY FLUXOS CREATED. chmod resolves a
-    // symbolic link given as an argument and ignores one met inside a traversal,
-    // so a path named here that something else can replace with a link has that
-    // link's TARGET widened, as root, at a path of that writer's choosing. Every
-    // name inside the volume is such a path: the owner's file API copies and moves
-    // a link as a link, and syncthing replicates one into this very folder. The
-    // volume root is the only path FluxOS owns, so it is the only one named.
-    //
-    // The executor's staging directory is widened with the rest. Root owns it and
-    // the executor runs as root in the container, so the mode buys nothing there;
-    // reaching it needs a path to the volume root, which no app container is given
-    // and the owner's file API refuses.
-    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', appPath] });
-    if (chmod.error) throw chmod.error;
-    log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
-  } catch (error) {
-    log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
-    // Continue anyway - container might still work
-  }
-}
-
-/**
  * Reads a folder's sync completion, and says which of the two ways it failed.
  *
  * "Syncthing says there is no such folder" is a finding about the data. "Syncthing
@@ -559,6 +526,7 @@ async function probeFolderSyncCompletion(folderId) {
   try {
     const {
       globalBytes = 0, globalFiles = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
+      receiveOnlyChangedDirectories = 0,
     } = await syncthingService.getDbStatus(folderId);
 
     const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
@@ -576,6 +544,9 @@ async function probeFolderSyncCompletion(folderId) {
       // local additions/modifications in a receiveonly folder; invisible to the
       // completion metrics above (they only count cluster data)
       receiveOnlyChangedFiles,
+      // Directories are counted apart from files. A directory whose owner or mode
+      // differs from the cluster's is a local change like any other.
+      receiveOnlyChangedDirectories,
       // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
       // never "done": a node holding the only copy before its peers reconnect
       // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
@@ -809,7 +780,7 @@ async function holderIsGone(appId, holderIp, liveness) {
     return false;
   }
   if (verdict === SilenceVerdict.NO_EVIDENCE) {
-    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node cannot ask its own syncthing about it for ${appId}; gone requires evidence, keeping it`);
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node's own syncthing has never been connected to it or cannot be asked, for ${appId}; gone requires evidence, keeping it`);
     fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'noEvidence' });
     return false;
   }
@@ -1054,7 +1025,7 @@ async function checkIfPeersAreSynced(folderId) {
  * @returns {Promise<{deviceID: string, globalBytes: number}|null>} The peer, or
  *   null when no peer can be shown to hold this folder.
  */
-async function findSyncedPeer(folderId) {
+async function findSyncedPeer(folderId, { exclude = new Set() } = {}) {
   try {
     // getConfig takes no request and answers with the config itself, not a
     // {status, data} envelope - the same call its sibling checkIfPeersAreSynced
@@ -1096,6 +1067,12 @@ async function findSyncedPeer(folderId) {
       // A device id this node could not establish excludes nothing, which is
       // the safe direction: the completion checks below still have to pass.
       if (localDeviceId && device.deviceID === localDeviceId) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      // A peer the caller has ruled out - one that is shutting down holds the data
+      // only until its syncthing stops, seconds from now.
+      if (exclude.has(device.deviceID)) {
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1183,6 +1160,39 @@ async function nudgeFolderDevices(folderId) {
   } catch (error) {
     log.warn(`nudgeFolderDevices - ${folderId}: ${error.message}`);
   }
+}
+
+/**
+ * Reverts a synced receiveonly folder's local changes to the cluster's version.
+ *
+ * A receiveonly folder never overwrites its own deviations: a file or directory
+ * whose content, owner or mode differs locally stays that way, and every peer
+ * keeps listing it as needed by this node. db/revert applies the cluster's
+ * version and deletes local-only items that are not ignored, so it runs only
+ * against a complete global index (isSynced).
+ *
+ * @param {string} appId - The Syncthing folder ID
+ * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
+ * @returns {Promise<boolean>} True when the folder had local changes and a revert was asked for
+ */
+async function revertLocalChangesIfSynced(appId, syncStatus) {
+  if (!syncStatus?.isSynced) return false;
+  const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
+  if (changed === 0) return false;
+  log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${syncStatus.receiveOnlyChangedFiles || 0} files, ${syncStatus.receiveOnlyChangedDirectories || 0} directories); reverting to the cluster's version`);
+  try {
+    // dataOrThrow: dbRevert answers in-band; without it this catch is
+    // dead code and a failed revert reads as reverted
+    messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
+    fluxEventBus.publish('syncthing:localChangesReverted', {
+      folder: appId,
+      files: syncStatus.receiveOnlyChangedFiles || 0,
+      directories: syncStatus.receiveOnlyChangedDirectories || 0,
+    });
+  } catch (error) {
+    log.error(`revertLocalChangesIfSynced - revert of local changes for ${appId} failed: ${error.message}`);
+  }
+  return true;
 }
 
 /**
@@ -1399,10 +1409,9 @@ async function handleReceiveOnlyTransition(params) {
     // long as the apply takes.
     cache.designationPending = true;
 
-    // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
-    await fixAppdataPermissions(appId);
-
-    syncthingFolder.type = 'sendreceive';
+    // A single-writer folder sends only while the elected primary runs here; the
+    // election starts the leader and flips it, this pass only names the seed.
+    syncthingFolder.type = containerDataFlags.includes('g') ? 'receiveonly' : 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
       log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (leader)`);
@@ -1467,15 +1476,7 @@ async function handleReceiveOnlyTransition(params) {
     // is clean first; if not, revert the local changes (db/revert undoes local edits in
     // a receiveonly folder) and promote on a later cycle once verifiably clean. The
     // leader path above is exempt by design - the leader's local data IS the seed.
-    if (syncStatus.isSynced && syncStatus.receiveOnlyChangedFiles > 0) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} is synced but the receive-only folder has ${syncStatus.receiveOnlyChangedFiles} locally changed item(s); reverting local changes instead of promoting (promotion would propagate them to the cluster)`);
-      try {
-        // dataOrThrow: dbRevert answers in-band; without it this catch is
-        // dead code and a failed revert reads as reverted
-        messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
-      } catch (error) {
-        log.error(`handleReceiveOnlyTransition - revert of local changes for ${appId} failed: ${error.message}`);
-      }
+    if (await revertLocalChangesIfSynced(appId, syncStatus)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
@@ -1487,9 +1488,11 @@ async function handleReceiveOnlyTransition(params) {
         log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
         return { syncthingFolder, cache };
       }
-      log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
-      await fixAppdataPermissions(appId);
-      syncthingFolder.type = 'sendreceive';
+      // A single-writer folder sends only while the elected primary runs here;
+      // the election flips it, this pass only records that the copy is whole.
+      const singleWriter = containerDataFlags.includes('g');
+      log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), ${singleWriter ? 'stays receiveonly until elected primary' : 'switching to sendreceive'}`);
+      syncthingFolder.type = singleWriter ? 'receiveonly' : 'sendreceive';
       if (containerDataFlags.includes('r')) {
         log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (synced)`);
         appReconciler.setControllerDesired(appId, 'running', 'syncthing synced start');
@@ -1652,6 +1655,24 @@ async function manageFolderSyncState(params) {
 
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
+  if (folderAlreadySyncing && containerDataFlags.includes('g') && (await appQueryService.holdsComponent(appId)) === false) {
+    // A single-writer folder sends only from the node that holds the primary:
+    // running it, committed to start it, or stopped by its owner to work on its
+    // data. Found sendreceive with none of those, this is a primary that lost
+    // its process, and what it holds must not go out until the election says
+    // it is primary again.
+    log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
+    // Scanned first, so everything written here is announced as this node's
+    // own version and the next primary pulls it. Unscanned when the folder
+    // turns receiveonly, a write becomes a local change that the revert deletes.
+    try {
+      await syncthingService.scanFolder(appId);
+    } catch (error) {
+      log.warn(`manageFolderSyncState - scan of ${appId} before demotion failed: ${error.message}`);
+    }
+    syncthingFolder.type = 'receiveonly';
+    return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
+  }
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
@@ -1738,6 +1759,18 @@ async function manageFolderSyncState(params) {
 
   // Default case - ensure container is running
   await ensureContainerRunning(appId, containerDataFlags);
+  if (containerDataFlags.includes('g')) {
+    // The election owns a single-writer folder's type, and the ready mark it
+    // reads has to outlive this pass.
+    syncthingFolder.type = syncFolder ? syncFolder.type : 'receiveonly';
+    // A ready standby still has to converge on the primary's copy: a local
+    // deviation (an owner or mode included) is never overwritten by syncthing
+    // in a receiveonly folder, and the primary counts it as outstanding.
+    if (syncthingFolder.type === 'receiveonly') {
+      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId));
+    }
+    return { syncthingFolder, cache };
+  }
   return { syncthingFolder, cache: null };
 }
 

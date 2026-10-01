@@ -2,6 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const { promisify } = require('node:util');
+const childProcess = require('node:child_process');
 
 const config = require('config');
 const configDefault = require('../../config/default');
@@ -36,8 +37,22 @@ const tar = require('tar/create');
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
 const { Privilege, authOf } = require('./utils/privileges');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+/**
+ * What an endpoint that updates FluxOS's own code answers on this node type, or
+ * null where FluxOS updates itself. On Arcane the watchdog updates FluxOS: it
+ * stops the service, pulls, installs the dependencies and starts it again.
+ * @param {boolean} arcane
+ * @returns {object|null} The refusal message, or null
+ */
+function selfUpdateRefusal(arcane) {
+  return arcane
+    ? messageHelper.createErrorMessage('FluxOS on ArcaneOS is updated by its watchdog, not by this endpoint')
+    : null;
+}
 
 // Where this node's checkout is, named once. Every command below that reads or
 // writes the repository is told it, rather than inheriting whatever directory
@@ -162,6 +177,128 @@ async function getCurrentCommitId() {
   if (error) throw error;
 
   return commitId.trim();
+}
+
+/**
+ * The commit this install is on, or null when it cannot be read.
+ *
+ * @returns {Promise<string|null>}
+ */
+async function commitOrNull() {
+  try {
+    return await getCurrentCommitId();
+  } catch {
+    return null;
+  }
+}
+
+// Long enough for the reply to the request that changed the code to go out.
+const RESTART_AFTER_REPLY_MS = 5000;
+
+/**
+ * Runs the code now on disk, on a node whose FluxOS runs under pm2.
+ *
+ * pm2 starts FluxOS through start.sh, which installs its dependencies first, so
+ * a restart through pm2 runs the new code with the modules it needs. It is asked
+ * for when the checkout moved, or always for an update that installed the
+ * modules again, and a moment later so the reply goes out first. A FluxOS that
+ * pm2 does not run runs the new code from its next start.
+ *
+ * @param {string|null} before The commit before the change
+ * @param {{always?: boolean}} [options]
+ * @returns {Promise<boolean>} Whether a restart was asked for
+ */
+async function runNewCode(before, { always = false } = {}) {
+  const pm2Id = process.env.pm_id;
+  if (pm2Id === undefined) return false;
+  if (!always) {
+    const after = await commitOrNull();
+    if (after === null || after === before) return false;
+  }
+  log.info(`FluxOS code changed on disk, asking pm2 to restart process ${pm2Id} in ${RESTART_AFTER_REPLY_MS}ms`);
+  setTimeout(async () => {
+    const { error } = await serviceHelper.runCommand('pm2', { params: ['restart', String(pm2Id)] });
+    if (error) log.error(`pm2 could not restart FluxOS to run its new code: ${error.message}`);
+  }, RESTART_AFTER_REPLY_MS);
+  return true;
+}
+
+// How long pm2 waits for FluxOS to exit on a stop before killing it. The whole
+// shutdown has to fit: apiServer.js's SHUTDOWN_BUDGET_MS, containers stopped and
+// folders drained to peers, is taken from it. pm2's systemd unit stops through
+// `pm2 kill`, which waits this long, inside systemd's 90s default stop timeout.
+// The multitool registers new nodes with the same value.
+const PM2_KILL_TIMEOUT_MS = 60000;
+
+// Where FluxOS records the machine boot on which it last asked pm2 for the
+// kill timeout, as that boot's id.
+const PM2_KILL_TIMEOUT_REQUEST = path.join(os.homedir(), '.flux-pm2-kill-timeout-request');
+const BOOT_ID = '/proc/sys/kernel/random/boot_id';
+
+/**
+ * Gives this FluxOS's pm2 registration a kill timeout of at least
+ * PM2_KILL_TIMEOUT_MS, on a node whose FluxOS runs under pm2, and resolves once
+ * FluxOS is to boot on.
+ *
+ * The timeout belongs to the registration, so it is changed by a pm2 restart
+ * with the new value, and saved so the registration pm2 resurrects at boot
+ * carries it. The restart ends this process and pm2 kills its process tree, so
+ * the command runs in a new session re-parented away from it, and this does
+ * not resolve while the restart is under way. A restart that fails signals
+ * this process with SIGUSR2, and FluxOS boots on with the kill timeout it has.
+ *
+ * pm2 is asked once per machine boot: a FluxOS that finds its kill timeout
+ * still short on the boot it asked on boots on with it. A registration that
+ * cannot be read, or a boot that cannot be identified, is left alone.
+ *
+ * @returns {Promise<void>}
+ */
+async function ensurePm2KillTimeout() {
+  const pm2Id = process.env.pm_id;
+  if (pm2Id === undefined) return;
+  if (!/^\d+$/.test(pm2Id)) {
+    log.warn(`pm2 id ${pm2Id} is not a number; leaving FluxOS's pm2 registration alone`);
+    return;
+  }
+  const { stdout, error } = await serviceHelper.runCommand('pm2', { params: ['jlist'], maxBuffer: 16 * 1024 * 1024 });
+  let killTimeout;
+  try {
+    if (error) throw error;
+    const own = JSON.parse(stdout).find((proc) => String(proc.pm_id) === pm2Id);
+    if (!own) throw new Error(`process ${pm2Id} is not in pm2's list`);
+    killTimeout = own.pm2_env?.kill_timeout ?? null;
+  } catch (err) {
+    log.warn(`Could not read FluxOS's pm2 registration, leaving it alone: ${err.message}`);
+    return;
+  }
+  if (Number(killTimeout) >= PM2_KILL_TIMEOUT_MS) return;
+
+  const bootId = (await fs.readFile(BOOT_ID, 'utf8').catch(() => '')).trim();
+  if (!bootId) {
+    log.warn(`FluxOS's pm2 kill timeout is ${killTimeout ?? "pm2's default"}, and this machine boot cannot be identified to ask pm2 only once; leaving it`);
+    return;
+  }
+  const askedOn = (await fs.readFile(PM2_KILL_TIMEOUT_REQUEST, 'utf8').catch(() => '')).trim();
+  if (askedOn === bootId) {
+    log.error(`pm2 kept FluxOS's kill timeout at ${killTimeout ?? "pm2's default"} after FluxOS asked it for ${PM2_KILL_TIMEOUT_MS}ms on this boot; FluxOS boots with it`);
+    fluxEventBus.publish('pm2:killTimeoutUnchanged', { killTimeout });
+    return;
+  }
+  await fs.writeFile(PM2_KILL_TIMEOUT_REQUEST, bootId);
+
+  log.info(`FluxOS's pm2 kill timeout is ${killTimeout ?? "pm2's default"}; re-registering process ${pm2Id} with ${PM2_KILL_TIMEOUT_MS}ms`);
+  await new Promise((resolve) => {
+    process.once('SIGUSR2', resolve);
+    const reregister = `if pm2 restart ${pm2Id} --kill-timeout ${PM2_KILL_TIMEOUT_MS}; then pm2 save; else kill -USR2 ${process.pid}; fi`;
+    const child = childProcess.spawn('sh', ['-c', `setsid sh -c '${reregister}' >/dev/null 2>&1 </dev/null &`], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.on('error', resolve);
+    child.unref();
+  });
+  log.error(`pm2 could not restart FluxOS to raise its kill timeout from ${killTimeout ?? "pm2's default"}; FluxOS boots with it`);
+  fluxEventBus.publish('pm2:killTimeoutRaiseFailed', { killTimeout });
 }
 
 /**
@@ -355,7 +492,9 @@ async function currentCheckout() {
  * @returns {Promise<object>} Message.
  */
 async function enterMaster() {
+  const before = await commitOrNull();
   await checkoutBranch('master');
+  await runNewCode(before);
 }
 
 /**
@@ -388,7 +527,9 @@ async function enterMasterApi(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function enterDevelopment() {
+  const before = await commitOrNull();
   await checkoutBranch('development');
+  await runNewCode(before);
 }
 
 /**
@@ -427,7 +568,10 @@ async function updateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
+  const before = await commitOrNull();
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'updateflux'] });
 
   if (error) {
@@ -435,6 +579,7 @@ async function updateFlux(req, res) {
     return res.json(errMessage);
   }
 
+  await runNewCode(before);
   const message = messageHelper.createSuccessMessage('Flux successfully updated');
   return res.json(message);
 }
@@ -446,10 +591,11 @@ async function updateFlux(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFlux() {
-
+  const before = await commitOrNull();
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'softupdate'] });
 
   if (error) throw error;
+  await runNewCode(before);
 }
 
 /**
@@ -463,6 +609,8 @@ async function softUpdateFluxApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await softUpdateFlux();
@@ -479,10 +627,11 @@ async function softUpdateFluxApi(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function softUpdateFluxInstall() {
-
+  const before = await commitOrNull();
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'softupdateinstall'] });
 
   if (error) throw error;
+  await runNewCode(before);
 }
 
 /**
@@ -496,6 +645,8 @@ async function softUpdateFluxInstallApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await softUpdateFluxInstall();
@@ -518,7 +669,8 @@ async function hardUpdateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res ? res.json(refusal) : refusal;
 
   const { error } = await serviceHelper.runCommand('npm', { cwd: REPO_ROOT, params: ['run', 'hardupdateflux'] });
 
@@ -527,6 +679,9 @@ async function hardUpdateFlux(req, res) {
     return res ? res.json(errMessage) : errMessage;
   }
 
+  // The update installed the modules again, and a running FluxOS loads some of
+  // them later, so it restarts onto them whether or not the code moved.
+  await runNewCode(null, { always: true });
   const message = messageHelper.createSuccessMessage('Flux successfully hard updated');
   return res ? res.json(message) : message;
 }
@@ -1697,7 +1852,7 @@ async function getNodeTier(req, res) {
 }
 
 /**
- * Restart FluxOS via nodemon (executes the command `touch ` on package.json).
+ * Restart FluxOS through pm2 (executes `pm2 restart flux`).
  * @param {object} req Request.
  * @param {object} res Response.
  */
@@ -2126,6 +2281,9 @@ async function isArcaneOs(req, res) {
 }
 
 module.exports = {
+  runNewCode,
+  ensurePm2KillTimeout,
+  PM2_KILL_TIMEOUT_MS,
   adjustAPIPort,
   adjustKadenaAccount,
   adjustRouterIP,
@@ -2161,6 +2319,7 @@ module.exports = {
   getNodeTier,
   getRouterIP,
   hardUpdateFlux,
+  selfUpdateRefusal,
   isStaticIPapi,
   rebuildUi,
   reindexDaemon,
