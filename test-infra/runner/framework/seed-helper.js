@@ -56,6 +56,10 @@ export async function buildSeedableApp({
   env = null,
   height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
   instances = 3,
+  // The key that registers the app: it signs the registration, and its zelid is
+  // the owner unless `owner` names another. An app whose owner must sign in -
+  // to stop, start or redeploy it - is registered by that owner's key.
+  ownerKey = appOwnerKey(),
   owner = null,
   staticip = false,
   enterprise = '',
@@ -75,7 +79,6 @@ export async function buildSeedableApp({
   // obsolete and reinstalls it forever.
   nodes = [],
 }) {
-  const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
 
   const spec = {
