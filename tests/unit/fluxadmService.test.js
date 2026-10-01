@@ -5,6 +5,7 @@ const proxyquire = require('proxyquire');
 const { expect } = chai;
 
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
@@ -28,6 +29,7 @@ const cmdFail = { error: new Error('command failed'), stdout: '', stderr: '' };
 
 describe('fluxadmService tests', () => {
   let runCommandStub;
+  let systemdStub;
 
   before(() => {
     globalThis.userconfig = { initial: {} };
@@ -35,6 +37,8 @@ describe('fluxadmService tests', () => {
 
   beforeEach(() => {
     runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ ...cmdOk });
+    systemdStub = sinon.stub(fsSync, 'existsSync').callThrough();
+    systemdStub.withArgs('/run/systemd/system').returns(true);
   });
 
   afterEach(() => {
@@ -97,6 +101,15 @@ describe('fluxadmService tests', () => {
       const res = fluxadmService.getFluxadmSshPort();
 
       expect(res).to.equal(16122);
+    });
+
+    it('should return null when systemd is not the init', () => {
+      testConfig.fluxadm.sshAuthorizedKeys = testKeys;
+      systemdStub.withArgs('/run/systemd/system').returns(false);
+
+      const res = fluxadmService.getFluxadmSshPort();
+
+      expect(res).to.equal(null);
     });
 
     it('should follow a custom apiport from userconfig', () => {
@@ -460,6 +473,27 @@ describe('fluxadmService tests', () => {
 
       expect(res).to.equal('skipped');
       sinon.assert.neverCalledWith(runCommandStub, 'useradd');
+    });
+
+    it('should skip a legacy node whose init is not systemd without touching the system', async () => {
+      testConfig.fluxadm.sshAuthorizedKeys = testKeys;
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: false } });
+      systemdStub.withArgs('/run/systemd/system').returns(false);
+
+      const res = await fluxadmService.ensureFluxadmAccess();
+
+      expect(res).to.equal('skipped');
+      sinon.assert.notCalled(runCommandStub);
+    });
+
+    it('should not run the removal path on a legacy node whose init is not systemd', async () => {
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: false } });
+      systemdStub.withArgs('/run/systemd/system').returns(false);
+
+      const res = await fluxadmService.ensureFluxadmAccess();
+
+      expect(res).to.equal('skipped');
+      sinon.assert.notCalled(runCommandStub);
     });
 
     it('should stop the pipeline at the first failing step', async () => {
