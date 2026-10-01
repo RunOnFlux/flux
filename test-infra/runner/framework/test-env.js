@@ -33,6 +33,7 @@ import { fluxTeamKey, nodeKey } from './keys.js';
 import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
 import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
+import { startSyncedDataKeeper } from './synced-data-keeper.js';
 
 // How long after a re-attach the collector goes on treating an exact repeat as docker
 // replaying a line it already has. Docker's `since` is whole-second, so the replay is over
@@ -491,6 +492,7 @@ function makeEnvShell(networkName) {
       // the flag covers events already queued on the stream, closing it covers
       // the rest.
       env.stopping = true;
+      await env.syncedDataKeeper?.stop().catch((err) => warn('synced-data keeper', err));
       try {
         env.infraWatch?.stop();
       } catch (err) {
@@ -1532,6 +1534,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   for (const client of clients) {
     if (client) await client.connectEventStream();
   }
+  // The stub moves no data, so the harness puts on each node's disk the bytes the
+  // stub reports that node holds in sync - see synced-data-keeper.js.
+  if (syncthing !== 'binary') env.syncedDataKeeper = startSyncedDataKeeper(env);
 
   // Boot is NOT complete when the nodes answer HTTP: FluxOS still runs its
   // internal boot (mongo collection prep → daemon poll loop), and that is the

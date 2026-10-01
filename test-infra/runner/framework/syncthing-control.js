@@ -89,14 +89,14 @@ export async function getPauseWrites(ip) {
 // because nobody had said otherwise, and the deadlock the suite is named for could not
 // occur in it. Stating the number is cheap; being handed one is not.
 //
-// globalFiles says WHICH KIND of claim globalBytes is, and the mount-safety check reads
-// the disk on those terms: claiming files is answered by files, claiming bytes and no
-// files is a folder whose payload is directories. It defaults to 0 - the directories
-// reading - because that is what the count on a real volume's mount structure answers,
-// and a suite whose premise is a claim over FILES states the number.
+// The stub reports no directories, so globalBytes are bytes in files; left out,
+// globalFiles is the one file they need. The node's volume holds the bytes it reports
+// in sync, as a real sync leaves them - the harness writes them there
+// (synced-data-keeper.js). A suite describing an index the disk contradicts, such as a
+// stale index over a wiped volume, passes onDisk: false.
 export async function setSyncState({
-  ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles = 0, inSyncBytes = 0,
-  receiveOnlyChangedFiles, localChanged = null,
+  ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles, inSyncBytes = 0,
+  receiveOnlyChangedFiles, localChanged = null, onDisk = true,
 }) {
   if (receiveOnlyChangedFiles === undefined && !Array.isArray(localChanged)) {
     throw new Error(
@@ -107,8 +107,14 @@ export async function setSyncState({
     );
   }
   return post('/sync-state', {
-    ip, folder, state, globalBytes, globalFiles, inSyncBytes, receiveOnlyChangedFiles, localChanged,
+    ip, folder, state, globalBytes, globalFiles, inSyncBytes, receiveOnlyChangedFiles, localChanged, onDisk,
   });
+}
+
+// The bytes each node's volume should hold per folder, as the stub's declared sync
+// state puts them: [{ ip, folder, bytes }], ip '*' for every node without its own.
+export async function getDiskClaims() {
+  return get('/disk-claims');
 }
 
 // Fully synced (reads as 100% -> safe to start).
