@@ -9,10 +9,11 @@ const fluxRpc = require('../../ZelBack/src/services/utils/fluxRpc');
 const { expect } = chai;
 
 const SERVICE = '../../ZelBack/src/services/benchmarkService';
+const SERVICE_PATH = require.resolve(SERVICE);
 
 // The service caches its client, so each test starts from a fresh copy.
 function freshService() {
-  delete require.cache[require.resolve(SERVICE)];
+  delete require.cache[SERVICE_PATH];
   // eslint-disable-next-line global-require, import/no-dynamic-require
   return require(SERVICE);
 }
@@ -25,6 +26,18 @@ describe('benchmarkService transport tests', () => {
   const { socketPath } = config.benchmark;
   let server = null;
   let run;
+  // Modules loaded by other test files hold the cached copy; it is put back
+  // afterwards so their stubs reach the instance their code uses.
+  let cachedService;
+
+  before(() => {
+    cachedService = require.cache[SERVICE_PATH];
+  });
+
+  after(() => {
+    if (cachedService) require.cache[SERVICE_PATH] = cachedService;
+    else delete require.cache[SERVICE_PATH];
+  });
 
   async function offerSocket() {
     await fs.rm(socketPath, { force: true });
