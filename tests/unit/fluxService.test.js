@@ -2107,6 +2107,7 @@ describe('fluxService tests', () => {
       // nodes cannot be counted across the fleet, and counting it is half the
       // reason it is here.
       expect(result.data.flux.dosStaging).to.equal(null);
+      expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',

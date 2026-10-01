@@ -3411,6 +3411,69 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('local socket address announcements', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('announces an address only when it differs from the last one learned', () => {
+      const listener = sinon.spy();
+      fluxNetworkHelper.onLocalSocketAddressChange(listener);
+
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.10');
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.10:16127');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.10');
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.11:16137');
+      fluxNetworkHelper.offLocalSocketAddressChange(listener);
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.12');
+
+      expect(listener.args).to.eql([['198.51.100.10:16127'], ['198.51.100.11:16137']]);
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.12:16127');
+    });
+
+    it('keeps the last address learned when the benchmark stops answering', () => {
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.20');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.20:16127');
+    });
+  });
+
+  describe('getDefaultRoutes', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('keeps the default routes that are up and have a gateway, best metric first', async () => {
+      const routeTable = 'Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n'
+        + 'wlan0\t00000000\t0102A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n'
+        + 'eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n'
+        + 'eth1\t00000000\t0103A8C0\t0003\t0\t0\t50\t00000000\t0\t0\t0\n'
+        + 'eth2\t00000000\t00000000\t0001\t0\t0\t10\t00000000\t0\t0\t0\n'
+        + 'eth0\t0001A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n';
+      const readFile = sinon.stub(fs, 'readFile');
+      readFile.withArgs('/proc/net/route', 'utf8').resolves(routeTable);
+      readFile.withArgs('/sys/class/net/eth0/operstate', 'utf8').resolves('up\n');
+      readFile.withArgs('/sys/class/net/wlan0/operstate', 'utf8').resolves('up\n');
+      readFile.withArgs('/sys/class/net/eth1/operstate', 'utf8').resolves('down\n');
+      readFile.withArgs('/sys/class/net/eth2/operstate', 'utf8').resolves('up\n');
+
+      const routes = await fluxNetworkHelper.getDefaultRoutes();
+
+      expect(routes).to.eql([
+        { iface: 'eth0', gateway: '192.168.1.1', metric: 100 },
+        { iface: 'wlan0', gateway: '192.168.2.1', metric: 600 },
+      ]);
+    });
+
+    it('throws when the routing table cannot be read', async () => {
+      sinon.stub(fs, 'readFile').rejects(new Error('EACCES: permission denied'));
+
+      await expect(fluxNetworkHelper.getDefaultRoutes()).to.be.rejectedWith('EACCES');
+    });
+  });
+
   describe('hasPublicIpOnInterface', () => {
     afterEach(() => {
       sinon.restore();

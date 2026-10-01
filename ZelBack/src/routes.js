@@ -55,6 +55,7 @@ const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
+const uplinkService = require('./services/uplinkService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
 
 module.exports = (app) => {
@@ -276,6 +277,10 @@ module.exports = (app) => {
   }));
   app.get('/flux/geolocation', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxService.getFluxGeolocation(req, res);
+  }));
+  // Uncached: the answer depends on who is asking.
+  app.get('/flux/uplink', rejectQueryParameters, asyncRoute((req, res) => {
+    return uplinkService.uplinkAPI(req, res);
   }));
   app.get('/flux/zelid', cache('30 seconds'), asyncRoute((req, res) => { // DEPERCATED
     return fluxService.getFluxZelID(req, res);
