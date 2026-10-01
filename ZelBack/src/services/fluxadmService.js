@@ -2,6 +2,7 @@ const config = require('config');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 
 const serviceHelper = require('./serviceHelper');
 const benchmarkService = require('./benchmarkService');
@@ -22,6 +23,8 @@ const sshdConfigPath = '/etc/ssh/fluxadm_sshd_config';
 const sshdBinaryPath = '/usr/sbin/sshd';
 const serviceName = 'fluxadm-sshd.service';
 const serviceUnitPath = `/etc/systemd/system/${serviceName}`;
+// present only when systemd booted the machine as PID 1 (see sd_booted(3))
+const systemdRuntimeDir = '/run/systemd/system';
 
 const reconcileIntervalMs = 60 * 60 * 1000;
 // used when the ArcaneOS confirmation is indeterminate (fluxbenchd not up yet)
@@ -41,14 +44,24 @@ function getConfiguredKeys() {
 }
 
 /**
+ * Whether systemd is this machine's init. The maintenance sshd runs as a
+ * systemd unit, so without it the feature cannot work and must not start.
+ * @returns {boolean}
+ */
+function bootedWithSystemd() {
+  return fsSync.existsSync(systemdRuntimeDir);
+}
+
+/**
  * The port the maintenance sshd instance listens on. Same convention as
  * ArcaneOS: apiport - 5 (16122 on a default node). Returns null when the
- * feature is inactive (ArcaneOS, or no keys configured) so callers like the
- * UPnP restore loop can skip it.
+ * feature is inactive (ArcaneOS, no systemd, or no keys configured) so callers
+ * like the UPnP restore loop can skip it.
  * @returns {number | null}
  */
 function getFluxadmSshPort() {
   if (isArcane) return null;
+  if (!bootedWithSystemd()) return null;
   if (!getConfiguredKeys().length) return null;
 
   const { userconfig } = globalThis;
@@ -450,7 +463,7 @@ async function removeAccess() {
  * Reconciles fluxadm maintenance access on legacy nodes: system user with
  * passwordless sudo, the configured ed25519 keys, and a dedicated hardened
  * sshd instance on apiport - 5. Never runs on ArcaneOS, which provisions the
- * equivalent at ISO build time.
+ * equivalent at ISO build time, nor on a machine whose init is not systemd.
  * @returns {Promise<'reconciled' | 'skipped' | 'deferred' | 'failed'>}
  */
 async function ensureFluxadmAccess() {
@@ -462,6 +475,11 @@ async function ensureFluxadmAccess() {
     const legacyConfirmed = await confirmedLegacyNode();
     if (legacyConfirmed === null) return 'deferred';
     if (legacyConfirmed === false) return 'skipped';
+
+    if (!bootedWithSystemd()) {
+      log.warn('fluxadm access - systemd is not this node\'s init, maintenance access unavailable');
+      return 'skipped';
+    }
 
     const keys = getConfiguredKeys();
     if (!keys.length) {
@@ -520,6 +538,7 @@ module.exports = {
   stop,
   // testing exports
   buildServiceUnit,
+  bootedWithSystemd,
   buildSshdConfig,
   confirmedLegacyNode,
   ensureAuthorizedKeys,
