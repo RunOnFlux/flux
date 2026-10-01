@@ -87,6 +87,25 @@ function recordType(folderId, type) {
   }
 }
 
+/**
+ * Replaces the set of writable folders peers are told about with what a monitor
+ * pass observed, and publishes the event for each folder it adds. A pass can read
+ * a folder's new type after syncthing applied it and before its writer recorded
+ * it, so the folder turns writable here and its writer then finds it already
+ * held. The first set after a start publishes nothing: a folder found sending
+ * then did not turn writable.
+ * @param {Set<string>} writable
+ */
+function publishWritable(writable) {
+  const previous = globalState.promotedFolderIds;
+  if (previous) {
+    writable.forEach((folderId) => {
+      if (!previous.has(folderId)) fluxEventBus.publish('syncthing:folderWritable', { folder: folderId });
+    });
+  }
+  globalState.promotedFolderIds = writable;
+}
+
 async function patchNow(folderId, fields) {
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
   if (response.status === 'success' && fields.type) recordType(folderId, fields.type);
@@ -270,5 +289,6 @@ module.exports = {
   patchFolder,
   deleteFolder,
   mark,
+  publishWritable,
   typesRecordedSince,
 };

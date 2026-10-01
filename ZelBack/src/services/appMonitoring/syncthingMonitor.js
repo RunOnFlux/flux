@@ -8,7 +8,6 @@ const dockerService = require('../dockerService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
-const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
@@ -573,7 +572,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       if (type === 'sendreceive') writable.add(folderId);
       else writable.delete(folderId);
     });
-    globalState.promotedFolderIds = writable;
+    syncthingFolderWrites.publishWritable(writable);
 
     let allDevices;
     try {
