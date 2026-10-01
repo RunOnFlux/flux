@@ -1839,7 +1839,7 @@ describe('advancedWorkflows tests', () => {
     it('begins no second start while the last pass\'s promotion is in progress', async () => {
       const appName = 'secondpassapp';
       sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
-      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const setRunning = sinon.stub(appReconciler, 'setRunningUnlessOperatorStopped').resolves(true);
       const count = sinon.stub(fluxEventBus, 'count');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
@@ -1862,7 +1862,7 @@ describe('advancedWorkflows tests', () => {
       sent();
       await primaryRole.whenSettled(appName);
       sinon.assert.calledOnce(adjust);
-      expect(setControllerDesired.withArgs(appName, 'running').callCount).to.equal(1);
+      expect(setRunning.withArgs(appName).callCount).to.equal(1);
     });
 
     it('holds the component from the moment it commits until the reconciler is asked to run it', async () => {
@@ -1870,7 +1870,7 @@ describe('advancedWorkflows tests', () => {
       // anyone running this?" hears no from a node that has already committed.
       const appName = 'holdlifecycleapp';
       sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
-      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const setRunning = sinon.stub(appReconciler, 'setRunningUnlessOperatorStopped').resolves(true);
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
       let sent;
@@ -1886,13 +1886,13 @@ describe('advancedWorkflows tests', () => {
       await runPass();
 
       expect(primaryRoleChanges.promotingIdentifiers(), 'not held while its folder has not sent').to.include(appName);
-      sinon.assert.neverCalledWith(setControllerDesired, appName, 'running');
+      sinon.assert.neverCalledWith(setRunning, appName);
 
       sent();
       await primaryRole.whenSettled(appName);
 
       expect(primaryRoleChanges.promotingIdentifiers()).to.not.include(appName);
-      sinon.assert.calledWith(setControllerDesired, appName, 'running');
+      sinon.assert.calledWith(setRunning, appName);
     });
 
     it('does not mistake a longer-named app on a peer for this component', async () => {
@@ -3024,7 +3024,7 @@ describe('advancedWorkflows tests', () => {
       this.timeout(10000);
       const appName = 'flipunansweredapp';
       sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
-      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const setRunning = sinon.stub(appReconciler, 'setRunningUnlessOperatorStopped').resolves(true);
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       // the wait for the type to show polls once a second
       serviceHelperDelayStub.withArgs(1000).callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
@@ -3044,7 +3044,7 @@ describe('advancedWorkflows tests', () => {
       expect(primaryRole.inTransition(appName), 'the start was never attempted, so this proves nothing').to.equal('promoting');
       await primaryRole.whenSettled(appName);
 
-      sinon.assert.calledWith(setControllerDesired, appName, 'running');
+      sinon.assert.calledWith(setRunning, appName);
     });
 
     it('does NOT stop its own container when it is the primary on a UPnP (non-default) port', async () => {

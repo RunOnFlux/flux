@@ -13,15 +13,19 @@ const FOLDER = 'fluxn8n_n8napp';
  * the calls it makes is what these tests are about, so every collaborator writes
  * to one shared log.
  */
-function loadRole({ primary = false, changeType } = {}) {
+function loadRole({ primary = false, changeType, operatorStopped = false } = {}) {
   const calls = [];
   const note = (name) => (...args) => { calls.push([name, ...args]); };
   const reconciler = {
     committed: primary ? [APP] : [],
     committedIdentifiers: sinon.spy(() => reconciler.committed),
-    setControllerDesired: sinon.spy((id, state) => {
-      note('setControllerDesired')(id, state);
-      if (state === 'running') reconciler.committed = [id];
+    // Writes the desire to run only when the operator has not stopped the
+    // component, as the reconciler decides it in its per-key slot.
+    setRunningUnlessOperatorStopped: sinon.spy(async (id) => {
+      note('setRunningUnlessOperatorStopped')(id, { operatorStopped });
+      if (operatorStopped) return false;
+      reconciler.committed = [id];
+      return true;
     }),
     setControllerDesiredAndWait: sinon.spy(async (id, state) => {
       note('setControllerDesiredAndWait')(id, state);
@@ -82,7 +86,7 @@ describe('primaryRole', () => {
       expect(t.calls).to.deep.equal([
         ['checkpoint', 'masterSlave:beforeStart', APP],
         ['folder', FOLDER, 'sendreceive'],
-        ['setControllerDesired', APP, 'running'],
+        ['setRunningUnlessOperatorStopped', APP, { operatorStopped: false }],
       ]);
       expect(t.roleEvents()).to.deep.equal([
         { identifier: APP, from: 'standby', to: 'promoting' },
@@ -90,6 +94,28 @@ describe('primaryRole', () => {
       ]);
       sinon.assert.calledWith(t.bus.publish, 'masterSlave:started', { identifier: APP });
       sinon.assert.calledWith(t.bus.count, 'masterSlave:decision', APP, 'started');
+    });
+
+    // A stop given while the folder turned lands before the desire to run. The
+    // component stays held by the lock with its folder sending, and nothing is
+    // asked to run it.
+    it('leaves a component its operator stopped mid-promotion stopped, its folder sending', async () => {
+      const t = loadRole({ operatorStopped: true });
+
+      expect(t.role.promote(APP, FOLDER)).to.equal(true);
+      await t.role.whenSettled(APP);
+
+      expect(t.calls).to.deep.equal([
+        ['checkpoint', 'masterSlave:beforeStart', APP],
+        ['folder', FOLDER, 'sendreceive'],
+        ['setRunningUnlessOperatorStopped', APP, { operatorStopped: true }],
+      ]);
+      expect(t.roleEvents()).to.deep.equal([
+        { identifier: APP, from: 'standby', to: 'promoting' },
+        { identifier: APP, from: 'promoting', to: 'standby', reason: 'its operator stopped it' },
+      ]);
+      expect(t.reconciler.committed).to.deep.equal([]);
+      expect(t.changes.promotingIdentifiers()).to.deep.equal([]);
     });
 
     it('holds the component while promoting, and not once the change has ended', async () => {
@@ -133,7 +159,7 @@ describe('primaryRole', () => {
       t.role.promote(APP, FOLDER);
       await t.role.whenSettled(APP);
 
-      sinon.assert.notCalled(t.reconciler.setControllerDesired);
+      sinon.assert.notCalled(t.reconciler.setRunningUnlessOperatorStopped);
       expect(t.roleEvents().at(-1)).to.deep.equal({
         identifier: APP, from: 'promoting', to: 'standby', reason: 'the folder did not send',
       });
@@ -200,7 +226,7 @@ describe('primaryRole', () => {
       held.answer(true);
       await t.role.whenSettled(APP);
 
-      sinon.assert.notCalled(t.reconciler.setControllerDesired);
+      sinon.assert.notCalled(t.reconciler.setRunningUnlessOperatorStopped);
       expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([
         ['folder', FOLDER, 'sendreceive'],
         ['folder', FOLDER, 'receiveonly'],
@@ -307,7 +333,7 @@ describe('primaryRole', () => {
       held.answer(true);
       await t.role.whenSettled(APP);
 
-      sinon.assert.notCalled(t.reconciler.setControllerDesired);
+      sinon.assert.notCalled(t.reconciler.setRunningUnlessOperatorStopped);
       expect(t.roleEvents().at(-1)).to.deep.equal({
         identifier: APP, from: 'promoting', to: 'standby', reason: 'stood down before it ran',
       });

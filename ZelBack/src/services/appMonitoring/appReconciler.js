@@ -1429,6 +1429,31 @@ async function setControllerDesiredAndWait(rawIdentifier, state, reason) {
 }
 
 /**
+ * Asks for a component to run unless its operator has it stopped, decided in
+ * the per-key slot the operator's own writes go through. A desire to run is
+ * never written behind the stop lock: an operator stop clears the desire, and a
+ * desire written after it would start the component the moment the lock lifted
+ * by any route, with no election pass. In the slot, either this lands first and
+ * the stop clears it, or the stop lands first and this writes nothing.
+ * @param {string} rawIdentifier Component identifier.
+ * @param {string} reason Why, for the log and the event.
+ * @returns {Promise<boolean>} Whether the desire was written.
+ * @throws When the lock cannot be read: an unread lock is not an absent one.
+ */
+async function setRunningUnlessOperatorStopped(rawIdentifier, reason) {
+  const identifier = canonical(rawIdentifier);
+  let written = false;
+  await applyIntent(identifier, async () => {
+    if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) return;
+    controllerDesired.set(identifier, 'running');
+    log.info(`appReconciler - controllerDesired[${identifier}] = running (${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', { identifier, state: 'running', reason });
+    written = true;
+  });
+  return written;
+}
+
+/**
  * Declare that a g:/r: component must be stopped and its local appdata cleared
  * before it next runs - the sync layer's first-run / new-app reset. Sets both
  * desired inputs and enqueues ONE reconcile: the reconciler (the sole container
@@ -1545,6 +1570,7 @@ module.exports = {
   clearControllerDesired,
   forgetDesiredState,
   setControllerDesiredAndWait,
+  setRunningUnlessOperatorStopped,
   committedIdentifiers,
   requestStopAndClearData,
   waitForBootDrainSettled: () => bootDrainGate.wait(),

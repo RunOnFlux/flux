@@ -64,6 +64,7 @@ describe('appReconciler tests', () => {
       appsRuntimeState: {
         isOperatorStopped: sinon.stub().resolves(false),
         operatorStopState: sinon.stub().resolves({ stopped: false, force: false }),
+        operatorStoppedOrThrow: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
@@ -1989,6 +1990,51 @@ describe('appReconciler tests', () => {
 
       await appReconciler.setControllerDesiredAndWait('www_App', 'running', 'test');
       expect(appReconciler.committedIdentifiers()).to.include('www_App');
+    });
+  });
+
+  // A desire to run is never written behind the operator's stop lock: written
+  // after the stop cleared the desire, it would start the component the moment
+  // the lock lifted by any route, with no election pass.
+  describe('setRunningUnlessOperatorStopped', () => {
+    it('commits an unlocked component to running', async () => {
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(true);
+      expect(appReconciler.committedIdentifiers()).to.include('www_App');
+    });
+
+    it('writes nothing for a component its operator has stopped', async () => {
+      stubs.appsRuntimeState.operatorStoppedOrThrow.resolves(true);
+
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(false);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('throws, writing nothing, when the lock cannot be read', async () => {
+      stubs.appsRuntimeState.operatorStoppedOrThrow.rejects(new Error('no primary available'));
+
+      const result = await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test').catch((err) => err);
+
+      expect(result).to.be.an('error');
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('reads the lock after a stop already in the slot has written it', async () => {
+      let locked = false;
+      stubs.appsRuntimeState.operatorStoppedOrThrow.callsFake(async () => locked);
+      let land;
+      const landed = new Promise((resolve) => { land = resolve; });
+      const stop = appReconciler.applyIntent('www_App', async () => {
+        await landed;
+        locked = true;
+      });
+
+      const running = appReconciler.setRunningUnlessOperatorStopped('www_App', 'test');
+      await new Promise(setImmediate);
+      land();
+      await stop;
+
+      expect(await running, 'the desire was written over a stop already in the slot').to.equal(false);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
     });
   });
 

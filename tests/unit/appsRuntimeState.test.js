@@ -243,6 +243,16 @@ describe('appsRuntimeState tests', () => {
       expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
     });
 
+    it('reads the lock for a caller about to commit a component to running, and throws when it cannot', async () => {
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.equal(false);
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.equal(true);
+
+      readFails = true;
+      const result = await appsRuntimeState.operatorStoppedOrThrow('www_App').catch((err) => err);
+      expect(result, 'an unread lock was answered').to.be.an('error');
+    });
+
     it('THROWS from both when the lock cannot be read, rather than reading it as none', async () => {
       await appsRuntimeState.setOperatorStopped('www_App', true);
       await appsRuntimeState.requestOperatorStart('www_App');
