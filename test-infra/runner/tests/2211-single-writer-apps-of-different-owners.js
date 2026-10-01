@@ -7,7 +7,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, electionDecisionCount } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, scanFolder, statPath, stopDaemon, startDaemon,
+  isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, getDaemonEvents, scanFolder, statPath, stopDaemon, startDaemon,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
@@ -105,6 +105,24 @@ describe('single-writer apps of different owners on shared holders', function ()
   };
   const placements = async () => Object.fromEntries(await Promise.all(apps.map(async (app) => [app.tag, await placement(app)])));
 
+  // What the primary's syncthing and disk hold for an app, read when a standby
+  // does not receive its data: the deciding state is gone once the fleet is torn
+  // down. The file listing and container start against the folder's scans, index
+  // updates and watcher state say whether the app's write landed, and whether the
+  // primary's syncthing ever saw it.
+  const primaryState = async (app) => {
+    const primary = app.order[0];
+    const disk = await sh(primary, `ls -la --time-style=full-iso ${app.data}; docker inspect -f 'started {{.State.StartedAt}}' ${app.folder}; docker logs ${app.folder} 2>&1 | tail -5; true`);
+    const status = await getFolderStatus(client(primary), app.folder).catch((error) => ({ error: error.message }));
+    const kinds = ['StateChanged', 'LocalIndexUpdated', 'FolderWatchStateChanged', 'FolderScanProgress', 'ConfigSaved', 'FolderErrors'];
+    const events = (await getDaemonEvents(client(primary), { events: kinds }).catch(() => []))
+      .filter((e) => e.type === 'ConfigSaved' || e.data?.folder === app.folder)
+      .map((e) => `${e.time} ${e.type} ${e.type === 'ConfigSaved' ? JSON.stringify((e.data?.folders || []).filter((f) => f.id === app.folder).map((f) => ({ type: f.type, paused: f.paused, fsWatcherEnabled: f.fsWatcherEnabled }))) : JSON.stringify(e.data)}`);
+    return `primary node ${primary}: disk\n${disk.stdout}\nfolder ${JSON.stringify({
+      state: status.state, error: status.error, errors: status.errors, globalBytes: status.globalBytes, localBytes: status.localBytes, localFiles: status.localFiles, needBytes: status.needBytes,
+    })}\nevents\n${events.join('\n')}`;
+  };
+
   // Each standby of an app runs HELD_PASSES more election passes over it.
   const passesFromNow = async (app, nodes) => {
     const from = await Promise.all(nodes.map((i) => electionDecisionCount(client(i), app.identifier, 'evaluated')));
@@ -172,6 +190,8 @@ describe('single-writer apps of different owners on shared holders', function ()
         // eslint-disable-next-line no-await-in-loop
         await waitFor(() => isFolderSynced(client(i), app.folder), {
           timeout: 300000, interval: 3000, label: `node ${i} has ${app.tag}'s data`,
+        }).catch(async (error) => {
+          throw new Error(`${error.message}\n${await primaryState(app)}`);
         });
       }
     }
