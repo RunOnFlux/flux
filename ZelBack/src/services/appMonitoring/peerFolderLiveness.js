@@ -73,7 +73,7 @@ async function holdingsRequest(socketAddr, challenge) {
 /**
  * A peer's answer as the callers read it.
  * @param {object} answer The `data` of the reply.
- * @returns {{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object}}
+ * @returns {{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object, seeding: object}}
  */
 function readAnswer(answer) {
   // A peer that has not completed its first monitor pass cannot tell "I hold
@@ -84,8 +84,11 @@ function readAnswer(answer) {
   // this caller. Both read as "claims nothing" - the answer that node's behaviour has
   // always amounted to.
   const holding = (answer && typeof answer.holding === 'object' && answer.holding) || {};
+  // Where the peer stands in deciding a cold-start seed, per folder. Absent reads as
+  // nowhere, for the same reasons.
+  const seeding = (answer && typeof answer.seeding === 'object' && answer.seeding) || {};
   return {
-    reachable: true, answerable: true, ready, folders, holding,
+    reachable: true, answerable: true, ready, folders, holding, seeding,
   };
 }
 
@@ -95,7 +98,7 @@ function readAnswer(answer) {
 // may be the one holding the copy.
 function notReady() {
   return {
-    reachable: true, answerable: true, ready: false, folders: [], holding: {},
+    reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {},
   };
 }
 
@@ -126,7 +129,7 @@ function notReady() {
  *   somewhere else, and says nothing of the peer.
  *
  * @param {string} socketAddr Peer socket address
- * @returns {Promise<{reachable: boolean, answerable: boolean, misrouted?: boolean, unproven?: boolean, ready: boolean, folders: string[], holding: object}>}
+ * @returns {Promise<{reachable: boolean, answerable: boolean, misrouted?: boolean, unproven?: boolean, ready: boolean, folders: string[], holding: object, seeding: object}>}
  */
 async function probePeer(socketAddr) {
   const ip = extractIp(socketAddr);
@@ -150,13 +153,13 @@ async function probePeer(socketAddr) {
   if (asked.verdict === IdentityVerdict.MISROUTED) {
     log.info(`peerFolderLiveness - a call to ${ip} was answered by ${asked.answeredAs}; nothing it holds is known`);
     return {
-      reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {},
+      reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {}, seeding: {},
     };
   }
   if (asked.verdict === IdentityVerdict.UNREACHABLE) {
     log.info(`peerFolderLiveness - could not read ${ip}: ${asked.reason}`);
     return {
-      reachable: false, answerable: false, ready: false, folders: [], holding: {},
+      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
     };
   }
 
@@ -170,7 +173,7 @@ async function probePeer(socketAddr) {
   if (!asked.mayReadUnsigned) {
     log.info(`peerFolderLiveness - a reply from ${ip} does not prove it came from that node; nothing it holds is known`);
     return {
-      reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {},
+      reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {}, seeding: {},
     };
   }
 
@@ -190,12 +193,12 @@ async function probePeer(socketAddr) {
       }
       log.info(`peerFolderLiveness - ${ip} answered ${error.response.status} and cannot say which folders it holds`);
       return {
-        reachable: true, answerable: false, ready: false, folders: [], holding: {},
+        reachable: true, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
       };
     }
     log.info(`peerFolderLiveness - could not read ${ip}: ${error.message}`);
     return {
-      reachable: false, answerable: false, ready: false, folders: [], holding: {},
+      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
     };
   }
 }
@@ -206,7 +209,7 @@ async function probePeer(socketAddr) {
  * `read` answers from that set or asks on demand for a peer it did not cover.
  * Both share one map of in-flight requests, so a peer is never asked twice even
  * when the two paths race.
- * @returns {{read: Function, prewarm: Function, localConnectivity: Function}}
+ * @returns {{read: Function, reread: Function, prewarm: Function, localConnectivity: Function}}
  */
 function createPeerFolderLiveness() {
   const answers = new Map();
@@ -219,6 +222,18 @@ function createPeerFolderLiveness() {
 
   return {
     read,
+
+    /**
+     * Ask a peer again, now, and keep the new answer for the rest of the pass. For a
+     * decision that has to see what the peer is doing at the moment it is made,
+     * which the answer the pass opened with may predate.
+     * @param {string} socketAddr Peer socket address
+     * @returns {Promise<object>} As read.
+     */
+    reread(socketAddr) {
+      answers.set(socketAddr, probePeer(socketAddr));
+      return answers.get(socketAddr);
+    },
 
     /**
      * Ask every given peer at once. Duplicates collapse, and a peer already read

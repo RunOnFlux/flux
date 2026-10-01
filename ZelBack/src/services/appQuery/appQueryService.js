@@ -708,7 +708,11 @@ async function callerIsFluxnode(body) {
  *
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message carrying { ready, folders, holding }.
+ * `seeding` is where this node stands in deciding which holder seeds each folder at a
+ * cold start (globalState.seedMarks); it carries the same figures as `holding`, so it
+ * goes only where `holding` does.
+ *
+ * @returns {object} Message carrying { ready, folders, holding, seeding }.
  */
 async function promotedFolderHoldings(req, res) {
   try {
@@ -743,7 +747,10 @@ async function promotedFolderHoldings(req, res) {
     const response = messageHelper.createDataMessage(await seal({
       ready: ids !== null,
       folders: ids === null ? [] : [...ids],
-      ...(entitled ? { holding: held === null ? {} : Object.fromEntries(held) } : {}),
+      ...(entitled ? {
+        holding: held === null ? {} : Object.fromEntries(held),
+        seeding: Object.fromEntries(globalState.seedMarks),
+      } : {}),
     }));
     return res ? res.json(response) : response;
   } catch (error) {

@@ -58,6 +58,9 @@ const Checkpoint = Object.freeze({
   // A node confirmed as a folder's cold-start seed is about to decide whether it
   // seeds. Keyed by folder id.
   SYNCTHING_BEFORE_SEED_DECISION: 'syncthing:beforeSeedDecision',
+  // A node deciding to seed a folder has read its peers and is about to record
+  // that it seeds. Keyed by folder id.
+  SYNCTHING_BEFORE_SEED_RECORD: 'syncthing:beforeSeedRecord',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

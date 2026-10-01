@@ -83,6 +83,8 @@ function recordType(folderId, type) {
     // published. Dropped rather than zeroed - absent is what a peer reads as
     // "not a receive-only holder".
     globalState.folderHoldings?.delete(folderId);
+    // A folder that sends has been seeded; peers read that from the folder itself.
+    globalState.seedMarks.delete(folderId);
   } else {
     writable?.delete(folderId);
   }
