@@ -305,6 +305,13 @@ if [ "$FLUX_SYSTEMD_MODE" = "true" ]; then
   # containerd under the data-root, exactly like the default mode.
   ln -sf /dev/null /etc/systemd/system/containerd.service
 
+  # docker-ce's own docker.service and docker.socket start a second dockerd on
+  # the same daemon.json. It takes the volume store's lock, then waits for the
+  # masked containerd, and dockerd.service can never open the store. Masked,
+  # dockerd.service is the node's only daemon.
+  ln -sf /dev/null /etc/systemd/system/docker.service
+  ln -sf /dev/null /etc/systemd/system/docker.socket
+
   # The default mode's data-root, in the file the dockerd unit reads its
   # configuration from.
   mkdir -p /etc/docker
