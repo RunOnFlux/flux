@@ -434,12 +434,17 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
-   * Ping an existing connection to verify it's alive. If the pong comes back
-   * within 1s, reject the new socket. If not, the existing connection is dead —
-   * replace it with the new one.
+   * Ping an existing connection to verify it's alive, and replace it with the
+   * new socket only when it is dead.
    *
    * Called when an inbound duplicate arrives with the X-Flux-Reconnect header,
-   * indicating the remote peer believes its old connection died.
+   * indicating the remote peer believes its old connection died. Settled by the
+   * first of:
+   * - a pong on the existing connection: it is alive, and the new socket is refused;
+   * - the peer closing the new socket: the peer holds the existing connection
+   *   and has kept it, as it does when the two are a crossing (resolveCrossing),
+   *   so the existing one is alive at both ends however slow its pong;
+   * - 1s with neither: the existing connection is dead, and the new socket replaces it.
    *
    * @param {FluxPeerSocket} existing - The current peer connection to verify
    * @param {WebSocket} ws - The new inbound WebSocket
@@ -450,37 +455,43 @@ class FluxPeerManager extends EventEmitter {
    */
   #verifyOrReplace(existing, ws, ip, port, metadata) {
     const VERIFY_TIMEOUT_MS = 1000;
+    const listeners = {};
+    let timer = null;
     let settled = false;
 
-    const onPong = () => {
-      if (settled) return;
+    const settle = () => {
+      if (settled) return false;
       settled = true;
       clearTimeout(timer);
-      existing.ws.removeListener('pong', onPong);
+      existing.ws.removeListener('pong', listeners.pong);
+      ws.removeListener('close', listeners.newcomerClosed);
+      return true;
+    };
+
+    const replace = (why) => {
+      if (!settle()) return;
+      log.info(`Reconnect verify: existing connection ${existing.key} ${why}, replacing`);
+      this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+    };
+
+    listeners.pong = () => {
+      if (!settle()) return;
       log.info(`Reconnect verify: existing connection ${existing.key} is alive, rejecting new inbound`);
       ws.close(CLOSE_CODES.DUPLICATE_PEER, 'Existing connection verified alive');
     };
 
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      existing.ws.removeListener('pong', onPong);
-      log.info(`Reconnect verify: existing connection ${existing.key} failed pong check, replacing`);
-      this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
-    }, VERIFY_TIMEOUT_MS);
+    listeners.newcomerClosed = () => {
+      if (!settle()) return;
+      log.info(`Reconnect verify: ${existing.key} closed its new connection and kept the existing one`);
+    };
 
-    existing.ws.on('pong', onPong);
+    timer = setTimeout(() => replace('failed pong check'), VERIFY_TIMEOUT_MS);
+    existing.ws.on('pong', listeners.pong);
+    ws.once('close', listeners.newcomerClosed);
     try {
       existing.ws.ping();
     } catch (_e) {
-      // ping failed — socket is already dead
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        existing.ws.removeListener('pong', onPong);
-        log.info(`Reconnect verify: ping failed for ${existing.key}, replacing`);
-        this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
-      }
+      replace('could not be pinged');
     }
   }
 
