@@ -83,6 +83,9 @@ function nodeState(ip) {
     const deviceID = deviceIdForIp(ip);
     state = {
       deviceID,
+      // When this node's syncthing started: reported as startTime, and what a
+      // device's lastSeen is compared against. Reset by a restart.
+      startedAt: new Date().toISOString(),
       folders: new Map(),
       devices: new Map(),
       ignores: new Map(),
@@ -224,6 +227,26 @@ patchDelayWaker.setMaxListeners(0);
 // must never testify to a synced peer.
 const syncOverrides = new Map();
 const completionOverrides = new Map(); // value: number (completion) or { completion, remoteState }
+// completionOverrides key -> when the connection it testified to closed. A
+// device's lastSeen is derived from these, as a real syncthing's is from its
+// connections: now while connected, the moment it closed once it has, and
+// never for a device it was never connected to.
+const connectionClosedAt = new Map();
+
+// Whether a declared completion testifies to a live connection: remoteState
+// 'valid', which a declaration carries unless it says otherwise.
+function testifiesConnected(value) {
+  if (value === undefined) return false;
+  return ((typeof value === 'object' ? value?.remoteState : undefined) ?? 'valid') === 'valid';
+}
+
+function declareCompletion(key, value) {
+  if (testifiesConnected(completionOverrides.get(key)) && !testifiesConnected(value)) {
+    connectionClosedAt.set(key, new Date().toISOString());
+  }
+  if (testifiesConnected(value)) connectionClosedAt.delete(key);
+  completionOverrides.set(key, value);
+}
 
 // device pause/resume calls per node ip - the production "nudge" (device
 // pause/resume forces an index re-exchange) is observable through this log
@@ -270,11 +293,31 @@ function lookupSync(ip, folder) {
   return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
 }
 
+// The declaration db/completion reads for a (node, folder, peer): exact keys win.
+function completionKey(ip, folder, device) {
+  return [`${ip}|${folder}|${device}`, `${ip}|${folder}|*`, `*|${folder}|${device}`, `*|${folder}|*`]
+    .find((key) => completionOverrides.has(key));
+}
+
 function lookupCompletion(ip, folder, device) {
-  return completionOverrides.get(`${ip}|${folder}|${device}`)
-    ?? completionOverrides.get(`${ip}|${folder}|*`)
-    ?? completionOverrides.get(`*|${folder}|${device}`)
-    ?? completionOverrides.get(`*|${folder}|*`);
+  const key = completionKey(ip, folder, device);
+  return key === undefined ? undefined : completionOverrides.get(key);
+}
+
+// What a node's syncthing reports as lastSeen for a device, from the
+// connections its declared completions testify to across every folder.
+function derivedLastSeen(ip, deviceID) {
+  const folders = new Set([...completionOverrides.keys()].map((key) => key.split('|')[1]));
+  let closed = null;
+  for (const folder of folders) {
+    const key = completionKey(ip, folder, deviceID);
+    if (key !== undefined) {
+      if (testifiesConnected(completionOverrides.get(key))) return new Date().toISOString();
+      const at = connectionClosedAt.get(key);
+      if (at && (!closed || at > closed)) closed = at;
+    }
+  }
+  return closed;
 }
 
 // -- Health & Meta --
@@ -321,7 +364,7 @@ app.get('/rest/system/status', (req, res) => {
     lastDialStatus: {},
     myID: reqState(req).deviceID,
     pathSeparator: '/',
-    startTime: new Date().toISOString(),
+    startTime: reqState(req).startedAt,
     sys: 100000000,
     tilde: '/root',
     uptime: Math.floor(process.uptime()),
@@ -385,6 +428,7 @@ app.post('/rest/system/restart', (req, res) => {
   // recorded so suites can assert the ladder NUDGED instead of restarting
   nudgeLog(clientIp(req)).push({ action: 'restart', device: '*', at: Date.now() });
   reqState(req).restartRequired = false;
+  reqState(req).startedAt = new Date().toISOString();
   res.json({ ok: 'restarting' });
 });
 
@@ -803,8 +847,8 @@ app.post('/rest/folder/versions', (req, res) => res.json({}));
 // -- Stats --
 
 // `<viewer ip>|<device>` or `*|<device>` -> the lastSeen a node reports for a
-// device, or null for a device it has never been connected to. Unset, every
-// device was last seen now.
+// device, or null for a device it has never been connected to. Unset, it is
+// derived from the node's declared connections (derivedLastSeen).
 const deviceLastSeen = new Map();
 // What syncthing reports as lastSeen for a device it has never been connected to.
 const NEVER_SEEN = '1970-01-01T00:00:00Z';
@@ -815,8 +859,8 @@ app.get('/rest/stats/device', (req, res) => {
   reqState(req).devices.forEach((d) => {
     const key = [`${ip}|${d.deviceID}`, `*|${d.deviceID}`].find((k) => deviceLastSeen.has(k));
     const declared = key ? deviceLastSeen.get(key) : undefined;
-    const lastSeen = declared === undefined ? new Date().toISOString() : (declared ?? NEVER_SEEN);
-    stats[d.deviceID] = { lastSeen, lastConnectionDurationS: declared === null ? 0 : 3600 };
+    const seen = declared === undefined ? derivedLastSeen(ip, d.deviceID) : declared;
+    stats[d.deviceID] = { lastSeen: seen ?? NEVER_SEEN, lastConnectionDurationS: seen ? 3600 : 0 };
   });
   res.json(stats);
 });
@@ -1002,7 +1046,7 @@ control.post('/sync-state', (req, res) => {
   // connected source - the exact witness class this gate exists to kill.
   if (!statusUnreadable && globalBytes > 0) {
     const sourceDevice = ip === '*' ? '*' : nodeState(ip).deviceID;
-    completionOverrides.set(`*|${folder}|${sourceDevice}`, {
+    declareCompletion(`*|${folder}|${sourceDevice}`, {
       completion: globalBytes > 0 ? Math.round((inSyncBytes / globalBytes) * 100) : 0,
       remoteState: 'valid',
       globalBytes,
@@ -1035,7 +1079,7 @@ control.post('/peer-completion', (req, res) => {
   // remoteState 'valid' (default) = connected peer; 'unknown' models a
   // disconnected peer whose last-known index still reports the completion
   console.log(`[write] peer-completion from=${clientIp(req)} key=${ip}|${folder}|${device} completion=${completion} remoteState=${remoteState}`);
-  completionOverrides.set(`${ip}|${folder}|${device}`, remoteState !== undefined ? { completion, remoteState } : completion);
+  declareCompletion(`${ip}|${folder}|${device}`, remoteState !== undefined ? { completion, remoteState } : completion);
   return res.json({ ok: true });
 });
 
@@ -1112,6 +1156,7 @@ control.post('/sync-reset', (req, res) => {
   console.log(`[write] sync-reset from=${clientIp(req)}`);
   syncOverrides.clear();
   completionOverrides.clear();
+  connectionClosedAt.clear();
   deviceConfigOutages.clear();
   deviceConfigRefusals.clear();
   nudgeLogs.clear();
