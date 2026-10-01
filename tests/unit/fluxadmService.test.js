@@ -20,8 +20,11 @@ const testConfig = {
   fluxadm: { sshAuthorizedKeys: [] },
   server: { apiport: 16127 },
 };
-const fluxadmService = proxyquire('../../ZelBack/src/services/fluxadmService', {
+const fluxadmPort = proxyquire('../../ZelBack/src/services/fluxadmPort', {
   config: testConfig,
+});
+const fluxadmService = proxyquire('../../ZelBack/src/services/fluxadmService', {
+  './fluxadmPort': fluxadmPort,
 });
 
 const cmdOk = { error: null, stdout: '', stderr: '' };
@@ -88,9 +91,9 @@ describe('fluxadmService tests', () => {
     });
   });
 
-  describe('getFluxadmSshPort tests', () => {
+  describe('fluxadmPort getFluxadmSshPort tests', () => {
     it('should return null when no keys are configured', () => {
-      const res = fluxadmService.getFluxadmSshPort();
+      const res = fluxadmPort.getFluxadmSshPort();
 
       expect(res).to.equal(null);
     });
@@ -98,7 +101,7 @@ describe('fluxadmService tests', () => {
     it('should return apiport - 5 when keys are configured', () => {
       testConfig.fluxadm.sshAuthorizedKeys = testKeys;
 
-      const res = fluxadmService.getFluxadmSshPort();
+      const res = fluxadmPort.getFluxadmSshPort();
 
       expect(res).to.equal(16122);
     });
@@ -107,7 +110,7 @@ describe('fluxadmService tests', () => {
       testConfig.fluxadm.sshAuthorizedKeys = testKeys;
       systemdStub.withArgs('/run/systemd/system').returns(false);
 
-      const res = fluxadmService.getFluxadmSshPort();
+      const res = fluxadmPort.getFluxadmSshPort();
 
       expect(res).to.equal(null);
     });
@@ -116,7 +119,7 @@ describe('fluxadmService tests', () => {
       testConfig.fluxadm.sshAuthorizedKeys = testKeys;
       globalThis.userconfig = { initial: { apiport: 16137 } };
 
-      const res = fluxadmService.getFluxadmSshPort();
+      const res = fluxadmPort.getFluxadmSshPort();
 
       expect(res).to.equal(16132);
       globalThis.userconfig = { initial: {} };

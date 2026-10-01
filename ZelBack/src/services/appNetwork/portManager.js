@@ -8,7 +8,6 @@ const networkStateService = require('../networkStateService');
 const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const upnpService = require('../upnpService');
-const fluxadmService = require('../fluxadmService');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
@@ -264,14 +263,6 @@ async function restoreFluxPortsSupport() {
     if (isUPNP) {
       // map our Flux API, UI and SYNCTHING port
       await upnpService.setupUPNP(apiPort);
-
-      // null on ArcaneOS (which maps its own) or when the feature is disabled.
-      // The peer keep-open loop already pokes apiport - 5, so the mapping
-      // stays refreshed like every other Flux port.
-      const fluxadmSshPort = fluxadmService.getFluxadmSshPort();
-      if (fluxadmSshPort) {
-        await upnpService.mapUpnpPort(fluxadmSshPort, 'Flux_Fluxadm_SSH');
-      }
     }
   } catch (error) {
     log.error(error);

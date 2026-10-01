@@ -33,9 +33,18 @@ const generateResponse = () => {
   return res;
 };
 
+// Whether this node runs maintenance access is the leaf module's decision;
+// the tests set it directly.
+const fluxadmPortStub = {
+  isArcane: false,
+  configured: false,
+  accessConfigured() { return this.configured; },
+  sshPortFor: (apiPort) => +apiPort - 5,
+};
+
 const upnpService = proxyquire(
   '../../ZelBack/src/services/upnpService',
-  { config },
+  { config, './fluxadmPort': fluxadmPortStub },
 );
 
 describe('upnpService tests', () => {
@@ -220,14 +229,102 @@ describe('upnpService tests', () => {
   describe('setupUPNP tests', () => {
     let logSpy;
     let createMappingSpy;
+    let getMappingsStub;
+    let removeMappingStub;
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
       createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
+      getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
     });
 
     afterEach(() => {
+      fluxadmPortStub.isArcane = false;
+      fluxadmPortStub.configured = false;
       sinon.restore();
+    });
+
+    const fluxadmMapping = (overrides = {}) => ({
+      public: { host: '', port: 118 },
+      private: { host: '192.168.1.10', port: 118 },
+      protocol: 'tcp',
+      description: 'Flux_Fluxadm_SSH',
+      ttl: 0,
+      local: true,
+      ...overrides,
+    });
+
+    async function runSetup(apiport) {
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.setupUPNP(apiport);
+      await clock.tickAsync(2_000);
+      return promise;
+    }
+
+    it('should map the maintenance ssh port beside the core ports while access is configured', async () => {
+      createMappingSpy.returns(true);
+      fluxadmPortStub.configured = true;
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 5);
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 118, private: 118, ttl: 0, description: 'Flux_Fluxadm_SSH',
+      });
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should remove its own maintenance ssh mapping once access is no longer configured', async () => {
+      createMappingSpy.returns(true);
+      getMappingsStub.resolves([fluxadmMapping()]);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+    });
+
+    it('should keep a mapping of the same port that it did not make', async () => {
+      createMappingSpy.returns(true);
+      getMappingsStub.resolves([
+        fluxadmMapping({ description: 'operator ssh' }),
+        fluxadmMapping({ local: false }),
+      ]);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(getMappingsStub);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should neither map nor unmap the maintenance ssh port on ArcaneOS', async () => {
+      createMappingSpy.returns(true);
+      fluxadmPortStub.isArcane = true;
+      fluxadmPortStub.configured = true;
+      getMappingsStub.resolves([fluxadmMapping()]);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.notCalled(getMappingsStub);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should still report the core ports mapped when the maintenance ssh mapping fails', async () => {
+      createMappingSpy.returns(true);
+      createMappingSpy.withArgs(sinon.match({ description: 'Flux_Fluxadm_SSH' })).rejects(new Error('conflict'));
+      fluxadmPortStub.configured = true;
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 5);
+      sinon.assert.calledOnce(logSpy);
     });
 
     it('should return true if all client responses are valid', async () => {

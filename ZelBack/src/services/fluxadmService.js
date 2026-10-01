@@ -1,13 +1,12 @@
-const config = require('config');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const fsSync = require('node:fs');
 
 const serviceHelper = require('./serviceHelper');
 const benchmarkService = require('./benchmarkService');
 const systemService = require('./systemService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const fluxadmPort = require('./fluxadmPort');
 const log = require('../lib/log');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -23,8 +22,6 @@ const sshdConfigPath = '/etc/ssh/fluxadm_sshd_config';
 const sshdBinaryPath = '/usr/sbin/sshd';
 const serviceName = 'fluxadm-sshd.service';
 const serviceUnitPath = `/etc/systemd/system/${serviceName}`;
-// present only when systemd booted the machine as PID 1 (see sd_booted(3))
-const systemdRuntimeDir = '/run/systemd/system';
 
 const reconcileIntervalMs = 60 * 60 * 1000;
 // used when the ArcaneOS confirmation is indeterminate (fluxbenchd not up yet)
@@ -32,43 +29,6 @@ const reconcileRetryIntervalMs = 5 * 60 * 1000;
 
 let reconcileTimer = null;
 
-/**
- * The ed25519 public keys granted maintenance access. An empty list disables
- * the feature entirely and revokes any previously installed access.
- * @returns {string[]}
- */
-function getConfiguredKeys() {
-  const keys = config.fluxadm.sshAuthorizedKeys;
-  if (!Array.isArray(keys)) return [];
-  return keys.filter((key) => typeof key === 'string' && key.trim()).map((key) => key.trim());
-}
-
-/**
- * Whether systemd is this machine's init. The maintenance sshd runs as a
- * systemd unit, so without it the feature cannot work and must not start.
- * @returns {boolean}
- */
-function bootedWithSystemd() {
-  return fsSync.existsSync(systemdRuntimeDir);
-}
-
-/**
- * The port the maintenance sshd instance listens on. Same convention as
- * ArcaneOS: apiport - 5 (16122 on a default node). Returns null when the
- * feature is inactive (ArcaneOS, no systemd, or no keys configured) so callers
- * like the UPnP restore loop can skip it.
- * @returns {number | null}
- */
-function getFluxadmSshPort() {
-  if (isArcane) return null;
-  if (!bootedWithSystemd()) return null;
-  if (!getConfiguredKeys().length) return null;
-
-  const { userconfig } = globalThis;
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
-
-  return +apiPort - 5;
-}
 
 /**
  * Three-state ArcaneOS check via fluxbenchd, mirroring the tampering
@@ -476,12 +436,12 @@ async function ensureFluxadmAccess() {
     if (legacyConfirmed === null) return 'deferred';
     if (legacyConfirmed === false) return 'skipped';
 
-    if (!bootedWithSystemd()) {
+    if (!fluxadmPort.bootedWithSystemd()) {
       log.warn('fluxadm access - systemd is not this node\'s init, maintenance access unavailable');
       return 'skipped';
     }
 
-    const keys = getConfiguredKeys();
+    const keys = fluxadmPort.getConfiguredKeys();
     if (!keys.length) {
       await removeAccess();
       return 'reconciled';
@@ -491,7 +451,7 @@ async function ensureFluxadmAccess() {
     if (!(await ensureSudoers())) return 'failed';
     if (!(await ensureAuthorizedKeys(keys))) return 'failed';
 
-    const port = getFluxadmSshPort();
+    const port = fluxadmPort.getFluxadmSshPort();
     if (!(await ensureSshdInstance(port))) return 'failed';
     await ensureFirewall(port);
 
@@ -534,12 +494,10 @@ function stop() {
 
 module.exports = {
   ensureFluxadmAccess,
-  getFluxadmSshPort,
   start,
   stop,
   // testing exports
   buildServiceUnit,
-  bootedWithSystemd,
   buildSshdConfig,
   confirmedLegacyNode,
   ensureAuthorizedKeys,
@@ -547,7 +505,6 @@ module.exports = {
   ensureSshdInstance,
   ensureSudoers,
   ensureUser,
-  getConfiguredKeys,
   installFileAsRoot,
   removeAccess,
 };
