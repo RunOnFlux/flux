@@ -513,6 +513,7 @@ function start() {
 
   const runCycle = async () => {
     const outcome = await ensureFluxadmAccess();
+    log.info(`fluxadm access - reconcile pass ${outcome}`);
     const delay = outcome === 'deferred' ? reconcileRetryIntervalMs : reconcileIntervalMs;
     reconcileTimer = setTimeout(runCycle, delay);
   };
