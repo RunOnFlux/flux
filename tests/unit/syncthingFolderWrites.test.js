@@ -309,6 +309,28 @@ describe('syncthing folder writes', () => {
       expect(globalState.promotedFolderIds.has('fluxprobe_app')).to.equal(true);
     });
 
+    it('publishes a folder a monitor pass found writable before its writer recorded it, once', async () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      globalState.promotedFolderIds = new Set(['fluxother_app']);
+
+      syncthingFolderWrites.publishWritable(new Set(['fluxother_app', 'fluxprobe_app']));
+      await syncthingFolderWrites.patchFolder('fluxprobe_app', { type: 'sendreceive' });
+
+      expect(publish.getCalls().filter((c) => c.args[0] === 'syncthing:folderWritable').map((c) => c.args[1]))
+        .to.deep.equal([{ folder: 'fluxprobe_app' }]);
+    });
+
+    it('publishes nothing for the folders the first pass after a start finds writable', () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      globalState.promotedFolderIds = null;
+
+      syncthingFolderWrites.publishWritable(new Set(['fluxprobe_app']));
+
+      sinon.assert.neverCalledWith(publish, 'syncthing:folderWritable');
+      expect(globalState.promotedFolderIds.has('fluxprobe_app')).to.equal(true);
+    });
+
     it('stops telling peers a folder is writable once it receives', async () => {
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
       globalState.promotedFolderIds.add('fluxprobe_app');

@@ -1345,6 +1345,23 @@ describe('syncthingMonitor tests', () => {
         sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderWritable'), 'syncthing:folderWritable', { folder: 'testapp' });
       });
 
+      it('publishes it once for a folder a write turned writable since the last pass', async () => {
+        writesAFolder();
+        syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+        const savedWritable = globalState.promotedFolderIds;
+        globalState.promotedFolderIds = new Set();
+
+        try {
+          monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+          await clock.tickAsync(100);
+        } finally {
+          globalState.promotedFolderIds = savedWritable;
+        }
+
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderWritable'), 'syncthing:folderWritable', { folder: 'testapp' });
+      });
+
       it('does not publish it for a folder that was already writable', async () => {
         writesAFolder();
         syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
