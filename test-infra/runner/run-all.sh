@@ -46,6 +46,11 @@ if [ -z "${E2E_ALLOW_HOST_FLUXOS:-}" ]; then
 fi
 
 LOG_DIR="${E2E_LOG_DIR:-/tmp/e2e-logs}"
+# Exported, not merely read: the suite process writes here too — a systemd node
+# mounts its journal under this directory (test-env.js) so the node's own logs
+# outlive its container. Exporting the RESOLVED value keeps the suite and the
+# runner pointed at one directory even when the default applied.
+export E2E_LOG_DIR="$LOG_DIR"
 SUITE_GLOB="${SUITE_GLOB:-tests/*.js}"
 SUITE_TIMEOUT_MS="${SUITE_TIMEOUT_MS:-300000}"
 mkdir -p "$LOG_DIR"
