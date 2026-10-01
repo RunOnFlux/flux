@@ -40,6 +40,7 @@ const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
+const peerIdentityService = require('../peerIdentityService');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
 const registryManagerModule = require('../appDatabase/registryManager');
@@ -4888,6 +4889,54 @@ async function peerComponentState(peerSocketAddr, {
   );
   const ipToCheck = extractIp(peerSocketAddr);
   const portToCheck = extractPort(peerSocketAddr);
+
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_PEER_PROBE, peerSocketAddr);
+
+  const { IdentityVerdict, AnswerPurpose } = peerIdentityService;
+  const silent = () => silentPeerState(peerSocketAddr, {
+    appId, identifier, appName, liveness, label, logPrefix,
+  });
+
+  // "Not running" is a clearance to start a second writer, so it counts only
+  // from the node at this address: the peer signs what it holds over a
+  // challenge this call carries. heldcomponents, not listrunningapps: a peer
+  // part-way through its own pre-start ownership fix has committed but has no
+  // container, and answering from containers alone reports the component free.
+  const asked = await peerIdentityService.askSigned(
+    peerSocketAddr,
+    '/apps/heldcomponents',
+    AnswerPurpose.HELD_COMPONENTS,
+    {},
+    { timeout: PEER_PROBE_TIMEOUT_MS },
+  );
+  if (asked.verdict === IdentityVerdict.MISROUTED) {
+    fluxEventBus.count('masterSlave:decision', identifier, 'peerMisrouted');
+    log.info(`${logPrefix}: a call to peer node (${label}) at ${ipToCheck} was answered by ${asked.answeredAs} for app:${appName} - what it runs is unknown, will not start`);
+    return PeerComponent.UNKNOWN;
+  }
+  if (asked.verdict === IdentityVerdict.VERIFIED) {
+    const { held } = asked.answer;
+    if (!Array.isArray(held)) {
+      log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} signed an answer that does not list what it holds for app:${appName}, will not start`);
+      return PeerComponent.UNKNOWN;
+    }
+    if (held.includes(appId)) {
+      fluxEventBus.count('masterSlave:decision', identifier, 'heldOnPeer');
+      log.info(`${logPrefix}: component:${identifier} is held on peer node (${label}) at ${ipToCheck}, will not start`);
+      return PeerComponent.RUNNING;
+    }
+    return PeerComponent.NOT_RUNNING;
+  }
+  if (asked.verdict === IdentityVerdict.UNREACHABLE) return silent();
+  // A reply that does not prove it came from this peer, from a peer that can
+  // prove who it is, came from somewhere else.
+  if (!asked.mayReadUnsigned) {
+    fluxEventBus.count('masterSlave:decision', identifier, 'peerUnproven');
+    log.info(`${logPrefix}: a reply from peer node (${label}) at ${ipToCheck} for app:${appName} does not prove it came from that node - what it runs is unknown, will not start`);
+    return PeerComponent.UNKNOWN;
+  }
+
+  // A peer that cannot prove who it is at all is read unsigned.
   const { CancelToken } = axios;
   const source = CancelToken.source();
   // Cleared once the request settles: every probe otherwise leaves a
@@ -4896,10 +4945,7 @@ async function peerComponentState(peerSocketAddr, {
   const cancelTimer = setTimeout(() => source.cancel('Operation canceled by timeout.'), PEER_PROBE_TIMEOUT_MS);
 
   try {
-    // heldcomponents, not listrunningapps: a peer part-way through
-    // its own pre-start ownership fix has committed but has no
-    // container, and answering from containers alone reports the
-    // component free. A peer too old to serve it falls back below.
+    // A peer too old to serve heldcomponents falls back below.
     const heldResponse = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/heldcomponents`, { timeout: PEER_PROBE_TIMEOUT_MS, cancelToken: source.token })
       .catch((error) => {
         // A status is an answer: the peer is alive and merely too old
@@ -4955,17 +5001,32 @@ async function peerComponentState(peerSocketAddr, {
       log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} answered ${error.response.status} for app:${appName} - alive, and cannot be ruled out, will not start`);
       return PeerComponent.UNKNOWN;
     }
-    const verdict = await silenceVerdict(appId, peerSocketAddr, liveness);
-    fluxEventBus.count('peer:silenceVerdict', identifier, verdict);
-    if (verdict === SilenceVerdict.GONE) {
-      log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appId} gone - the component is free there`);
-      return PeerComponent.NOT_RUNNING;
-    }
-    log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent for app:${appName} and ${SILENCE_REASONS[verdict]}, will not start`);
-    return PeerComponent.UNKNOWN;
+    return silent();
   } finally {
     clearTimeout(cancelTimer);
   }
+}
+
+/**
+ * What a peer that did not reply at all can be shown to be doing with a
+ * component: free only when this node's own syncthing shows the peer's
+ * connection to the folder gone.
+ * @param {string} peerSocketAddr The peer's socket address.
+ * @param {object} ctx As peerComponentState.
+ * @returns {Promise<string>} NOT_RUNNING or UNKNOWN.
+ */
+async function silentPeerState(peerSocketAddr, {
+  appId, identifier, appName, liveness, label, logPrefix,
+}) {
+  const ipToCheck = extractIp(peerSocketAddr);
+  const verdict = await silenceVerdict(appId, peerSocketAddr, liveness);
+  fluxEventBus.count('peer:silenceVerdict', identifier, verdict);
+  if (verdict === SilenceVerdict.GONE) {
+    log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appId} gone - the component is free there`);
+    return PeerComponent.NOT_RUNNING;
+  }
+  log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent for app:${appName} and ${SILENCE_REASONS[verdict]}, will not start`);
+  return PeerComponent.UNKNOWN;
 }
 /**
  * Manages syncthing master/slave application coordination using FDM services.

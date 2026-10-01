@@ -83,6 +83,72 @@ export async function unblockPeerAccess(container, peerIps, apiPort) {
   }
 }
 
+// A router that forwards by port alone, as seen from the node behind it: every
+// call this node makes to `ports` on one of `toIps` arrives at `landsOn` instead,
+// port for port. A DNAT in the node's own nat OUTPUT chain, so it moves only
+// connections this node originates - traffic arriving at the node, and every
+// other node's traffic, are untouched, which is exactly the half of the fault
+// that makes it invisible from outside. TCP and UDP both, because syncthing
+// dials QUIC on the same port as TCP.
+//
+// Moves new connections only. One already open to a target keeps going to it
+// until it closes, as it would through a real router whose forwarding changed -
+// unless `resetOpen`, which resets every TCP connection still addressed to a
+// target, so the node's next call opens one through the redirect. A redirected
+// connection is addressed to `landsOn` and is not reset.
+//
+// Returns the rules it added, for clearOutboundRedirect.
+//
+// @param {object} container The node's container.
+// @param {{toIps: string[], ports: string, landsOn: string, resetOpen?: boolean}} redirect
+//   `ports` as iptables takes it, e.g. '16127:16129'.
+export async function redirectOutbound(container, {
+  toIps, ports, landsOn, resetOpen = false,
+}) {
+  const rules = [];
+  for (const toIp of toIps) {
+    for (const proto of ['tcp', 'udp']) {
+      const rule = `-t nat OUTPUT -p ${proto} -d ${toIp} --dport ${ports} -j DNAT --to-destination ${landsOn}`;
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
+      if (r.exitCode !== 0) {
+        throw new Error(`redirectOutbound: could not send ${toIp}:${ports}/${proto} to ${landsOn}: ${r.output}`);
+      }
+      rules.push(rule);
+    }
+    if (resetOpen) {
+      const rule = `-t filter OUTPUT -p tcp -d ${toIp} --dport ${ports} -j REJECT --reject-with tcp-reset`;
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
+      if (r.exitCode !== 0) throw new Error(`redirectOutbound: could not reset open connections to ${toIp}:${ports}: ${r.output}`);
+      rules.push(rule);
+    }
+  }
+  return rules;
+}
+
+// Undo redirectOutbound. Tolerates a rule that is already gone so teardown after
+// a failed test cannot fail in its own right.
+//
+// A connection opened through the redirect goes on reaching `landsOn` after the
+// rules are gone, as one open to a target went on reaching it when they went in.
+// A redirect made with `resetOpen` is undone the same way: every socket still
+// addressed to a target is killed, so the node's next call opens one to it.
+export async function clearOutboundRedirect(container, rules) {
+  for (const rule of rules) {
+    // eslint-disable-next-line no-await-in-loop
+    await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -D OUTPUT')}`);
+  }
+  for (const rule of rules) {
+    const reset = rule.match(/-d (\S+) --dport (\d+)(?::(\d+))? -j REJECT/);
+    if (!reset) continue;
+    const [, toIp, low, high = low] = reset;
+    // eslint-disable-next-line no-await-in-loop
+    const r = await execInContainer(container, `ss -K dst ${toIp} '( dport >= :${low} and dport <= :${high} )'`);
+    if (r.exitCode !== 0) throw new Error(`clearOutboundRedirect: could not close the connections redirected from ${toIp}: ${r.output}`);
+  }
+}
+
 // THE READ CAN FAIL, AND SAYS SO. `2>/dev/null || echo ""` gave a broken docker
 // exec the same answer as a node with no containers on it - an empty list - so
 // every caller read "the app is not running" and every wait built on one spent

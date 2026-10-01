@@ -49,6 +49,8 @@ const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const portManager = require('./services/appNetwork/portManager');
+const peerIdentityService = require('./services/peerIdentityService');
+const outboundPathService = require('./services/outboundPathService');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
@@ -364,6 +366,18 @@ module.exports = (app) => {
   app.post('/flux/portsinuse', asyncRoute((req, res) => {
     return portManager.portsInUseApi(req, res);
   }));
+  // Which node this is, signed over the caller's challenge. POST because the
+  // challenge is a body, and uncached because every answer is to one challenge:
+  // a cached one would be a recording, which is what the challenge exists to
+  // refuse.
+  app.post('/flux/identity', asyncRoute((req, res) => {
+    return peerIdentityService.identityAnswerAPI(req, res);
+  }));
+  // Whether this node's calls to other nodes reach them. Served from the state
+  // the scheduled check holds, so a request does no work.
+  app.get('/flux/outboundpath', rejectQueryParameters, asyncRoute((req, res) => {
+    return outboundPathService.outboundPathAPI(req, res);
+  }));
 
   // ArcaneOS Authentication Endpoints (HTTPS only)
   app.get('/arcane/authchallenge', requireHttps, asyncRoute(arcaneAuthService.authChallengeHandler));
@@ -404,6 +418,13 @@ module.exports = (app) => {
   app.get('/apps/heldcomponents', rejectQueryParameters, cache('1 second'), asyncRoute((req, res) => {
     return appQueryService.heldComponents(req, res);
   }));
+  // The same list signed for the caller, over the challenge its body carries, so
+  // the caller can show that the node it dialled is the node that answered. Not
+  // cached here: each answer is for one call, and the handler bounds the docker
+  // read behind it instead.
+  app.post('/apps/heldcomponents', asyncRoute((req, res) => {
+    return appQueryService.heldComponentsAnswer(req, res);
+  }));
   // promotedfolders needs no cache: it is served from the set the syncthing monitor
   // already refreshes each pass, so the request touches nothing. Guarded on the
   // same terms as its neighbour - it takes no parameters either, and the two are
@@ -415,7 +436,8 @@ module.exports = (app) => {
   // last-write time per app and therefore the tenant's. A caller signs as a node on the
   // deterministic list, or holds Flux team privilege; one that does neither is answered
   // without it rather than refused, because a peer too old to sign is not doing anything
-  // wrong. POST because a signature needs a body to be over.
+  // wrong. POST because a signature needs a body to be over. Signed back over the
+  // challenge the body carries, as heldcomponents is.
   app.post('/apps/promotedfolders', asyncRoute((req, res) => {
     return appQueryService.promotedFolderHoldings(req, res);
   }));
@@ -1314,5 +1336,11 @@ module.exports = (app) => {
   // fluxEventBus.js. 404s in production, like the stream above.
   app.get('/flux/testcounters', asyncRoute((req, res) => {
     return fluxEventBus.countersHandler(req, res);
+  }));
+
+  // Pauses a named code path while a test holds a window open - see
+  // checkpoint() in fluxEventBus.js. 404s in production, like the counters.
+  app.post('/flux/testcheckpoints', asyncRoute((req, res) => {
+    return fluxEventBus.checkpointsHandler(req, res);
   }));
 };

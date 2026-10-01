@@ -5,6 +5,8 @@ const path = require('node:path');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
+const peerIdentityService = require('../peerIdentityService');
+const fluxEventBus = require('../utils/fluxEventBus');
 const {
   DEVICE_ID_REQUEST_TIMEOUT_MS,
   SYNCTHING_RESCAN_INTERVAL_SECONDS,
@@ -42,21 +44,64 @@ async function getDeviceID(fluxIP, retries = 0) {
 }
 
 /**
- * Get device ID with caching
+ * The syncthing device of the node at `name`.
+ *
+ * A peer that proves it is the node listed at `name` is believed about its
+ * device, and what it signs replaces whatever was held for the address. So is a
+ * peer that proved it by calling in - its introduction - which is how a node
+ * whose own calls are redirected learns its partners: their connections to it
+ * arrive intact, and syncthing needs only one direction to sync. A call to
+ * `name` that another node answered, with no introduction to go on, yields no
+ * device: configuring the answering node's device under this name leaves the
+ * folder syncing with a device that holds no copy of it. A peer that cannot
+ * prove either way is asked the unsigned way.
+ *
+ * Every call counts where its answer came from under `syncthing:deviceSource`,
+ * keyed by `name`: verified, verifiedNoDevice, introduced, withheld, held or
+ * unsigned.
+ *
  * @param {string} name - Device name (IP:port)
  * @param {Map} cache - Cache map
  * @returns {Promise<string|null>} Device ID or null
  */
 async function getDeviceIDCached(name, cache) {
+  const { IdentityVerdict } = peerIdentityService;
+  const from = (source, deviceID) => {
+    fluxEventBus.count('syncthing:deviceSource', name, source);
+    return deviceID;
+  };
+  const result = await peerIdentityService.verifyPeer(name);
+
+  if (result.verdict === IdentityVerdict.VERIFIED) {
+    const signedDeviceID = result.identity.deviceId;
+    // Verified with no device: that node's syncthing has not answered it yet.
+    // What was held stands until it has.
+    if (!signedDeviceID) return from('verifiedNoDevice', cache.get(name) ?? null);
+    cache.set(name, signedDeviceID);
+    return from('verified', signedDeviceID);
+  }
+
+  const introduced = peerIdentityService.introducedPeer(name);
+  if (introduced?.deviceId) {
+    cache.set(name, introduced.deviceId);
+    return from('introduced', introduced.deviceId);
+  }
+
+  if (result.verdict === IdentityVerdict.MISROUTED) {
+    cache.delete(name);
+    log.warn(`getDeviceIDCached - ${name} was answered by ${result.answeredAs}; configuring no device for it`);
+    return from('withheld', null);
+  }
+
   if (cache.has(name)) {
-    return cache.get(name);
+    return from('held', cache.get(name));
   }
 
   const deviceID = await getDeviceID(name);
   if (deviceID) {
     cache.set(name, deviceID);
   }
-  return deviceID;
+  return from('unsigned', deviceID);
 }
 
 /**
@@ -168,8 +213,11 @@ async function buildDeviceConfiguration(
       };
       devicesIds.push(deviceID);
 
+      // Matched on the id as well as the name: an entry under this name that
+      // holds a different device is not this device. Once this one replaces it
+      // no folder uses it, and it falls to the sweep of unused devices.
       if (deviceID !== myDeviceId) {
-        const syncthingDeviceExists = allDevices.find((device) => device.name === name);
+        const syncthingDeviceExists = allDevices.find((device) => device.name === name && device.deviceID === deviceID);
         if (!syncthingDeviceExists) {
           devicesConfiguration.push(newDevice);
         }

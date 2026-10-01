@@ -26,6 +26,20 @@ const log = require('../../lib/log');
 
 const RING_BUFFER_SIZE = 1024;
 
+// Points in the product where the harness can pause a code path, to hold open a
+// window it otherwise cannot reach. Each is named here, so holding a name no
+// code path passes is refused rather than waited on for ever.
+const Checkpoint = Object.freeze({
+  // A state-sync attempt's budget has run out and the attempt is still open.
+  APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
+  // A start decision is about to ask a peer what it holds. Keyed by the peer's
+  // socket address.
+  MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
+});
+const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
+// Holds a key for every key of its checkpoint.
+const ANY_KEY = '*';
+
 // Express compression middleware buffers res.write() calls to build
 // compressible chunks. SSE writes are too small to trigger a flush on
 // their own, so events never reach the client. Calling res.flush()
@@ -42,6 +56,8 @@ class FluxEventBus extends EventEmitter {
   #nextId;
   #enabled;
   #counters;
+  #holds;
+  #parked;
 
   constructor(enabled) {
     super();
@@ -63,6 +79,10 @@ class FluxEventBus extends EventEmitter {
     this.#nextId = Number(process.hrtime.bigint() / 1000n);
     this.#enabled = enabled ?? (config.has('testEventStream') && config.get('testEventStream') === true);
     this.#counters = new Map();
+    // checkpoint name -> keys held, ANY_KEY for all of them
+    this.#holds = new Map();
+    // code paths paused at a checkpoint: { name, key, resume }
+    this.#parked = [];
   }
 
   get enabled() { return this.#enabled; }
@@ -145,6 +165,72 @@ class FluxEventBus extends EventEmitter {
     cursor.set(leaf, (cursor.get(leaf) || 0) + 1);
   }
 
+  // Pauses the caller here while the harness holds this checkpoint for this key,
+  // and returns at once otherwise - always, when disabled. It never changes what
+  // the caller does next, only when. A paused caller is announced as
+  // checkpoint:held, so a test knows the window is open.
+  async checkpoint(name, key) {
+    if (!this.#enabled || !this.#isHeld(name, key)) return;
+    await new Promise((resume) => {
+      this.#parked.push({ name, key, resume });
+      this.publish('checkpoint:held', { name, key });
+    });
+  }
+
+  #isHeld(name, key) {
+    const keys = this.#holds.get(name);
+    return !!keys && (keys.has(ANY_KEY) || keys.has(key));
+  }
+
+  // Every caller that reaches `name` for `key` from now on pauses there, until
+  // released. ANY_KEY holds it for every key.
+  holdCheckpoint(name, key = ANY_KEY) {
+    if (!CHECKPOINT_NAMES.has(name)) throw new Error(`No checkpoint named ${name}`);
+    if (!this.#holds.has(name)) this.#holds.set(name, new Set());
+    this.#holds.get(name).add(key);
+  }
+
+  // Drops the hold on `name` for `key` and resumes every caller it was pausing.
+  releaseCheckpoint(name, key = ANY_KEY) {
+    if (!CHECKPOINT_NAMES.has(name)) throw new Error(`No checkpoint named ${name}`);
+    this.#holds.get(name)?.delete(key);
+    this.#resumeUnheld();
+  }
+
+  releaseAllCheckpoints() {
+    this.#holds.clear();
+    this.#resumeUnheld();
+  }
+
+  #resumeUnheld() {
+    const stillHeld = [];
+    for (const parked of this.#parked) {
+      if (this.#isHeld(parked.name, parked.key)) stillHeld.push(parked);
+      else parked.resume();
+    }
+    this.#parked = stillHeld;
+  }
+
+  // POST { name, key, action: 'hold' | 'release' | 'releaseAll' }. 404s when
+  // disabled, like the counters.
+  checkpointsHandler(req, res) {
+    if (!this.#enabled) {
+      res.status(404).json({ status: 'error', data: { message: 'Test checkpoints not enabled' } });
+      return;
+    }
+    const { name, key, action } = req.body || {};
+    try {
+      if (action === 'hold') this.holdCheckpoint(name, key);
+      else if (action === 'release') this.releaseCheckpoint(name, key);
+      else if (action === 'releaseAll') this.releaseAllCheckpoints();
+      else throw new Error(`Unknown checkpoint action ${action}`);
+    } catch (error) {
+      res.status(400).json({ status: 'error', data: { message: error.message } });
+      return;
+    }
+    res.json({ status: 'success', data: { parked: this.#parked.map((p) => ({ name: p.name, key: p.key })) } });
+  }
+
   counters() {
     const plain = (value) => {
       if (!(value instanceof Map)) return value;
@@ -209,5 +295,6 @@ class FluxEventBus extends EventEmitter {
 
 const fluxEventBus = new FluxEventBus();
 fluxEventBus.FluxEventBus = FluxEventBus;
+fluxEventBus.Checkpoint = Checkpoint;
 
 module.exports = fluxEventBus;

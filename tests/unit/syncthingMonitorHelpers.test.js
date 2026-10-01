@@ -8,6 +8,10 @@ const fsp = require('node:fs/promises');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const helpers = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
+const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+
+const { IdentityVerdict } = peerIdentityService;
 
 describe('syncthingMonitorHelpers tests', () => {
   let sandbox;
@@ -357,6 +361,110 @@ describe('syncthingMonitorHelpers tests', () => {
   });
 
   describe('getDeviceIDCached', () => {
+    let verifyPeer;
+    let introducedPeer;
+    let count;
+
+    // The source this lookup counted, which a harness suite waits on to know a
+    // monitor pass has decided a device.
+    const counted = (source) => sinon.assert.calledOnceWithExactly(count, 'syncthing:deviceSource', '10.0.0.1:16127', source);
+
+    beforeEach(() => {
+      count = sandbox.stub(fluxEventBus, 'count');
+      // A peer that predates the identity endpoint unless a test says otherwise.
+      verifyPeer = sandbox.stub(peerIdentityService, 'verifyPeer')
+        .resolves({ verdict: IdentityVerdict.UNVERIFIABLE, reason: 'answered 404' });
+      introducedPeer = sandbox.stub(peerIdentityService, 'introducedPeer').returns(null);
+    });
+
+    // The palworld case once the partner has called in: HK's calls to UAE reach
+    // its neighbour, but UAE asking HK who it is told HK which device UAE is.
+    it('takes the device a partner proved by calling in, when this node\'s own call was answered by another node', async () => {
+      const cache = new Map([['10.0.0.1:16127', 'DEVICE-OF-A-NEIGHBOUR']]);
+      verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
+      introducedPeer.withArgs('10.0.0.1:16127').returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODUCED-DEVICE' });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('INTRODUCED-DEVICE');
+      expect(cache.get('10.0.0.1:16127')).to.equal('INTRODUCED-DEVICE');
+      counted('introduced');
+    });
+
+    it('prefers a partner\'s introduction over an unsigned answer', async () => {
+      introducedPeer.withArgs('10.0.0.1:16127').returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODUCED-DEVICE' });
+      const unsigned = sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'UNSIGNED-DEVICE' } });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal('INTRODUCED-DEVICE');
+      sinon.assert.notCalled(unsigned);
+    });
+
+    it('takes what a peer signs when asked over an older introduction', async () => {
+      verifyPeer.resolves({
+        verdict: IdentityVerdict.VERIFIED,
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'SIGNED-DEVICE-ID' },
+      });
+      introducedPeer.returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODUCED-DEVICE' });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal('SIGNED-DEVICE-ID');
+    });
+
+    it('ignores an introduction that names no device', async () => {
+      verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
+      introducedPeer.returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: null });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal(null);
+    });
+
+    it('takes the device a verified peer signs, over whatever was held for its address', async () => {
+      const cache = new Map([['10.0.0.1:16127', 'DEVICE-OF-A-NEIGHBOUR']]);
+      verifyPeer.resolves({
+        verdict: IdentityVerdict.VERIFIED,
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'SIGNED-DEVICE-ID' },
+      });
+      const unsigned = sandbox.stub(axios, 'get');
+
+      const result = await helpers.getDeviceIDCached('10.0.0.1:16127', cache);
+
+      expect(result).to.equal('SIGNED-DEVICE-ID');
+      expect(cache.get('10.0.0.1:16127')).to.equal('SIGNED-DEVICE-ID');
+      sinon.assert.notCalled(unsigned);
+      counted('verified');
+    });
+
+    it('keeps what it held while a verified peer\'s syncthing has not answered yet', async () => {
+      const cache = new Map([['10.0.0.1:16127', 'HELD-DEVICE-ID']]);
+      verifyPeer.resolves({
+        verdict: IdentityVerdict.VERIFIED,
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: null },
+      });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('HELD-DEVICE-ID');
+      counted('verifiedNoDevice');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal(null);
+    });
+
+    // The palworld case: HK held its neighbour's device under UAE's name for five
+    // days, and the folder never synced.
+    it('configures no device for an address another node answered, and forgets the one it held', async () => {
+      const cache = new Map([['10.0.0.1:16127', 'DEVICE-OF-A-NEIGHBOUR']]);
+      verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
+      const unsigned = sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'DEVICE-OF-A-NEIGHBOUR' } });
+
+      const result = await helpers.getDeviceIDCached('10.0.0.1:16127', cache);
+
+      expect(result).to.equal(null);
+      expect(cache.has('10.0.0.1:16127')).to.equal(false);
+      sinon.assert.notCalled(unsigned);
+      counted('withheld');
+    });
+
+    it('uses what it held when the peer cannot be reached', async () => {
+      const cache = new Map([['10.0.0.1:16127', 'HELD-DEVICE-ID']]);
+      verifyPeer.resolves({ verdict: IdentityVerdict.UNREACHABLE, reason: 'timeout' });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('HELD-DEVICE-ID');
+      counted('held');
+    });
+
     it('should return cached value if available', async () => {
       const cache = new Map();
       cache.set('10.0.0.1:16127', 'CACHED-DEVICE-ID');
@@ -376,6 +484,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
       expect(result).to.equal('NEW-DEVICE-ID');
       expect(cache.get('10.0.0.1:16127')).to.equal('NEW-DEVICE-ID');
+      counted('unsigned');
     });
 
     it('should not cache on failure', async () => {
@@ -386,6 +495,57 @@ describe('syncthingMonitorHelpers tests', () => {
 
       expect(result).to.be.null;
       expect(cache.has('10.0.0.1:16127')).to.be.false;
+    });
+  });
+
+  describe('buildDeviceConfiguration', () => {
+    const LOCAL = '10.0.0.9:16127';
+
+    beforeEach(() => {
+      sandbox.stub(peerIdentityService, 'introducedPeer').returns(null);
+      sandbox.stub(peerIdentityService, 'verifyPeer').resolves({
+        verdict: IdentityVerdict.VERIFIED,
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'REAL-DEVICE' },
+      });
+    });
+
+    it('configures the signed device for a peer whose name syncthing holds under another device', async () => {
+      const devicesConfiguration = [];
+      const devicesIds = [];
+      const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'DEVICE-OF-A-NEIGHBOUR' }];
+
+      const devices = await helpers.buildDeviceConfiguration(
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, devicesIds, allDevices,
+      );
+
+      expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }, { deviceID: 'REAL-DEVICE' }]);
+      expect(devicesConfiguration.map((d) => [d.name, d.deviceID])).to.deep.equal([['10.0.0.1:16127', 'REAL-DEVICE']]);
+      // The stale entry is not among the devices in use, so the sweep of unused
+      // devices removes it.
+      expect(devicesIds).to.deep.equal(['REAL-DEVICE']);
+    });
+
+    it('adds nothing for a peer syncthing already holds as that device', async () => {
+      const devicesConfiguration = [];
+      const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'REAL-DEVICE' }];
+
+      await helpers.buildDeviceConfiguration(
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, [], allDevices,
+      );
+
+      expect(devicesConfiguration).to.deep.equal([]);
+    });
+
+    it('leaves a peer another node answered for out of the folder', async () => {
+      peerIdentityService.verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.7:16147' });
+      const devicesConfiguration = [];
+
+      const devices = await helpers.buildDeviceConfiguration(
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, [], [],
+      );
+
+      expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }]);
+      expect(devicesConfiguration).to.deep.equal([]);
     });
   });
 

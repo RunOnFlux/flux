@@ -7,6 +7,7 @@ const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
 const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
+const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
@@ -608,6 +609,14 @@ describe('advancedWorkflows tests', () => {
       // Setup stubs
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       serviceHelperStub = sinon.stub(serviceHelper, 'axiosGet');
+      // Every peer predates the identity endpoint unless a test says otherwise,
+      // which is the one verdict the election treats as it treated every peer
+      // before identities existed.
+      sinon.stub(peerIdentityService, 'verifyPeer')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, reason: 'answered 404' });
+      sinon.stub(peerIdentityService, 'askSigned').resolves({
+        verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
+      });
 
       // Stub delay to prevent recursive calls - after first call, block recursion
       serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
@@ -1203,6 +1212,141 @@ describe('advancedWorkflows tests', () => {
 
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+    });
+
+    // The palworld case. The peer at .90 is running the component; this node's
+    // router hands every call for .90 to a machine beside it, which truthfully
+    // is not. Taken as .90's answer, that is a clearance to start a second writer.
+    it('does not start at index 0 when a call to the peer is answered by a different node', async () => {
+      const appName = 'misroutedpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: '192.168.1.5:16137' });
+
+      // What answers at .90 holds nothing - it is not .90.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'was answered by 192.168.1.5:16137')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'could not be ruled out')).to.have.lengthOf(1);
+    });
+
+    it('does not ask a peer another node answered for what it runs', async () => {
+      const appName = 'misroutedunaskedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: '192.168.1.5:16137' });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      const peerQueries = axiosGetStub.getCalls().map((call) => call.args[0])
+        .filter((url) => /192\.168\.1\.90:16127\/apps\/(heldcomponents|listrunningapps)/.test(url));
+      expect(peerQueries).to.deep.equal([]);
+    });
+
+    // What the peer signed, over this call's challenge, for the question asked.
+    const peerSigns = (held) => peerIdentityService.askSigned.withArgs('192.168.1.90:16127').resolves({
+      verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+      answer: { held, purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+    });
+
+    it('still starts at index 0 when the peer signs that it does not hold the component', async () => {
+      const appName = 'verifiedpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSigns(['fluxsomethingelse']);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      sinon.assert.calledWith(
+        peerIdentityService.askSigned,
+        '192.168.1.90:16127',
+        '/apps/heldcomponents',
+        peerIdentityService.AnswerPurpose.HELD_COMPONENTS,
+      );
+    });
+
+    it('does not start at index 0 when the peer signs that it holds the component', async () => {
+      const appName = 'signedheldapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSigns([`flux${appName}`]);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
+    });
+
+    it('does not start at index 0 on a signed answer that does not list what the peer holds', async () => {
+      const appName = 'signedunlistedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSigns(undefined);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'signed an answer that does not list what it holds')).to.have.lengthOf(1);
+    });
+
+    // A peer that has proven who it is signs every answer, so a reply from its
+    // address that is not signed came from somewhere else - however recently this
+    // node proved who is at that address.
+    it('does not start at index 0 on a reply that does not prove it came from a peer that can prove itself', async () => {
+      const appName = 'unprovenpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127').resolves({
+        verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: false,
+      });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'does not prove it came from that node')).to.have.lengthOf(1);
+      const peerQueries = axiosGetStub.getCalls().map((call) => call.args[0])
+        .filter((url) => /192\.168\.1\.90:16127\/apps\/(heldcomponents|listrunningapps)/.test(url));
+      expect(peerQueries, 'nothing is read unsigned from it').to.deep.equal([]);
+    });
+
+    it('judges a peer that did not reply to the signed question by its silence', async () => {
+      const appName = 'silentsignedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127').resolves({
+        verdict: peerIdentityService.IdentityVerdict.UNREACHABLE, reason: 'connect ECONNREFUSED',
+      });
+      peerSyncthingSays('192.168.1.90:16127', 'valid');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'still holds a live connection to it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
     it('does not re-elect a component this node stood down to hand its app back', async () => {
@@ -5447,6 +5591,10 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
     sinon.stub(residentialNodeDosService, 'noteEvacuated');
     sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+    // Every peer here predates the identity endpoint, and is read unsigned.
+    sinon.stub(peerIdentityService, 'askSigned').resolves({
+      verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
+    });
 
     const db = { db: () => ({}) };
     sinon.stub(dbHelper, 'databaseConnection').returns(db);
