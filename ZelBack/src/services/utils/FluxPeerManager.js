@@ -602,6 +602,28 @@ class FluxPeerManager extends EventEmitter {
     return this.crossingSurvivor(existing.key) === direction;
   }
 
+  /**
+   * newcomerReplaces, for a connection just established to a peer this node
+   * already holds - and the one report of a crossing. When the two are live and
+   * opposite, the pair's two dials met: the decision is logged and counted here,
+   * once, whichever path made it.
+   * @param {object} existing The held peer.
+   * @param {string} direction The newcomer's DIRECTION.
+   * @returns {boolean} Whether the newcomer replaces the held peer.
+   */
+  resolveCrossing(existing, direction) {
+    const replaces = this.newcomerReplaces(existing, direction);
+    if (existing.isAlive && existing.direction !== direction) {
+      const kept = replaces ? direction : existing.direction;
+      const why = this.crossingSurvivor(existing.key)
+        ? 'dialed by the lower address'
+        : 'held, as this node does not know its own address';
+      log.info(`Crossing connections with ${existing.key}: keeping the ${kept} one, ${why}`);
+      fluxEventBus.count('peers:crossing', kept);
+    }
+    return replaces;
+  }
+
   getPeerFluxUptime(key) {
     const peer = this.#peers.get(key);
     if (!peer || peer.remoteFluxUptime === null) return null;
@@ -1124,14 +1146,10 @@ class FluxPeerManager extends EventEmitter {
           return;
         }
         // Both ends dialed at once: this inbound is the pair's other connection.
-        if (existing && existing.direction === DIRECTION.OUTBOUND) {
-          const replaces = this.newcomerReplaces(existing, DIRECTION.INBOUND);
-          fluxEventBus.count('peers:crossing', replaces ? DIRECTION.INBOUND : DIRECTION.OUTBOUND);
-          if (replaces) {
-            log.info(`Crossing connections with ${key}: keeping the inbound one, dialed by the lower address`);
-            this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
-            return;
-          }
+        if (existing && existing.direction === DIRECTION.OUTBOUND
+          && this.resolveCrossing(existing, DIRECTION.INBOUND)) {
+          this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+          return;
         }
         // If the remote is reconnecting (asymmetric disconnect), verify the
         // existing connection is still alive before rejecting. Ping it and
