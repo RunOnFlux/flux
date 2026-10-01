@@ -20,6 +20,25 @@ describe('syncthingMonitorHelpers tests', () => {
     sandbox.restore();
   });
 
+  describe('buildDeviceConfiguration', () => {
+    it('configures a new peer device not to auto-accept folders', async () => {
+      const devicesConfiguration = [];
+      await helpers.buildDeviceConfiguration(
+        [{ ip: '10.0.0.2:16127' }],
+        '10.0.0.1:16127',
+        'MY-DEVICE',
+        new Map([['10.0.0.2:16127', 'PEER-DEVICE']]),
+        devicesConfiguration,
+        [],
+        [],
+      );
+
+      expect(devicesConfiguration).to.have.lengthOf(1);
+      expect(devicesConfiguration[0].deviceID).to.equal('PEER-DEVICE');
+      expect(devicesConfiguration[0].autoAcceptFolders, 'an auto-accepted folder takes syncthing\'s default type, sendreceive').to.equal(false);
+    });
+  });
+
   describe('sortAndFilterLocations', () => {
     it('should sort locations by IP address', () => {
       const locations = [

@@ -717,6 +717,57 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'brokenapp');
     });
 
+    describe('folders a peer offers', () => {
+      // Held out of the pass, the app stands the unused-device sweep down, so the
+      // configured peer device is kept and only its auto-accept is in question.
+      function aPeerDeviceIsKept(device) {
+        mockInstalledAppsFn.resolves({
+          status: 'success',
+          data: [{ name: 'brokenapp', version: 3, containerData: 'g:/appdata' }],
+        });
+        syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+        syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['brokenapp']);
+        syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+        volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', type: 'receiveonly' }]);
+        syncthingServiceMock.getConfigDevices.resolves([device]);
+        syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+        syncthingServiceMock.adjustConfigDevices.resolves({ status: 'success', data: {} });
+      }
+
+      it('stops a configured peer device auto-accepting folders', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: true });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'patch', { autoAcceptFolders: false }, 'PEER-DEVICE');
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+      });
+
+      it('writes nothing for a peer device that does not auto-accept', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'patch', sinon.match.any, 'PEER-DEVICE');
+      });
+
+      it('removes an unused auto-accepting device rather than rewriting it', async function () {
+        mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+        syncthingServiceMock.getConfigFolders.resolves([]);
+        syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-DEVICE', autoAcceptFolders: true }]);
+        syncthingServiceMock.adjustConfigDevices.resolves({ status: 'success', data: {} });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'patch', sinon.match.any, 'PEER-DEVICE');
+      });
+    });
+
     it('keeps the flag standing when the demotion fails, so the next pass retries', async function () {
       // the exact defect class this design exists for: the one pass with the
       // signal hits a transient failure - under the old drained-edge contract
