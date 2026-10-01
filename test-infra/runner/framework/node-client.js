@@ -186,6 +186,7 @@ export function nodeClient(nodeNum) {
       for (const name of [
         'block:processed',
         'masterSlave:started',
+        'masterSlave:operatorStartSettled',
         'stream:gap',
         'boot:settled',
         'confirmation:changed',
