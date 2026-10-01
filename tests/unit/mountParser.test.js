@@ -440,4 +440,32 @@ describe('mountParser tests', () => {
       expect(result.additional[0].type).to.equal('component_primary');
     });
   });
+  // The election decides one component per app, and an operator start defers to
+  // it only for that one: both read it here, so they cannot disagree.
+  describe('electedComponentIdentifier', () => {
+    it('names the first g: component of a composed app', () => {
+      const spec = {
+        name: 'App',
+        version: 4,
+        compose: [{ name: 'db', containerData: '/data' }, { name: 'one', containerData: 'g:/data' }, { name: 'two', containerData: 'g:/data' }],
+      };
+      expect(mountParser.electedComponentIdentifier(spec)).to.equal('one_App');
+    });
+
+    it('names a v1-3 g: app by its own name', () => {
+      expect(mountParser.electedComponentIdentifier({ name: 'Old', version: 3, containerData: 'g:/data' })).to.equal('Old');
+    });
+
+    it('names nothing for an app with no g: component', () => {
+      expect(mountParser.electedComponentIdentifier({ name: 'Old', version: 3, containerData: 'r:/data' })).to.equal(null);
+      expect(mountParser.electedComponentIdentifier({ name: 'App', version: 4, compose: [{ name: 'web', containerData: '/www' }] })).to.equal(null);
+      expect(mountParser.electedComponentIdentifier({ name: 'App', version: 4, compose: [{ name: 'web', containerData: '/data|g:/x' }] })).to.equal(null);
+    });
+
+    it('names nothing for a spec whose components cannot be read', () => {
+      expect(mountParser.electedComponentIdentifier({ name: 'Ent', version: 8, enterprise: 'blob', compose: [] })).to.equal(null);
+      expect(mountParser.electedComponentIdentifier({ name: 'Ent', version: 8 })).to.equal(null);
+      expect(mountParser.electedComponentIdentifier(null)).to.equal(null);
+    });
+  });
 });

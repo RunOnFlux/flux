@@ -174,6 +174,21 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    // An operator start the election has yet to decide keeps the lock, so the
+    // container stays down until the election lifts it - and is reported as
+    // waiting on the election rather than as stopped by the operator.
+    it('keeps the container down while an operator start waits on the election, and says why', async () => {
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, startRequested: true, force: false });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(await appReconciler.desiredRunState('www_App')).to.deep.include({ desired: false, reason: 'startAwaitsElection' });
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, startRequested: false, force: false });
+      expect(await appReconciler.desiredRunState('www_App')).to.deep.include({ desired: false, reason: 'operatorStopped' });
+    });
+
     // The sampler runs on its own interval against a container id. Left on after
     // a stop it inspects a stopped container once a minute, forever, and the only
     // thing that used to stop it was the handler that no longer stops containers.

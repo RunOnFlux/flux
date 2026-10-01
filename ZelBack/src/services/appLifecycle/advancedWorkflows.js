@@ -41,6 +41,7 @@ const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const primaryRole = require('./primaryRole');
+const primaryRoleChanges = require('./primaryRoleChanges');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
 const peerIdentityService = require('../peerIdentityService');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
@@ -2573,6 +2574,70 @@ function startAsPrimary(identifier, appId) {
 }
 
 /**
+ * Lifts the stop lock of a g: component its operator has started, once the
+ * election has decided who runs it - see appsRuntimeState.requestOperatorStart.
+ *
+ * Written through the reconciler's per-key slot, as the operator's own writes
+ * are, so a stop given after the start was asked for is never lifted by this. A
+ * lock that could not be lifted stays, and the next pass decides again.
+ * @param {string} identifier `<component>_<app>`
+ * @param {string} outcome What the election decided, for the log and the event.
+ * @returns {Promise<void>}
+ */
+async function settleOperatorStart(identifier, outcome) {
+  let released = false;
+  try {
+    await appReconciler.applyIntent(identifier, async () => {
+      released = await appsRuntimeState.releaseOperatorStart(identifier);
+    });
+  } catch (error) {
+    log.error(`masterSlaveApps: the stop lock of ${identifier} could not be lifted (${outcome}); the next pass decides again: ${error.message}`);
+    return;
+  }
+  if (!released) return;
+  log.info(`masterSlaveApps: lifted the stop lock of ${identifier} - ${outcome}`);
+  fluxEventBus.publish('masterSlave:operatorStartSettled', { identifier, outcome });
+}
+
+/**
+ * Starts a g: component its operator has started, and lifts its stop lock, in
+ * one hold of the reconciler's per-key slot - the slot the operator's own writes
+ * go through. This pass read the lock before its peer probes; a stop given since
+ * withdrew the start, and inside the slot none can land between the check and
+ * the promotion.
+ *
+ * The lock is lifted once this node holds the component by commitment - a
+ * promotion under way, or a desire to run it - so there is no moment it is held
+ * by nothing. A lock that could not be lifted stays, and the next pass decides
+ * again.
+ * @param {string} identifier `<component>_<app>`
+ * @param {string} appId Syncthing folder id
+ * @returns {Promise<boolean>} Whether a promotion was begun.
+ */
+async function startOperatorStarted(identifier, appId) {
+  let begun = false;
+  let released = false;
+  try {
+    await appReconciler.applyIntent(identifier, async () => {
+      // A read that fails answers "not started", which leaves the lock.
+      if (!(await appsRuntimeState.operatorStopState(identifier)).startRequested) return;
+      begun = startAsPrimary(identifier, appId);
+      const committed = appReconciler.committedIdentifiers().includes(identifier)
+        || primaryRoleChanges.promotingIdentifiers().includes(identifier);
+      if (committed) released = await appsRuntimeState.releaseOperatorStart(identifier);
+    });
+  } catch (error) {
+    log.error(`masterSlaveApps: the stop lock of ${identifier} could not be lifted (it starts here); the next pass decides again: ${error.message}`);
+    return begun;
+  }
+  if (released) {
+    log.info(`masterSlaveApps: lifted the stop lock of ${identifier} - it starts here`);
+    fluxEventBus.publish('masterSlave:operatorStartSettled', { identifier, outcome: 'it starts here' });
+  }
+  return begun;
+}
+
+/**
  * Append backup task to queue
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -5073,20 +5138,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // eslint-disable-next-line no-continue
         continue;
       }
-      if (installedApp.version <= 3) {
-        identifier = installedApp.name;
+      // Check all g: mode apps, not just those in cache with restarted flag
+      // The cache tracks sync state, but shouldn't gate primary selection
+      identifier = mountParser.electedComponentIdentifier(installedApp);
+      if (identifier) {
         appId = dockerService.getAppIdentifier(identifier);
-        // Check all g: mode apps, not just those in cache with restarted flag
-        // The cache tracks sync state, but shouldn't gate primary selection
-        needsToBeChecked = mountParser.isGComponent(installedApp.containerData);
-      } else {
-        const componentUsingMasterSlave = installedApp.compose.find((comp) => mountParser.isGComponent(comp.containerData));
-        if (componentUsingMasterSlave) {
-          identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
-          appId = dockerService.getAppIdentifier(identifier);
-          // Check all g: mode apps, not just those in cache with restarted flag
-          needsToBeChecked = true;
-        }
+        needsToBeChecked = true;
       }
       if (needsToBeChecked) {
         // One per pass per g: component, whatever the pass decides. Every start
@@ -5106,8 +5163,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           continue;
         }
         // operator explicitly stopped this g: component; don't elect or act on it
+        // until they start it
         // eslint-disable-next-line no-await-in-loop
-        if (await appsRuntimeState.isOperatorStopped(identifier)) {
+        const operatorStop = await appsRuntimeState.operatorStopState(identifier);
+        if (operatorStop.stopped && !operatorStop.startRequested) {
           // Outside the once-guard below on purpose: the log line reports the
           // state change, the counter reports every pass that honoured it, which
           // is what a test asserting "the election kept skipping it" needs.
@@ -5120,6 +5179,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           continue;
         }
         operatorStoppedNoted.delete(identifier);
+        // Started by its operator, and still locked: this pass decides it, and
+        // the lock - which is what keeps this node holding the component - is
+        // lifted only by a decision. Starting it here, or finding it runs
+        // elsewhere, lifts it; a pass that cannot tell leaves it for the next.
+        const resuming = operatorStop.startRequested;
+        if (resuming) {
+          fluxEventBus.count('masterSlave:decision', identifier, 'operatorStartPending');
+          log.info(`masterSlaveApps: ${identifier} was started by its operator - deciding it with the stop lock held`);
+        }
+        const start = async () => (resuming ? startOperatorStarted(identifier, appId) : startAsPrimary(identifier, appId));
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_DECISION, identifier);
         // Get master IP from FDM using the new /appips endpoint
@@ -5270,7 +5339,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   );
                   // One peer that cannot be ruled out holds the start on its own:
                   // every other peer answering "not me" says nothing about that one.
-                  if (states.includes(PeerComponent.RUNNING)) return PeerComponent.RUNNING;
+                  if (states.includes(PeerComponent.RUNNING)) {
+                    if (resuming) await settleOperatorStart(identifier, 'a peer runs it');
+                    return PeerComponent.RUNNING;
+                  }
                   if (states.includes(PeerComponent.UNKNOWN)) return PeerComponent.UNKNOWN;
                   return PeerComponent.NOT_RUNNING;
                 };
@@ -5285,7 +5357,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   if (peerState !== PeerComponent.NOT_RUNNING) {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                   } else {
-                    if (startAsPrimary(identifier, appId)) {
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
                       log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                     }
                   }
@@ -5304,6 +5377,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const previousMasterState = await peerComponentState(previousMasterAddr, { ...probeCtx, label: 'previous primary' });
                   if (previousMasterState !== PeerComponent.NOT_RUNNING) {
+                    if (resuming && previousMasterState === PeerComponent.RUNNING) {
+                      // eslint-disable-next-line no-await-in-loop
+                      await settleOperatorStart(identifier, 'the previous primary runs it');
+                    }
                     // Only THIS app is settled - the previous master still holds it,
                     // so there is nothing to elect. Returning here would abandon the
                     // whole pass and silently skip every remaining g: app, for as
@@ -5315,7 +5392,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    if (startAsPrimary(identifier, appId)) {
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
                       log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                     }
                   } else {
@@ -5336,7 +5414,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // eslint-disable-next-line no-await-in-loop
                       const peerState = await checkPeersRunning();
                       if (peerState === PeerComponent.NOT_RUNNING) {
-                        if (startAsPrimary(identifier, appId)) {
+                        // eslint-disable-next-line no-await-in-loop
+                        if (await start()) {
                           fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
                           log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                         }
@@ -5354,7 +5433,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const peerState = await checkPeersRunning();
                   if (peerState === PeerComponent.NOT_RUNNING) {
-                    if (startAsPrimary(identifier, appId)) {
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
                       fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
                       log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     }
@@ -5389,7 +5469,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (peerState === PeerComponent.RUNNING) {
                       log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
                     } else {
-                      if (startAsPrimary(identifier, appId)) {
+                      // eslint-disable-next-line no-await-in-loop
+                      if (await start()) {
                         log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
                       }
                     }
@@ -5440,6 +5521,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 timeTostartNewMasterApp.delete(identifier);
               }
               if (!ipsMatch(localSocketAddr, ip)) {
+                if (resuming) {
+                  // eslint-disable-next-line no-await-in-loop
+                  await settleOperatorStart(identifier, `FDM names ${ip} its primary`);
+                }
                 // Stands down only the g: component on this node. Non-g siblings (e.g. a
                 // DB cluster component that needs all instances running) keep running.
                 if (primaryRole.standDown(identifier, appId, { running: runningAppsNames.includes(identifier) })) {
@@ -5485,7 +5570,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (isReady) {
-                  if (startAsPrimary(identifier, appId)) {
+                  // eslint-disable-next-line no-await-in-loop
+                  if (await start()) {
                     log.info(`masterSlaveApps: starting docker component:${identifier}`);
                   }
                 } else {

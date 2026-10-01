@@ -372,7 +372,12 @@ function isManagedElsewhere(identifier) {
  */
 async function effectiveDesiredRunning(identifier, spec, exitCode) {
   const operatorStop = await appsRuntimeState.operatorStopState(identifier);
-  if (operatorStop.stopped) return { desired: false, reason: 'operatorStopped', force: operatorStop.force };
+  if (operatorStop.stopped) {
+    // A start the election has yet to decide keeps the lock, and is reported as
+    // what it is waiting for.
+    const reason = operatorStop.startRequested ? 'startAwaitsElection' : 'operatorStopped';
+    return { desired: false, reason, force: operatorStop.force };
+  }
   if (spec.isG || spec.isR) {
     const cd = controllerDesired.get(identifier) ?? null;
     // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
