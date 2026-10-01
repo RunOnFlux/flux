@@ -12,7 +12,7 @@ import {
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { waitFor, waitForElectionDecisions, electionDecisionCount } from '../framework/wait.js';
+import { waitFor, waitHolding, waitForElectionDecisions, electionDecisionCount } from '../framework/wait.js';
 import {
   bootAndPeer, placeGAppInOrder, electionIndexOf,
 } from '../framework/reconciler-suite.js';
@@ -441,7 +441,7 @@ describe('primary election under a divergent placement order', function () {
       const { masterSlaveStaggerMs, masterSlaveIntervalMs } = loadSharedConfig().fluxapps;
       const span = Math.ceil(((holders.length - 1) * masterSlaveStaggerMs) / masterSlaveIntervalMs) + HELD_PASSES;
       const passesAtDeploy = await Promise.all(holders.map((i) => electionCount(i, genesisApp, 'evaluated')));
-      await Promise.all(holders.map((i, k) => waitFor(async () => {
+      await Promise.all(holders.map((i, k) => waitHolding(async () => {
         expect(await countUp(genesisApp), 'a holder started the app while the seed is cut off').to.equal(0);
         return (await electionCount(i, genesisApp, 'evaluated')) >= passesAtDeploy[k] + span;
       }, { timeout: 420000, interval: 2000, label: `holder ${i} ran ${span} election passes with the seed cut off` })));

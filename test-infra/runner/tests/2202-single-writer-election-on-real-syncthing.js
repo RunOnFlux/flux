@@ -8,7 +8,7 @@ import {
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { waitFor, waitForUp, waitForDown } from '../framework/wait.js';
+import { waitFor, waitHolding, waitForUp, waitForDown } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, getDeviceId, getDeviceStats, getConfigDevices,
   statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, lastDaemonEventId,
@@ -149,7 +149,7 @@ describe('single-writer election on real syncthing', function () {
     // silent to it, so each is a verdict on the primary.
     const gone = await silenceVerdicts(LATE, 'gone');
     const from = await silenceVerdicts(LATE, 'noEvidence');
-    await waitFor(async () => {
+    await waitHolding(async () => {
       await oneWriterAtMost();
       return await silenceVerdicts(LATE, 'noEvidence') >= from + 3;
     }, { timeout: 300000, interval: 3000, label: 'three election passes on the late holder that found no evidence of the primary\'s death' });
@@ -166,7 +166,7 @@ describe('single-writer election on real syncthing', function () {
     await execInContainer(client(FIRST).container, `docker kill flux${appName}_${appName}`);
     await stopDaemon(client(FIRST));
 
-    await waitFor(async () => (await oneWriterAtMost()).includes(SECOND), {
+    await waitHolding(async () => (await oneWriterAtMost()).includes(SECOND), {
       timeout: 300000, interval: 3000, label: 'the second holder takes over',
     });
     await waitFor(async () => (await getFolderConfig(client(SECOND), folder))?.type === 'sendreceive', {
@@ -190,7 +190,7 @@ describe('single-writer election on real syncthing', function () {
     const mark = await lastDaemonEventId(client(FIRST));
 
     await releaseFluxos(client(FIRST).container);
-    await waitFor(async () => {
+    await waitHolding(async () => {
       await oneWriterAtMost();
       return (await getFolderConfig(client(FIRST), folder))?.type === 'receiveonly';
     }, { timeout: 300000, interval: 2000, label: 'the old primary stops sending' });
@@ -241,7 +241,7 @@ describe('single-writer election on real syncthing', function () {
 
     const started = await client(SECOND).getAuthed(`/apps/appstart/${appName}`, await ownerAuth(SECOND));
     expect(started.status, JSON.stringify(started)).to.equal('success');
-    await waitFor(async () => (await oneWriterAtMost()).length === 1, {
+    await waitHolding(async () => (await oneWriterAtMost()).length === 1, {
       timeout: 300000, interval: 3000, label: 'one node runs the app again',
     });
   });
