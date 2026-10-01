@@ -5,10 +5,10 @@ import { pushImage } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { getAppContainerStatus } from '../framework/container.js';
+import { getAppContainerStatus, crashFluxos, releaseFluxos, execInContainer } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, setPeerHasData, resetSyncState, getSyncthingState, getFolderWrites, getFolderConfig, setFolderConfig,
+  setSynced, setPeerHasData, resetSyncState, getSyncthingState, getFolderWrites, getFolderConfig, setFolderConfig, severPeerSync,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -18,6 +18,7 @@ import {
 } from '../framework/reconciler-suite.js';
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
 
 // MUST-PASS gate. Primary election when the election order DISAGREES with the
 // syncthing seed order - the one arrangement the other g: suites cannot make.
@@ -77,6 +78,7 @@ describe('primary election under a divergent placement order', function () {
   const fdmApp = `e2efdmling${stamp}`;
   const windowApp = `e2ewindow${stamp}`;
   const pairApp = `e2epair${stamp}`;
+  const lossApp = `e2eloss${stamp}`;
 
   // Each holder's last event before orderApp was placed.
   let orderDeployedFrom = [];
@@ -111,11 +113,11 @@ describe('primary election under a divergent placement order', function () {
   const writableSince = (nodes, appName, from) => nodes.filter((i, k) => env.clients[i].getEventBuffer()
     .some((e) => e.event === 'syncthing:folderWritable' && e.data?.folder === folderOf(appName) && e.id > from[k]));
 
-  const deploy = async (appName) => {
+  const deploy = async (appName, order = placementOrder) => {
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
     await placeGAppInOrder(env, app, {
-      placementOrder,
+      placementOrder: order,
       folder: `flux${appName}_${appName}`,
       identifier: `${appName}_${appName}`,
     });
@@ -595,5 +597,77 @@ describe('primary election under a divergent placement order', function () {
     const settled = await getFolderConfig(targetIp, folder);
     expect(settled?.type, 'the promotion was undone').to.equal('sendreceive');
     expect(settled?.devices?.length, 'fixture: the held pass wrote its peers\' devices').to.be.above(1);
+  });
+
+  // Last in the file: it crashes a holder's FluxOS, and the scenarios above share
+  // the holders.
+  it('lets the senior standby take over first when FDM names no primary', async function () {
+    this.timeout(900000);
+    // With FDM silent, a standby counts its turn from the pass that finds the
+    // component free, so every standby counts from the primary stopping and the
+    // election order decides who comes due first. A turn booked while the primary
+    // runs comes due at a time set by when that standby last looked instead.
+    //
+    // The seed is placed first, so the genesis winner is election index 0 and both
+    // standbys are below it: each has a turn to book.
+    const deployedFrom = holders.map((i) => env.clients[i].getLastEventId());
+    await deploy(lossApp, placementOrderWithSeedAt(holders, 0));
+    const folder = folderOf(lossApp);
+    await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
+    await Promise.all(holders.map((i, k) => env.clients[i].waitForEvent('syncthing:folderReady',
+      (d) => d.folder === folder, 180000, { afterId: deployedFrom[k] })));
+    await waitFor(async () => (await countUp(lossApp)) === 1, {
+      timeout: 240000, interval: 3000, label: 'a holder starts the app',
+    });
+    const primary = holders[(await Promise.all(holders.map((i) => isUp(env.clients[i], lossApp)))).indexOf(true)];
+    const order = await Promise.all(holders.map((i) => electionIndexOf(env, lossApp, i)));
+    const indexOf = (i) => order[holders.indexOf(i)];
+    expect(indexOf(primary), 'fixture: the genesis winner is the senior holder').to.equal(0);
+    const [senior, junior] = holders.filter((i) => i !== primary).sort((a, b) => indexOf(a) - indexOf(b));
+
+    // While the primary runs, neither standby books a turn. Watched for as many
+    // election passes as the junior's turn spans, plus HELD_PASSES: a turn booked
+    // at genesis comes due inside that, finds the primary running, and a standby
+    // that books while it runs books again.
+    const { masterSlaveStaggerMs, masterSlaveIntervalMs } = loadSharedConfig().fluxapps;
+    const span = Math.ceil((indexOf(junior) * masterSlaveStaggerMs) / masterSlaveIntervalMs) + HELD_PASSES;
+    const bookedAtRun = await Promise.all([senior, junior].map((i) => electionCount(i, lossApp, 'staggerBooked')));
+    const passesAtRun = await Promise.all([senior, junior].map((i) => electionCount(i, lossApp, 'evaluated')));
+    await Promise.all([senior, junior].map((i, k) => waitFor(async () => (await electionCount(i, lossApp, 'evaluated')) >= passesAtRun[k] + span, {
+      timeout: 300000, interval: 1000, label: `holder ${i} ran ${span} election passes beside the running primary`,
+    })));
+    for (const [k, i] of [senior, junior].entries()) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await electionCount(i, lossApp, 'staggerBooked') - bookedAtRun[k], `holder ${i} booked a turn while the primary runs it`)
+        .to.equal(0);
+    }
+
+    // The primary dies outright: FluxOS and the container gone, and every
+    // standby's syncthing sees its connection drop.
+    const startedBefore = await Promise.all([senior, junior].map((i) => electionCount(i, lossApp, 'started')));
+    const lostFrom = [senior, junior].map((i) => env.clients[i].getLastEventId());
+    const { container } = env.clients[primary];
+    await crashFluxos(container, { hold: true });
+    try {
+      await execInContainer(container, `docker kill ${folder}`);
+      await severPeerSync({ folder, deviceIp: env.clients[primary].ip });
+
+      await waitFor(async () => (await electionCount(senior, lossApp, 'started')) > startedBefore[0], {
+        timeout: 240000, interval: 1000, label: `the senior standby (holder ${senior}) commits to the start`,
+      });
+      // The junior's turn comes one place later; it finds the senior running it.
+      const juniorPasses = await electionCount(junior, lossApp, 'evaluated');
+      const place = Math.ceil(masterSlaveStaggerMs / masterSlaveIntervalMs) + HELD_PASSES;
+      await waitFor(async () => (await electionCount(junior, lossApp, 'evaluated')) >= juniorPasses + place, {
+        timeout: 240000, interval: 1000, label: `holder ${junior} ran ${place} election passes after the senior committed`,
+      });
+      expect(await electionCount(junior, lossApp, 'started') - startedBefore[1], `the junior standby (holder ${junior}) started`)
+        .to.equal(0);
+      const promoted = [senior, junior].filter((i, k) => env.clients[i].getEventBuffer().some((e) => e.id > lostFrom[k]
+        && e.event === 'primaryRole:changed' && e.data?.identifier === identifierOf(lossApp) && e.data?.to === 'primary'));
+      expect(promoted, 'the standbys that became primary').to.deep.equal([senior]);
+    } finally {
+      await releaseFluxos(container);
+    }
   });
 });
