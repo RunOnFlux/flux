@@ -78,7 +78,6 @@ describe('single-writer copies on real syncthing', function () {
         fluxapps: {
           minOutgoing: 1,
           minIncoming: 1,
-          masterSlaveStaggerMs: 10000,
           volumeOperations: { image: executorImageReference() },
         },
       },

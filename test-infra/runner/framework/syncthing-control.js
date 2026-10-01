@@ -44,6 +44,35 @@ export async function getFolderWrites(ip) {
   return node ? node.folderWrites : [];
 }
 
+// A node's folder writes that have arrived and not yet taken effect.
+export async function getPendingFolderWrites(ip) {
+  const state = await getSyncthingState();
+  return state.nodes.find((n) => n.ip === ip)?.pendingFolderWrites ?? [];
+}
+
+// One node's config for one folder, as the stub holds it; undefined if none.
+export async function getFolderConfig(ip, folder) {
+  const state = await getSyncthingState();
+  return state.nodes.find((n) => n.ip === ip)?.folders.find((f) => f.id === folder);
+}
+
+// Changes fields of one node's folder config as something other than FluxOS
+// would: not recorded as a folder write.
+export async function setFolderConfig({ ip, folder, fields }) {
+  return post('/folder-config', { ip, id: folder, fields });
+}
+
+// How long a scan of a folder takes; omit ip or folder for every one, 0 clears.
+export async function setScanDuration({ ip = '*', folder = '*', ms = 0 }) {
+  return post('/scan-duration', { ip, folder, ms });
+}
+
+// How long a folder takes to restart after its config changes, on every node.
+// Omitted, the stub's default.
+export async function setFolderRestartMs(ms) {
+  return post('/folder-restart-ms', ms === undefined ? {} : { ms });
+}
+
 // The scans this node has asked for, in order: { id, seq }. seq is numbered from
 // the same sequence as getFolderWrites' entries, so a scan and a write can be
 // ordered against each other.
@@ -283,9 +312,9 @@ export async function resetSyncState() {
   return post('/sync-reset');
 }
 
-// Hold a node's folder PATCH calls open, stretching the window in which a
-// masterSlave primary has committed to a component but has not started its
-// container. ms=0 clears.
+// Make a node's folder PATCHes take `ms` to apply, as a syncthing slow to apply
+// a change would; every config change queued behind one waits for it. ms=0
+// clears.
 export async function setFolderPatchDelay({ ip = '*', ms = 0 }) {
   return post('/folder-patch-delay', { ip, ms });
 }

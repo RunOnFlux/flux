@@ -30,11 +30,19 @@ const RING_BUFFER_SIZE = 1024;
 // window it otherwise cannot reach. Each is named here, so holding a name no
 // code path passes is refused rather than waited on for ever.
 const Checkpoint = Object.freeze({
+  // A node is becoming the primary of a g: component: committed, not yet running.
+  MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart',
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
+  // The syncthing monitor has read the folder list its pass opens with, and has
+  // not yet published which folders this node holds writable.
+  SYNCTHING_AFTER_FOLDER_READ: 'syncthing:afterFolderRead',
+  // The syncthing monitor has computed a folder's config from the folder list
+  // its pass opened with, and has not written it. Keyed by folder id.
+  SYNCTHING_BEFORE_FOLDER_WRITE: 'syncthing:beforeFolderWrite',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

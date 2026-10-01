@@ -14,6 +14,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { followPrimary } from '../framework/fdm-control.js';
 import numericIdTables from '../../../ZelBack/src/services/utils/numericIdTables.js';
 
 const { TABLES_SHA256 } = numericIdTables;
@@ -129,7 +130,7 @@ describe('owners travel by number on real syncthing', function () {
       syncthing: 'binary',
       tickerAutostart: false,
       configOverrides: {
-        fluxapps: { minOutgoing: 1, minIncoming: 1, masterSlaveStaggerMs: 10000 },
+        fluxapps: { minOutgoing: 1, minIncoming: 1 },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
@@ -144,6 +145,10 @@ describe('owners travel by number on real syncthing', function () {
       const r = await execInContainer(c.container, `printf '${passwd}\\n' >> /etc/passwd && printf '${group}\\n' >> /etc/group`);
       expect(r.exitCode, `fixture: names on node ${node}: ${r.output}`).to.equal(0);
     }));
+
+    // FDM names whichever holder runs the app, as it does in production, so the
+    // takeover below follows the primary FDM stopped naming.
+    await followPrimary(appName, { nodes: HOLDERS.map((i) => new URL(client(i).url).host), gNames: [folder] });
 
     await pushTestApp(appName, 'v1', 'ownnum', { user: `${APP_UID}:${APP_GID}` });
     const app = await buildSeedableApp({
@@ -246,13 +251,13 @@ describe('owners travel by number on real syncthing', function () {
   it('carries a change of owner alone from the primary to every standby', async function () {
     this.timeout(420000);
     const path = 'mixed';
-    const before = await getFileInfo(client(PRIMARY), folder, `appdata/${path}`);
+    const unchanged = await getFileInfo(client(PRIMARY), folder, `appdata/${path}`);
     const changed = await sh(PRIMARY, `chown 4103:4001 ${data}/${path}`);
     expect(changed.exitCode, `fixture: ${changed.output}`).to.equal(0);
     await scanFolder(client(PRIMARY), folder);
 
-    const after = await getFileInfo(client(PRIMARY), folder, `appdata/${path}`);
-    expect(after.global.version, 'the primary gave the change a version').to.not.deep.equal(before.global.version);
+    const owned = await getFileInfo(client(PRIMARY), folder, `appdata/${path}`);
+    expect(owned.global.version, 'the primary gave the change a version').to.not.deep.equal(unchanged.global.version);
     for (const i of [ARCANE, UNPRIVILEGED]) {
       // eslint-disable-next-line no-await-in-loop
       await arrived(i, path, { uid: 4103, gid: 4001 });

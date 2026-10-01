@@ -38,6 +38,8 @@ const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const volumeService = require('../utils/volumeService');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const appReconciler = require('./appReconciler');
+const syncthingFolderWrites = require('./syncthingFolderWrites');
+const primaryRole = require('../appLifecycle/primaryRole');
 const {
   manageFolderSyncState,
   verifyFolderMountSafety,
@@ -332,9 +334,12 @@ async function processContainerData(params) {
 
   // Handle receive-only or global sync flags
   if (primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g')) {
+    // Read before the pass: the state machine updates the entry in place.
+    const wasReady = !!state.receiveOnlySyncthingAppsCache.get(appId)?.restarted;
     // Use state machine to manage folder sync transitions
     const { syncthingFolder: updatedFolder, cache, skipProcessing } = await manageFolderSyncState({
       appId,
+      identifier,
       syncFolder,
       containerDataFlags: primaryContainerDataFlags,
       unsyncedSubdirs: mountParser.getUnsyncedSubdirs(containerData),
@@ -350,6 +355,10 @@ async function processContainerData(params) {
     // Update cache if provided
     if (cache !== null) {
       state.receiveOnlySyncthingAppsCache.set(appId, cache);
+      // From here the election reads this holder as ready to take over. A
+      // single-writer standby stays receiveonly, so this, not the folder type,
+      // is when it becomes eligible.
+      if (cache.restarted && !wasReady) fluxEventBus.publish('syncthing:folderReady', { folder: appId });
     }
 
     // Skip processing if marked to skip
@@ -359,6 +368,17 @@ async function processContainerData(params) {
 
     // Update folder with state machine result
     Object.assign(syncthingFolder, updatedFolder);
+
+    // The state machine decides an r: folder's type. A g: folder's type is its
+    // primary role's (primaryRole.js): named here only for a folder syncthing
+    // does not have yet, and never sent for one it has.
+    if (primaryContainerDataFlags.includes('g')) {
+      if (syncFolder) delete syncthingFolder.type;
+      else syncthingFolder.type = primaryRole.CREATED_FOLDER_TYPE;
+    }
+  } else {
+    // An s: folder sends from every holder.
+    syncthingFolder.type = 'sendreceive';
   }
 
   // Add to tracking arrays
@@ -374,9 +394,11 @@ async function processContainerData(params) {
 /**
  * Log sync state for all folders
  * @param {Array} foldersConfiguration - Array of folder configurations
+ * @param {Array} allFolders - syncthing's folder configuration, read this pass
  * @returns {Promise<void>}
  */
-async function logSyncState(foldersConfiguration) {
+async function logSyncState(foldersConfiguration, allFolders) {
+  const typeOf = new Map(allFolders.map((folder) => [folder.id, folder.type]));
   if (!foldersConfiguration || foldersConfiguration.length === 0) {
     log.info('syncthingAppsCore - No folders to log sync state for');
     return;
@@ -392,7 +414,7 @@ async function logSyncState(foldersConfiguration) {
 
       return {
         id: folder.id,
-        type: folder.type,
+        type: typeOf.get(folder.id) ?? folder.type,
         syncPercentage,
         globalBytes,
         inSyncBytes,
@@ -401,7 +423,7 @@ async function logSyncState(foldersConfiguration) {
     } catch (error) {
       return {
         id: folder.id,
-        type: folder.type,
+        type: typeOf.get(folder.id) ?? folder.type,
         error: error.message,
       };
     }
@@ -509,6 +531,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // and the folders published below never happen, so every peer asking is told
     // to wait for as long as the device read keeps failing.
     let allFolders;
+    const writesBeforeRead = syncthingFolderWrites.mark();
     try {
       allFolders = await syncthingService.getConfigFolders();
     } catch (error) {
@@ -529,6 +552,8 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       return;
     }
 
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_AFTER_FOLDER_READ);
+
     // Publish which folders this node holds writable, for the peers that ask before
     // promoting one of their own. Recorded here rather than read on demand: the
     // answer is a byproduct of a pass the monitor already makes, so serving it costs
@@ -539,11 +564,16 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     const sendingFolderIds = new Set(
       allFolders.filter((folder) => folder.type === 'sendreceive').map((folder) => folder.id),
     );
-    // Published as a COPY: the end-of-pass reconciliation mutates the published
-    // set as writes land (its job), while sendingFolderIds stays what this pass
-    // observed at scan time. Aliased, the local name silently changes meaning
-    // mid-pass and external readers (appQueryService) see a half-updated scan.
-    globalState.promotedFolderIds = new Set(sendingFolderIds);
+    // Published as a COPY: every type written from here on updates the
+    // published set as it lands (syncthingFolderWrites), while sendingFolderIds
+    // stays what this pass observed at scan time. A type written after the mark
+    // may be missing from the read, and is what syncthing holds.
+    const writable = new Set(sendingFolderIds);
+    syncthingFolderWrites.typesRecordedSince(writesBeforeRead).forEach(([folderId, type]) => {
+      if (type === 'sendreceive') writable.add(folderId);
+      else writable.delete(folderId);
+    });
+    globalState.promotedFolderIds = writable;
 
     let allDevices;
     try {
@@ -647,7 +677,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       for (const { appId, reason } of unmountedApps) {
         unsafeFolderIds.add(appId);
         // eslint-disable-next-line no-await-in-loop
-        const patchResponse = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId);
+        const patchResponse = await primaryRole.demoteForSafety(appId);
         if (patchResponse.status === 'success') {
           log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}); switched to receiveonly and holding the container`);
           appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
@@ -810,7 +840,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     const cleanupPromises = [
       ...nonUsedFolders.map(async (folder) => {
         log.info(`syncthingAppsCore - Removing unused Syncthing folder ${folder.id}`);
-        const response = await syncthingService.adjustConfigFolders('delete', undefined, folder.id);
+        const response = await syncthingFolderWrites.deleteFolder(folder.id);
         if (response?.status !== 'success') {
           log.error(`Failed to remove folder ${folder.id}: ${response?.data?.message || 'unknown error'}`);
         }
@@ -861,6 +891,12 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       ? newFoldersConfiguration.filter((folder) => busyFolderIds.has(folder.id)).map((folder) => folder.id)
       : [];
 
+    // eslint-disable-next-line no-restricted-syntax
+    for (const folder of foldersToWrite) {
+      // eslint-disable-next-line no-await-in-loop
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_FOLDER_WRITE, folder.id);
+    }
+
     // Inert in production; the harness waits on it to know a pass reached the
     // folder write and to read what it wrote versus what it held for a live
     // backup or restore.
@@ -869,27 +905,16 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       heldForBusy,
     });
 
-    if (foldersToWrite.length > 0) {
-      messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', foldersToWrite));
-      // The published set was built from the folder list this pass opened with, so
-      // a promotion applied on this line is absent from it until the next pass
-      // reads syncthing again - and findPeerBlockingPromotion asks a peer for
-      // exactly this set before promoting a folder of its own. Two nodes promoting
-      // in one cycle would each advertise nothing and neither would block, which is
-      // the collision that check exists to catch. Reconciled here instead, in both
-      // directions, so the answer is true from the moment it became true.
-      // eslint-disable-next-line no-restricted-syntax
-      for (const folder of foldersToWrite) {
-        if (folder.type === 'sendreceive') globalState.promotedFolderIds.add(folder.id);
-        else globalState.promotedFolderIds.delete(folder.id);
-        // What a folder holds that the cluster's index does not is a receive-only
-        // question, and promotion answers it: everything this node holds is now
-        // published. Dropped rather than zeroed - absent is what a peer reads as
-        // "not a receive-only holder", where a figure left behind goes on being
-        // ranked after the folder it described has stopped being one.
-        if (folder.type === 'sendreceive') globalState.folderHoldings?.delete(folder.id);
-      }
+    // A folder this pass sends no type for is an existing g: folder, whose type
+    // is its primary role's: only the fields the monitor owns are changed, and
+    // syncthing keeps its type. Every other folder is written whole, type and all.
+    const wholeFolders = foldersToWrite.filter((folder) => folder.type);
+    const roleTypedFolders = foldersToWrite.filter((folder) => !folder.type);
+    if (wholeFolders.length > 0) {
+      messageHelper.dataOrThrow(await syncthingFolderWrites.putFolders(wholeFolders));
     }
+    (await Promise.all(roleTypedFolders.map((folder) => syncthingFolderWrites.patchFolder(folder.id, folder))))
+      .forEach((response) => messageHelper.dataOrThrow(response));
 
     // Promotions decided this pass are applied now, so the claims they made
     // become true here and nowhere earlier: masterSlaveApps starts containers
@@ -932,7 +957,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // Log sync state every 5 minutes
     const now = Date.now();
     if (!state.lastSyncStateLogTime || (now - state.lastSyncStateLogTime >= SYNC_STATE_LOG_INTERVAL_MS)) {
-      await logSyncState(foldersConfiguration);
+      await logSyncState(foldersConfiguration, allFolders);
       state.lastSyncStateLogTime = now;
     }
 

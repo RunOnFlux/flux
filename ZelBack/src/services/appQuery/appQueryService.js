@@ -15,6 +15,7 @@ const { Privilege, authOf } = require('../utils/privileges');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
 const peerIdentityService = require('../peerIdentityService');
+const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
 const log = require('../../lib/log');
 
 // Database collections
@@ -313,12 +314,13 @@ async function listRunningAppsApi(req, res) {
  * OWNERSHIP, not about what is up. Three sources, because no one of them answers
  * it on its own:
  *
- * - Running containers miss the masterSlave primary path, which fixes ownership
- *   on the persistent data before it starts anything. For that whole window the
- *   node has decided but has no container.
- * - committedIdentifiers covers that window, but it is in-memory and re-derived
- *   from live truth, so a FluxOS restart empties it. It is also only ever written
- *   at the moment a node wins an election, never re-asserted while it goes on
+ * - Running containers miss a node becoming the primary, which makes its folder
+ *   send before it starts anything. For that whole window the node has decided
+ *   but has no container.
+ * - The promotion in progress covers that window, and the reconciler's
+ *   committedIdentifiers everything asked to run after it. Both are in-memory and
+ *   re-derived from live truth, so a FluxOS restart empties them. They are only
+ *   ever written when a node wins an election, never re-asserted while it goes on
  *   being the primary.
  * - The operator stop lock is the durable one. `appstop` writes it to hold the
  *   component down HERE - the election skips this node and the reconciler will
@@ -351,7 +353,7 @@ async function heldComponents(req, res) {
 
     // eslint-disable-next-line global-require
     const appReconciler = require('../appMonitoring/appReconciler');
-    const committed = appReconciler.committedIdentifiers()
+    const committed = [...appReconciler.committedIdentifiers(), ...primaryRoleChanges.promotingIdentifiers()]
       .map((identifier) => dockerService.getAppIdentifier(identifier));
 
     const operatorStopped = (await appsRuntimeState.operatorStoppedIdentifiers())

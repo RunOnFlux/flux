@@ -79,6 +79,8 @@ describe('a standby whose calls to its primary reach another node', function () 
   // Times the standby had verified the primary directly when the router went
   // in - it may have, at boot.
   let verifiedBeforeRedirect = 0;
+  // The standby's last event before it was installed.
+  let standbyInstalledFrom = 0;
 
   before(async function () {
     this.timeout(900000);
@@ -124,9 +126,9 @@ describe('a standby whose calls to its primary reach another node', function () 
     await waitForUp(env.clients[B], appName, 'the primary is running', { timeout: 180000, interval: 3000 });
 
     // Then the standby.
-    const standbyAfter = env.clients[A].getLastEventId();
+    standbyInstalledFrom = env.clients[A].getLastEventId();
     await installOnNodes(env, app, [A]);
-    await waitForReconcileActuated(env.clients[A], identifier, 'dataCleared', 120000, { afterId: standbyAfter });
+    await waitForReconcileActuated(env.clients[A], identifier, 'dataCleared', 120000, { afterId: standbyInstalledFrom });
   });
 
   after(async function () {
@@ -195,8 +197,11 @@ describe('a standby whose calls to its primary reach another node', function () 
     this.timeout(300000);
     expect(await isUp(env.clients[B], appName), 'precondition: the primary is running').to.equal(true);
     // The standby has read the primary off FDM, so it knows which node it must not
-    // start alongside once FDM goes quiet.
+    // start alongside once FDM goes quiet, and is ready, so the election reads it
+    // as eligible to start.
     await waitForElectionDecisions(env.clients[A], identifier, 'primaryObserved', 1, { timeout: 60000 });
+    await env.clients[A].waitForEvent('syncthing:folderReady', (d) => d.folder === folder, 60000,
+      { afterId: standbyInstalledFrom });
 
     // Each pass with FDM quiet, the standby probes its previous primary and the
     // probe knows the answer was not the primary's. A standby that took "not

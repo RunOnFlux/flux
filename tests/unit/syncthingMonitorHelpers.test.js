@@ -151,7 +151,7 @@ describe('syncthingMonitorHelpers tests', () => {
   });
 
   describe('createSyncthingFolderConfig', () => {
-    it('should create folder config with correct defaults', () => {
+    it('builds the fields the monitor owns, and no type', () => {
       const devices = [{ deviceID: 'ABC123' }];
       const result = helpers.createSyncthingFolderConfig(
         'test-id',
@@ -165,109 +165,71 @@ describe('syncthingMonitorHelpers tests', () => {
         label: 'test-label',
         path: '/path/to/folder',
         paused: false,
-        type: 'sendreceive',
         rescanIntervalS: 900,
         maxConflicts: 0,
         syncOwnership: true,
       });
       expect(result.devices).to.deep.equal(devices);
-    });
-
-    it('should allow custom type', () => {
-      const devices = [{ deviceID: 'ABC123' }];
-      const result = helpers.createSyncthingFolderConfig(
-        'test-id',
-        'test-label',
-        '/path/to/folder',
-        devices,
-        'receiveonly',
-      );
-
-      expect(result.type).to.equal('receiveonly');
+      expect(result, 'a type left in would be written whenever any field changes').to.not.have.property('type');
     });
   });
 
   describe('folderNeedsUpdate', () => {
-    it('should return true if folder does not exist', () => {
-      const newFolder = { type: 'sendreceive' };
-      const result = helpers.folderNeedsUpdate(null, newFolder);
-      expect(result).to.be.true;
+    // The folder as syncthing returns it: devices sorted, once each, in its
+    // full shape, and fields the monitor never writes.
+    const held = () => ({
+      id: 'fluxweb_app',
+      label: 'fluxweb_app',
+      path: '/apps/fluxweb_app',
+      type: 'receiveonly',
+      paused: false,
+      rescanIntervalS: 900,
+      maxConflicts: 0,
+      syncOwnership: true,
+      fsWatcherEnabled: true,
+      markerName: '.stfolder',
+      devices: ['AAA', 'MINE', 'ZZZ'].map((deviceID) => ({ deviceID, introducedBy: '', encryptionPassword: '' })),
+    });
+    // The config the monitor builds for it: its own device first, peers in the
+    // order it found them.
+    const built = (type = 'receiveonly') => ({
+      ...helpers.createSyncthingFolderConfig('fluxweb_app', 'fluxweb_app', '/apps/fluxweb_app',
+        ['MINE', 'ZZZ', 'AAA'].map((deviceID) => ({ deviceID }))),
+      ...(type ? { type } : {}),
     });
 
-    it('should return true if syncOwnership differs', () => {
-      const existing = {
-        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [], syncOwnership: false,
-      };
-      const newFolder = { type: 'sendreceive', devices: [], syncOwnership: true };
-      expect(helpers.folderNeedsUpdate(existing, newFolder)).to.be.true;
+    it('writes a folder syncthing does not have', () => {
+      expect(helpers.folderNeedsUpdate(null, built())).to.equal(true);
     });
 
-    it('should return true if maxConflicts differs', () => {
-      const existing = {
-        maxConflicts: 5, paused: false, type: 'sendreceive', devices: [],
-      };
-      const newFolder = {
-        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [],
-      };
-      const result = helpers.folderNeedsUpdate(existing, newFolder);
-      expect(result).to.be.true;
+    it('writes nothing when syncthing holds what the monitor would write, whatever order and shape it holds the devices in', () => {
+      expect(helpers.folderNeedsUpdate(held(), built())).to.equal(false);
     });
 
-    it('should return true if paused status differs', () => {
-      const existing = {
-        maxConflicts: 0, paused: true, type: 'sendreceive', devices: [],
-      };
-      const newFolder = {
-        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [],
-      };
-      const result = helpers.folderNeedsUpdate(existing, newFolder);
-      expect(result).to.be.true;
+    it('writes a folder any field of which differs from what the monitor would write', () => {
+      const fields = Object.keys(built()).filter((field) => field !== 'devices');
+      expect(fields, 'fixture: the built config names the fields the monitor writes').to.include.members(['path', 'label', 'paused', 'type', 'rescanIntervalS', 'maxConflicts', 'syncOwnership']);
+      fields.forEach((field) => {
+        const differs = { ...held(), [field]: `not ${held()[field]}` };
+        expect(helpers.folderNeedsUpdate(differs, built()), field).to.equal(true);
+      });
     });
 
-    it('should return true if type differs', () => {
-      const existing = {
-        maxConflicts: 0, paused: false, type: 'receiveonly', devices: [],
-      };
-      const newFolder = {
-        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [],
-      };
-      const result = helpers.folderNeedsUpdate(existing, newFolder);
-      expect(result).to.be.true;
+    it('writes a folder whose devices gained, lost or swapped one', () => {
+      const withDevices = (ids) => ({ ...held(), devices: ids.map((deviceID) => ({ deviceID, introducedBy: '', encryptionPassword: '' })) });
+      expect(helpers.folderNeedsUpdate(withDevices(['AAA', 'MINE']), built()), 'lost').to.equal(true);
+      expect(helpers.folderNeedsUpdate(withDevices(['AAA', 'MINE', 'NEW', 'ZZZ']), built()), 'gained').to.equal(true);
+      expect(helpers.folderNeedsUpdate(withDevices(['AAA', 'MINE', 'NEW']), built()), 'swapped').to.equal(true);
     });
 
-    it('should return true if devices differ', () => {
-      const existing = {
-        maxConflicts: 0,
-        paused: false,
-        type: 'sendreceive',
-        devices: [{ deviceID: 'ABC' }],
-      };
-      const newFolder = {
-        maxConflicts: 0,
-        paused: false,
-        type: 'sendreceive',
-        devices: [{ deviceID: 'XYZ' }],
-      };
-      const result = helpers.folderNeedsUpdate(existing, newFolder);
-      expect(result).to.be.true;
+    it('does not compare the type of a folder config that carries none', () => {
+      expect(helpers.folderNeedsUpdate({ ...held(), type: 'sendreceive' }, built('receiveonly')), 'fixture: a differing type is a change').to.equal(true);
+
+      expect(helpers.folderNeedsUpdate({ ...held(), type: 'sendreceive' }, built(null))).to.equal(false);
     });
 
-    it('should return false if everything matches', () => {
-      const devices = [{ deviceID: 'ABC' }];
-      const existing = {
-        maxConflicts: 0,
-        paused: false,
-        type: 'sendreceive',
-        devices,
-      };
-      const newFolder = {
-        maxConflicts: 0,
-        paused: false,
-        type: 'sendreceive',
-        devices,
-      };
-      const result = helpers.folderNeedsUpdate(existing, newFolder);
-      expect(result).to.be.false;
+    it('does not compare a field the monitor does not write', () => {
+      expect(helpers.folderNeedsUpdate({ ...held(), fsWatcherEnabled: false, markerName: 'other' }, built())).to.equal(false);
     });
   });
 

@@ -264,6 +264,9 @@ export function nodeClient(nodeNum) {
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
         'checkpoint:held',
+        'syncthing:folderWritable',
+        'syncthing:folderReady',
+        'primaryRole:changed',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
@@ -473,6 +476,8 @@ export function nodeClient(nodeNum) {
     setDOSState: (dosState, dosMessage, zelidauth) =>
       post('/flux/dosstate', { dosState, dosMessage }, { zelidauth }),
     getAppLocations: (name) => get(`/apps/location/${name}`),
+    // The folders this node tells peers it holds writable: { ready, folders }.
+    getPromotedFolders: () => get('/apps/promotedfolders'),
     getPermanentMessages: () => get('/apps/permanentmessages'),
     getTempMessages: (hash) => get(`/apps/temporarymessages/${hash}`),
     getAppSpecs: (name) => get(`/apps/appspecifications/${name}`),
