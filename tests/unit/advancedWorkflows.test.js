@@ -21,6 +21,11 @@ const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/prim
 const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
+// The operator stop lock as appsRuntimeState.operatorStopState answers it.
+const UNLOCKED = { stopped: false, startRequested: false, force: false };
+const LOCKED = { stopped: true, startRequested: false, force: false };
+const START_REQUESTED = { stopped: true, startRequested: true, force: false };
+
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
     sinon.restore();
@@ -933,7 +938,7 @@ describe('advancedWorkflows tests', () => {
 
       it('stands down when no region answers, instead of reading silence as "no primary"', async () => {
         const appName = 'fdmsilentapp';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         sinon.stub(log, 'error');
@@ -955,7 +960,7 @@ describe('advancedWorkflows tests', () => {
 
       it('does not take a 503 for an answer - FDM reporting itself as starting up has named nothing', async () => {
         const appName = 'fdm503app';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
@@ -974,7 +979,7 @@ describe('advancedWorkflows tests', () => {
         // never heard of the app. Standing down on a 404 would leave it without a
         // primary for as long as FDM had no row for it - a deadlock, not a guard.
         const appName = 'fdm404app';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
@@ -993,7 +998,7 @@ describe('advancedWorkflows tests', () => {
         // fdmOk asks whether ANY region gave a verdict. Requiring all three would
         // stand every g: app down on the routine failure of a single region.
         const appName = 'fdmpartialapp';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         sinon.stub(log, 'error');
@@ -1015,7 +1020,7 @@ describe('advancedWorkflows tests', () => {
 
     it('announces the exclusion once when a g: component is operator-stopped, not every cycle', async () => {
       const appName = 'opstoppedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(LOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName);
 
@@ -1034,32 +1039,316 @@ describe('advancedWorkflows tests', () => {
 
     it('announces again after the operator lock is lifted and re-applied', async () => {
       const appName = 'relockapp';
-      const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped');
+      const operatorStopped = sinon.stub(appsRuntimeState, 'operatorStopState');
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName);
       serviceHelperStub.resolves(fdmNoPrimary());
 
       operatorStopped.resetBehavior();
-      operatorStopped.resolves(true);
+      operatorStopped.resolves(LOCKED);
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
 
       // operator starts it again - the latch must clear
       operatorStopped.resetBehavior();
-      operatorStopped.resolves(false);
+      operatorStopped.resolves(UNLOCKED);
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
 
       // and a fresh stop must be announced rather than swallowed by a stale latch
       operatorStopped.resetBehavior();
-      operatorStopped.resolves(true);
+      operatorStopped.resolves(LOCKED);
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(2);
     });
 
+    // An owner start of a stopped g: component leaves the stop lock on - it is what
+    // holds the component on this node - and the election lifts it once it has
+    // decided: starting it here, or finding another node runs it. A pass that
+    // cannot tell leaves it, and the next pass decides again.
+    describe('an operator start the election decides', () => {
+      const PEER = '192.168.1.90:16127';
+      let releaseOperatorStart;
+      let applyIntent;
+      let publish;
+      let promote;
+
+      beforeEach(() => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(START_REQUESTED);
+        releaseOperatorStart = sinon.stub(appsRuntimeState, 'releaseOperatorStart').resolves(true);
+        applyIntent = sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
+          await mutate();
+          return true;
+        });
+        publish = sinon.stub(fluxEventBus, 'publish');
+        // Begins a promotion as primaryRole does, so the component is held by it.
+        promote = sinon.stub(primaryRole, 'promote').callsFake((identifier, appId) => {
+          primaryRoleChanges.set(identifier, { state: 'promoting', appId });
+          return true;
+        });
+        sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        sinon.stub(primaryRole, 'standDown').returns(false);
+      });
+
+      afterEach(() => {
+        primaryRoleChanges.promotingIdentifiers().forEach((identifier) => primaryRoleChanges.end(identifier, primaryRoleChanges.get(identifier)));
+      });
+
+      const settled = () => publish.args.filter(([name]) => name === 'masterSlave:operatorStartSettled').map(([, data]) => data);
+
+      it('decides the component rather than skipping it, and lifts the lock once the start has begun', async () => {
+        const appName = 'opstartfree';
+        const count = sinon.stub(fluxEventBus, 'count');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        // The start and the lift happen inside one hold of the slot the
+        // operator's own writes go through, the promotion first.
+        sinon.assert.calledOnce(applyIntent);
+        expect(applyIntent.firstCall.args[0]).to.equal(appName);
+        sinon.assert.callOrder(applyIntent, promote, releaseOperatorStart);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'it starts here' }]);
+        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'operatorStartPending');
+        sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'operatorStopped');
+      });
+
+      it('lifts the lock when FDM names this node and it starts', async () => {
+        const appName = 'opstartnamedhere';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.5'] } } });
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        sinon.assert.callOrder(promote, releaseOperatorStart);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'it starts here' }]);
+      });
+
+      it('lifts the lock without starting when a peer runs it', async () => {
+        const appName = 'opstartpeerruns';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        sinon.assert.calledOnce(applyIntent);
+        expect(applyIntent.firstCall.args[0], 'lifted through the slot the operator writes through').to.equal(appName);
+        sinon.assert.callOrder(applyIntent, releaseOperatorStart);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'a peer runs it' }]);
+      });
+
+      it('announces nothing when a peer runs it and the lock was not lifted', async () => {
+        const appName = 'opstartpeerrunsrestopped';
+        releaseOperatorStart.resolves(false);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(releaseOperatorStart);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('logs a lock it could not lift when FDM names another node, and still stands by', async () => {
+        const appName = 'opstartnamedpeerfails';
+        releaseOperatorStart.rejects(new Error('no primary available'));
+        const logError = sinon.stub(log, 'error');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+        await runPass();
+
+        expect(linesMatching(logError, 'could not be lifted')).to.have.lengthOf(1);
+        sinon.assert.calledOnce(primaryRole.holdAsStandby);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('lifts the lock before standing by when FDM names another node its primary', async () => {
+        const appName = 'opstartnamedpeer';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        sinon.assert.callOrder(releaseOperatorStart, primaryRole.holdAsStandby);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'FDM names 192.168.1.90 its primary' }]);
+      });
+
+      it('lifts the lock when the previous primary runs it, and keeps it when the previous primary cannot be ruled out', async () => {
+        const appName = 'opstartprevious';
+        const lockState = appsRuntimeState.operatorStopState;
+        const runPass = electionFixture(appName, [PEER]);
+        // Cycle 1, before the stop: FDM names the peer, which this node records as
+        // the previous primary.
+        lockState.resolves(UNLOCKED);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+        await runPass();
+
+        // The peer cannot be read, and its sync connection here is still live.
+        lockState.resolves(START_REQUESTED);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('previous primary unreachable'));
+        peerSyncthingSays(PEER, 'valid');
+        await runPass();
+        sinon.assert.notCalled(releaseOperatorStart);
+
+        // The peer answers that it runs it.
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'the previous primary runs it' }]);
+      });
+
+      it('keeps the lock when a peer cannot be ruled out', async () => {
+        const appName = 'opstartunknown';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('peer unreachable'));
+        peerSyncthingSays(PEER, 'valid');
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('keeps the lock when FDM does not answer', async () => {
+        const appName = 'opstartnofdm';
+        sinon.stub(log, 'warn');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.rejects(new Error('connect ECONNREFUSED 10.0.0.1:16130'));
+
+        await runPass();
+
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('starts nothing when the owner stopped it again after the pass read the lock', async () => {
+        const appName = 'opstartrestoppedmidpass';
+        appsRuntimeState.operatorStopState.onFirstCall().resolves(START_REQUESTED);
+        appsRuntimeState.operatorStopState.resolves(LOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(applyIntent);
+        sinon.assert.notCalled(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('lifts the lock of a component already becoming the primary here', async () => {
+        const appName = 'opstartalreadypromoting';
+        promote.callsFake((identifier, appId) => {
+          primaryRoleChanges.set(identifier, { state: 'promoting', appId });
+          return false;
+        });
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+      });
+
+      it('keeps the lock when the start does not begin', async () => {
+        const appName = 'opstartinflight';
+        promote.returns(false);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('announces nothing when the lock was not lifted, so a stop given since is not reported as released', async () => {
+        const appName = 'opstartrestopped';
+        releaseOperatorStart.resolves(false);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(releaseOperatorStart);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('logs a lock it could not lift and carries on with the pass', async () => {
+        const appName = 'opstartwritefails';
+        releaseOperatorStart.rejects(new Error('no primary available'));
+        const logError = sinon.stub(log, 'error');
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logError, 'could not be lifted')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('lifts nothing for a component whose lock was never asked to lift', async () => {
+        const appName = 'opstartlocked';
+        appsRuntimeState.operatorStopState.resolves(LOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+
+        await runPass();
+
+        expect(serviceHelperStub.called, 'the election reached FDM for a locked component').to.be.false;
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('lifts nothing for a start that was not waiting on the election', async () => {
+        const appName = 'opstartunlocked';
+        appsRuntimeState.operatorStopState.resolves(UNLOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+        sinon.assert.notCalled(applyIntent);
+      });
+    });
+
     it('lets a stopped last-primary be elected again by clearing its own stale record', async () => {
       const appName = 'lastprimaryapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       // The peer answers and holds nothing. Left unreachable it would hold the
@@ -1097,7 +1386,7 @@ describe('advancedWorkflows tests', () => {
       // test uses its own app name because the election tables are module state
       // that outlives a sinon restore.
       const runElection = async (appName, fdmResponse) => {
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
         axiosGetStub.resetBehavior();
         axiosGetStub.callsFake(peerAnswers({ held: [] }));
@@ -1119,7 +1408,7 @@ describe('advancedWorkflows tests', () => {
         // The election keys a composed app on `<component>_<app>`, and the
         // lookup is asked for the bare app name. Nothing exercised the
         // endsWith half of that match before.
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const runPass = electionFixture('composedapp', ['192.168.1.90:16127'], { componentName: 'server' });
         axiosGetStub.resetBehavior();
         axiosGetStub.callsFake(peerAnswers({ held: [] }));
@@ -1167,7 +1456,7 @@ describe('advancedWorkflows tests', () => {
         // fdmOk true on every path, so a total outage and an app with no
         // primary produced the same verdict and this warning never appeared.
         const logWarn = sinon.stub(log, 'warn');
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const runPass = electionFixture('fdmdownapp', ['192.168.1.90:16127']);
         axiosGetStub.resetBehavior();
         axiosGetStub.callsFake(peerAnswers({ held: [] }));
@@ -1183,7 +1472,7 @@ describe('advancedWorkflows tests', () => {
 
     it('does not start at index 0 while a peer is already running the component', async () => {
       const appName = 'peerbusyapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary()); // FDM: no primary registered yet
@@ -1200,7 +1489,7 @@ describe('advancedWorkflows tests', () => {
 
     it('starts at index 0 when no peer is running the component', async () => {
       const appName = 'peerfreeapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1220,7 +1509,7 @@ describe('advancedWorkflows tests', () => {
     // is not. Taken as .90's answer, that is a clearance to start a second writer.
     it('does not start at index 0 when a call to the peer is answered by a different node', async () => {
       const appName = 'misroutedpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1240,7 +1529,7 @@ describe('advancedWorkflows tests', () => {
 
     it('does not ask a peer another node answered for what it runs', async () => {
       const appName = 'misroutedunaskedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1264,7 +1553,7 @@ describe('advancedWorkflows tests', () => {
 
     it('still starts at index 0 when the peer signs that it does not hold the component', async () => {
       const appName = 'verifiedpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1283,7 +1572,7 @@ describe('advancedWorkflows tests', () => {
 
     it('does not start at index 0 when the peer signs that it holds the component', async () => {
       const appName = 'signedheldapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1297,7 +1586,7 @@ describe('advancedWorkflows tests', () => {
 
     it('does not start at index 0 on a signed answer that does not list what the peer holds', async () => {
       const appName = 'signedunlistedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1314,7 +1603,7 @@ describe('advancedWorkflows tests', () => {
     // node proved who is at that address.
     it('does not start at index 0 on a reply that does not prove it came from a peer that can prove itself', async () => {
       const appName = 'unprovenpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1335,7 +1624,7 @@ describe('advancedWorkflows tests', () => {
 
     it('judges a peer that did not reply to the signed question by its silence', async () => {
       const appName = 'silentsignedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1362,7 +1651,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'standdownapp';
       const componentName = 'server';
       const identifier = `${componentName}_${appName}`;
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
 
       const generalService = require('../../ZelBack/src/services/generalService');
       const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
@@ -1412,7 +1701,7 @@ describe('advancedWorkflows tests', () => {
       // is known. A seed that then defers to that schedule waits index*3min on peers
       // that cannot become ready, which is the wait the claim exists to skip.
       const appName = 'seedafterscheduleapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const cache = new Map([[`flux${appName}`, { restarted: true }]]);
       const runPass = electionFixture(
@@ -1442,7 +1731,7 @@ describe('advancedWorkflows tests', () => {
       // that whole window. Asked only for containers it answers "free", and this
       // node starts a second writer on the shared volume.
       const appName = 'peerclaimedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1462,7 +1751,7 @@ describe('advancedWorkflows tests', () => {
       // endpoint must be asked the old way; reading its 404 as "holds nothing" is
       // the same second-writer start, arrived at from the other direction.
       const appName = 'peeroldapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1502,7 +1791,7 @@ describe('advancedWorkflows tests', () => {
       // the component, where the container list happens to give the right answer.
       // This is the case where it does not.
       const appName = 'peeroldstoppedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1529,7 +1818,7 @@ describe('advancedWorkflows tests', () => {
       // node would elect itself onto the volume that owner is working on. The
       // container list here says free, and the pass must still refuse.
       const appName = 'peerunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1549,7 +1838,7 @@ describe('advancedWorkflows tests', () => {
     // folder, so a pass can come round before the last one's promotion has ended.
     it('begins no second start while the last pass\'s promotion is in progress', async () => {
       const appName = 'secondpassapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
       const count = sinon.stub(fluxEventBus, 'count');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
@@ -1580,7 +1869,7 @@ describe('advancedWorkflows tests', () => {
       // The hold has to cover the time before the folder sends, or a peer asking "is
       // anyone running this?" hears no from a node that has already committed.
       const appName = 'holdlifecycleapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
@@ -1611,7 +1900,7 @@ describe('advancedWorkflows tests', () => {
       // way - simplexsmp against simplexsmp1 on the live network. A substring test
       // reads that as this component being live and declines to start, forever.
       const appName = 'prefixapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1631,7 +1920,7 @@ describe('advancedWorkflows tests', () => {
       // just started as live, wherever it sits in the order. Starting without
       // asking it puts a second writer on the syncthing-shared volume.
       const appName = 'seedjumpapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const cache = new Map([[`flux${appName}`, { restarted: true, designatedLeader: true }]]);
       const runPass = electionFixture(
@@ -1661,7 +1950,7 @@ describe('advancedWorkflows tests', () => {
       // so nothing retracts a claim left standing. This node would then skip the
       // stagger on every later primary loss, for the life of the process.
       const appName = 'seedspentapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const appId = `flux${appName}`;
       const cache = new Map([[appId, { restarted: true, designatedLeader: true }]]);
@@ -1689,7 +1978,7 @@ describe('advancedWorkflows tests', () => {
 
     it('probes every peer at once, so an unreachable fleet costs one timeout and not N', async () => {
       const appName = 'peerconcurrentapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const runPass = electionFixture(appName, [
         '192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127',
       ]);
@@ -1724,7 +2013,7 @@ describe('advancedWorkflows tests', () => {
       // IS running the component. In-fleet, six seconds of it was enough to start a
       // second writer on the shared volume.
       const appName = 'restartingpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1744,7 +2033,7 @@ describe('advancedWorkflows tests', () => {
       // either way. The node with the least knowledge must not be the one that
       // authorises a second writer - absence of evidence authorises nothing.
       const appName = 'unknownpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1761,7 +2050,7 @@ describe('advancedWorkflows tests', () => {
       // that is genuinely down loses its sync connection, and that IS evidence. The
       // start proceeds without waiting for the location record to expire.
       const appName = 'deadpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1781,7 +2070,7 @@ describe('advancedWorkflows tests', () => {
       // expired - up to the full broadcast lifetime, for a peer it had a perfectly
       // good local record of.
       const appName = 'diskdeviceapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1802,7 +2091,7 @@ describe('advancedWorkflows tests', () => {
     // container carry on, and a connection that was never up says nothing about it.
     it('will not start beside a silent peer its syncthing has never been connected to', async () => {
       const appName = 'neverseenapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1816,7 +2105,7 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read whether its syncthing ever saw it', async () => {
       const appName = 'statsunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1834,7 +2123,7 @@ describe('advancedWorkflows tests', () => {
       // sync connection has dropped. The proportional floor is the only thing that
       // separates them, and below it the peer is very likely still serving.
       const appName = 'isolatedselfapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1853,7 +2142,7 @@ describe('advancedWorkflows tests', () => {
       // running it". The evidence path must not be reached at all here: a live peer
       // whose sync connection happens to be down would otherwise read as free.
       const appName = 'erroringpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1873,7 +2162,7 @@ describe('advancedWorkflows tests', () => {
       // Folding the set as "some peer is free" rather than "every peer was ruled
       // out" is how a single blind spot becomes a start.
       const appName = 'onedarkpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1898,7 +2187,7 @@ describe('advancedWorkflows tests', () => {
       // sends this node back through a fresh index * 3min wait for a peer it may be
       // able to read on the very next pass.
       const appName = 'holdscheduleapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1946,7 +2235,7 @@ describe('advancedWorkflows tests', () => {
       // starts, FDM still reports no primary. A less-senior node can be live and
       // invisible throughout, and starting beside it puts two writers on the volume.
       const appName = 'duestagger0app';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       // Index 2: behind two peers, and far enough back to book a turn rather than
       // start at once (at index 1 the wait computes to zero).
@@ -1991,7 +2280,7 @@ describe('advancedWorkflows tests', () => {
 
     it('starts on its due turn when no peer holds the component', async () => {
       const appName = 'duestagger1app';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -2020,7 +2309,7 @@ describe('advancedWorkflows tests', () => {
     // counts from the holder stopping and the order decides who comes due first.
     it('books its turn only once no holder runs the component, counted from that pass', async () => {
       const appName = 'bookonfreeapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const count = sinon.spy(fluxEventBus, 'count');
       const runPass = electionFixture(
@@ -2064,7 +2353,7 @@ describe('advancedWorkflows tests', () => {
 
     it('does not book its turn while a holder cannot be ruled out', async () => {
       const appName = 'bookunknownapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -2090,7 +2379,7 @@ describe('advancedWorkflows tests', () => {
     // either side, and only the one BELOW it holds the component.
     it('does not start on a due stagger while a node further down the order holds it', async () => {
       const appName = 'duestaggerscopeapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -2133,7 +2422,7 @@ describe('advancedWorkflows tests', () => {
     // node further down may already have taken the component, so it is asked too.
     it('does not take over from a departed primary while a node further down the order holds it', async () => {
       const appName = 'takeoverbelowapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       // Order: .90 (00:01) index 0, this node (00:01:30) index 1, .91 (00:02) index 2.
       const runPass = electionFixture(
@@ -2168,7 +2457,7 @@ describe('advancedWorkflows tests', () => {
     // holder the list names before it starts.
     it('asks every holder rather than starting blind when this node has left the location list', async () => {
       const appName = 'droppedoutapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -2210,13 +2499,13 @@ describe('advancedWorkflows tests', () => {
     // pass decides, an operator-stopped component included.
     it('counts every pass over a g: component, whatever it decides', async () => {
       const appName = 'evaluatedapp';
-      const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
+      const operatorStopped = sinon.stub(appsRuntimeState, 'operatorStopState').resolves(LOCKED);
       const count = sinon.stub(fluxEventBus, 'count');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
 
       await runPass();
-      operatorStopped.resolves(false);
+      operatorStopped.resolves(UNLOCKED);
       await runPass();
 
       expect(count.withArgs('masterSlave:decision', appName, 'evaluated').callCount).to.equal(2);
@@ -2225,7 +2514,7 @@ describe('advancedWorkflows tests', () => {
 
     it('counts a pass that finds the folder not ready yet', async () => {
       const appName = 'notreadyapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const count = sinon.stub(fluxEventBus, 'count');
       const runPass = electionFixture(
         appName,
@@ -2243,7 +2532,7 @@ describe('advancedWorkflows tests', () => {
 
     it('counts a pass FDM names this node primary on while its folder is not ready yet', async () => {
       const appName = 'notreadyprimaryapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const count = sinon.stub(fluxEventBus, 'count');
       const runPass = electionFixture(
         appName,
@@ -2270,7 +2559,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'staggerconfigapp';
       const stagger = config.fluxapps.masterSlaveStaggerMs;
       expect(stagger, 'unit config must differ from the fallback or this proves nothing').to.not.equal(3 * 60 * 1000);
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -2305,7 +2594,7 @@ describe('advancedWorkflows tests', () => {
       // evidence - the exact wait the claim exists to remove, given up because a
       // peer did not answer.
       const appName = 'seedheldapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const appId = `flux${appName}`;
       const cache = new Map([[appId, { restarted: true, designatedLeader: true }]]);
@@ -2330,7 +2619,7 @@ describe('advancedWorkflows tests', () => {
       // likely to still hold the volume, so a silence there keeps the component
       // rather than releasing it to an election.
       const appName = 'prevprimaryapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
 
@@ -2363,7 +2652,7 @@ describe('advancedWorkflows tests', () => {
       // which is the failure this whole area keeps producing.
       const first = 'starvedfirst';
       const second = 'starvedsecond';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
 
       dockerServiceStub.callsFake((name) => `flux${name}`);
@@ -2714,7 +3003,7 @@ describe('advancedWorkflows tests', () => {
 
     it('does not start a primary whose folder could not be made to send', async () => {
       const appName = 'flipfailsapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
@@ -2734,7 +3023,7 @@ describe('advancedWorkflows tests', () => {
     it('starts a primary once a flip syncthing did not answer shows in its config', async function () {
       this.timeout(10000);
       const appName = 'flipunansweredapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       // the wait for the type to show polls once a second

@@ -171,6 +171,93 @@ describe('appsRuntimeState tests', () => {
     });
   });
 
+  // An operator start of a component the election decides keeps the lock until
+  // the election has decided: the lock is what holds the component on this node
+  // while it is stopped, and lifted at the start it would be held by nothing
+  // until the election next ran.
+  describe('an operator start the election decides', () => {
+    it('records the start on a locked component and keeps the lock, still listed as held', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+
+      expect(await appsRuntimeState.requestOperatorStart('www_App')).to.be.true;
+
+      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({ stopped: true, startRequested: true, force: false });
+      expect(await appsRuntimeState.operatorStoppedIdentifiers()).to.deep.equal(['www_App']);
+    });
+
+    it('records nothing on a component with no lock', async () => {
+      await appsRuntimeState.recordRestart('www_App');
+
+      expect(await appsRuntimeState.requestOperatorStart('www_App')).to.be.false;
+
+      expect(store.get('www_App').operatorStartRequested).to.equal(undefined);
+      expect((await appsRuntimeState.operatorStopState('www_App')).startRequested).to.be.false;
+    });
+
+    it('lifts a lock whose start was asked for, and clears the backoff as a start does', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.recordRestart('www_App');
+      await appsRuntimeState.requestOperatorStart('www_App');
+
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.true;
+
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({ stopped: false, startRequested: false, force: false });
+      expect(store.get('www_App').restartHistory).to.deep.equal([]);
+      expect(await appsRuntimeState.operatorStoppedIdentifiers()).to.deep.equal([]);
+    });
+
+    it('leaves a lock whose start was never asked for', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
+
+      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+    });
+
+    it('leaves a lock the operator set again after asking for the start', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.requestOperatorStart('www_App');
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+
+      expect((await appsRuntimeState.operatorStopState('www_App')).startRequested).to.be.false;
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
+      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+    });
+
+    it('does not report a start request once the lock is gone', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.requestOperatorStart('www_App');
+      await appsRuntimeState.setOperatorStopped('www_App', false);
+
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({ stopped: false, startRequested: false, force: false });
+    });
+
+    // A FluxOS that predates the request lifts the lock without clearing it, so a
+    // node downgraded while a start waited, then upgraded, holds a request with
+    // no lock. There is nothing for the election to lift.
+    it('reports no start request on an unlocked component that still carries one', async () => {
+      store.set('www_App', { identifier: 'www_App', operatorStopped: false, operatorStartRequested: true });
+
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({ stopped: false, startRequested: false, force: false });
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
+    });
+
+    it('THROWS from both when the lock cannot be read, rather than reading it as none', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.requestOperatorStart('www_App');
+      readFails = true;
+
+      const requested = await appsRuntimeState.requestOperatorStart('www_App').catch((err) => err);
+      const released = await appsRuntimeState.releaseOperatorStart('www_App').catch((err) => err);
+
+      expect(requested, 'an unread lock was answered').to.be.an('error');
+      expect(released, 'an unread lock was answered').to.be.an('error');
+      readFails = false;
+      expect(await appsRuntimeState.isOperatorStopped('www_App'), 'the lock was lifted').to.be.true;
+    });
+  });
+
   describe('restartHistory + backoff', () => {
     it('caps restartHistory at the ladder length', async () => {
       for (let i = 0; i < appsRuntimeState.MAX_HISTORY + 5; i += 1) {
@@ -820,6 +907,34 @@ describe('appsRuntimeState tests', () => {
     // The image record is the one pair that must not be merged field-wise: a
     // path from one twin and a stamp from another describe an image that never
     // existed, and ensureAppVolumeMounted refuses such a volume permanently.
+    // A start waits on the election only if every locked twin asked for it: a
+    // twin locked without the request carries a stop the merge must not lift.
+    it('keeps a start request only when no locked twin withholds it', async () => {
+      docs = [
+        { identifier: 'www_App', operatorStopped: true, operatorStartRequested: true, updatedAt: 1000 },
+        { identifier: 'www_App', operatorStopped: true, updatedAt: 9000 },
+      ];
+      await prepState.prepareCollection();
+      expect(upserts[0].set.operatorStopped).to.be.true;
+      expect(upserts[0].set.operatorStartRequested, 'a stop without the request was lifted').to.be.false;
+
+      upserts = [];
+      docs = [
+        { identifier: 'www_App', operatorStopped: true, operatorStartRequested: true, updatedAt: 1000 },
+        { identifier: 'www_App', restartHistory: [1], updatedAt: 9000 },
+      ];
+      await prepState.prepareCollection();
+      expect(upserts[0].set.operatorStartRequested, 'the only locked twin asked for the start').to.be.true;
+
+      upserts = [];
+      docs = [
+        { identifier: 'www_App', operatorStartRequested: true, updatedAt: 1000 },
+        { identifier: 'www_App', updatedAt: 9000 },
+      ];
+      await prepState.prepareCollection();
+      expect(upserts[0].set.operatorStartRequested, 'a request with no lock').to.be.false;
+    });
+
     it('takes the image path and its stamp from the same twin', async () => {
       docs = [
         {
