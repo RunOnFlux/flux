@@ -203,6 +203,12 @@ export async function getDeviceStats(client) {
   return api(client, '/rest/stats/device');
 }
 
+// The folders peers have offered this daemon that it holds no folder for:
+// { <folderID>: { offeredBy: { <deviceID>: { time, label, ... } } } }.
+export async function getPendingFolders(client) {
+  return api(client, '/rest/cluster/pending/folders');
+}
+
 // The devices the daemon has configured, as syncthing holds them.
 export async function getConfigDevices(client) {
   return api(client, '/rest/config/devices');
