@@ -112,12 +112,17 @@ describe('single-writer apps of different owners on shared holders', function ()
   // primary's syncthing ever saw it.
   const primaryState = async (app) => {
     const primary = app.order[0];
-    const disk = await sh(primary, `ls -la --time-style=full-iso ${app.data}; docker inspect -f 'started {{.State.StartedAt}}' ${app.folder}; docker logs ${app.folder} 2>&1 | tail -5; true`);
+    const disk = await sh(primary, `ls -la --time-style=full-iso ${app.data}; stat -c 'host dir inode %i dev %d' ${app.data}; findmnt -n -o SOURCE,TARGET --target ${app.data}; `
+      + `docker inspect -f 'started {{.State.StartedAt}} mounts {{json .Mounts}}' ${app.folder}; `
+      + `docker exec ${app.folder} ls -la /appdata 2>&1 | head -8; docker logs ${app.folder} 2>&1 | tail -5; true`);
     const status = await getFolderStatus(client(primary), app.folder).catch((error) => ({ error: error.message }));
-    const kinds = ['StateChanged', 'LocalIndexUpdated', 'FolderWatchStateChanged', 'FolderScanProgress', 'ConfigSaved', 'FolderErrors'];
+    const kinds = ['StateChanged', 'LocalIndexUpdated', 'FolderWatchStateChanged', 'FolderScanProgress', 'ConfigSaved', 'FolderErrors',
+      'ItemStarted', 'ItemFinished', 'RemoteIndexUpdated', 'FolderCompletion', 'DeviceConnected', 'DeviceDisconnected'];
     const events = (await getDaemonEvents(client(primary), { events: kinds }).catch(() => []))
-      .filter((e) => e.type === 'ConfigSaved' || e.data?.folder === app.folder)
-      .map((e) => `${e.time} ${e.type} ${e.type === 'ConfigSaved' ? JSON.stringify((e.data?.folders || []).filter((f) => f.id === app.folder).map((f) => ({ type: f.type, paused: f.paused, fsWatcherEnabled: f.fsWatcherEnabled }))) : JSON.stringify(e.data)}`);
+      .filter((e) => ['ConfigSaved', 'DeviceConnected', 'DeviceDisconnected'].includes(e.type) || e.data?.folder === app.folder)
+      .map((e) => `${e.time} ${e.type} ${e.type === 'ConfigSaved' ? JSON.stringify((e.data?.folders || []).filter((f) => f.id === app.folder).map((f) => ({
+        type: f.type, paused: f.paused, fsWatcherEnabled: f.fsWatcherEnabled, devices: (f.devices || []).map((d) => d.deviceID.slice(0, 7)),
+      }))) : JSON.stringify(e.data)}`);
     return `primary node ${primary}: disk\n${disk.stdout}\nfolder ${JSON.stringify({
       state: status.state, error: status.error, errors: status.errors, globalBytes: status.globalBytes, localBytes: status.localBytes, localFiles: status.localFiles, needBytes: status.needBytes,
     })}\nevents\n${events.join('\n')}`;
