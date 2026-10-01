@@ -92,7 +92,12 @@ async function sendThenRun(identifier, appId, change) {
     log.error(`primaryRole - the folder of ${identifier} could not be made to send; not starting it`);
     return { to: Role.STANDBY, reason: 'the folder did not send' };
   }
-  appReconciler.setControllerDesired(identifier, 'running', 'masterSlave primary');
+  // An operator stop given while the folder was turning keeps the component
+  // down: it stays held by the lock, its folder sending, until the election
+  // decides an operator start.
+  if (!(await appReconciler.setRunningUnlessOperatorStopped(identifier, 'masterSlave primary'))) {
+    return { to: Role.STANDBY, reason: 'its operator stopped it' };
+  }
   return Role.PRIMARY;
 }
 

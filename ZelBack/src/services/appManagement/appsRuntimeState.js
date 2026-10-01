@@ -149,6 +149,19 @@ function readLock(identifier) {
 }
 
 /**
+ * Whether the operator stop lock is on, read without getState's swallow: for a
+ * caller about to commit a component to running, an unread lock is not an
+ * absent one.
+ *
+ * @param {string} rawIdentifier
+ * @returns {Promise<boolean>}
+ * @throws When the lock cannot be read.
+ */
+async function operatorStoppedOrThrow(rawIdentifier) {
+  return (await readLock(canonical(rawIdentifier)))?.operatorStopped === true;
+}
+
+/**
  * Records an operator start of a locked component whose start the primary
  * election decides, leaving the stop lock in place until the election has
  * decided it. A component with no lock has nothing to wait for and is left as
@@ -720,6 +733,7 @@ module.exports = {
   setOperatorStopped,
   requestOperatorStart,
   releaseOperatorStart,
+  operatorStoppedOrThrow,
   isOperatorStopped,
   operatorStopState,
   operatorStoppedIdentifiers,
