@@ -1400,6 +1400,7 @@ async function handleReceiveOnlyTransition(params) {
     log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${blocker.ip} ${blocker.reason}; going on as a standby`);
   }
   if (isLeader && !blocker?.holdsWritableCopy) {
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_DECISION, appId);
     // The seed flip below runs WITHOUT a sync check, and that is only sound when
     // there is nothing to lose: an empty folder (the cold start this election
     // exists for) or a fully synced copy (a survivor taking over). A node can
