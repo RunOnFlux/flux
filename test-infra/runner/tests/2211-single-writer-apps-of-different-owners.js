@@ -5,7 +5,7 @@ import { execInContainer, crashFluxos, releaseFluxos } from '../framework/contai
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { waitFor, electionDecisionCount } from '../framework/wait.js';
+import { waitFor, waitHolding, electionDecisionCount } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, getDaemonEvents, scanFolder, statPath, stopDaemon, startDaemon,
 } from '../framework/syncthing-real.js';
@@ -131,7 +131,7 @@ describe('single-writer apps of different owners on shared holders', function ()
   // Each standby of an app runs HELD_PASSES more election passes over it.
   const passesFromNow = async (app, nodes) => {
     const from = await Promise.all(nodes.map((i) => electionDecisionCount(client(i), app.identifier, 'evaluated')));
-    await Promise.all(nodes.map((i, k) => waitFor(async () => {
+    await Promise.all(nodes.map((i, k) => waitHolding(async () => {
       await oneWriterEach();
       return (await electionDecisionCount(client(i), app.identifier, 'evaluated')) >= from[k] + HELD_PASSES;
     }, { timeout: 180000, interval: 1000, label: `node ${i} ran ${HELD_PASSES} election passes over ${app.tag}` })));
@@ -293,7 +293,7 @@ describe('single-writer apps of different owners on shared holders', function ()
 
     const started = await client(primary).getAuthed(`/apps/appstart/${A.name}`, auth);
     expect(started?.status, `owner start: ${JSON.stringify(started)}`).to.equal('success');
-    await waitFor(async () => {
+    await waitHolding(async () => {
       const [running] = await oneWriterEach();
       return running.length === 1;
     }, { timeout: 240000, interval: 2000, label: 'A runs again' });
@@ -316,7 +316,7 @@ describe('single-writer apps of different owners on shared holders', function ()
       await sh(lost, `docker kill ${A.folder}`);
       await stopDaemon(client(lost));
 
-      await waitFor(async () => {
+      await waitHolding(async () => {
         const [running] = await oneWriterEach();
         return running.length === 1;
       }, { timeout: 480000, interval: 3000, label: 'A runs again after its primary is lost' });
