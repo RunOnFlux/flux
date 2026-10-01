@@ -7,7 +7,7 @@ import {
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { waitFor, waitForUp } from '../framework/wait.js';
+import { waitFor, waitHolding, waitForUp } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, scanFolder, statPath,
   getFileInfo, syncthingIdTables, startDaemon, stopDaemon,
@@ -331,7 +331,7 @@ describe('owners travel by number on real syncthing', function () {
     await sh(PRIMARY, `docker kill ${folder}`);
     await stopDaemon(client(PRIMARY));
 
-    await waitFor(async () => {
+    await waitHolding(async () => {
       const running = await runners();
       expect(running.length, `more than one node runs the component: ${running.join(', ')}`).to.be.at.most(1);
       return running.includes(ARCANE);
