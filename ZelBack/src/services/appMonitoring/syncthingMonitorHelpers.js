@@ -160,11 +160,17 @@ async function buildDeviceConfiguration(
     // Add to global devices configuration if not already configured
     const deviceExists = devicesConfiguration.find((device) => device.name === name);
     if (!deviceExists) {
+      // Folders are never auto-accepted: FluxOS creates every folder itself,
+      // with its type and its peers. A folder a peer offers before then waits as
+      // pending. Accepted, syncthing would create it with its default type,
+      // sendreceive, and a new standby's empty copy - wiped clean for the
+      // install - would go out as newer than the primary's data, which the
+      // primary would then delete.
       const newDevice = {
         deviceID,
         name,
         addresses,
-        autoAcceptFolders: true,
+        autoAcceptFolders: false,
       };
       devicesIds.push(deviceID);
 

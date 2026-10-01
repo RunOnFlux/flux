@@ -824,6 +824,21 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       }),
     ];
 
+    // A device configured to auto-accept folders is set not to. See
+    // syncthingMonitorHelpers: FluxOS creates every folder itself.
+    const acceptingDevices = allDevices.filter(
+      (syncthingDevice) => syncthingDevice.autoAcceptFolders && syncthingDevice.deviceID !== localDeviceId
+        && !nonUsedDevices.includes(syncthingDevice),
+    );
+    cleanupPromises.push(...acceptingDevices.map(async (device) => {
+      const response = await syncthingService.adjustConfigDevices('patch', { autoAcceptFolders: false }, device.deviceID);
+      if (response?.status === 'success') {
+        log.info(`syncthingAppsCore - Syncthing device ${device.deviceID} no longer auto-accepts folders`);
+      } else {
+        log.error(`Failed to stop device ${device.deviceID} auto-accepting folders: ${response?.data?.message || 'unknown error'}`);
+      }
+    }));
+
     await Promise.all(cleanupPromises);
 
     // Apply new configuration. A failed apply aborts the pass loudly (outer
