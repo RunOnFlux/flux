@@ -32,6 +32,9 @@ const RING_BUFFER_SIZE = 1024;
 const Checkpoint = Object.freeze({
   // A node is becoming the primary of a g: component: committed, not yet running.
   MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart',
+  // An election pass is about to decide a g: component it does not skip. Keyed
+  // by the component identifier.
+  MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
