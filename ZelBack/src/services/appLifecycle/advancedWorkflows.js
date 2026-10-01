@@ -4724,8 +4724,19 @@ const PEER_PROBE_TIMEOUT_MS = 10 * 1000;
  *
  * The stagger serialises the candidates so they do not all start against the same
  * volume at once, and its length is set by how long FDM takes to register a node
- * that HAS started - measured at ~110s in production. A place is worth more than
- * that or the wait does not cover what it exists to cover.
+ * that HAS started: FDM keeps naming a stopped primary until 90s have passed AND
+ * three checks have failed, checks at most every 25s, and serves its answer from a
+ * 20s cache (fdm domainService.js G_APP_UNHEALTHY_THRESHOLD_MS,
+ * G_APP_MIN_CONFIRMATIONS, G_PASS_MIN_INTERVAL_MS; routes.js). A place is worth
+ * more than that or the wait does not cover what it exists to cover.
+ *
+ * Each standby counts its wait from the pass on which it proves the component
+ * free, so the order holds while standbys prove it within one place of each
+ * other. A silent holder is proved gone by this node's own syncthing dropping its
+ * connection, which syncthing does ReceiveTimeout (300s) after the last message,
+ * and a live peer sends one at least every PingSendInterval (90s): standbys prove
+ * it at most 90s plus one election pass (masterSlaveIntervalMs, 30s) apart, inside
+ * the 180s place.
  *
  * Read from config on every call, and per place rather than as a total, so a
  * fleet running a shorter stagger reaches every staggered path in proportion.
@@ -5398,11 +5409,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (seedCache) seedCache.designatedLeader = false;
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
-                  // Non-primary node with no history - schedule start based on index
-                  const timetoStartApp = Date.now() + staggerMs(index);
-                  fluxEventBus.count('masterSlave:decision', identifier, 'staggerBooked');
-                  log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
-                  timeTostartNewMasterApp.set(identifier, timetoStartApp);
+                  // Non-primary node with no history - schedule start based on
+                  // index, counted from the pass that finds no holder running it.
+                  // A turn booked while a holder runs comes due at a time set by
+                  // when this node last looked rather than by the holder stopping,
+                  // and a node further down the order can then come due first.
+                  // eslint-disable-next-line no-await-in-loop
+                  const peerState = await checkPeersRunning();
+                  if (peerState === PeerComponent.NOT_RUNNING) {
+                    const timetoStartApp = Date.now() + staggerMs(index);
+                    fluxEventBus.count('masterSlave:decision', identifier, 'staggerBooked');
+                    log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
+                    timeTostartNewMasterApp.set(identifier, timetoStartApp);
+                  } else {
+                    log.info(`masterSlaveApps: not scheduling app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is running it' : 'could not be ruled out'}`);
+                  }
                 } else {
                   // All other cases: don't start
                   log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - conditions not met for primary selection`);
