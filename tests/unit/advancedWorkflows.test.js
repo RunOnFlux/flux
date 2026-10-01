@@ -2016,6 +2016,73 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
+    // A turn counts from the pass that finds the component free, so every standby
+    // counts from the holder stopping and the order decides who comes due first.
+    it('books its turn only once no holder runs the component, counted from that pass', async () => {
+      const appName = 'bookonfreeapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const count = sinon.spy(fluxEventBus, 'count');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+      const stagger = config.fluxapps.masterSlaveStaggerMs;
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      await runPass();
+      clock.tick(3 * stagger);
+      await runPass();
+      expect(linesMatching(logInfo, 'masterSlaveApps: scheduling app'), 'booked while the holder runs it').to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'not scheduling app')).to.have.lengthOf(2);
+      sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      logInfo.resetHistory();
+      const freedAt = Date.now();
+      await runPass();
+      const booked = linesMatching(logInfo, 'masterSlaveApps: scheduling app');
+      expect(booked).to.have.lengthOf(1);
+      expect(Number(/to start at (\d+)/.exec(booked[0])[1]), 'the turn counts from the pass that found it free')
+        .to.equal(freedAt + stagger);
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+
+      clock.tick(stagger - 1);
+      logInfo.resetHistory();
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      clock.tick(1);
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      clock.restore();
+    });
+
+    it('does not book its turn while a holder cannot be ruled out', async () => {
+      const appName = 'bookunknownapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.rejects(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'not scheduling app')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'not scheduling app')[0]).to.include('could not be ruled out');
+      expect(linesMatching(logInfo, 'masterSlaveApps: scheduling app')).to.have.lengthOf(0);
+    });
+
     // A node further down the order can start first: its turn was booked before
     // the node ahead of it was released, so it comes due first, and nobody ahead
     // of it holds the component then. When the released node's own turn comes, the
