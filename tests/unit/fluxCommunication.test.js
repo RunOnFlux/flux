@@ -1182,6 +1182,7 @@ describe('fluxCommunication tests', () => {
 
     it('a dial opening into a live held inbound replaces it when this node has the lower address', async () => {
       peerManager.setOwnSocketAddress('1.1.1.1:16127');
+      const resolve = sinon.spy(peerManager, 'resolveCrossing');
       const dialAccepted = nextServerSocket();
       const dial = fluxCommunication.initiateAndHandleConnection(key, PEER_SOURCE.DETERMINISTIC);
       peerManager.add(held, '127.0.0.1', port, { source: PEER_SOURCE.INBOUND });
@@ -1194,11 +1195,13 @@ describe('fluxCommunication tests', () => {
       expect(peerManager.get(key)).to.not.equal(original);
       expect(peerManager.get(key).direction).to.equal('outbound');
       expect(peerManager.inboundCount).to.equal(0);
+      sinon.assert.calledOnceWithExactly(resolve, original, 'outbound');
       await waitFor(() => held.readyState === WebSocket.CLOSED, 5000);
     });
 
     it('a dial opening into a live held inbound closes itself when the peer has the lower address', async () => {
       peerManager.setOwnSocketAddress('200.1.1.1:16127');
+      const resolve = sinon.spy(peerManager, 'resolveCrossing');
       const dialAccepted = nextServerSocket();
       const dial = fluxCommunication.initiateAndHandleConnection(key, PEER_SOURCE.DETERMINISTIC);
       peerManager.add(held, '127.0.0.1', port, { source: PEER_SOURCE.INBOUND });
@@ -1212,6 +1215,7 @@ describe('fluxCommunication tests', () => {
       expect(peerManager.get(key).direction).to.equal('inbound');
       expect(held.readyState).to.equal(WebSocket.OPEN);
       expect(dialSocket.readyState).to.equal(WebSocket.CLOSED);
+      sinon.assert.calledOnceWithExactly(resolve, original, 'outbound');
     });
 
     it('a dial completing into a dead held connection replaces it', async () => {
