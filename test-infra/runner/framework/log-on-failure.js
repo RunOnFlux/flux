@@ -64,23 +64,6 @@ async function cgroupState(env) {
   return parts.join('\n');
 }
 
-// A systemd-mode node's FluxOS writes to its journal, never to the container
-// stream the log collectors read, and the journal leaves with the container.
-// Pulled while the node is up, best-effort like the cgroup probe.
-async function nodeJournals(env) {
-  if (!env.systemdMode) return [];
-  const clients = env.clients || [];
-  return Promise.all(clients.map(async (client, index) => {
-    if (!client?.container) return { index, text: '' };
-    try {
-      const { output } = await execInContainer(client.container, 'journalctl --no-pager 2>&1');
-      return { index, text: output };
-    } catch (err) {
-      return { index, text: `journal pull failed: ${err.message}\n` };
-    }
-  }));
-}
-
 export function dumpLogsOnFailure(getEnv) {
   let dumped = false;
 
@@ -110,7 +93,11 @@ export function dumpLogsOnFailure(getEnv) {
     const cgroupsByEnv = await Promise.all(envs.map((env) => cgroupState(env).catch(
       (err) => `cgroup probe failed: ${err.message}\n`,
     )));
-    const journalsByEnv = await Promise.all(envs.map((env) => nodeJournals(env).catch(() => [])));
+    // A systemd-mode node's FluxOS writes to its journal, never to the container
+    // stream the log collectors read; see env.nodeJournals.
+    const journalsByEnv = await Promise.all(envs.map((env) => env.nodeJournals().catch(
+      (err) => [{ index: 0, text: `journal read failed: ${err.message}\n` }],
+    )));
 
     const written = [];
     envs.forEach((env, e) => {
