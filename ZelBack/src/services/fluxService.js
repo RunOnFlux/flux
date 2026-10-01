@@ -27,6 +27,7 @@ const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
 const upnpService = require('./upnpService');
+const uplinkService = require('./uplinkService');
 const enterpriseConfig = require('./utils/enterpriseConfig');
 
 // for streamChain endpoint
@@ -1372,6 +1373,7 @@ async function getFluxInfo(req, res) {
     }
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
+    info.flux.uplink = uplinkService.getUplinkSummary();
     // How far this node is through being staged out of service, or null. Read
     // beside `dos` below, which reports the last stage: the three read together
     // as HOLD, then EVACUATE, then EVACUATE with a DOS.
