@@ -28,8 +28,9 @@ const { OWNED_FOLDER_SETTINGS } = require('./syncthingMonitorHelpers');
 const FOLDER_TYPE_SETTLE_MS = 60 * 1000;
 const FOLDER_TYPE_POLL_MS = 1000;
 
-// How long the scan before a type change may take. Syncthing answers a scan
-// once it is done; one that has not finished by then leaves the type unchanged.
+// How long a scan this module asks for may take. Syncthing answers a scan once
+// it is done; a scan before a type change that has not finished by then leaves
+// the type unchanged.
 const FOLDER_SCAN_TIMEOUT_MS = 10 * 60 * 1000;
 
 // folder id -> the promise that settles when the last write queued for it ends
@@ -106,9 +107,73 @@ function publishWritable(writable) {
   globalState.promotedFolderIds = writable;
 }
 
+// RESTART COVER - why a write to a sending folder is followed by two full scans.
+//
+// Syncthing restarts a folder whenever its config changes: a type change, a
+// device added or removed, an unpause. The restarted folder finds changes two
+// ways, and syncthing's own guarantee rests on the second:
+//   - its watcher (inotify), which reports a change seconds after it happens;
+//   - full scans, which find everything on disk. Syncthing treats the watcher as
+//     best-effort and the scans as the guarantee: a full scan that starts once
+//     the watcher is running covers everything written before it, and the
+//     watcher covers everything after.
+// On a restart syncthing starts the watcher in the background and runs its first
+// full scan straight away, without waiting for the watcher. When that scan
+// finishes first, a file written in between is seen by neither, and nothing
+// finds it until the next periodic rescan - rescanIntervalS, fifteen minutes
+// here (syncthingMonitorConstants). On a primary that is a write the standbys do
+// not receive for up to fifteen minutes, and lose if the primary dies within
+// them.
+//
+// Every config write goes through this module, so every restart is known here,
+// and the scan that restores the guarantee is made here, in two steps:
+//   1. A full scan. Syncthing runs a scan request inside the restarted folder's
+//      own loop, and the folder starts its watcher before it enters that loop,
+//      so this scan answering proves the restarted folder is running and its
+//      watcher has been starting for at least one full scan. On its own it can
+//      still run before the watcher is up, exactly as the folder's first scan can.
+//   2. A second full scan, requested once the first has answered. It starts
+//      after the watcher has had that scan's time to come up, so it finds every
+//      file written since the restart, and the watcher reports every write after
+//      it starts.
+// What is left is a watcher that takes longer to come up than a full scan of the
+// same folder takes to run - both walk the same tree - and that case the
+// periodic rescan still covers.
+//
+// The folder is held for both scans, so the next write to it waits, and so does
+// a promotion: its container starts only once its folder's restart is covered,
+// and the app's first writes land where syncthing will see them. A receiving
+// folder is not covered - nothing written there leaves this node - nor is a
+// paused one, which syncthing does not scan.
+//
+// A scan that fails or does not finish is logged and counted, and the write still
+// stands: a primary that could not start its app is worse than a gap the
+// periodic rescan closes.
+async function coverRestart(folderId) {
+  for (const step of ['first', 'second']) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await syncthingService.scanFolder(folderId, { timeoutMs: FOLDER_SCAN_TIMEOUT_MS });
+    } catch (error) {
+      log.warn(`the ${step} scan covering the restart of ${folderId} did not finish: ${error.message}; a file written as it restarted reaches peers at the next periodic rescan`);
+      fluxEventBus.count('syncthing:restartCover', folderId, 'unfinished');
+      return;
+    }
+  }
+  fluxEventBus.count('syncthing:restartCover', folderId, 'covered');
+}
+
+// Whether a write that syncthing accepted leaves the folder sending and running,
+// so its restart needs covering. A write that pauses the folder stops it.
+function leavesSending(folderId, fields) {
+  if (fields.paused === true) return false;
+  return Boolean(globalState.promotedFolderIds?.has(folderId));
+}
+
 async function patchNow(folderId, fields) {
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
   if (response.status === 'success' && fields.type) recordType(folderId, fields.type);
+  if (response.status === 'success' && leavesSending(folderId, fields)) await coverRestart(folderId);
   return response;
 }
 
@@ -125,7 +190,10 @@ function putFolders(folders) {
   }
   return exclusive(folders.map((folder) => folder.id), async () => {
     const response = await syncthingService.adjustConfigFolders('put', folders);
-    if (response.status === 'success') folders.forEach((folder) => recordType(folder.id, folder.type));
+    if (response.status === 'success') {
+      folders.forEach((folder) => recordType(folder.id, folder.type));
+      await Promise.all(folders.filter((folder) => leavesSending(folder.id, folder)).map((folder) => coverRestart(folder.id)));
+    }
     return response;
   });
 }
@@ -270,6 +338,7 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
         if (await folderTypeSettles(folderPath, folderType, settleMs)) {
           log.info(`Syncthing folder ${folderId} is in ${folderType} mode`);
           recordType(folderId, folderType);
+          if (leavesSending(folderId, patchData)) await coverRestart(folderId);
           return true;
         }
       }
