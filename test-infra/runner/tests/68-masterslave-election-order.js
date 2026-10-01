@@ -396,51 +396,59 @@ describe('primary election under a divergent placement order', function () {
     expect(await pairUp(), 'both holders ran the component').to.equal(1);
   });
 
-  it('elects a new seed when the designated leader dies mid-genesis', async function () {
-    this.timeout(600000);
-    // Genesis has exactly one node that can seed, and it is chosen by lowest IP. If
-    // that node dies before it seeds, the remaining holders must converge on a new
-    // seed rather than defer to a corpse forever - the cold-start standoff, but with
-    // the standoff-breaker removed after the fact. Nothing here is index 0, so the
-    // stagger cannot rescue it either.
+  it('starts a newborn app on no holder while its seed is cut off, and on exactly one once it is back', async function () {
+    this.timeout(900000);
+    // Genesis has exactly one node that can seed, chosen by lowest IP. Here that
+    // seed is cut off from the other holders before the app is placed, so none of
+    // them has ever been connected to another: a silence with no connection behind
+    // it is no evidence that the peer is gone, on either side of the cut. No holder
+    // may start - the survivors cannot rule the seed out, and the seed cannot rule
+    // them out. Once the cut heals, the holders can ask each other again and
+    // exactly one of them starts it.
     //
     // The cut comes BEFORE the deploy, because that is the only ordering that
     // cannot race genesis: the runner reaches every node either way (a
-    // partition drops node-to-node packets, not control traffic), so
-    // placement proceeds - but the seed is born unreachable to its peers, and
-    // nothing can have seeded when the election first looks. No holds, no
-    // fabricated evidence: the seed never declared anything, so the
-    // survivors' syncthing has no testimony to a connection that does not
-    // exist, and the election judges exactly what production would see.
+    // partition drops node-to-node packets, not control traffic), so placement
+    // proceeds - but the seed is born unreachable to its peers, and nothing can
+    // have seeded when the election first looks.
     const survivors = holders.filter((i) => i !== seedIndex);
+    const startedBefore = await startsOf(holders, genesisApp);
     await env.partitionGroups([seedIndex], survivors, { awaitSever: true });
-    await deploy(genesisApp);
-    const position = await electionIndexOf(env, genesisApp, seedIndex);
-    expect(position, 'fixture: seed must be off index 0 for this scenario to mean anything').to.be.greaterThan(0);
-    const survivorsUp = async () => (await Promise.all(
-      survivors.map((i) => isUp(env.clients[i], genesisApp)),
-    )).filter(Boolean).length;
-
-    // Healed in a finally, and the heal cannot throw: a failing assertion must not
-    // leave the fleet split, and a cleanup that raises replaces the real failure
-    // with its own, which is how this last reported a DB error instead of its
-    // subject.
+    let healed = false;
     try {
-      await waitFor(async () => (await survivorsUp()) >= 1, {
-        timeout: 420000, interval: 5000, label: 'a surviving holder seeds after the leader is lost',
+      await deploy(genesisApp);
+      const position = await electionIndexOf(env, genesisApp, seedIndex);
+      expect(position, 'fixture: seed must be off index 0 for this scenario to mean anything').to.be.greaterThan(0);
+
+      // Watched for as many election passes as the last holder's turn spans,
+      // plus HELD_PASSES, on every holder.
+      const { masterSlaveStaggerMs, masterSlaveIntervalMs } = loadSharedConfig().fluxapps;
+      const span = Math.ceil(((holders.length - 1) * masterSlaveStaggerMs) / masterSlaveIntervalMs) + HELD_PASSES;
+      const passesAtDeploy = await Promise.all(holders.map((i) => electionCount(i, genesisApp, 'evaluated')));
+      await Promise.all(holders.map((i, k) => waitFor(async () => {
+        expect(await countUp(genesisApp), 'a holder started the app while the seed is cut off').to.equal(0);
+        return (await electionCount(i, genesisApp, 'evaluated')) >= passesAtDeploy[k] + span;
+      }, { timeout: 420000, interval: 2000, label: `holder ${i} ran ${span} election passes with the seed cut off` })));
+      expect(await startsOf(holders, genesisApp) - startedBefore, 'a holder committed to starting the app while the seed is cut off')
+        .to.equal(0);
+
+      await env.healPartition([seedIndex], survivors);
+      healed = true;
+      await env.startDiscovery();
+      await waitFor(async () => (await countUp(genesisApp)) >= 1, {
+        timeout: 420000, interval: 3000, label: 'a holder starts the app once the seed is back',
       });
-      expect(await survivorsUp(), 'both survivors seeded - split brain replacing the lost leader').to.equal(1);
-      // The other half of what this scenario can get wrong: the cut-off seed
-      // must not have crowned itself on its island. Its peers' silence is its
-      // own evidence that the fault is local, and confirmation cannot
-      // accumulate against it.
-      expect(await isUp(env.clients[seedIndex], genesisApp), 'the partitioned seed started the app in isolation').to.be.false;
+      await passesFromNow(holders, electionPasses(genesisApp), 'election');
+      expect(await startsOf(holders, genesisApp) - startedBefore, 'holders that committed to starting the app').to.equal(1);
+      expect(await countUp(genesisApp), 'holders running the app').to.equal(1);
     } finally {
       // Cleanup must not throw - a cleanup error would replace the test's own
       // failure in the report - but a failed step is the first clue when the
       // NEXT test inherits its debris, so each one says so.
-      await env.healPartition([seedIndex], survivors).catch((err) => console.warn(`cleanup: heal failed: ${err.message}`));
-      await env.startDiscovery().catch((err) => console.warn(`cleanup: discovery restart failed: ${err.message}`));
+      if (!healed) {
+        await env.healPartition([seedIndex], survivors).catch((err) => console.warn(`cleanup: heal failed: ${err.message}`));
+        await env.startDiscovery().catch((err) => console.warn(`cleanup: discovery restart failed: ${err.message}`));
+      }
     }
   });
 
