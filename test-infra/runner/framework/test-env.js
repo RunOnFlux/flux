@@ -206,6 +206,7 @@ class StaticIpContainer extends GenericContainer {
   #networkName;
   #aliases = [];
   #dnsServer;
+  #stopSignal;
 
   withStaticIp(networkName, ip, aliases = []) {
     this.#staticIp = ip;
@@ -216,6 +217,15 @@ class StaticIpContainer extends GenericContainer {
 
   withDnsServer(ip) {
     this.#dnsServer = ip;
+    return this;
+  }
+
+  // Per-container stop signal (the image's STOPSIGNAL stays SIGTERM for the
+  // default entrypoint). systemd-mode nodes need SIGRTMIN+3: systemd as PID 1
+  // treats SIGTERM as a reexec request, so a plain docker stop would sit out
+  // the full kill timeout on every teardown.
+  withStopSignal(signal) {
+    this.#stopSignal = signal;
     return this;
   }
 
@@ -770,6 +780,10 @@ export async function createTestEnv({
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
   awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  // systemd-mode nodes: the entrypoint execs a real systemd as PID 1, so dockerd
+  // and fluxos run as units and FluxOS's output goes to the journal. Env-level
+  // and uniform across nodes.
+  systemdMode = false,
   // Firewalled nodes boot with ufw active as their install leaves it - the legacy
   // installer's rules on a legacy node, the ISO's on an Arcane one - and FluxOS
   // adds its own on top. true for every node, or a list of node indices. Off
@@ -1002,6 +1016,12 @@ export async function createTestEnv({
   if (aptBadSource && legacyNodes.length === 0) {
     throw new Error('createTestEnv: aptBadSource needs legacyNodes - no other node type runs apt');
   }
+  // fluxos.service runs FluxOS as root, so an unprivileged node cannot be one.
+  // Refused here rather than at the node's own boot, where it would read as a
+  // node that never came up.
+  if (systemdMode && unprivilegedNodes.length) {
+    throw new Error('createTestEnv: systemdMode runs FluxOS as root - unprivilegedNodes is not supported with it');
+  }
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
   // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time
@@ -1041,7 +1061,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, sharedKeys, networkShapes, globalIpv6, dnsRecords, firewall);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, sharedKeys, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1070,7 +1090,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1078,6 +1098,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     stubPeerClients: stubPeerClientsMap, stubContainers: stubContainersMap,
   } = env;
   const stubPeerSet = new Set(stubPeers);
+  env.systemdMode = systemdMode;
 
   // NO docker health checks on infra containers, deliberately. Readiness is the
   // wait strategy right below each one, host-side, polling the very endpoint a
@@ -1415,6 +1436,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // of syncthing would simply never get it back.
     if (!aptSeeded && isLegacy) nodeEnv.FLUX_APT_SEEDED = 'false';
     if (aptBadSource && isLegacy) nodeEnv.FLUX_APT_BAD_SOURCE = 'true';
+    if (systemdMode) nodeEnv.FLUX_SYSTEMD_MODE = 'true';
     if (firewall === true || (Array.isArray(firewall) && firewall.includes(i))) nodeEnv.FLUX_FIREWALL = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
     // files carry the default 31.200.0 addresses; this is written into the node's
@@ -1529,6 +1551,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
       .withWaitStrategy(nodeReadyWaitStrategy(nodeIp).withStartupTimeout(120000));
+    if (systemdMode) builder.withStopSignal('SIGRTMIN+3');
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir });
   }
@@ -1671,6 +1694,18 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // Nodes this fixture has cut off from the fleet. They reach nobody and nobody reaches
   // them, so they peer with nobody and obtain no policy - by the fixture's own doing.
   const heldOut = new Set();
+  // In systemd mode the container's stdout is systemd's console and FluxOS's
+  // own stream goes to the journal, so the log collectors legitimately receive
+  // nothing from FluxOS. Answering "no match" would leave every assertion built
+  // on these silently unfalsifiable, so refuse and name the replacement.
+  const assertCollectorSeesFluxos = (fn) => {
+    if (!systemdMode) return;
+    throw new Error(
+      `${fn}() cannot see FluxOS logs in systemd mode: its stdout goes to the journal, `
+      + 'not the container stream. Read the journal instead — journalGrep(container, '
+      + "'fluxos', pattern, { processOnly: true }) from framework/systemd-control.js",
+    );
+  };
 
   // Post-boot methods join the shell here (they close over _buildEnv locals like
   // deferredBuilders/fluxNodes); identity, registries and teardown live on the
@@ -2004,14 +2039,17 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     },
 
     nodeHasLog(index, pattern) {
+      assertCollectorSeesFluxos('nodeHasLog');
       return fluxNodes[index].logCollector.hasLine(pattern);
     },
 
     nodeLogCount(index, pattern) {
+      assertCollectorSeesFluxos('nodeLogCount');
       return fluxNodes[index].logCollector.countPattern(pattern);
     },
 
     nodeLogLines(index) {
+      assertCollectorSeesFluxos('nodeLogLines');
       return fluxNodes[index].logCollector.getLines();
     },
   });

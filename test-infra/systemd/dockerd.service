@@ -1,0 +1,17 @@
+[Unit]
+Description=Inner Docker daemon (harness node, systemd mode)
+After=network.target
+
+[Service]
+ExecStartPre=/bin/rm -f /var/run/docker.pid
+# No flags: /etc/docker/daemon.json (written by the entrypoint's systemd
+# branch) owns the configuration — dockerd refuses the same directive from
+# both a flag and the file.
+ExecStart=/usr/bin/dockerd
+Restart=always
+RestartSec=1
+Delegate=yes
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

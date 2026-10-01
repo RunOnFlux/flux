@@ -129,6 +129,23 @@ async function readFromNodes(env, script) {
   }));
 }
 
+// A systemd-mode node's FluxOS writes to its journal, never to the container
+// stream the log collectors read, and the journal leaves with the container.
+// Pulled while the node is up, best-effort like the cgroup probe.
+async function nodeJournals(env) {
+  if (!env.systemdMode) return [];
+  const clients = env.clients || [];
+  return Promise.all(clients.map(async (client, index) => {
+    if (!client?.container) return { index, text: '' };
+    try {
+      const { output } = await execInContainer(client.container, 'journalctl --no-pager 2>&1');
+      return { index, text: output };
+    } catch (err) {
+      return { index, text: `journal pull failed: ${err.message}\n` };
+    }
+  }));
+}
+
 export function dumpLogsOnFailure(getEnv) {
   let dumped = false;
 
@@ -158,6 +175,7 @@ export function dumpLogsOnFailure(getEnv) {
     const cgroupsByEnv = await Promise.all(envs.map((env) => cgroupState(env).catch(
       (err) => `cgroup probe failed: ${err.message}\n`,
     )));
+    const journalsByEnv = await Promise.all(envs.map((env) => nodeJournals(env).catch(() => [])));
     const nodeFilesByEnv = await Promise.all(envs.map(async (env) => ({
       syncthing: await readFromNodes(env, SYNCTHING_LOGS),
       apps: await readFromNodes(env, APP_LOGS),
@@ -195,6 +213,12 @@ export function dumpLogsOnFailure(getEnv) {
         const file = join(dir, `${prefix}node-${String(index).padStart(2, '0')}.log`);
         writeFileSync(file, `${parts.join('\n')}\n`);
         written.push(`${file} (${lines.length} lines, ${events.length} events)`);
+      }
+      for (const { index, text } of journalsByEnv[e]) {
+        if (!text.trim()) continue;
+        const file = join(dir, `${prefix}node-${String(index).padStart(2, '0')}-journal.log`);
+        writeFileSync(file, text.endsWith('\n') ? text : `${text}\n`);
+        written.push(`${file} (${text.trimEnd().split('\n').length} lines)`);
       }
       for (const [kind, results] of Object.entries(nodeFilesByEnv[e])) {
         for (const { index, output, error } of results) {
