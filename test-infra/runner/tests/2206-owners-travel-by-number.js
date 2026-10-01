@@ -14,6 +14,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { followPrimary } from '../framework/fdm-control.js';
 import numericIdTables from '../../../ZelBack/src/services/utils/numericIdTables.js';
 
 const { TABLES_SHA256 } = numericIdTables;
@@ -144,6 +145,10 @@ describe('owners travel by number on real syncthing', function () {
       const r = await execInContainer(c.container, `printf '${passwd}\\n' >> /etc/passwd && printf '${group}\\n' >> /etc/group`);
       expect(r.exitCode, `fixture: names on node ${node}: ${r.output}`).to.equal(0);
     }));
+
+    // FDM names whichever holder runs the app, as it does in production, so the
+    // takeover below follows the primary FDM stopped naming.
+    await followPrimary(appName, { nodes: HOLDERS.map((i) => new URL(client(i).url).host), gNames: [folder] });
 
     await pushTestApp(appName, 'v1', 'ownnum', { user: `${APP_UID}:${APP_GID}` });
     const app = await buildSeedableApp({
