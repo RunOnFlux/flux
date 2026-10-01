@@ -5120,6 +5120,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           continue;
         }
         operatorStoppedNoted.delete(identifier);
+        // eslint-disable-next-line no-await-in-loop
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_DECISION, identifier);
         // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
         const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
